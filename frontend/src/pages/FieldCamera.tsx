@@ -43,7 +43,8 @@ import type { LocalRoom, LocalShot } from '../components/field-visit/fieldStore'
 import { FrameGuide, LevelBar, RoomMap } from '../components/field-visit/guides';
 import { MOVED_STEPS, nextWall, pickWall } from '../components/field-visit/sensors';
 import type { FloorAnchor } from '../components/field-visit/sensors';
-import { MAX_CLIP_SECONDS, thumbFromFile, useCamera } from '../components/field-visit/useCamera';
+import { MAX_CLIP_SECONDS, cameraSettingsPath, thumbFromFile, useCamera } from '../components/field-visit/useCamera';
+import { isIOS } from '../components/field-visit/locate';
 import type { Taken } from '../components/field-visit/useCamera';
 import { askForMotionAccess, useFieldSensors } from '../components/field-visit/useFieldSensors';
 import { useFieldVisit } from '../components/field-visit/useFieldVisit';
@@ -54,6 +55,8 @@ import type { FloorKey } from '../types/fieldVisit';
 const POLL_MS = 8000;
 
 const lastRoomKey = (visitId: string) => `field-visit-room-${visitId}`;
+/** Set before the reload that gets an iPhone to ask for the camera again */
+const ASKED_KEY = 'field-camera-asked';
 const anchorKey = (visitId: string) => `field-visit-floor-anchor-${visitId}`;
 
 const readSaved = (key: string): string | null => {
@@ -69,6 +72,14 @@ const writeSaved = (key: string, value: string) => {
     localStorage.setItem(key, value);
   } catch {
     // Storage off: it just won't reopen in the same room
+  }
+};
+
+const readSession = (key: string): string | null => {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
   }
 };
 
@@ -146,6 +157,16 @@ const FieldCamera: React.FC = () => {
   const [viewing, setViewing] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
   const [dismissed, setDismissed] = useState<string[]>([]);
+  // How many times the camera's been asked for again here, and whether they gave up on it for the camera app
+  const [askTries, setAskTries] = useState(() => (readSession(ASKED_KEY) ? 1 : 0));
+  const [cameraApp, setCameraApp] = useState(false);
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(ASKED_KEY);
+    } catch {
+      // Storage off: nothing was kept
+    }
+  }, []);
 
   // Where wall 1 is in each room shot this session
   const anchors = useRef(new Map<string, number>());
@@ -425,9 +446,28 @@ const FieldCamera: React.FC = () => {
   const allWalls = target == null;
   const demoDue = allWalls && demoCount === 0 && !demo;
   const isReady = camera.status === 'ready';
+  const blocked = camera.status === 'denied' || camera.status === 'busy';
   // Not recorded anything in this room yet: the button is there to start it
   const notStarted = paused && !videoDone && camera.seconds === 0;
-  const useSystem = camera.status === 'unavailable';
+  const useSystem = camera.status === 'unavailable' || (blocked && cameraApp);
+  // No camera in the page: no shutter or video either
+  const noCamera = useSystem || blocked;
+
+  const askForCamera = () => {
+    setAskTries(count => count + 1);
+    setCameraApp(false);
+    // A refusal holds on an iPhone until the page is opened again, which asks afresh
+    if (camera.status === 'denied' && isIOS()) {
+      try {
+        sessionStorage.setItem(ASKED_KEY, '1');
+      } catch {
+        // It just won't show the steps straight away if this is refused again
+      }
+      window.location.reload();
+      return;
+    }
+    camera.retry();
+  };
   const shortFloor = room ? FLOORS.find(floor => floor.key === room.floor)?.short ?? room.floor : '';
 
   return (
@@ -485,6 +525,30 @@ const FieldCamera: React.FC = () => {
 
           {camera.status === 'starting' && <div className="fv-finder-note"><CameraOutlined /></div>}
 
+          {blocked && !cameraApp && (
+            <div className="fv-permission" role="alert">
+              <CameraOutlined className="fv-permission-icon" aria-hidden="true" />
+              <h2>{camera.status === 'denied' ? 'The camera is blocked' : 'Another app has the camera'}</h2>
+              <p>
+                {camera.status === 'denied'
+                  ? 'Allow it for this site to take photos and video here.'
+                  : 'Close it, then try again.'}
+              </p>
+              <button type="button" className="fv-permission-btn" onClick={askForCamera}>
+                {camera.status === 'denied' ? 'Allow camera' : 'Try again'}
+              </button>
+              {/* Asking again didn't bring the browser's question back: the setting is somewhere else */}
+              {camera.status === 'denied' && askTries > 0 && (
+                <p className="fv-permission-path">{cameraSettingsPath()}</p>
+              )}
+              {askTries > 0 && (
+                <button type="button" className="fv-permission-alt" onClick={() => setCameraApp(true)}>
+                  Use the camera app instead
+                </button>
+              )}
+            </div>
+          )}
+
           {useSystem && (
             <div className="fv-system-camera">
               <label className="fv-big-btn">
@@ -495,6 +559,11 @@ const FieldCamera: React.FC = () => {
                 <VideoCameraOutlined /> Video
                 <input type="file" accept="video/*" capture="environment" onChange={fromSystemCamera} />
               </label>
+              {blocked && (
+                <button type="button" className="fv-permission-alt" onClick={askForCamera}>
+                  Allow the camera instead
+                </button>
+              )}
             </div>
           )}
 
@@ -570,7 +639,7 @@ const FieldCamera: React.FC = () => {
 
       <footer className="fv-cam-bottom">
         <div className="fv-cam-row">
-          {useSystem || !canRecord ? <span /> : (
+          {noCamera || !canRecord ? <span /> : (
             <div className="fv-rec-controls">
               <button
                 type="button"
@@ -620,7 +689,7 @@ const FieldCamera: React.FC = () => {
             {shots.length > 0 && <span className="fv-thumb-count">{shots.length}</span>}
           </button>
 
-          {!useSystem && (
+          {!noCamera && (
             <button
               type="button"
               className="fv-shutter"
