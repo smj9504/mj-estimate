@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons';
 import { FLOORS, ROOM_PRESETS, floorLabel } from '../../types/fieldVisit';
 import type { FloorKey } from '../../types/fieldVisit';
-import { deleteShot, retryShot, shotFullUrl, shotThumbUrl, updateShot, wallsDone } from './fieldStore';
+import { deleteShot, dropKeptThumb, retryShot, shotFullUrl, shotThumbUrl, updateShot, wallsDone } from './fieldStore';
 import type { LocalRoom, LocalShot } from './fieldStore';
 import { WallTicks } from './guides';
 
@@ -149,11 +149,28 @@ export const RoomSheet: React.FC<{
 
 // ── What's been taken ───────────────────────────────
 
-const ShotTile: React.FC<{ shot: LocalShot; onOpen: () => void }> = ({ shot, onOpen }) => {
+/** A shot's small picture, with nothing broken on show: an empty space if there's none to be had */
+export const ShotThumb: React.FC<{ shot: LocalShot; emptyClass: string; lazy?: boolean }> = ({ shot, emptyClass, lazy }) => {
+  const [failed, setFailed] = useState(false);
   const thumb = shotThumbUrl(shot);
+  if (!thumb || failed) return <span className={emptyClass} />;
+  return (
+    <img
+      src={thumb}
+      alt=""
+      loading={lazy ? 'lazy' : undefined}
+      draggable={false}
+      onError={() => {
+        if (!dropKeptThumb(shot)) setFailed(true);
+      }}
+    />
+  );
+};
+
+const ShotTile: React.FC<{ shot: LocalShot; onOpen: () => void }> = ({ shot, onOpen }) => {
   return (
     <button type="button" className="fv-tile" aria-label={shotLabel(shot)} onClick={onOpen}>
-      {thumb ? <img src={thumb} alt="" loading="lazy" draggable={false} /> : <span className="fv-tile-empty" />}
+      <ShotThumb shot={shot} emptyClass="fv-tile-empty" lazy />
       {shot.isVideo && <PlayCircleFilled className="fv-tile-play" />}
       {shot.kind === 'demo' && <span className="fv-tile-tag"><ToolOutlined /></span>}
       {shot.kind === 'wall' && shot.wall != null && <span className="fv-tile-tag">{shot.wall}</span>}

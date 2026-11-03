@@ -711,6 +711,19 @@ export const shotThumbUrl = (shot: LocalShot): string | undefined => {
   return shot.blob && !shot.isVideo ? blobUrl(`full:${shot.id}`, shot.blob) : undefined;
 };
 
+/**
+ * A picture the phone kept can go bad, and it then shows broken however long the server has
+ * had the shot (seen on an iPhone, on shots from earlier in a visit). Once a shot is sent the
+ * server's copy takes over for good. Says whether there's another picture to try.
+ */
+export const dropKeptThumb = (shot: LocalShot): boolean => {
+  if (!shot.thumb || !shot.thumbnailUrl) return false;
+  blobUrls.delete(`thumb:${shot.id}`);
+  const next = patchShot(shot.visitId, shot.id, { thumb: undefined });
+  if (next) saveShotLocally(next);
+  return true;
+};
+
 export const shotFullUrl = (shot: LocalShot): string | undefined => {
   if (shot.blob) return blobUrl(`full:${shot.id}`, shot.blob);
   return shot.url ? apiUrl(shot.url) : shotThumbUrl(shot);

@@ -29,14 +29,13 @@ import {
   VideoCameraOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { RoomSheet, ShotViewer, ShotsSheet, uniqueRoomName } from '../components/field-visit/CameraSheets';
+import { RoomSheet, ShotThumb, ShotViewer, ShotsSheet, uniqueRoomName } from '../components/field-visit/CameraSheets';
 import {
   addRoom,
   addShot,
   getVisitSnapshot,
   liveShots,
   moveShotsFrom,
-  shotThumbUrl,
   updateRoom,
   wallsDone,
 } from '../components/field-visit/fieldStore';
@@ -401,7 +400,6 @@ const FieldCamera: React.FC = () => {
     ? sensors.heading - (anchors.current.get(roomId) as number)
     : null;
   const lastShot = shots[shots.length - 1];
-  const lastThumb = lastShot ? shotThumbUrl(lastShot) : undefined;
   const walked = sensors.steps >= MOVED_STEPS && roomShots.length > 0;
   // Four walls, then close-ups of any demo, then on to the next room
   const allWalls = target == null;
@@ -594,7 +592,9 @@ const FieldCamera: React.FC = () => {
             aria-label={`Photos: ${shots.length}`}
             onClick={() => setSheet('shots')}
           >
-            {lastThumb ? <img src={lastThumb} alt="" draggable={false} /> : <span className="fv-thumb-empty" />}
+            {lastShot
+              ? <ShotThumb key={lastShot.id} shot={lastShot} emptyClass="fv-thumb-empty" />
+              : <span className="fv-thumb-empty" />}
             {shots.length > 0 && <span className="fv-thumb-count">{shots.length}</span>}
           </button>
 
