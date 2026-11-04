@@ -248,8 +248,19 @@ const WaterMitigationList: React.FC = () => {
     setSavingIds(prev => new Set(prev).add(jobId));
     try {
       const updated = await waterMitigationService.updateJob(jobId, patch);
+      // The update answers with the bare job: it leaves out what only the list
+      // fills in (the insurance amount behind Amount, supplements) and sends
+      // them empty, so keep the row's own copies.
       setJobs(prev => prev.map(j => (
-        j.id === jobId ? { ...j, ...updated, photo_count: j.photo_count } : j
+        j.id === jobId
+          ? {
+              ...j,
+              ...updated,
+              photo_count: j.photo_count,
+              approved_amount_auto: j.approved_amount_auto,
+              supplements: j.supplements,
+            }
+          : j
       )));
       // A job just marked received drops out of the list when hide_received is on
       if (patch.payment_received !== undefined && filters.hide_received) {
