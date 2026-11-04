@@ -14,6 +14,7 @@ import type {
   WMPublicBoardResponse,
   WaterMitigationJob,
   JobCreate,
+  SameCustomerLead,
   JobUpdate,
   JobStatusUpdate,
   JobListResponse,
@@ -161,6 +162,27 @@ export const waterMitigationService = {
   // Create new job
   createJob: async (data: JobCreate): Promise<WaterMitigationJob> => {
     const response = await api.post(`${BASE_URL}/jobs`, data);
+    return response.data;
+  },
+
+  // Lead jobs already here for the customer a new job is about to be made for
+  findSameCustomerLeads: async (data: JobCreate): Promise<SameCustomerLead[]> => {
+    const response = await api.post(`${BASE_URL}/jobs/same-customer-leads`, {
+      property_address: data.property_address,
+      property_street: data.property_street,
+      property_city: data.property_city,
+      property_state: data.property_state,
+      property_zipcode: data.property_zipcode,
+      homeowner_phone: data.homeowner_phone,
+      homeowner_email: data.homeowner_email,
+      claim_number: data.claim_number,
+    });
+    return response.data;
+  },
+
+  // Use that Lead instead: what the form has goes where the Lead has nothing yet
+  fillInJob: async (jobId: string, data: JobCreate): Promise<WaterMitigationJob> => {
+    const response = await api.post(`${BASE_URL}/jobs/${jobId}/fill-in`, data);
     return response.data;
   },
 

@@ -17,8 +17,11 @@ from app.domains.integrations.google_sheets.client import (
     get_header_mapping,
 )
 from app.domains.integrations.google_sheets.row_matches import (
+    DUPLICATE,
     find_companycam_lead,
+    has_lead_match,
     has_manual_match,
+    known_duplicate,
     mapped_job_match,
     pending_match,
 )
@@ -303,8 +306,10 @@ class GoogleSheetsSyncService:
         Matching strategy:
         1. First, try to find job by google_sheet_row_number + sheet_name (a full sync has
            already moved each job to its row, active or not; see _follow_moved_rows)
-        2. If not found and a job or client entered by hand has this address, hold the row
-           until someone says whether they are the same (see WMSheetRowMatch)
+        2. If not found and someone said this row is a job that stays on another row,
+           leave it alone. If a job or client entered by hand has this address, or a Lead
+           job for this customer is already here (same phone, email or address), hold the
+           row until someone says whether they are the same (see WMSheetRowMatch)
         3. If not, fill in a CompanyCam lead at this address (fuzzy match, active_only=True)
         4. If still not found, create new job
         5. If row is empty but job exists by row_number + sheet_name, take it off the sheet
@@ -347,13 +352,21 @@ class GoogleSheetsSyncService:
             self.db.commit()
             existing_job = None
 
+        # The row is its job again (a full sync found where it went): nothing to ask
+        if existing_job:
+            self._close_pending_match(row_number, sheet_name)
+
         # Step 2: If not found by row number, ask before this row joins anything
         # entered by hand at this address: it may be the same job, or another one.
-        # Jobs that are already linked to a different sheet row are never matched
-        # by address here, because the same address can legitimately have multiple
-        # WM jobs (different claims/incidents) once each is tied to its own row.
+        # Jobs already on a different sheet row are only asked about while they are
+        # Leads for this customer: past that, the same address can legitimately have
+        # another WM job (a different claim or incident).
         if not existing_job:
-            if has_manual_match(self.db, address):
+            if known_duplicate(self.db, sheet_name, address):
+                self._close_pending_match(row_number, sheet_name)
+                self.db.commit()
+                return {"job": None, "created": False, "updated": False, "skipped": True}
+            if has_manual_match(self.db, address) or has_lead_match(self.db, row_data, address):
                 self._hold_row(row_data, row_number, sheet_name, address)
                 return {"job": None, "created": False, "updated": False, "needs_review": True}
 
@@ -655,16 +668,47 @@ class GoogleSheetsSyncService:
         staff_id: Any
     ) -> WaterMitigationJob:
         """
-        The row is this job entered by hand: the job takes the row, and stays with
-        its client. Sheet values replace the job's; empty cells leave it alone.
+        The row is this job: the job takes the row, and stays with its client. Sheet
+        values replace the job's; empty cells leave it alone.
+
+        A job on another row (a Lead entered twice, or moved to another tab) comes off
+        it. That row is remembered as the same job and left alone, so it doesn't become
+        a second one.
         """
         from app.domains.client.client_sync_service import sync_client_from_wm_job
 
         # Who that client is, before the sheet's name lands on the job and changes it
         client_id = sync_client_from_wm_job(self.db, job).get('client_id')
+        if job.google_sheet_row_number is not None and job.google_sheet_name:
+            self.remember_duplicate_row(
+                job.google_sheet_name, job.google_sheet_row_number, job.property_address,
+                job, client_id, staff_id,
+            )
         self._decide(match, 'same', staff_id, matched_type='job', job_id=job.id, client_id=client_id)
         update_data = self._prepare_job_data(match.row_data, job.created_at or datetime.utcnow())
         return self._update_job(job, update_data, match.row_number, match.sheet_name)
+
+    def remember_duplicate_row(
+        self,
+        sheet_name: str,
+        row_number: int,
+        address: str,
+        job: WaterMitigationJob,
+        client_id: Any,
+        staff_id: Any
+    ) -> WMSheetRowMatch:
+        """A row that is this job, which is on another row: the sync leaves it alone
+        (see known_duplicate). For the caller to commit."""
+        record = WMSheetRowMatch(
+            sheet_name=sheet_name,
+            row_number=row_number,
+            address=(address or '').strip(),
+            row_data={},
+            status=DUPLICATE,
+        )
+        self.db.add(record)
+        self._decide(record, DUPLICATE, staff_id, matched_type='job', job_id=job.id, client_id=client_id)
+        return record
 
     def link_row_to_client(self, match: WMSheetRowMatch, client: Any, staff_id: Any) -> WaterMitigationJob:
         """The row's homeowner is this client entered by hand: the row becomes that client's job"""

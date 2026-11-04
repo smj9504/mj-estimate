@@ -86,7 +86,9 @@ def process_row(existing_job):
     with patch.multiple(
         'app.domains.integrations.google_sheets.sync_service',
         mapped_job_match=lambda db, job: None,
+        known_duplicate=lambda db, sheet, address: None,
         has_manual_match=lambda db, address: False,
+        has_lead_match=lambda db, row, address: False,
         find_companycam_lead=lambda db, address: None,
     ):
         service._process_row(SHEET_ROW, 21, 'Vanessa')

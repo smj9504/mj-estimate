@@ -207,6 +207,26 @@ export interface JobCreateRequest {
 // Alias for backward compatibility
 export type JobCreate = JobCreateRequest;
 
+/** What a Lead job shares with the customer the job form is about to make one for */
+export type SameCustomerReason = 'phone' | 'email' | 'address';
+
+/** A Lead already here for that customer, offered before a second job is made */
+export interface SameCustomerLead {
+  id: string;
+  property_address: string;
+  homeowner_name?: string | null;
+  homeowner_phone?: string | null;
+  homeowner_email?: string | null;
+  claim_number?: string | null;
+  status?: string | null;
+  /** The sheet tab and row it's on, if it came from the sheet */
+  sheet_name?: string | null;
+  row_number?: number | null;
+  photo_count: number;
+  created_at?: string | null;
+  reasons: SameCustomerReason[];
+}
+
 // Payment board
 export type CheckRecipient = 'contractor' | 'customer' | 'pa';
 

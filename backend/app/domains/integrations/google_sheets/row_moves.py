@@ -83,6 +83,11 @@ def _near(job: _Facts, row: _Facts) -> bool:
     return ours <= theirs or theirs <= ours
 
 
+def near_address(one: Any, other: Any) -> bool:
+    """_near for two addresses on their own"""
+    return _near(_facts(one, None, None, None, None), _facts(other, None, None, None, None))
+
+
 def _same_claim(job: _Facts, row: _Facts) -> bool:
     return bool(job.claim) and job.claim == row.claim
 

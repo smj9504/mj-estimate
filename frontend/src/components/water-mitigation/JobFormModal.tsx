@@ -3,12 +3,14 @@
  */
 
 import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Modal, Form, Input, DatePicker, Switch, Select, Button, Space, Row, Col, message } from 'antd';
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import AddressAutocomplete from '../common/AddressAutocomplete';
 import AdditionalAdjustersFields from '../common/AdditionalAdjustersFields';
-import type { WaterMitigationJob, JobCreateRequest } from '../../types/waterMitigation';
+import SameCustomerLeads from './SameCustomerLeads';
+import type { WaterMitigationJob, JobCreateRequest, SameCustomerLead } from '../../types/waterMitigation';
 import { JOB_STATUS_OPTIONS } from '../../types/waterMitigation';
 import waterMitigationService from '../../services/waterMitigationService';
 import { companyService } from '../../services/companyService';
@@ -34,7 +36,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
   const [loading, setLoading] = React.useState(false);
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [loadingCompanies, setLoadingCompanies] = React.useState(false);
+  // Leads already here for this customer, found when the new job was about to be made
+  const [leads, setLeads] = React.useState<SameCustomerLead[] | null>(null);
+  const [pendingPayload, setPendingPayload] = React.useState<JobCreateRequest | null>(null);
+  const [usingId, setUsingId] = React.useState<string>();
+  const navigate = useNavigate();
   const isEditing = !!job;
+  const choosing = !!leads?.length && !!pendingPayload;
 
   // Load companies when modal opens
   useEffect(() => {
@@ -46,6 +54,9 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
   // Reset form when modal opens with job data
   useEffect(() => {
     if (visible) {
+      setLeads(null);
+      setPendingPayload(null);
+      setUsingId(undefined);
       if (job) {
         // Edit mode - populate form with job data
         form.setFieldsValue({
@@ -138,6 +149,17 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         await waterMitigationService.updateJob(job.id, payload);
         message.success('Job updated successfully');
       } else {
+        // A Lead already here for this customer is offered before a second job is made.
+        // If the lookup fails, the job is made as it always was.
+        const found = await waterMitigationService.findSameCustomerLeads(payload).catch(error => {
+          console.warn('Could not look for a Lead already here:', error);
+          return [] as SameCustomerLead[];
+        });
+        if (found.length) {
+          setPendingPayload(payload);
+          setLeads(found);
+          return;
+        }
         await waterMitigationService.createJob(payload);
         message.success('Job created successfully');
       }
@@ -156,16 +178,65 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
     }
   };
 
+  const backToForm = () => {
+    setLeads(null);
+    setPendingPayload(null);
+  };
+
+  const createAnyway = async () => {
+    if (!pendingPayload) return;
+    setLoading(true);
+    try {
+      await waterMitigationService.createJob(pendingPayload);
+      message.success('Job created successfully');
+      onSuccess();
+      form.resetFields();
+    } catch (error) {
+      message.error('Failed to create job');
+      console.error('Create error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pickLead = async (lead: SameCustomerLead) => {
+    if (!pendingPayload) return;
+    setUsingId(lead.id);
+    try {
+      await waterMitigationService.fillInJob(lead.id, pendingPayload);
+      message.success('Added to the Lead already here');
+      onSuccess();
+      form.resetFields();
+      navigate(`/water-mitigation/${lead.id}`);
+    } catch (error) {
+      message.error('Failed to update that job');
+      console.error('Fill-in error:', error);
+    } finally {
+      setUsingId(undefined);
+    }
+  };
+
   return (
     <Modal
-      title={isEditing ? 'Edit Job' : 'Create New Job'}
+      title={isEditing ? 'Edit Job' : choosing ? 'This customer may already have a Lead' : 'Create New Job'}
       open={visible}
       onCancel={onCancel}
       onOk={handleSubmit}
       confirmLoading={loading}
       width={800}
       destroyOnHidden
+      footer={choosing ? [
+        <Button key="back" onClick={backToForm} disabled={loading || !!usingId}>Back</Button>,
+        <Button key="create" onClick={createAnyway} loading={loading} disabled={!!usingId}>
+          Create new job anyway
+        </Button>,
+      ] : undefined}
     >
+      {choosing && leads && (
+        <SameCustomerLeads leads={leads} usingId={usingId} disabled={loading || !!usingId} onUse={pickLead} />
+      )}
+      {/* Kept mounted while choosing, so Back returns to what was typed */}
+      <div hidden={choosing}>
       <Form
         form={form}
         layout="vertical"
@@ -490,6 +561,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           <Switch />
         </Form.Item>
       </Form>
+      </div>
     </Modal>
   );
 };

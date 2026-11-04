@@ -1,8 +1,9 @@
 /**
- * SheetRowMatchModal — asks about sheet rows with the same address as a job or
- * client entered by hand, one at a time. Nothing is made from a row until
- * someone says whether it is the same: same links them, different keeps them
- * apart. Styles: `srm-*` in sheetRowMatch.css.
+ * SheetRowMatchModal — asks about sheet rows that may already be here, one at a
+ * time: the address of a job or client entered by hand, or the phone, email or
+ * address of a Lead job already here. Nothing is made from a row until someone
+ * says whether it is the same: same links them, different keeps them apart.
+ * Styles: `srm-*` in sheetRowMatch.css.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -50,6 +51,17 @@ const FACTS: Array<{
 ];
 
 const KIND_LABEL: Record<SheetRowCandidate['type'], string> = { job: 'WM job', client: 'Client' };
+
+const REASON_WORD = { address: 'address', phone: 'phone', email: 'email' } as const;
+
+/** "the same phone and email", from what a candidate shares with the row */
+const sharedPhrase = (reasons: NonNullable<SheetRowCandidate['reasons']>) => {
+  const words = reasons.map(reason => REASON_WORD[reason]);
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words[0];
+};
+
+/** On a row of the sheet now, rather than entered by hand or off the sheet */
+const onRow = (candidate: SheetRowCandidate) => candidate.type === 'job' && !!candidate.row_number;
 
 const candidateHref = (candidate: SheetRowCandidate) =>
   candidate.type === 'job' ? `/water-mitigation/${candidate.id}` : `/clients/${candidate.id}`;
@@ -104,7 +116,9 @@ const SheetRowMatchModal: React.FC<SheetRowMatchModalProps> = ({ open, matches, 
           candidate_id: candidate.id,
         });
         message.success(
-          candidate.type === 'job' ? 'Row linked to the job' : 'Row added as a job under the client'
+          candidate.type === 'job'
+            ? onRow(candidate) ? 'Job moved to this row' : 'Row linked to the job'
+            : 'Row added as a job under the client'
         );
       } else {
         await googleSheetsService.resolveRowMatch(match.id, { decision });
@@ -121,6 +135,8 @@ const SheetRowMatchModal: React.FC<SheetRowMatchModalProps> = ({ open, matches, 
     }
   };
 
+  const addressDiffers = !!candidate.reasons && !candidate.reasons.includes('address');
+
   const differs = (key: keyof SheetRowFacts, compare: (value: string) => string = normalize) => {
     const ours = candidate[key];
     const theirs = match.row[key];
@@ -136,7 +152,7 @@ const SheetRowMatchModal: React.FC<SheetRowMatchModalProps> = ({ open, matches, 
       width={720}
       title={
         <div className="srm-head">
-          <span>Same address as something entered by hand</span>
+          <span>This row may already be here</span>
           {matches.length > 1 && <span className="srm-count">{index + 1} of {matches.length}</span>}
         </div>
       }
@@ -151,7 +167,10 @@ const SheetRowMatchModal: React.FC<SheetRowMatchModalProps> = ({ open, matches, 
       ]}
     >
       <p className="srm-lead">
-        Row {match.row_number} of the {match.sheet_name} tab has this address. No job has been made from the row yet.
+        Row {match.row_number} of the {match.sheet_name} tab has the same{' '}
+        {candidate.reasons?.length ? sharedPhrase(candidate.reasons) : 'address'} as{' '}
+        {candidate.type === 'job' && candidate.status === 'Lead' ? 'a Lead job already here' : 'something entered by hand'}.
+        No job has been made from the row yet.
       </p>
 
       {match.candidates.length > 1 && (
@@ -177,7 +196,11 @@ const SheetRowMatchModal: React.FC<SheetRowMatchModalProps> = ({ open, matches, 
             {KIND_LABEL[candidate.type]}
             {candidate.type === 'job' && candidate.status && <WMStatusPill status={candidate.status} />}
             {candidate.source === 'acculynx' && <Pill tone="gray">AccuLynx</Pill>}
-            {candidate.sheet_name && <Pill tone="gray">Was on {candidate.sheet_name}</Pill>}
+            {candidate.sheet_name && (
+              <Pill tone="gray">
+                {onRow(candidate) ? `${candidate.sheet_name} row ${candidate.row_number}` : `Was on ${candidate.sheet_name}`}
+              </Pill>
+            )}
             <a
               href={candidateHref(candidate)}
               target="_blank"
@@ -191,8 +214,9 @@ const SheetRowMatchModal: React.FC<SheetRowMatchModalProps> = ({ open, matches, 
         </div>
         <div className="srm-row" role="row">
           <span role="rowheader" className="srm-label">Address</span>
-          <span role="cell"><Value value={match.address} /></span>
-          <span role="cell"><Value value={candidate.address} /></span>
+          {/* Found by phone or email: the addresses may disagree, as in a house number typed one off */}
+          <span role="cell"><Value value={match.address} differs={addressDiffers} /></span>
+          <span role="cell"><Value value={candidate.address} differs={addressDiffers} /></span>
         </div>
         {FACTS.map(({ key, label, show, compare }) => (
           <div className="srm-row" role="row" key={key}>
@@ -211,7 +235,9 @@ const SheetRowMatchModal: React.FC<SheetRowMatchModalProps> = ({ open, matches, 
         <dt>Same, link them</dt>
         <dd>
           {candidate.type === 'job'
-            ? 'The row joins this job. What the sheet has replaces the job\'s values, empty cells leave them alone, and the client stays as it is.'
+            ? onRow(candidate)
+              ? `The job moves from ${candidate.sheet_name} row ${candidate.row_number} to this row, and follows it from now on. That row stays on the sheet as the same job and isn't made into another one. What this row has replaces the job's values, empty cells leave them alone, and the client stays as it is.`
+              : 'The row joins this job. What the sheet has replaces the job\'s values, empty cells leave them alone, and the client stays as it is.'
             : 'The row becomes a new job under this client. The client\'s details stay as they are.'}
         </dd>
         <dt>Keep separate</dt>

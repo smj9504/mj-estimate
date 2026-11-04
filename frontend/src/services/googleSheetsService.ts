@@ -48,8 +48,12 @@ export interface SheetRowCandidate extends SheetRowFacts {
   address: string;
   status?: string | null;
   source?: string | null;
-  /** The tab a job was on, when its row has gone from there */
+  /** The tab a job is on, or was on when its row has gone from there */
   sheet_name?: string | null;
+  /** The row a job is on. Linking moves it from there to the waiting row. */
+  row_number?: number | null;
+  /** What a job shares with the row */
+  reasons?: Array<'address' | 'phone' | 'email'>;
   client_id?: string | null;
   created_at?: string | null;
 }

@@ -64,6 +64,8 @@ from .schemas import (
     JobStatusUpdate,
     JobUpdate,
     PhotoListResponse,
+    SameCustomerLead,
+    SameCustomerQuery,
     PhotoLocationUpdate,
     ReportConfigCreate,
     ReportConfigResponse,
@@ -168,6 +170,122 @@ def create_job(
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/same-customer-leads", response_model=List[SameCustomerLead])
+def find_same_customer_leads(
+    query: SameCustomerQuery,
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
+):
+    """
+    Lead jobs already here for the customer the job form is about to make one for: the
+    same phone or email, or the same address. Only ones the staff member may see.
+    """
+    from sqlalchemy import func
+
+    from .same_customer import full_address, same_customer_leads
+
+    address = full_address(
+        query.property_street or query.property_address,
+        query.property_city, query.property_state, query.property_zipcode,
+    )
+    found = same_customer_leads(
+        db, address=address, phone=query.homeowner_phone, email=query.homeowner_email,
+        claim_number=query.claim_number,
+    )
+    if not found:
+        return []
+
+    condition = job_condition(db, current_staff)
+    if condition is not None:
+        visible = {
+            row[0] for row in db.query(WaterMitigationJob.id).filter(
+                WaterMitigationJob.id.in_([job.id for job, _ in found]), condition
+            ).all()
+        }
+        found = [(job, reasons) for job, reasons in found if job.id in visible]
+
+    photo_counts = dict(
+        db.query(WMPhoto.job_id, func.count(WMPhoto.id)).filter(
+            WMPhoto.job_id.in_([job.id for job, _ in found]),
+            WMPhoto.is_trashed.is_(False),
+        ).group_by(WMPhoto.job_id).all()
+    ) if found else {}
+
+    return [
+        SameCustomerLead(
+            id=job.id,
+            property_address=job.property_address,
+            homeowner_name=job.homeowner_name,
+            homeowner_phone=job.homeowner_phone,
+            homeowner_email=job.homeowner_email,
+            claim_number=job.claim_number,
+            status=job.status,
+            sheet_name=job.google_sheet_name,
+            row_number=job.google_sheet_row_number,
+            photo_count=photo_counts.get(job.id, 0),
+            created_at=job.created_at,
+            reasons=reasons,
+        )
+        for job, reasons in found
+    ]
+
+
+# Filling in a Lead someone picked instead of making a new job leaves these alone: its
+# address and where it stands are its own, and a switch always has a value
+_NOT_FILLED_IN = {
+    'property_address', 'property_street', 'property_city', 'property_state', 'property_zipcode',
+    'active', 'mitigation_flag', 'payment_received',
+}
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return True
+
+
+@router.post("/jobs/{job_id}/fill-in", response_model=JobResponse, dependencies=[_job_access])
+def fill_in_job(
+    job_id: UUID,
+    job_update: JobUpdate,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
+):
+    """
+    The job form was about to make a job for a customer who already has this Lead, and
+    someone picked the Lead instead. What was typed goes into the Lead where it has
+    nothing yet; nothing it already has is replaced.
+    """
+    wm_job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == job_id).first()
+    if not wm_job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    filled = {
+        key: value
+        for key, value in job_update.model_dump(exclude_unset=True).items()
+        if key not in _NOT_FILLED_IN and _has_value(value) and not _has_value(getattr(wm_job, key, None))
+    }
+    if filled:
+        service.update_job(job_id, JobUpdate(**filled), updated_by_id=current_staff.id)
+        db.commit()
+
+    try:
+        from app.domains.client.client_sync_service import sync_client_from_wm_job
+        db.refresh(wm_job)
+        sync_client_from_wm_job(db, wm_job)
+    except Exception as sync_err:
+        logger.warning(f"Client sync after filling in WM job failed (non-fatal): {sync_err}")
+
+    job_dict = service.job_repo._convert_to_dict(service.get_job(job_id))
+    job_dict['photo_count'] = service.photo_repo.count_by_job(job_id)
+    return job_dict
 
 
 @router.get("/jobs", response_model=JobListResponse)

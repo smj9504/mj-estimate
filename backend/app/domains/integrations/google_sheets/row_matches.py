@@ -1,11 +1,12 @@
 """
-Sheet rows with the same address as something entered by hand.
+Sheet rows that may already be here.
 
 What comes off the Google Sheet and what staff enter by hand stay apart unless
 someone says they are the same. The sync holds a row at the address of a manual
-job or client (see WMSheetRowMatch), and this finds what it matches and lists the
-rows waiting on a decision. Candidates are looked up each time rather than stored,
-so one that was deleted or linked since simply drops off.
+job or client, or a row for the customer of a Lead job already here (the same
+phone, email or address, see same_customer), and this finds what it matches and
+lists the rows waiting on a decision. Candidates are looked up each time rather
+than stored, so one that was deleted or linked since simply drops off.
 """
 
 from datetime import datetime
@@ -16,6 +17,7 @@ from sqlalchemy import or_
 from app.domains.auth.company_scope import client_condition, scoped
 from app.domains.client.client_sync_service import SHEET_SOURCE
 from app.domains.client.models import Claim, Client
+from app.domains.integrations.google_sheets.row_moves import same_words
 from app.domains.integrations.google_sheets.utils import (
     addresses_match,
     parse_date_value,
@@ -23,6 +25,10 @@ from app.domains.integrations.google_sheets.utils import (
 )
 from app.domains.water_mitigation.job_access import job_condition
 from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetRowMatch
+from app.domains.water_mitigation.same_customer import same_customer_leads
+
+# A row said to be the same as a job that stays on another row: the row is left alone
+DUPLICATE = 'duplicate'
 
 
 def is_companycam_lead(job: WaterMitigationJob) -> bool:
@@ -73,6 +79,44 @@ def has_manual_match(db: Any, address: str) -> bool:
     )
 
 
+def lead_matches(db: Any, row: Dict[str, Any], address: str) -> List[Any]:
+    """Lead jobs for this row's customer, with what they share. CompanyCam's leads are
+    left to find_companycam_lead, which fills them in without asking."""
+    return [
+        (job, reasons)
+        for job, reasons in same_customer_leads(
+            db, address=address, phone=row.get('homeowner_phone'), email=row.get('homeowner_email'),
+            claim_number=row.get('claim_number'),
+        )
+        if not is_companycam_lead(job)
+    ]
+
+
+def has_lead_match(db: Any, row: Dict[str, Any], address: str) -> bool:
+    """Whether a Lead job for this row's customer is already here, on a row or not"""
+    return bool(lead_matches(db, row, address))
+
+
+def known_duplicate(db: Any, sheet_name: str, address: str) -> Optional[WMSheetRowMatch]:
+    """
+    The decision that this row is a job that stays on another row, if it still holds.
+    Rows move, so it's found by tab and address rather than row number. It stops
+    holding when the job is gone or has no row of its own any more: then the row is
+    asked about again rather than left out.
+    """
+    for match in db.query(WMSheetRowMatch).filter(
+        WMSheetRowMatch.sheet_name == sheet_name,
+        WMSheetRowMatch.status == DUPLICATE,
+    ).all():
+        if not same_words(match.address, address):
+            continue
+        job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == match.job_id).first() if match.job_id else None
+        if job and job.google_sheet_row_number is not None:
+            return match
+        match.status = 'closed'
+    return None
+
+
 def find_companycam_lead(db: Any, address: str) -> Optional[WaterMitigationJob]:
     return next((job for job in _jobs_at(_unlinked_jobs(db), address) if is_companycam_lead(job)), None)
 
@@ -120,7 +164,7 @@ def _row_summary(match: WMSheetRowMatch) -> Dict[str, Any]:
     }
 
 
-def _job_candidate(db: Any, job: WaterMitigationJob) -> Dict[str, Any]:
+def _job_candidate(db: Any, job: WaterMitigationJob, reasons: Optional[List[str]] = None) -> Dict[str, Any]:
     client = None
     if job.claim_id:
         client = db.query(Client).join(Claim, Claim.client_id == Client.id).filter(
@@ -137,8 +181,12 @@ def _job_candidate(db: Any, job: WaterMitigationJob) -> Dict[str, Any]:
         'claim_number': job.claim_number,
         'date_of_loss': _day(job.date_of_loss),
         'status': job.status,
-        # The tab it was on, when its row is gone from there
+        # The tab it's on, or was on when its row is gone from there
         'sheet_name': job.google_sheet_name,
+        # The row it's on: linking moves it from there to this row
+        'row_number': job.google_sheet_row_number,
+        # What it shares with the row: 'address', 'phone', 'email'
+        'reasons': reasons or ['address'],
         'client_id': str(client.id) if client else None,
         'created_at': job.created_at.isoformat() if job.created_at else None,
     }
@@ -184,14 +232,20 @@ def _visible_clients(db: Any, staff: Any, clients: List[Client]) -> List[Client]
 def _candidates(
     db: Any,
     staff: Any,
-    address: str,
+    match: WMSheetRowMatch,
     jobs: List[WaterMitigationJob],
     clients: List[Client],
 ) -> List[Dict[str, Any]]:
-    """What a row at this address may be, among what the staff member may see. Jobs
-    first; a client already shown as a job's client isn't listed a second time."""
+    """What this row may be, among what the staff member may see: jobs entered by hand
+    at its address, then Lead jobs for its customer, then clients. A job is listed once,
+    and a client already shown as a job's client isn't listed a second time."""
+    address = match.address
     manual_jobs = [job for job in _jobs_at(jobs, address) if not is_companycam_lead(job)]
-    found = [_job_candidate(db, job) for job in _visible_jobs(db, staff, manual_jobs)]
+    leads = lead_matches(db, match.row_data or {}, address)
+    reasons = {job.id: why for job, why in leads}
+    listed = {job.id for job in manual_jobs}
+    to_show = manual_jobs + [job for job, _ in leads if job.id not in listed]
+    found = [_job_candidate(db, job, reasons.get(job.id)) for job in _visible_jobs(db, staff, to_show)]
     shown = {job['client_id'] for job in found}
     return found + [
         _client_candidate(db, client)
@@ -201,7 +255,7 @@ def _candidates(
 
 
 def candidates_for(db: Any, staff: Any, match: WMSheetRowMatch) -> List[Dict[str, Any]]:
-    return _candidates(db, staff, match.address, _unlinked_jobs(db), _manual_clients(db))
+    return _candidates(db, staff, match, _unlinked_jobs(db), _manual_clients(db))
 
 
 def list_pending(db: Any, staff: Any) -> List[Dict[str, Any]]:
@@ -216,7 +270,7 @@ def list_pending(db: Any, staff: Any) -> List[Dict[str, Any]]:
     jobs, clients = _unlinked_jobs(db), _manual_clients(db)
     pending = []
     for match in matches:
-        candidates = _candidates(db, staff, match.address, jobs, clients)
+        candidates = _candidates(db, staff, match, jobs, clients)
         if candidates:
             pending.append({
                 'id': str(match.id),

@@ -720,6 +720,8 @@ def test_two_homeowners_at_one_address_with_no_claims_keep_their_own_jobs(db, sy
     first = {'address': ANN['address'], 'name': 'First Person'}
     second = {'address': ANN['address'], 'name': 'Second Person'}
     sync_tab(sync, first, second)
+    # A second Lead at the address waits until someone says it's another homeowner
+    sync.keep_row_separate(only_pending(db), None)
     second_id = job_named(db, 'Second Person').id
 
     stats = sync_tab(sync, second)
@@ -902,7 +904,14 @@ def test_a_single_row_sync_never_writes_another_homeowner_over_a_job(db, sync):
 
     db.refresh(ann)
     assert_intact(ann, ANN, None)
-    assert result['created'] and result['job'].id != ann.id
+    # Bob's row moved up. Rather than a second Bob, the row waits on his Lead...
+    assert result['needs_review'] and db.query(WaterMitigationJob).count() == 2
+
+    # ...until a full sync sees where his row went, and there's nothing to ask
+    sync_tab(sync, BOB)
+    assert_intact(job_named(db, 'Bob Best'), BOB, 2)
+    assert db.query(WMSheetRowMatch).filter(WMSheetRowMatch.status == 'pending').count() == 0
+    assert db.query(WaterMitigationJob).count() == 2
 
 
 # The list and the rules on deciding
@@ -1148,3 +1157,187 @@ def test_the_new_client_shows_to_the_company_on_the_job(db, api):
     enter_job(api, company_id=str(company.id))
 
     assert str(db.query(Client).one().company_id) == str(company.id)
+
+
+# A Lead already here for the customer: asked about before a second one is made
+
+OTHER_TAB = 'Vanessa'
+LEAD_PHONE = '555-010-0466'
+LEAD_EMAIL = 'lead.person@example.com'
+
+
+def vanessa_row(address='101 Example St, Springfield, VA 22152', name='Lead Person', phone=LEAD_PHONE,
+                email=LEAD_EMAIL, claim=''):
+    """Laid out the way the Vanessa tab is"""
+    return [address, name, '', phone, email, '', '', claim]
+
+
+def angel_lead(sync, row=5, **values):
+    """A Lead the Angel tab made: the house number one off from the Vanessa row's"""
+    values = {'name': 'Lead Person & Partner', 'phone': LEAD_PHONE, 'email': LEAD_EMAIL, **values}
+    return sync._process_row(angel_row(**values), row, SHEET)['job']
+
+
+def test_a_row_for_a_lead_on_another_tab_waits_though_the_house_number_differs(db, sync, api):
+    lead = angel_lead(sync)
+
+    result = sync._process_row(vanessa_row(), 25, OTHER_TAB)
+
+    assert result['needs_review']
+    assert db.query(WaterMitigationJob).count() == 1
+    [pending] = api.get(ROW_MATCHES).json()
+    [candidate] = pending['candidates']
+    assert (candidate['type'], candidate['id']) == ('job', str(lead.id))
+    assert (candidate['sheet_name'], candidate['row_number']) == (SHEET, 5)
+    assert candidate['reasons'] == ['phone', 'email']
+
+
+def test_same_moves_the_lead_to_the_new_row_and_its_old_row_is_left_alone(db, sync, api):
+    lead = angel_lead(sync)
+    clients_before = db.query(Client).count()
+    sync._process_row(vanessa_row(), 25, OTHER_TAB)
+
+    result = resolve(api, only_pending(db), decision='same', candidate_type='job', candidate_id=str(lead.id))
+
+    db.refresh(lead)
+    assert result['job_id'] == str(lead.id)
+    assert (lead.google_sheet_name, lead.google_sheet_row_number) == (OTHER_TAB, 25)
+    assert lead.property_address == '101 Example St, Springfield, VA 22152'
+    remembered = db.query(WMSheetRowMatch).filter(WMSheetRowMatch.status == 'duplicate').one()
+    assert (remembered.sheet_name, remembered.row_number, str(remembered.job_id)) == (SHEET, 5, str(lead.id))
+
+    # The old row is still on the Angel tab: it stays the same job, and makes nothing
+    again = sync._process_row(angel_row(name='Lead Person & Partner', phone=LEAD_PHONE, email=LEAD_EMAIL), 5, SHEET)
+    assert again['skipped']
+    assert db.query(WaterMitigationJob).count() == 1
+    assert db.query(Client).count() == clients_before
+    assert db.query(WMSheetRowMatch).filter(WMSheetRowMatch.status == 'pending').count() == 0
+
+
+def test_the_old_row_is_left_alone_wherever_it_moves_on_its_tab(db, sync, api):
+    person = {'address': ADDRESS, 'name': 'Lead Person', 'claim': '', 'phone': LEAD_PHONE}
+    sync_tab(sync, person)
+    lead = job_named(db, 'Lead Person')
+    sync._process_row(vanessa_row(), 25, OTHER_TAB)
+    resolve(api, only_pending(db), decision='same', candidate_type='job', candidate_id=str(lead.id))
+
+    stats = sync_tab(sync, NIA, person)
+
+    assert (stats['created'], stats['needs_review'], stats['skipped']) == (1, 0, 1)
+    assert db.query(WaterMitigationJob).filter(WaterMitigationJob.homeowner_name == 'Lead Person').count() == 1
+
+
+def test_an_old_row_whose_job_is_gone_is_asked_about_again(db, sync, api):
+    lead = angel_lead(sync)
+    sync._process_row(vanessa_row(), 25, OTHER_TAB)
+    resolve(api, only_pending(db), decision='same', candidate_type='job', candidate_id=str(lead.id))
+
+    db.delete(lead)
+    db.commit()
+    result = sync._process_row(angel_row(name='Lead Person & Partner', phone=LEAD_PHONE, email=LEAD_EMAIL), 5, SHEET)
+
+    assert result['created']
+    assert db.query(WMSheetRowMatch).filter(WMSheetRowMatch.status == 'duplicate').count() == 0
+
+
+def test_a_row_for_a_job_past_lead_becomes_its_own_job(db, sync):
+    lead = angel_lead(sync)
+    lead.status = 'Doc prepping'
+    db.commit()
+
+    assert sync._process_row(vanessa_row(), 25, OTHER_TAB)['created']
+
+
+def test_another_claim_number_is_another_incident_not_the_same_lead(db, sync):
+    angel_lead(sync, claim='CL-1')
+
+    assert sync._process_row(vanessa_row(claim='CL-2'), 25, OTHER_TAB)['created']
+
+
+def test_a_row_at_a_leads_address_waits_with_no_phone_or_email(db, sync):
+    angel_lead(sync, phone='', email='')
+
+    assert sync._process_row(angel_row(name='Someone Else'), 6, SHEET)['needs_review']
+
+
+# The job form asks first too
+
+LEADS = f'{JOBS}/same-customer-leads'
+
+
+def test_the_job_form_finds_the_lead_by_phone_at_another_house_number(db, sync, api):
+    lead = angel_lead(sync)
+
+    found = api.post(LEADS, json={'property_street': '101 Example St', **PLACE, 'homeowner_phone': '(555) 010-0466'}).json()
+
+    assert [(f['id'], f['reasons'], f['sheet_name'], f['row_number']) for f in found] == [
+        (str(lead.id), ['phone'], SHEET, 5)
+    ]
+
+
+def test_the_job_form_finds_the_lead_at_its_address(db, sync, api):
+    lead = angel_lead(sync, phone='', email='')
+
+    found = api.post(LEADS, json={'property_street': '100 Example Street', **PLACE}).json()
+
+    assert [(f['id'], f['reasons']) for f in found] == [(str(lead.id), ['address'])]
+
+
+def test_the_job_form_leaves_out_worked_inactive_and_other_units(db, sync, api):
+    worked = angel_lead(sync)
+    worked.status = 'Doc prepping'
+    db.commit()
+    hidden = angel_lead(sync, row=6, address='200 Example St, Springfield, VA 22152')
+    hidden.active = False
+    db.commit()
+    angel_lead(sync, row=7, address='300 Example St Apt 1, Springfield, VA 22152', phone='', email='')
+
+    assert api.post(LEADS, json={'homeowner_email': LEAD_EMAIL, 'homeowner_phone': LEAD_PHONE}).json() == []
+    assert api.post(LEADS, json={'property_street': '300 Example St Apt 2', **PLACE}).json() == []
+
+
+def test_using_the_lead_fills_in_only_what_it_lacks(db, sync, api):
+    lead = angel_lead(sync, email='')
+    clients_before = db.query(Client).count()
+
+    response = api.post(f"{JOBS}/{lead.id}/fill-in", json={
+        'property_address': '101 Example St', 'property_street': '101 Example St', **PLACE,
+        'homeowner_name': 'Typed Name', 'homeowner_phone': '555-010-9999', 'homeowner_email': LEAD_EMAIL,
+        'insurance_company': 'Typed Insurance', 'status': 'Lead', 'active': True, 'mitigation_flag': False,
+    })
+
+    assert response.status_code == 200, response.text
+    db.refresh(lead)
+    assert lead.property_address == ADDRESS
+    assert lead.homeowner_name == 'Lead Person & Partner'
+    assert lead.homeowner_phone == LEAD_PHONE
+    assert lead.homeowner_email == LEAD_EMAIL
+    assert lead.insurance_company == 'Typed Insurance'
+    assert db.query(WaterMitigationJob).count() == 1
+    assert db.query(Client).count() == clients_before
+
+
+def test_the_job_form_only_offers_leads_the_staff_member_may_see(db, sync, api, monkeypatch):
+    ours, theirs = Company(name='Ours'), Company(name='Theirs')
+    db.add_all([ours, theirs])
+    db.commit()
+    member_id = str(uuid.uuid4())
+    app.dependency_overrides[get_current_staff] = lambda: SimpleNamespace(id=member_id, role=StaffRole.staff)
+    monkeypatch.setattr(auth_service, 'get_staff_by_id', lambda *args: SimpleNamespace(id=member_id))
+    monkeypatch.setattr(screen_access, 'may_open', lambda *args: True)
+    monkeypatch.setattr(company_scope, '_in_all_companies', lambda *args: False)
+    monkeypatch.setattr(company_scope, 'staff_company_ids', lambda *args: [str(ours.id)])
+
+    hidden = angel_lead(sync)
+    hidden.company_id = theirs.id
+    # The same customer twice, as it was before anything asked
+    visible = WaterMitigationJob(
+        property_address='200 Example St, Springfield, VA 22152', homeowner_phone=LEAD_PHONE,
+        status='Lead', active=True, company_id=ours.id,
+    )
+    db.add(visible)
+    db.commit()
+
+    found = api.post(LEADS, json={'homeowner_phone': LEAD_PHONE}).json()
+
+    assert [f['id'] for f in found] == [str(visible.id)]

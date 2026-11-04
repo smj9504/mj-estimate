@@ -92,7 +92,7 @@ const WaterMitigationList: React.FC = () => {
   const [formVisible, setFormVisible] = useState(false);
   const [editingJob, setEditingJob] = useState<WaterMitigationJob | undefined>(undefined);
 
-  // Sheet rows waiting on whether they are the same as something entered by hand
+  // Sheet rows waiting on whether they are the same as a job entered by hand or a Lead
   const [rowMatches, setRowMatches] = useState<SheetRowMatch[]>([]);
   const [rowMatchesOpen, setRowMatchesOpen] = useState(false);
 
@@ -670,8 +670,8 @@ const WaterMitigationList: React.FC = () => {
           style={{ marginBottom: 12 }}
           message={
             rowMatches.length === 1
-              ? 'A sheet row has the same address as something entered by hand. It won\'t become a job until you decide.'
-              : `${rowMatches.length} sheet rows have the same address as something entered by hand. They won't become jobs until you decide.`
+              ? 'A sheet row may already be here, as a job entered by hand or a Lead. It won\'t become a job until you decide.'
+              : `${rowMatches.length} sheet rows may already be here, as jobs entered by hand or Leads. They won't become jobs until you decide.`
           }
           action={<Button size="small" onClick={() => setRowMatchesOpen(true)}>Review</Button>}
         />

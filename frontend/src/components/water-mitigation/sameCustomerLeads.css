@@ -1,0 +1,93 @@
+/*
+ * Same customer leads (scl-*): Lead jobs already here for the customer the job
+ * form is about to make a job for. White Sheet tokens: hairlines between jobs,
+ * colour only on what each job shares with the customer.
+ */
+
+.scl-lead {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-neutral-700);
+}
+
+.scl-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.scl-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.scl-main {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.scl-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.scl-open {
+  display: inline-flex;
+  padding: 2px;
+  color: var(--color-neutral-600);
+}
+.scl-line {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-neutral-700);
+}
+.scl-facts {
+  color: var(--color-neutral-600);
+}
+.scl-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.scl-tags:empty {
+  display: none;
+}
+.scl-use {
+  flex-shrink: 0;
+}
+
+.scl-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-neutral-600);
+}
+
+@media (max-width: 767.98px) {
+  .scl-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .scl-lead,
+  .scl-line,
+  .scl-note {
+    font-size: 14px;
+  }
+  .scl-use {
+    min-height: 44px;
+  }
+  .scl-open {
+    padding: 8px;
+    margin: -6px 0;
+  }
+}

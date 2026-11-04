@@ -205,6 +205,34 @@ class JobUpdate(BaseModel):
         return v
 
 
+class SameCustomerQuery(BaseModel):
+    """What the job form has so far, to look for a Lead already here for this customer"""
+    property_address: Optional[str] = None
+    property_street: Optional[str] = None
+    property_city: Optional[str] = None
+    property_state: Optional[str] = None
+    property_zipcode: Optional[str] = None
+    homeowner_phone: Optional[str] = None
+    homeowner_email: Optional[str] = None
+    claim_number: Optional[str] = None
+
+
+class SameCustomerLead(BaseModel):
+    """A Lead job that looks like the same customer, and what it shares with them"""
+    id: UUID
+    property_address: str
+    homeowner_name: Optional[str] = None
+    homeowner_phone: Optional[str] = None
+    homeowner_email: Optional[str] = None
+    claim_number: Optional[str] = None
+    status: Optional[str] = None
+    sheet_name: Optional[str] = None
+    row_number: Optional[int] = None
+    photo_count: int = 0
+    created_at: Optional[datetime] = None
+    reasons: List[str]
+
+
 class JobStatusUpdate(BaseModel):
     """Update job status request"""
     status: str = Field(..., max_length=50)
