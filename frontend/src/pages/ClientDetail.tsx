@@ -30,6 +30,7 @@ import {
   Dropdown,
   Grid,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   ArrowLeftOutlined,
   EditOutlined,
@@ -85,6 +86,11 @@ import ClaimWMPhotos, { wmPhotoSetLabel } from '../components/client/ClaimWMPhot
 import ClaimPhotoViewer from '../components/client/photo-viewer/ClaimPhotoViewer';
 import { useCompanyCamImport } from '../components/water-mitigation/useCompanyCamImport';
 import ClaimPackingSection from '../components/client/ClaimPackingSection';
+import { packingCompanyId, rebuildCompanyId } from '../components/client/claimCompany';
+import { PROJECT_TYPE_HINTS, PROJECT_TYPE_LABELS } from '../components/cabinet-estimate/KitchenGroupBar';
+import { cabinetEstimateService } from '../services/cabinetEstimateService';
+import type { KitchenProjectType } from '../types/cabinetEstimate';
+import { returnHere } from '../utils/returnTo';
 import AddToPackingModal from '../components/client/AddToPackingModal';
 import type { FileItem } from '../components/common/FileGallery';
 import { isVideoFile } from '../components/common/FileGallery/videoFiles';
@@ -2218,17 +2224,36 @@ const CompanyMark: React.FC<{ id?: string; name?: string }> = ({ id, name }) => 
   );
 };
 
-// In-app link that still opens in a new tab on ctrl/cmd-click
+// In-app link that still opens in a new tab on ctrl/cmd-click; the page it
+// opens goes Back to this tab and claim
 const useInAppLink = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   return (to: string) => ({
     href: to,
     onClick: (e: React.MouseEvent) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
       e.preventDefault();
-      navigate(to);
+      navigate(to, { state: returnHere(location) });
     },
   });
+};
+
+/**
+ * Where the client page was left (its tab, the claim open in Claims), kept in
+ * its address so coming Back from a page opened here lands there again.
+ * Changing it replaces the address instead of adding a step to Back.
+ */
+const useClientPageParam = (name: string) => {
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const set = (value: string | null) => setSearchParams((prev) => {
+    const next = new URLSearchParams(prev);
+    if (value === null) next.delete(name);
+    else next.set(name, value);
+    return next;
+  }, { replace: true, state: location.state });
+  return [searchParams.get(name), set] as const;
 };
 
 // The companies working a claim; their people are the ones who see it
@@ -2776,10 +2801,29 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const photosClaim = claims.find(c => c.id === searchParams.get('photos'));
-  const openPhotos = (claimId: string) => setSearchParams({ photos: claimId }, { state: { photosPushed: true } });
+  const openPhotos = (claimId: string) => setSearchParams((prev) => {
+    const next = new URLSearchParams(prev);
+    next.set('photos', claimId);
+    return next;
+  }, { state: { photosPushed: true } });
   const closePhotos = () => {
     if ((location.state as { photosPushed?: boolean } | null)?.photosPushed) navigate(-1);
-    else setSearchParams({}, { replace: true });
+    else setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('photos');
+      return next;
+    }, { replace: true });
+  };
+
+  // The open claim: the one in the address, else a lone claim. An empty
+  // value is a lone claim closed by hand.
+  const [claimParam, setClaimParam] = useClientPageParam('claim');
+  const openClaimId = claimParam === null
+    ? (claims.length === 1 ? claims[0].id : undefined)
+    : claims.find(c => c.id === claimParam)?.id;
+  const changeOpenClaim = (keys: string | string[]) => {
+    const key = Array.isArray(keys) ? keys[0] : keys;
+    setClaimParam(key || (claims.length === 1 ? '' : null));
   };
 
   const openNew = (type: ClaimType) => {
@@ -2859,7 +2903,8 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
           ghost
           className="ui-collapse-rows cl-claims"
           accordion
-          defaultActiveKey={claims.length === 1 ? [claims[0].id] : undefined}
+          activeKey={openClaimId ? [openClaimId] : []}
+          onChange={changeOpenClaim}
           items={claims.map((claim) => ({
             key: claim.id,
             label: <ClaimRowHead claim={claim} />,
@@ -2991,17 +3036,75 @@ const DocStatusPill: React.FC<{ status?: string }> = ({ status }) => {
   return <Pill tone={DOC_STATUS_TONES[value] || 'gray'}>{humanize(value)}</Pill>;
 };
 
+/** A claim in a pick-the-claim menu: its number and insurer, or what the cash job is */
+const claimMenuLabel = (claim: Claim) => {
+  const cash = isCashJob(claim);
+  const name = claim.claim_number || (cash ? 'Cash job' : 'No claim #');
+  return [name, cash ? claim.loss_description : claim.insurance_company].filter(Boolean).join(' · ');
+};
+
+const clientAddress = (client: Client) =>
+  [client.address, client.city, client.state, client.zipcode].filter(Boolean).join(', ');
+
 const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
   const { canAccessPath } = useAuth();
   const canOpenCabinet = canAccessPath('/cabinet-estimates');
   const canOpenPlumber = canAccessPath('/plumber-reports');
+  const canCreatePlumber = canAccessPath('/create/plumber-report');
+  const [creatingCabinet, setCreatingCabinet] = useState(false);
 
   const cabinetEstimates = client.cabinet_estimates ?? [];
   const plumberReports = client.plumber_reports ?? [];
+  const claims = client.claims ?? [];
 
   // Helper: find claim_number by claim_id
-  const claimNumberMap = new Map(client.claims.map((c) => [c.id, c.claim_number]));
+  const claimNumberMap = new Map(claims.map((c) => [c.id, c.claim_number]));
+
+  // A kitchen job for this client: at its address, on its claim (the one it
+  // has, or the one picked), under the company writing that claim's rebuild
+  const createCabinetEstimate = async (projectType: KitchenProjectType, claim?: Claim) => {
+    setCreatingCabinet(true);
+    try {
+      const result = await cabinetEstimateService.create({
+        boxes: [],
+        project_type: projectType,
+        claim_id: claim?.id ?? null,
+        company_id: (claim && rebuildCompanyId(claim)) || client.company_id || null,
+        property_address: clientAddress(client) || undefined,
+        zip_code: client.zipcode || undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ['client', client.id] });
+      navigate(`/cabinet-estimates/${result.id}`, { state: returnHere(location) });
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to create the estimate');
+    } finally {
+      setCreatingCabinet(false);
+    }
+  };
+
+  // With more than one claim, each kind of job asks which claim it's for
+  const cabinetMenu: MenuProps = {
+    items: (['insurance', 'remodel'] as const).map((type) => ({
+      key: type,
+      label: (
+        <div>
+          <div>{PROJECT_TYPE_LABELS[type]}</div>
+          <Text type="secondary" style={{ fontSize: 12 }}>{PROJECT_TYPE_HINTS[type]}</Text>
+        </div>
+      ),
+      ...(claims.length > 1 ? {
+        children: claims.map((c) => ({ key: `${type}:${c.id}`, label: claimMenuLabel(c) })),
+      } : {}),
+    })),
+    onClick: ({ key }) => {
+      const [type, claimId] = key.split(':');
+      const claim = claimId ? claims.find((c) => c.id === claimId) : claims[0];
+      createCabinetEstimate(type as KitchenProjectType, claim);
+    },
+  };
 
   const cabColumns: ColumnsType<CabinetEstimateSummary> = [
     {
@@ -3095,7 +3198,18 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
 
   return (
     <div>
-      <ClaimSection title="Cabinet estimates" count={cabinetEstimates.length} size="page">
+      <ClaimSection
+        title="Cabinet estimates"
+        count={cabinetEstimates.length}
+        size="page"
+        actions={canOpenCabinet && (
+          <Dropdown menu={cabinetMenu} trigger={['click']} placement="bottomRight" disabled={creatingCabinet}>
+            <Button size="small" type="text" icon={<PlusOutlined />} loading={creatingCabinet}>
+              New estimate <DownOutlined />
+            </Button>
+          </Dropdown>
+        )}
+      >
         {cabinetEstimates.length === 0 ? (
           <div className="cl-empty">No cabinet estimates linked to this client.</div>
         ) : (
@@ -3107,14 +3221,28 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
             size="small"
             className="cl-table"
             onRow={(record) => (canOpenCabinet ? {
-              onClick: () => navigate(`/cabinet-estimates/${record.id}`),
+              onClick: () => navigate(`/cabinet-estimates/${record.id}`, { state: returnHere(location) }),
               style: { cursor: 'pointer' },
             } : {})}
           />
         )}
       </ClaimSection>
 
-      <ClaimSection title="Plumber reports" count={plumberReports.length} size="page">
+      <ClaimSection
+        title="Plumber reports"
+        count={plumberReports.length}
+        size="page"
+        actions={canCreatePlumber && (
+          <Button
+            size="small"
+            type="text"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/create/plumber-report', { state: { presetClient: client, ...returnHere(location) } })}
+          >
+            New report
+          </Button>
+        )}
+      >
         {plumberReports.length === 0 ? (
           <div className="cl-empty">No plumber reports linked to this client.</div>
         ) : (
@@ -3126,7 +3254,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
             size="small"
             className="cl-table"
             onRow={(record) => (canOpenPlumber ? {
-              onClick: () => navigate(`/plumber-reports/${record.id}`),
+              onClick: () => navigate(`/plumber-reports/${record.id}`, { state: returnHere(location) }),
               style: { cursor: 'pointer' },
             } : {})}
           />
@@ -3134,7 +3262,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       </ClaimSection>
 
       {/* Packing Estimates */}
-      <PackingEstimatesCard clientId={client.id} />
+      <PackingEstimatesCard client={client} />
     </div>
   );
 };
@@ -3143,10 +3271,28 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
 // Packing Estimates Card (inside AllDocumentsTab)
 // ─────────────────────────────────────────────
 
-const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
+const PackingEstimatesCard: React.FC<{ client: Client }> = ({ client }) => {
+  const clientId = client.id;
   const navigate = useNavigate();
+  const location = useLocation();
   const { canAccessPath } = useAuth();
   const canOpenPacking = canAccessPath('/reconstruction-estimate/pack-calculator-new');
+
+  // The builder with this client filled in; a client with one claim starts on
+  // it, with more the builder's Claim picker lists them
+  const startEstimate = () => {
+    const onlyClaim = client.claims?.length === 1 ? client.claims[0] : undefined;
+    navigate('/reconstruction-estimate/pack-calculator-new', {
+      state: {
+        mode: 'photo_ai',
+        clientId,
+        claimId: onlyClaim?.id,
+        companyId: (onlyClaim && packingCompanyId(onlyClaim)) || client.company_id,
+        projectAddress: clientAddress(client),
+        ...returnHere(location),
+      },
+    });
+  };
   const { data: packData } = useQuery({
     queryKey: ['packing-estimates', clientId],
     queryFn: async () => {
@@ -3201,7 +3347,16 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
   ];
 
   return (
-    <ClaimSection title="Packing estimates" count={estimates.length} size="page">
+    <ClaimSection
+      title="Packing estimates"
+      count={estimates.length}
+      size="page"
+      actions={canOpenPacking && (
+        <Button size="small" type="text" icon={<PlusOutlined />} onClick={startEstimate}>
+          New estimate
+        </Button>
+      )}
+    >
       {estimates.length === 0 ? (
         <div className="cl-empty">No packing estimates linked to this client.</div>
       ) : (
@@ -3213,7 +3368,7 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
           size="small"
           className="cl-table"
           onRow={(record: any) => (canOpenPacking ? {
-            onClick: () => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`),
+            onClick: () => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`, { state: returnHere(location) }),
             style: { cursor: 'pointer' },
           } : {})}
         />
@@ -3298,8 +3453,10 @@ const ClientDetail: React.FC = () => {
   const { canAccessPath } = useAuth();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [tabParam, setTabParam] = useClientPageParam('tab');
 
   const {
     data: client,
@@ -3419,6 +3576,11 @@ const ClientDetail: React.FC = () => {
     }] : []),
   ];
 
+  // The tab in the address; until a tab that comes and goes (Field visits,
+  // AccuLynx History) has loaded, the page shows its first tab
+  const defaultTab = isAccuLynxImport ? 'acculynx-history' : 'claims';
+  const activeTab = tabItems.some(t => t.key === tabParam) ? tabParam! : defaultTab;
+
   const createDocumentItems = [
     { key: 'estimate', label: 'Estimate', path: '/create/estimate' },
     { key: 'invoice', label: 'Invoice', path: '/create/invoice' },
@@ -3428,7 +3590,7 @@ const ClientDetail: React.FC = () => {
     .map(({ key, label, path }) => ({
       key,
       label,
-      onClick: () => navigate(path, { state: { presetClient: client } }),
+      onClick: () => navigate(path, { state: { presetClient: client, ...returnHere(location) } }),
     }));
 
   return (
@@ -3514,7 +3676,8 @@ const ClientDetail: React.FC = () => {
 
       <Tabs
         className="cl-tabs"
-        defaultActiveKey={isAccuLynxImport ? 'acculynx-history' : 'claims'}
+        activeKey={activeTab}
+        onChange={(key) => setTabParam(key === defaultTab ? null : key)}
         items={tabItems}
       />
 

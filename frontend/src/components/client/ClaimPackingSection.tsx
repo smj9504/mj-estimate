@@ -7,7 +7,7 @@
  * room or a new one, or takes them out of packing (ClaimRoomPhotoMover).
  */
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Image, Input, Popconfirm, Tooltip, message } from 'antd';
 import {
@@ -16,6 +16,8 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import ClaimSection from './ClaimSection';
+import { packingCompanyId } from './claimCompany';
+import { returnHere } from '../../utils/returnTo';
 import * as packingService from '../../services/packingEstimateService';
 import type { Claim, Client } from '../../types/client';
 import type { ClaimPackingPhoto } from '../../types/packing-estimate';
@@ -27,23 +29,17 @@ import { PackStatusPill, formatMoney, modeLabel } from '../packing-estimate/pack
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** The company a claim's pack-out goes under: its moving company, else its only company */
-const packingCompanyId = (claim: Claim): string | undefined => {
-  const companies = claim.companies ?? [];
-  return companies.find(c => c.role === 'moving')?.id
-    ?? (companies.length === 1 ? companies[0].id : undefined)
-    ?? (companies.length === 0 ? claim.company_id : undefined);
-};
-
-// In-app link that still opens in a new tab on ctrl/cmd-click
+// In-app link that still opens in a new tab on ctrl/cmd-click; the page it
+// opens goes Back to this claim
 const useInAppLink = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   return (to: string) => ({
     href: to,
     onClick: (e: React.MouseEvent) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
       e.preventDefault();
-      navigate(to);
+      navigate(to, { state: returnHere(location) });
     },
   });
 };
@@ -55,6 +51,7 @@ interface ClaimPackingSectionProps {
 
 const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const linkTo = useInAppLink();
   const { canAccessPath } = useAuth();
   const canOpenPacking = canAccessPath('/reconstruction-estimate/pack-calculator-new');
@@ -115,7 +112,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
       companyId: packingCompanyId(claim),
       projectAddress: [client.address, client.city, client.state, client.zipcode].filter(Boolean).join(', '),
       claimPhotos: loadPhotos ? claim.id : undefined,
-      returnTo: `/clients/${client.id}`,
+      ...returnHere(location),
     },
   });
 

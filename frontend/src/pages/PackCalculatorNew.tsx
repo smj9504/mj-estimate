@@ -495,7 +495,7 @@ const PackCalculatorNew: React.FC = () => {
                   size="small"
                   icon={<ExportOutlined />}
                   className="pk-open-link"
-                  onClick={() => navigate(`/reconstruction-estimate/pack-calculator-new/${result.id}`)}
+                  onClick={() => navigate(`/reconstruction-estimate/pack-calculator-new/${result.id}`, { state: { returnTo: recalcState?.returnTo } })}
                 >
                   Open estimate
                 </Button>

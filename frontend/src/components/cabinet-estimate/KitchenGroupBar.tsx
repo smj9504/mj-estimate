@@ -26,6 +26,12 @@ export const PROJECT_TYPE_LABELS: Record<KitchenProjectType, string> = {
   remodel: 'Remodel',
 };
 
+/** What each kind of job starts as, under its name in the New estimate menus */
+export const PROJECT_TYPE_HINTS: Record<KitchenProjectType, string> = {
+  insurance: 'Restoration for the carrier, upgrade options for the customer',
+  remodel: 'Options built from products the customer picks',
+};
+
 const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 const signedMoney = (n: number) => `${n >= 0 ? '+' : '−'}${money(Math.abs(n))}`;
 

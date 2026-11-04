@@ -69,6 +69,7 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import DraggableTable from '../components/common/DraggableTable';
 import dayjs from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { returnToOf } from '../utils/returnTo';
 import { invoiceService, InvoiceSection, InvoiceVersion, LineItemImage } from '../services/invoiceService';
 import { companyService } from '../services/companyService';
 import { Company } from '../types';
@@ -4424,7 +4425,7 @@ const InvoiceCreation: React.FC = () => {
               Manage Templates
             </Button>
             <Button
-              onClick={() => navigate('/invoices')}
+              onClick={() => navigate(returnToOf(location.state) ?? '/invoices')}
             >
               Cancel
             </Button>

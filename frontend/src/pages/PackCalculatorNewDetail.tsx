@@ -6,7 +6,8 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { returnToOf } from '../utils/returnTo';
 import {
   Button, Table, message, Spin, Tabs, Empty, Input, InputNumber, Select, Switch, Tooltip, Collapse,
 } from 'antd';
@@ -128,8 +129,10 @@ const PackCalculatorNewDetail: React.FC = () => {
     }
   };
 
+  // Opened from a client: Back goes to it, here and from a recalculation
+  const returnTo = returnToOf(useLocation().state);
   const handleBack = () => {
-    navigate('/reconstruction-estimate/pack-calculator-new/list');
+    navigate(returnTo ?? '/reconstruction-estimate/pack-calculator-new/list');
   };
 
   // ── Edit ────────────────────────────────────
@@ -231,9 +234,10 @@ const PackCalculatorNewDetail: React.FC = () => {
         claimId: estimate.claim_id,
         calculationName: estimate.calculation_name,
         rooms: estimate.mode === 'photo_ai' ? estimate.rooms : undefined,
+        returnTo,
       },
     });
-  }, [id, estimate, navigate]);
+  }, [id, estimate, navigate, returnTo]);
 
   // ── Loading / Empty ─────────────────────────
 
@@ -556,7 +560,7 @@ const PackCalculatorNewDetail: React.FC = () => {
     <div className="pk-page pk-detail">
       <PageHeader
         leading={
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={handleBack} aria-label="Back to packing estimates" />
+          <Button type="text" icon={<ArrowLeftOutlined />} onClick={handleBack} aria-label={returnTo ? 'Back to the client' : 'Back to packing estimates'} />
         }
         title={packEstimateTitle(estimate)}
         meta={

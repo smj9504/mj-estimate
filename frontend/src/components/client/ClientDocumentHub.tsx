@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Table,
@@ -28,6 +28,7 @@ import type { ClientDocument, ClientDocType } from '../../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import { Pill, humanize, type TagTone } from '../common/ui';
 import { tagTones } from '../../styles/tokens';
+import { returnHere } from '../../utils/returnTo';
 import { WM_STATUS_TONES } from '../water-mitigation/wmStatus';
 
 dayjs.extend(relativeTime);
@@ -67,6 +68,7 @@ interface ClientDocumentHubProps {
 
 const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { canAccessPath } = useAuth();
   const canOpen = (record: ClientDocument) => !!record.link && canAccessPath(record.link);
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
@@ -181,7 +183,7 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
 
   const handleRowClick = (record: ClientDocument) => {
     if (canOpen(record)) {
-      navigate(record.link!);
+      navigate(record.link!, { state: returnHere(location) });
     }
   };
 

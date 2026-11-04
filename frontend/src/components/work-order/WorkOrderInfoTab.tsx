@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -45,6 +45,7 @@ import { WorkOrder } from '../../types';
 import { workOrderService } from '../../services/workOrderService';
 import { companyService } from '../../services/companyService';
 import ActivityTimeline from './ActivityTimeline';
+import { returnToOf } from '../../utils/returnTo';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -231,6 +232,8 @@ interface WorkOrderInfoTabProps {
 
 const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
   const navigate = useNavigate();
+  // Opened from a client: Back, and a delete, go back to it
+  const returnTo = returnToOf(useLocation().state);
   const queryClient = useQueryClient();
 
   const [statusChangeVisible, setStatusChangeVisible] = useState(false);
@@ -301,7 +304,7 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
     mutationFn: workOrderService.deleteWorkOrder,
     onSuccess: () => {
       message.success('Work order has been deleted.');
-      navigate('/work-orders');
+      navigate(returnTo ?? '/work-orders');
     },
     onError: (error: any) => {
       message.error(error.message || 'Failed to delete.');
@@ -435,9 +438,9 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
             <Space align="center">
               <Button
                 icon={<ArrowLeftOutlined />}
-                onClick={() => navigate('/work-orders')}
+                onClick={() => navigate(returnTo ?? '/work-orders')}
               >
-                Back to List
+                {returnTo ? 'Back' : 'Back to List'}
               </Button>
               <Divider type="vertical" />
               <Title level={2} style={{ margin: 0 }}>

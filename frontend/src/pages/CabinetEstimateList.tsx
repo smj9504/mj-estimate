@@ -29,7 +29,7 @@ import { useNavigate } from 'react-router-dom';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import type { CabinetEstimate, EstimateStatus, KitchenProjectType } from '../types/cabinetEstimate';
 import { memberName } from '../types/cabinetEstimate';
-import { PROJECT_TYPE_LABELS } from '../components/cabinet-estimate/KitchenGroupBar';
+import { PROJECT_TYPE_HINTS, PROJECT_TYPE_LABELS } from '../components/cabinet-estimate/KitchenGroupBar';
 import KitchenDesignQuoteModal from '../components/cabinet-estimate/KitchenDesignQuoteModal';
 
 const { Title, Text } = Typography;
@@ -133,26 +133,15 @@ const CabinetEstimateList: React.FC = () => {
 
   // A new job: an insurance claim starts with its restoration, a remodel with Option A
   const createMenu = {
-    items: [
-      {
-        key: 'insurance',
-        label: (
-          <div>
-            <div>{PROJECT_TYPE_LABELS.insurance}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>Restoration for the carrier, upgrade options for the customer</Text>
-          </div>
-        ),
-      },
-      {
-        key: 'remodel',
-        label: (
-          <div>
-            <div>{PROJECT_TYPE_LABELS.remodel}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>Options built from products the customer picks</Text>
-          </div>
-        ),
-      },
-    ],
+    items: (['insurance', 'remodel'] as const).map((type) => ({
+      key: type,
+      label: (
+        <div>
+          <div>{PROJECT_TYPE_LABELS[type]}</div>
+          <Text type="secondary" style={{ fontSize: 12 }}>{PROJECT_TYPE_HINTS[type]}</Text>
+        </div>
+      ),
+    })),
     onClick: ({ key }: { key: string }) => handleCreate(key as KitchenProjectType),
   };
 

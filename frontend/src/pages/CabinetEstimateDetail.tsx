@@ -53,6 +53,7 @@ import { memberName } from '../types/cabinetEstimate';
 import type { CabType } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
+import { returnToOf } from '../utils/returnTo';
 
 const RegisterBidItemModal = lazyWithRetry(() => import('../components/supplement/RegisterBidItemModal'));
 
@@ -157,6 +158,8 @@ const CabinetEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  // Opened from a client: Back goes to it, and so does Back from another estimate of the job
+  const returnTo = returnToOf(location.state);
   const headerSlot = useHeaderSlot();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
@@ -456,7 +459,7 @@ const CabinetEstimateDetail: React.FC = () => {
     mutationFn: () => cabinetEstimateService.clone(id!),
     onSuccess: (result) => {
       message.success('Cloned');
-      navigate(`/cabinet-estimates/${result.id}`);
+      navigate(`/cabinet-estimates/${result.id}`, { state: { returnTo } });
     },
   });
 
@@ -648,14 +651,14 @@ const CabinetEstimateDetail: React.FC = () => {
   }, [estimate, buildPayload, saveMutation]);
 
   const openMember = useCallback((memberId: string, options?: { discard?: boolean }) => {
-    const go = () => navigate(`/cabinet-estimates/${memberId}`, { state: { tab: activeTab } });
+    const go = () => navigate(`/cabinet-estimates/${memberId}`, { state: { tab: activeTab, returnTo } });
     if (options?.discard) {
       unsavedRef.current = false;
       go();
     } else {
       guardUnsaved(go);
     }
-  }, [activeTab, guardUnsaved, navigate]);
+  }, [activeTab, guardUnsaved, navigate, returnTo]);
 
   // An option's product changed: the server repriced it from what's saved
   const handleSelectionsChanged = useCallback((updated: CabinetEstimate) => {
@@ -680,7 +683,7 @@ const CabinetEstimateDetail: React.FC = () => {
   // Sits in the app header beside Search; inline above the actions on phones
   const titleBar = (
     <Space wrap={!headerSlot} size="small">
-      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/cabinet-estimates')}>
+      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(returnTo ?? '/cabinet-estimates')}>
         Back
       </Button>
       <Title level={4} style={{ margin: 0 }}>

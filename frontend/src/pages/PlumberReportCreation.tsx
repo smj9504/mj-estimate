@@ -75,6 +75,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import { returnToOf } from '../utils/returnTo';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -106,6 +107,8 @@ const PlumberReportCreation: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
+  // Opened from a client: Cancel goes back to it, before and after saving
+  const returnTo = returnToOf(location.state);
   const presetClient = (location.state as { presetClient?: Client } | null)?.presetClient;
 
   // Loading states - separate for different operations
@@ -669,7 +672,7 @@ const PlumberReportCreation: React.FC = () => {
       }
 
       message.success(`Report ${id ? 'updated' : 'created'} successfully!`);
-      navigate(`/plumber-reports/${response.id}`);
+      navigate(`/plumber-reports/${response.id}`, { state: { returnTo } });
     } catch (error) {
       message.error(`Failed to ${id ? 'update' : 'create'} report`);
       console.error(error);
@@ -1695,7 +1698,7 @@ const PlumberReportCreation: React.FC = () => {
               </Button>
             )}
             <Button
-              onClick={() => navigate('/plumber-reports')}
+              onClick={() => navigate(returnTo ?? '/plumber-reports')}
               disabled={isSaving || isPreviewing}
             >
               Cancel
