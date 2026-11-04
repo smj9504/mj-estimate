@@ -2484,8 +2484,8 @@ class WaterMitigationService:
                                 compute_visual_signature, photo_bytes
                             )
 
-                            # AI classify using already-downloaded bytes (no extra network cost)
-                            if settings.ENABLE_AI_PHOTO_CLASSIFICATION and (
+                            # AI classify using already-downloaded bytes; off by default (a paid call per photo)
+                            if settings.ENABLE_AI_PHOTO_CLASSIFICATION and settings.AUTO_CLASSIFY_SYNCED_PHOTOS and (
                                 settings.ANTHROPIC_API_KEY or settings.GEMINI_API_KEY
                             ):
                                 try:

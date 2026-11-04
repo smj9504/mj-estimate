@@ -233,8 +233,12 @@ class Settings(BaseSettings):
     # Water Mitigation AI photo classification
     # Claude (ANTHROPIC_API_KEY, below) is tried first; Gemini only on Claude failure.
     ENABLE_AI_PHOTO_CLASSIFICATION: bool = os.getenv("ENABLE_AI_PHOTO_CLASSIFICATION", "true").lower() == "true"
-    # Sonnet 5.5 costs half of Opus 5.5 per token; claude-haiku-5-5 is ~20x cheaper still.
-    PHOTO_CLASSIFICATION_MODEL: str = os.getenv("PHOTO_CLASSIFICATION_MODEL", "claude-sonnet-5-5")
+    # Classify every photo a CompanyCam sync brings in. Off: a big job is hundreds of
+    # paid calls per sync; the photos tab's AI Classify still runs on demand.
+    AUTO_CLASSIFY_SYNCED_PHOTOS: bool = os.getenv("AUTO_CLASSIFY_SYNCED_PHOTOS", "false").lower() == "true"
+    # Haiku 5.5 is 1/20 of Sonnet 5.5's price per token. If meter readings come back
+    # wrong, claude-sonnet-5-5 here reads them better at 20x the cost.
+    PHOTO_CLASSIFICATION_MODEL: str = os.getenv("PHOTO_CLASSIFICATION_MODEL", "claude-haiku-5-5")
     # low | medium | high | xhigh | max. Leave empty for models without effort (e.g. claude-haiku-4-5).
     PHOTO_CLASSIFICATION_EFFORT: str = os.getenv("PHOTO_CLASSIFICATION_EFFORT", "low")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
