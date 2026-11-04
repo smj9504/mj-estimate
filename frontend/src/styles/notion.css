@@ -1423,6 +1423,18 @@ h4.ant-typography {
   text-decoration: line-through;
   color: var(--color-neutral-600);
 }
+/* WM payment view Amount: approved in dark, our invoice in light gray until approved */
+.wm-amount-approved .ant-input-number-input,
+.wm-amount-approved .ant-input-number-prefix,
+span.wm-amount-approved {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.wm-amount-invoice .ant-input-number-input::placeholder,
+.wm-amount-invoice .ant-input-number-prefix,
+span.wm-amount-invoice {
+  color: #a5a29a;
+}
 .sup-net-line {
   display: flex;
   flex-direction: column;

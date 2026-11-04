@@ -2,9 +2,11 @@
  * WM Payment Board — public manager page (NO auth, token in URL)
  *
  * A manager opens /wm-payments/:token, sees every active WM job with its
- * amounts, toggles "Received" and can leave a note per job. Those two are
- * the only things this page can change; amounts and check recipient are
- * read-only here. Mobile-first: phones get a card list with a sticky header.
+ * amount, toggles "Received" and can leave a note per job. Those two are
+ * the only things this page can change; amount and check recipient are
+ * read-only here. Amount is the approved amount in dark, or our invoice in
+ * light gray until one is approved. Mobile-first: phones get a card list
+ * with a sticky header.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -16,6 +18,7 @@ import {
   Spin,
   Switch,
   Table,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
@@ -24,15 +27,14 @@ import dayjs from 'dayjs';
 import { wmPaymentBoardService } from '../services/waterMitigationService';
 import type { WMPaymentRow } from '../types/waterMitigation';
 import {
+  AMOUNT_HINT,
+  AMOUNT_PREF_KEY,
+  AmountText,
   CheckRecipientTag,
   CompanyTag,
   EditableNote,
   RECEIVED_ROW_BG,
   ReceivedTag,
-  effectiveApproved,
-  APPROVED_PREF_KEY,
-  INVOICE_PREF_KEY,
-  formatMoney,
   readBoolPref,
   writeBoolPref,
 } from '../components/water-mitigation/paymentBoardShared';
@@ -49,19 +51,13 @@ const WMPaymentBoardPublic: React.FC = () => {
   const [invalid, setInvalid] = useState(false);
   const [rows, setRows] = useState<WMPaymentRow[]>([]);
   const [hideReceived, setHideReceived] = useState(false);
-  // Our Invoice / Approved can each be hidden so the board can be shown without those numbers.
-  // Our Invoice starts hidden: managers mostly care about the approved amount.
-  const [showInvoice, setShowInvoice] = useState(() => readBoolPref(INVOICE_PREF_KEY, false));
-  const [showApproved, setShowApproved] = useState(() => readBoolPref(APPROVED_PREF_KEY, true));
+  // Amount can be hidden so the board can be shown without the numbers.
+  const [showAmount, setShowAmount] = useState(() => readBoolPref(AMOUNT_PREF_KEY, true));
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const toggleInvoice = (show: boolean) => {
-    setShowInvoice(show);
-    writeBoolPref(INVOICE_PREF_KEY, show);
-  };
-  const toggleApproved = (show: boolean) => {
-    setShowApproved(show);
-    writeBoolPref(APPROVED_PREF_KEY, show);
+  const toggleAmount = (show: boolean) => {
+    setShowAmount(show);
+    writeBoolPref(AMOUNT_PREF_KEY, show);
   };
 
   useEffect(() => {
@@ -157,22 +153,17 @@ const WMPaymentBoardPublic: React.FC = () => {
       render: (_, row) =>
         row.company ? <CompanyTag company={row.company} /> : <Text type="secondary">—</Text>,
     },
-    ...(showInvoice ? [
+    ...(showAmount ? [
       {
-        title: 'Our Invoice',
-        key: 'invoice_amount',
-        width: 130,
-        align: 'right' as const,
-        render: (_: unknown, row: WMPaymentRow) => formatMoney(row.invoice_amount),
-      },
-    ] : []),
-    ...(showApproved ? [
-      {
-        title: 'Approved (Final)',
-        key: 'approved_amount',
+        title: (
+          <Tooltip title={AMOUNT_HINT}>
+            <span>Amount</span>
+          </Tooltip>
+        ),
+        key: 'amount',
         width: 140,
         align: 'right' as const,
-        render: (_: unknown, row: WMPaymentRow) => formatMoney(effectiveApproved(row)),
+        render: (_: unknown, row: WMPaymentRow) => <AmountText row={row} />,
       },
     ] : []),
     {
@@ -238,29 +229,17 @@ const WMPaymentBoardPublic: React.FC = () => {
         </div>
       </div>
 
-      {(showInvoice || showApproved) && (
+      {showAmount && (
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 8,
             marginTop: 10,
             padding: '8px 10px',
             background: 'rgba(0,0,0,0.03)',
             borderRadius: 8,
           }}
         >
-          {([
-            ...(showInvoice ? [['Our Invoice', row.invoice_amount]] : []),
-            ...(showApproved ? [['Approved (Final)', effectiveApproved(row)]] : []),
-          ] as [string, number | null | undefined][]).map(([label, amount]) => (
-            <div key={label} style={{ minWidth: 0 }}>
-              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>{label}</Text>
-              <Text strong style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
-                {formatMoney(amount)}
-              </Text>
-            </div>
-          ))}
+          <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Amount</Text>
+          <AmountText row={row} style={{ fontSize: 13, whiteSpace: 'nowrap' }} />
         </div>
       )}
 
@@ -316,12 +295,8 @@ const WMPaymentBoardPublic: React.FC = () => {
       </div>
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 4 : 16, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
-          <Text style={{ fontSize: 13 }}>Our Invoice</Text>
-          <Switch size="small" checked={showInvoice} onChange={toggleInvoice} />
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
-          <Text style={{ fontSize: 13 }}>Approved</Text>
-          <Switch size="small" checked={showApproved} onChange={toggleApproved} />
+          <Text style={{ fontSize: 13 }}>Amount</Text>
+          <Switch size="small" checked={showAmount} onChange={toggleAmount} />
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
           <Text style={{ fontSize: 13 }}>Hide received</Text>

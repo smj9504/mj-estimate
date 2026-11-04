@@ -50,9 +50,40 @@ export const outstandingAmount = (row: {
   approved_amount_auto?: number | null;
 }): number => Number(effectiveApproved(row) ?? row.invoice_amount ?? 0);
 
-/** Per-viewer column visibility preferences for the public board (localStorage, best effort) */
-export const INVOICE_PREF_KEY = 'wm-payments:show-invoice';
-export const APPROVED_PREF_KEY = 'wm-payments:show-approved';
+/** Explains the two shades of the Amount column */
+export const AMOUNT_HINT = 'Approved amount in dark. Until one is approved, our invoice shows in gray.';
+
+/**
+ * Amount as read-only text: the approved amount in dark, else our invoice in
+ * light gray (styles: `.wm-amount-*` in notion.css).
+ */
+export const AmountText: React.FC<{
+  row: {
+    invoice_amount?: number | null;
+    approved_amount?: number | null;
+    approved_amount_auto?: number | null;
+  };
+  style?: React.CSSProperties;
+}> = ({ row, style }) => {
+  const approved = effectiveApproved(row);
+  return approved != null ? (
+    <span className="wm-amount-approved" style={style}>{formatMoney(approved)}</span>
+  ) : (
+    <span
+      className="wm-amount-invoice"
+      style={style}
+      title={row.invoice_amount != null ? 'Our invoice, nothing approved yet' : undefined}
+    >
+      {formatMoney(row.invoice_amount)}
+    </span>
+  );
+};
+
+/**
+ * Per-viewer Amount column visibility for the public board (localStorage, best effort).
+ * Keeps the old Approved column's key, so a board someone hid the numbers on stays hidden.
+ */
+export const AMOUNT_PREF_KEY = 'wm-payments:show-approved';
 export const readBoolPref = (key: string, fallback: boolean): boolean => {
   try {
     const v = localStorage.getItem(key);

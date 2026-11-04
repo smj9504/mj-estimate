@@ -55,6 +55,8 @@ import googleSheetsService, { type SheetRowMatch, type SyncStats } from '../serv
 import WMPaymentLinkButton from '../components/water-mitigation/WMPaymentLinkButton';
 import { useWaterMitigationAccess } from '../hooks/useWaterMitigationAccess';
 import {
+  AMOUNT_HINT,
+  AmountText,
   CHECK_RECIPIENT_OPTIONS,
   CheckRecipientTag,
   CompanyTag,
@@ -62,7 +64,6 @@ import {
   RECEIVED_ROW_BG,
   ReceivedTag,
   effectiveApproved,
-  formatMoney,
   outstandingAmount
 } from '../components/water-mitigation/paymentBoardShared';
 
@@ -267,14 +268,18 @@ const WaterMitigationList: React.FC = () => {
     }
   };
 
-  // Approved is the final amount; it defaults to the claim's insurance estimate until typed
-  const renderApprovedCell = () =>
+  // Amount: the approved (final) amount in dark, which defaults to the claim's
+  // insurance estimate until typed. With nothing approved the box stays empty
+  // and our invoice shows in light gray as its placeholder.
+  const renderAmountCell = () =>
     (_: unknown, record: WaterMitigationJob) => {
       const field = 'approved_amount' as const;
       const key = `${record.id}:${field}`;
       const isAuto = record.approved_amount == null && record.approved_amount_auto != null;
       const stored = effectiveApproved(record);
       const value = key in drafts ? drafts[key] : stored;
+      const hasApproved = value != null;
+      const showsInvoice = !hasApproved && record.invoice_amount != null;
       const commit = () => {
         if (!(key in drafts)) return;
         const next = drafts[key];
@@ -293,15 +298,23 @@ const WaterMitigationList: React.FC = () => {
           prefix="$"
           precision={2}
           min={0}
-          placeholder="—"
-          style={{ width: '100%', ...(isAuto && !(key in drafts) ? { color: '#73726e' } : {}) }}
+          placeholder={showsInvoice ? Number(record.invoice_amount).toFixed(2) : '—'}
+          className={hasApproved ? 'wm-amount-approved' : 'wm-amount-invoice'}
+          style={{ width: '100%' }}
           value={value ?? undefined}
           onChange={(v) => setDrafts(prev => ({ ...prev, [key]: v }))}
           onBlur={commit}
           onPressEnter={commit}
         />
       );
-      return isAuto ? (
+      if (showsInvoice) {
+        return (
+          <Tooltip title="Our invoice. Nothing approved yet; type the approved amount.">
+            {input}
+          </Tooltip>
+        );
+      }
+      return isAuto && !(key in drafts) ? (
         <Tooltip title="From the insurance estimate on the job detail. Type to override.">
           {input}
         </Tooltip>
@@ -480,8 +493,9 @@ const WaterMitigationList: React.FC = () => {
     }
   ];
 
-  // Payment view columns (desktop). invoice_amount is read-only here: the
-  // scope invoice sync writes it, so a typed value would be overwritten.
+  // Payment view columns (desktop). Our invoice has no column of its own: it
+  // shows in gray inside Amount until an approved amount replaces it. It is
+  // read-only here because the scope invoice sync writes it.
   const paymentColumns: ColumnsType<WaterMitigationJob> = [
     {
       title: 'Property Address',
@@ -502,21 +516,13 @@ const WaterMitigationList: React.FC = () => {
     ...(showAmounts ? [
       {
         title: (
-          <Tooltip title="From the generated invoice — edit on the job detail page">
-            <span>Our Invoice</span>
+          <Tooltip title={AMOUNT_HINT}>
+            <span>Amount</span>
           </Tooltip>
         ),
-        dataIndex: 'invoice_amount',
-        key: 'invoice_amount',
-        width: 130,
-        align: 'right' as const,
-        render: (v?: number | null) => formatMoney(v)
-      },
-      {
-        title: 'Approved (Final)',
         key: 'approved_amount',
         width: 160,
-        render: renderApprovedCell()
+        render: renderAmountCell()
       },
     ] : []),
     {
@@ -596,8 +602,7 @@ const WaterMitigationList: React.FC = () => {
           <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10 }}>
             {showAmounts && (
               <div className="ui-row-meta" style={{ marginTop: 0 }}>
-                <span>Invoice <Text>{formatMoney(job.invoice_amount)}</Text></span>
-                <span>Approved <Text>{formatMoney(effectiveApproved(job))}</Text></span>
+                <span>Amount <AmountText row={job} /></span>
               </div>
             )}
             <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -815,7 +820,7 @@ const WaterMitigationList: React.FC = () => {
               setFilters(prev => ({ ...prev, page, page_size: pageSize }));
             }
           }}
-          scroll={{ x: paymentView ? (showAmounts ? 1100 : 900) : 1340 }}
+          scroll={{ x: paymentView ? (showAmounts ? 970 : 900) : 1340 }}
         />
       )}
 
