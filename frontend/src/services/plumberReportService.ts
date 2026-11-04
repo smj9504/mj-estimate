@@ -272,17 +272,17 @@ class PlumberReportService {
     }
   }
 
-  // Generate plumber report content using AI
+  // Generate plumber report content using AI: from the source of the leak,
+  // the AI works out the whole repair, keeps the plumber's part, and writes
+  // the report and invoice from it
   async generateAI(params: {
-    incident_type: string;
-    location: string;
-    wall_access_type: string;
+    floor: string;
+    room: string;
+    fixture: string;
+    component: string;
     pipe_material?: string;
+    reached_floor_below: boolean;
     state: string;
-    detached_fixture?: string;
-    fixture_reinstalled?: boolean;
-    affected_areas?: string;
-    how_noticed?: string;
     photos?: Array<{ url: string; category: string; caption?: string }>;
   }): Promise<{
     site_findings: string;
@@ -299,11 +299,20 @@ class PlumberReportService {
     total: number;
     warranty_info: string;
     notes: string;
+    repair_plan: {
+      failed_component: string;
+      access: { surface: string; where: string; opening: string };
+      fixture_detached: string;
+      hours_estimate: string;
+      plumber_steps: string[];
+      other_trades: Array<{ trade: string; task: string }>;
+      materials: string[];
+    };
   }> {
-    // 2-step AI pipeline routinely takes 15-25s+; default 30s client timeout
-    // cuts it too close and would silently drop a response the backend did
-    // finish computing. Give it real headroom.
-    const response = await api.post(`${this.baseUrl}/generate-ai`, params, { timeout: 90000 });
+    // Repair plan, then report and invoice side by side: 20-40s, longer with
+    // photos. The default 30s client timeout would drop a response the
+    // backend did finish computing. Give it real headroom.
+    const response = await api.post(`${this.baseUrl}/generate-ai`, params, { timeout: 180000 });
     return response.data;
   }
 

@@ -66,17 +66,28 @@ class AIPhotoInput(BaseModel):
 
 
 class AIGenerateRequest(BaseModel):
-    """Request schema for AI report generation"""
-    incident_type: str
-    location: str
-    wall_access_type: str
+    """
+    Request schema for AI report generation: the source of the leak
+    (e.g. 2nd floor / master bathroom / shower / water line), the pipe
+    material, and whether the water reached the floor below. The AI works
+    out the repair from these.
+    """
+    floor: str  # "Basement", "1st floor", "2nd floor", ...
+    room: str
+    fixture: str = ""
+    component: str  # the leaking part: water line, valve, drain line, ...
     pipe_material: str = ""  # optional — blank means not specified
+    reached_floor_below: bool = False
     state: str
-    detached_fixture: str = ""
-    fixture_reinstalled: bool = True
-    affected_areas: str = ""  # other floors/rooms/units the water reached
-    how_noticed: str = ""  # what led to the call — ceiling stain below, low pressure, ...
     photos: List[AIPhotoInput] = []
+
+    @field_validator("floor", "room", "component")
+    @classmethod
+    def required_text(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("is required")
+        return v
 
     @field_validator("state")
     @classmethod
@@ -97,15 +108,13 @@ def generate_ai_report(request: AIGenerateRequest):
     """Generate plumber report content using AI from job details"""
     try:
         result = generate_plumber_report(
-            incident_type=request.incident_type,
-            location=request.location,
-            wall_access_type=request.wall_access_type,
-            pipe_material=request.pipe_material,
+            floor=request.floor,
+            room=request.room,
+            fixture=request.fixture,
+            component=request.component,
             state=request.state,
-            detached_fixture=request.detached_fixture,
-            fixture_reinstalled=request.fixture_reinstalled,
-            affected_areas=request.affected_areas,
-            how_noticed=request.how_noticed,
+            pipe_material=request.pipe_material,
+            reached_floor_below=request.reached_floor_below,
             photos=[photo.model_dump() for photo in request.photos],
         )
     except ValueError as e:

@@ -21,6 +21,8 @@ import {
   Popconfirm,
   Spin,
   Upload,
+  AutoComplete,
+  Radio,
 } from 'antd';
 import {
   PlusOutlined,
@@ -91,6 +93,34 @@ const normalizeUsState = (raw?: string | null): 'MD' | 'VA' | 'DC' | null => {
   if (s === 'VA' || s === 'VIRGINIA') return 'VA';
   if (['DC', 'D.C.', 'WASHINGTON DC', 'WASHINGTON, DC', 'DISTRICT OF COLUMBIA'].includes(s)) return 'DC';
   return null;
+};
+
+// Source of the leak for the AI generator: floor / room / fixture / leaking
+// part, e.g. 2nd floor / master bathroom / shower / water line. The lists are
+// suggestions; any text can be typed.
+const AI_FLOOR_OPTIONS = ['Basement', '1st floor', '2nd floor', '3rd floor', '4th floor', '5th floor'];
+const toOptions = (values: string[]) => values.map((value) => ({ value }));
+const AI_ROOM_OPTIONS = toOptions([
+  'Master bathroom', 'Hall bathroom', 'Guest bathroom', 'Powder room', 'Kitchen',
+  'Laundry room', 'Utility room', 'Bedroom', 'Hallway', 'Closet', 'Garage',
+]);
+const AI_FIXTURE_OPTIONS = toOptions([
+  'Shower', 'Bathtub', 'Toilet', 'Vanity sink', 'Kitchen sink', 'Dishwasher',
+  'Refrigerator / ice maker', 'Washing machine', 'Water heater', 'Hose bib',
+]);
+const AI_COMPONENT_OPTIONS = toOptions([
+  'Water line', 'Valve', 'Supply connector', 'Drain line', 'P-trap',
+]);
+const filterSuggestions = (input: string, option?: { value: string }) =>
+  (option?.value || '').toLowerCase().includes(input.toLowerCase());
+// The floor a leak can reach below: none from a basement. 2nd floor and up
+// default to "yes" — the user's call (2026-11-03) that an upper-floor leak
+// almost always reaches the ceiling below.
+const aiFloorNumber = (floor?: string): number | null => {
+  const text = (floor || '').toLowerCase();
+  if (/basement|cellar|lower level/.test(text)) return 0;
+  const match = text.match(/\d+/);
+  return match ? parseInt(match[0], 10) : null;
 };
 
 // Before/after repair photos for the AI generator only — sent with the
@@ -797,7 +827,13 @@ const PlumberReportCreation: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleAiFormValuesChange = useCallback(() => {
+  const handleAiFormValuesChange = useCallback((changed: Record<string, unknown>) => {
+    // Picking a floor sets the floor-below answer to its usual value; the
+    // technician can still flip it. setFieldsValue doesn't re-fire this.
+    if ('floor' in changed) {
+      const floorNumber = aiFloorNumber(changed.floor as string);
+      aiForm.setFieldsValue({ reached_floor_below: floorNumber !== null && floorNumber >= 2 });
+    }
     try {
       localStorage.setItem(aiFormStorageKey, JSON.stringify(aiForm.getFieldsValue()));
     } catch (error) {
@@ -920,18 +956,17 @@ const PlumberReportCreation: React.FC = () => {
       }
 
       setAiGenerating(true);
-      setAiStep('Step 1/2: Analyzing scope & writing assessment...');
+      setAiStep("Working out the repair, then writing the plumber's part as the report and invoice...");
 
       const data = await plumberReportService.generateAI({
-        incident_type: values.incident_type,
-        location: values.location,
-        wall_access_type: values.wall_access_type,
+        floor: values.floor,
+        room: (values.room || '').trim(),
+        fixture: (values.fixture || '').trim(),
+        component: (values.component || '').trim(),
         pipe_material: values.pipe_material || '',
+        // No floor below a basement; the question is hidden there
+        reached_floor_below: aiFloorNumber(values.floor) !== 0 && values.reached_floor_below === true,
         state: resolvedAiState,
-        detached_fixture: values.detached_fixture || '',
-        fixture_reinstalled: values.fixture_reinstalled !== false,
-        affected_areas: values.affected_areas || '',
-        how_noticed: values.how_noticed || '',
         photos: aiPhotos.map(({ url, category, caption }) => ({ url, category, caption })),
       });
 
@@ -960,7 +995,9 @@ const PlumberReportCreation: React.FC = () => {
       if (data.notes) setNotes(data.notes);
 
       setAiGenerateModalVisible(false);
-      message.success('AI report generated (2-step: scope → invoice)');
+      message.success(
+        `AI report generated from ${data.repair_plan?.plumber_steps?.length ?? 0} plumber steps — review it before saving`
+      );
     } catch (error: any) {
       if (error?.errorFields) return; // form validation error
       console.error('[AI Generate] failed:', error);
@@ -1903,7 +1940,7 @@ const PlumberReportCreation: React.FC = () => {
           </div>
         )}
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          Fill in the details below — AI will infer everything else (failed component, hours, materials, and a fully priced invoice, including a detach &amp; reset charge if a fixture was removed) in 2 steps: (1) assess scope &amp; write findings, then (2) build invoice from the work performed.
+          Enter where the leak came from. AI works out how it gets repaired across every trade, keeps only the plumber&apos;s part (access, repair, test, temporary seal — not drying or rebuilding), and writes the report and a priced invoice from it.
         </Typography.Text>
         <Typography.Text type={resolvedAiState ? 'secondary' : 'danger'} style={{ display: 'block', marginBottom: 16 }}>
           {resolvedAiState
@@ -1911,20 +1948,47 @@ const PlumberReportCreation: React.FC = () => {
             : 'No valid State (MD, VA, or DC) found on the client/property address — fill that in before generating, it determines the materials tax calculation.'}
         </Typography.Text>
         <Form form={aiForm} layout="vertical" onValuesChange={handleAiFormValuesChange}>
-          <Form.Item
-            name="incident_type"
-            label="What Was the Problem?"
-            rules={[{ required: true, message: 'Please describe the problem' }]}
-          >
-            <Input placeholder="e.g. burst supply line, failed mixing valve, cracked flex connector" />
-          </Form.Item>
-          <Form.Item
-            name="how_noticed"
-            label="How Was the Problem Noticed? (optional)"
-            extra="What made the homeowner call. The report gives it as the reason the wall was opened."
-          >
-            <Input placeholder="e.g. stain on the ceiling below, low water pressure, sound of running water in the wall" />
-          </Form.Item>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+            Source of Damage
+          </Typography.Text>
+          <Row gutter={12}>
+            <Col xs={24} sm={10}>
+              <Form.Item
+                name="floor"
+                label="Floor"
+                rules={[{ required: true, message: 'Pick the floor' }]}
+              >
+                <Select placeholder="Select floor" options={AI_FLOOR_OPTIONS.map((value) => ({ value, label: value }))} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={14}>
+              <Form.Item
+                name="room"
+                label="Room"
+                rules={[{ required: true, whitespace: true, message: 'Enter the room' }]}
+              >
+                <AutoComplete options={AI_ROOM_OPTIONS} filterOption={filterSuggestions} placeholder="e.g. master bathroom" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="fixture"
+                label="Fixture"
+                rules={[{ required: true, whitespace: true, message: 'Enter the fixture' }]}
+              >
+                <AutoComplete options={AI_FIXTURE_OPTIONS} filterOption={filterSuggestions} placeholder="e.g. shower, kitchen sink" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="component"
+                label="Leaking Part"
+                rules={[{ required: true, whitespace: true, message: 'Enter what leaked' }]}
+              >
+                <AutoComplete options={AI_COMPONENT_OPTIONS} filterOption={filterSuggestions} placeholder="e.g. water line, valve, drain" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item
             name="pipe_material"
             label="Pipe Material (optional)"
@@ -1939,49 +2003,23 @@ const PlumberReportCreation: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item
-            name="wall_access_type"
-            label="What Part Was Opened / Torn Out?"
-            rules={[{ required: true, message: 'Please describe what was opened to access the issue' }]}
-          >
-            <Input placeholder="e.g. drywall behind vanity, ceiling below bathroom, under-sink cabinet panel" />
-          </Form.Item>
-          <Form.Item
-            name="location"
-            label="Water Damage Source Location"
-            rules={[{ required: true, message: 'Please enter the location' }]}
-          >
-            <Input placeholder="e.g. 2nd floor master bathroom shower, kitchen sink, basement" />
-          </Form.Item>
-          <Form.Item
-            name="affected_areas"
-            label="Did Water Reach Other Areas? (optional)"
-            extra={'List every floor/room the water reached below or next to the source. Left blank on a 2nd-floor-or-higher leak, the ceiling directly below is recorded — type "none" if the water stayed on that floor.'}
-          >
-            <Input placeholder="e.g. 1st floor kitchen ceiling, basement family room" />
-          </Form.Item>
-          <Form.Item
-            name="detached_fixture"
-            label="Fixture Detached to Access the Area? (optional)"
-          >
-            <Input placeholder="e.g. toilet, vanity, dishwasher — not the tile or drywall that was cut; leave blank if none" />
-          </Form.Item>
-          <Form.Item
             noStyle
-            shouldUpdate={(prev, cur) => prev.detached_fixture !== cur.detached_fixture}
+            shouldUpdate={(prev, cur) => prev.floor !== cur.floor}
           >
             {({ getFieldValue }) =>
-              (getFieldValue('detached_fixture') || '').trim() ? (
+              aiFloorNumber(getFieldValue('floor')) === 0 ? null : (
                 <Form.Item
-                  name="fixture_reinstalled"
-                  valuePropName="checked"
-                  initialValue={true}
+                  name="reached_floor_below"
+                  label="Did the Water Reach the Floor Below?"
+                  rules={[{ required: true, message: 'Answer yes or no' }]}
+                  extra="Yes records fresh staining on the ceiling directly below the source. Set to Yes for the 2nd floor and up — change it if the water stayed on that floor."
                 >
-                  <Checkbox>
-                    Reinstalled by this technician (uncheck if it will be replaced or
-                    reinstalled by someone else)
-                  </Checkbox>
+                  <Radio.Group>
+                    <Radio value={true}>Yes</Radio>
+                    <Radio value={false}>No</Radio>
+                  </Radio.Group>
                 </Form.Item>
-              ) : null
+              )
             }
           </Form.Item>
         </Form>
