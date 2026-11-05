@@ -128,6 +128,7 @@ import {
   CONTRACTOR_ESTIMATE_STAGE_LABELS,
   WM_COST_STATUS_LABELS,
   allAdjusterEmails,
+  isRebuildEstimate,
 } from '../types/client';
 import RebuildEstimateCompanySelect from '../components/claim-followup/RebuildEstimateCompanySelect';
 import AdditionalAdjustersFields from '../components/common/AdditionalAdjustersFields';
@@ -2059,7 +2060,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
                 okText="Move back"
                 cancelText="Cancel"
                 onConfirm={() => appraisalMutation.mutate({
-                  status: negotiations.length > 0 ? 'negotiating' : 'open',
+                  status: negotiations.some(isRebuildEstimate) ? 'negotiating' : 'open',
                   appraisal_date: null,
                 })}
               >
@@ -2398,8 +2399,8 @@ const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => vo
         {
           key: 'est',
           label: 'Estimate',
-          // Any revision in the negotiation history is a carrier estimate
-          value: (claim.insurance_estimate_received || (claim.negotiations?.length ?? 0) > 0)
+          // A revision in the negotiation history is a carrier estimate, unless WM only
+          value: (claim.insurance_estimate_received || (claim.negotiations ?? []).some(isRebuildEstimate))
             ? <Pill tone="green" icon={<CheckCircleOutlined />}>Received</Pill>
             : <Pill tone="orange">Not received</Pill>,
         },

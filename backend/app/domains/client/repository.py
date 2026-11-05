@@ -593,9 +593,10 @@ class ClaimNegotiationSQLAlchemyRepository(SQLAlchemyRepository):
             # Create negotiation
             result = self.create(negotiation_data)
 
-            # Update claim's current amounts
+            # Update claim's current amounts. A WM-only estimate is not the
+            # rebuild estimate those amounts and the status describe.
             claim = self.db_session.query(Claim).filter(Claim.id == claim_id).first()
-            if claim:
+            if claim and category != 'water_mitigation':
                 claim.current_acv = negotiation_data.get('acv_amount', 0)
                 claim.current_rcv = negotiation_data.get('rcv_amount', 0)
                 claim.current_depreciation = negotiation_data.get('depreciation_amount', 0)
@@ -629,9 +630,15 @@ class ClaimNegotiationSQLAlchemyRepository(SQLAlchemyRepository):
         """Point the claim's current amounts at its most recently added
         revision, the one create_and_update_claim set them from. Called after
         a revision is edited or deleted so the claim doesn't keep stale
-        figures. Leaves the claim alone when no revision is left."""
+        figures. Leaves the claim alone when no revision is left. WM-only
+        revisions never set those figures, so they are skipped here too."""
+        from sqlalchemy import or_
         latest = self.db_session.query(ClaimNegotiation).filter(
-            ClaimNegotiation.claim_id == claim_id
+            ClaimNegotiation.claim_id == claim_id,
+            or_(
+                ClaimNegotiation.estimate_category.is_(None),
+                ClaimNegotiation.estimate_category != 'water_mitigation',
+            ),
         ).order_by(ClaimNegotiation.created_at.desc()).first()
         claim = self.db_session.query(Claim).filter(Claim.id == claim_id).first()
         if not latest or not claim:

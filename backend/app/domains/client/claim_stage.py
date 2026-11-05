@@ -98,6 +98,7 @@ class StageFacts:
     supplements: Dict[str, Tuple[str, Optional[str]]] = field(default_factory=dict)
     # supplement_id -> bid item statuses
     bids: Dict[str, List[str]] = field(default_factory=dict)
+    # Revision types of the rebuild estimates; WM-only estimates left out
     revision_types: Set[str] = field(default_factory=set)
     depreciation_paid: bool = False
     # When each open supplement_estimate_prep task was opened
@@ -120,10 +121,57 @@ def _get(claim: Any, name: str) -> Any:
     return getattr(claim, name, None)
 
 
+def is_rebuild_estimate(estimate_category: Optional[str], extraction_metadata: Any) -> bool:
+    """Whether an estimate revision is the carrier's rebuild estimate. A WM-only
+    estimate, typed in or uploaded on the WM job, is not: the carrier can pay
+    the WM before it has written the rebuild. The WM job's combined upload is,
+    since that PDF covered the rebuild too."""
+    if estimate_category != 'water_mitigation':
+        return True
+    return isinstance(extraction_metadata, dict) and bool(extraction_metadata.get('is_combined'))
+
+
+def rebuild_estimate_revisions(session, claim_ids: Iterable[Any]) -> Dict[str, Set[str]]:
+    """{claim_id: revision types} of the rebuild estimates on these claims;
+    claims without one are left out"""
+    from sqlalchemy import or_
+
+    from app.domains.client.models import ClaimNegotiation
+
+    ids = [str(c) for c in claim_ids if c]
+    found: Dict[str, Set[str]] = {}
+    if not ids:
+        return found
+
+    for claim_id, revision_type in session.query(
+        ClaimNegotiation.claim_id, ClaimNegotiation.revision_type
+    ).filter(
+        ClaimNegotiation.claim_id.in_(ids),
+        or_(
+            ClaimNegotiation.estimate_category.is_(None),
+            ClaimNegotiation.estimate_category != 'water_mitigation',
+        ),
+    ).distinct().all():
+        found.setdefault(str(claim_id), set()).add(revision_type)
+
+    # WM rows are few; only their metadata tells a combined upload apart
+    for claim_id, revision_type, metadata in session.query(
+        ClaimNegotiation.claim_id, ClaimNegotiation.revision_type,
+        ClaimNegotiation.extraction_metadata,
+    ).filter(
+        ClaimNegotiation.claim_id.in_(ids),
+        ClaimNegotiation.estimate_category == 'water_mitigation',
+    ).all():
+        if is_rebuild_estimate('water_mitigation', metadata):
+            found.setdefault(str(claim_id), set()).add(revision_type)
+
+    return found
+
+
 def load_stage_facts(session, claim_ids: Iterable[Any]) -> Dict[str, StageFacts]:
     """{claim_id: StageFacts} for the given claims, one query per record kind"""
     from app.domains.claim_followup.models import FollowUpTask
-    from app.domains.client.models import ClaimNegotiation, ClaimPayment
+    from app.domains.client.models import ClaimPayment
     from app.domains.supplement.models import BidItemEstimate, SupplementRequest
     from app.domains.water_mitigation.models import WaterMitigationJob
 
@@ -168,10 +216,8 @@ def load_stage_facts(session, claim_ids: Iterable[Any]) -> Dict[str, StageFacts]
             claim_facts = facts[supplement_claims[str(supp_id)]]
             claim_facts.bids.setdefault(str(supp_id), []).append(status)
 
-    for claim_id, revision_type in session.query(
-        ClaimNegotiation.claim_id, ClaimNegotiation.revision_type
-    ).filter(ClaimNegotiation.claim_id.in_(ids)).distinct().all():
-        facts[str(claim_id)].revision_types.add(revision_type)
+    for claim_id, revision_types in rebuild_estimate_revisions(session, ids).items():
+        facts[claim_id].revision_types |= revision_types
 
     for (claim_id,) in session.query(ClaimPayment.claim_id).filter(
         ClaimPayment.claim_id.in_(ids),
@@ -314,7 +360,9 @@ def _before_estimate(claim: Any, facts: StageFacts) -> Tuple[str, str]:
         return 'mitigation', 'Lead'
     if not docs_sent and level == 2:
         return 'wm_docs', 'Preparing WM docs'
-    if _get(claim, 'wm_cost_status') == 'paid_per_invoice':
+    # WM settled (paid per our invoice, or its own estimate is in): only the
+    # rebuild estimate is still to come
+    if _get(claim, 'wm_cost_status') == 'paid_per_invoice' or _get(claim, 'wm_estimate_amount'):
         return 'awaiting_estimate', 'Awaiting rebuild estimate'
     return 'awaiting_estimate', ('WM docs sent' if (docs_sent or levels) else '')
 

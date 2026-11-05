@@ -69,9 +69,19 @@ export interface ClaimNegotiation {
   file_download_id?: string;
   sections_data?: NegotiationSection[];
   extraction_status?: string;
+  /** is_combined: uploaded on the WM job from a PDF that covered the rebuild too */
+  extraction_metadata?: { is_combined?: boolean } | null;
   created_at?: string;
   updated_at?: string;
 }
+
+/**
+ * Whether a revision is the carrier's rebuild estimate. A WM-only estimate is
+ * not: the carrier can pay the WM before it writes the rebuild. Same rule as
+ * is_rebuild_estimate in backend claim_stage.py.
+ */
+export const isRebuildEstimate = (n: ClaimNegotiation): boolean =>
+  n.estimate_category !== 'water_mitigation' || !!n.extraction_metadata?.is_combined;
 
 /**
  * Which part of the loss an insurance estimate covers. Revision numbering is

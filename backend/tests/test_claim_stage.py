@@ -19,8 +19,10 @@ from app.core import database_factory  # noqa: E402
 from app.core.database_factory import Base, SQLiteDatabase  # noqa: E402
 from app.domains.auth.dependencies import get_current_staff  # noqa: E402
 from app.domains.claim_followup.models import FollowUpTask  # noqa: E402
-from app.domains.client.claim_stage import StageFacts, claim_stage, derive_stage  # noqa: E402
-from app.domains.client.models import Claim, ClaimPayment, Client  # noqa: E402
+from app.domains.client.claim_stage import (  # noqa: E402
+    StageFacts, claim_stage, derive_stage, is_rebuild_estimate, rebuild_estimate_revisions,
+)
+from app.domains.client.models import Claim, ClaimNegotiation, ClaimPayment, Client  # noqa: E402
 from app.domains.staff.models import StaffRole  # noqa: E402
 from app.domains.supplement.models import BidItemEstimate, SupplementRequest  # noqa: E402
 from app.domains.water_mitigation.models import WaterMitigationJob  # noqa: E402
@@ -319,6 +321,72 @@ def test_a_stage_set_by_hand_and_handed_back(env):
     claim_row = api.get(f'/api/clients/{lee_id}/claims').json()['claims'][0]
     assert claim_row['stage_override'] is None
     assert (claim_row['stage'], claim_row['stage_source']) == ('wm_docs', 'auto')
+
+
+def test_a_wm_only_estimate_is_not_the_rebuild_estimate(env):
+    """The carrier pays the WM off our WM estimate before it writes the rebuild:
+    the claim keeps waiting on the rebuild estimate"""
+    api, database = env
+    session = database.get_session()
+    park = Client(display_name='Park Client', owners=[])
+    session.add(park)
+    session.flush()
+    waiting = Claim(client_id=park.id, claim_number='C-7', status='open',
+                    wm_cost_status='separate_estimate')
+    session.add(waiting)
+    session.flush()
+    session.add(WaterMitigationJob(property_address='7 Pine St', status='Payment on the way',
+                                   claim_id=waiting.id))
+    # Typed in on the WM job's comparison card
+    session.add(ClaimNegotiation(claim_id=waiting.id, revision_number=1, revision_type='initial',
+                                 estimate_category='water_mitigation', rcv_amount=6611.88,
+                                 extraction_metadata={'source': 'wm_job_manual', 'is_manual': True}))
+    session.commit()
+    park_id, claim_id = str(park.id), str(waiting.id)
+    session.close()
+
+    row = api.get('/api/clients/').json()['clients'][0]
+    assert (row['claim_stage'], row['claim_stage_detail']) == ('awaiting_estimate', 'WM docs sent')
+    assert rebuild_estimate_revisions(database.get_session(), [claim_id]) == {}
+    # The WM job's card also keeps the amount on the claim: the WM is settled
+    session = database.get_session()
+    session.query(Claim).filter(Claim.id == claim_id).one().wm_estimate_amount = 6611.88
+    session.commit()
+    session.close()
+    row = api.get('/api/clients/').json()['clients'][0]
+    assert (row['claim_stage'], row['claim_stage_detail']) == ('awaiting_estimate', 'Awaiting rebuild estimate')
+
+    # A WM revision added on the claim page leaves the rebuild figures alone
+    path = f'/api/clients/{park_id}/claims/{claim_id}'
+    response = api.post(f'{path}/negotiations', json={
+        'claim_id': claim_id, 'revision_type': 'supplement', 'estimate_category': 'water_mitigation',
+        'acv_amount': 7000, 'rcv_amount': 7000,
+    })
+    assert response.status_code == 200, response.text
+    detail = api.get(path).json()
+    assert (detail['stage'], detail['status'], detail['insurance_estimate_received'],
+            float(detail['current_rcv'] or 0)) == ('awaiting_estimate', 'open', False, 0)
+    session = database.get_session()
+    assert session.query(SupplementRequest).count() == 0
+    assert session.query(FollowUpTask).filter(
+        FollowUpTask.task_type == 'supplement_estimate_prep').count() == 0
+
+    # Uploaded on the WM job from a PDF that covered the rebuild too
+    session.add(ClaimNegotiation(claim_id=claim_id, revision_number=3, revision_type='supplement',
+                                 estimate_category='water_mitigation', rcv_amount=7000,
+                                 extraction_metadata={'source': 'wm_job_upload', 'is_combined': True}))
+    session.commit()
+    session.close()
+    assert api.get(path).json()['stage'] == 'supplement_prep'
+
+
+def test_the_rebuild_estimate_counts_whatever_its_category():
+    assert is_rebuild_estimate(None, None)
+    assert is_rebuild_estimate('reconstruction', None)
+    assert is_rebuild_estimate('combined', None)
+    assert not is_rebuild_estimate('water_mitigation', None)
+    assert not is_rebuild_estimate('water_mitigation', {'is_manual': True})
+    assert is_rebuild_estimate('water_mitigation', {'is_combined': True})
 
 
 def test_depreciation_paid_shows_settlement(env):

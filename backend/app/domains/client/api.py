@@ -783,7 +783,10 @@ def add_negotiation(
         neg_dict['claim_id'] = claim_id
         result = service.add_negotiation(neg_dict)
 
-        # Auto-create supplement for review (single session to prevent race conditions)
+        # Auto-create supplement for review (single session to prevent race conditions).
+        # A WM-only estimate is not the rebuild estimate a supplement answers.
+        if neg_dict.get('estimate_category') == 'water_mitigation':
+            return result
         try:
             from app.domains.claim_followup.service import ClaimFollowUpService
             from app.domains.client.models import Claim

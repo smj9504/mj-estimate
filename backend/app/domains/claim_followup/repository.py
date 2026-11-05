@@ -116,15 +116,11 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         negotiation_claim_ids: set = set()
         if claim_ids:
             try:
-                from app.domains.client.models import ClaimNegotiation
-                neg_rows = self.db_session.query(
-                    ClaimNegotiation.claim_id
-                ).filter(
-                    ClaimNegotiation.claim_id.in_(claim_ids)
-                ).distinct().all()
-                negotiation_claim_ids = {
-                    str(r[0]) for r in neg_rows
-                }
+                # A WM-only estimate is not the rebuild estimate
+                from app.domains.client.claim_stage import rebuild_estimate_revisions
+                negotiation_claim_ids = set(
+                    rebuild_estimate_revisions(self.db_session, claim_ids)
+                )
             except Exception:
                 pass
             try:
