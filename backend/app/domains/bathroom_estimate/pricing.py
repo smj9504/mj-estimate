@@ -711,6 +711,10 @@ PAINT_GRADE_MULTIPLIER = {
     "premium": 1.30,                  # Sherwin Cashmere, BM Aura
 }
 
+# Bathroom walls and ceilings always take moisture-resistant (mildew-resistant
+# bath) paint: this premium goes on top of the chosen grade
+MOISTURE_RESISTANT_PAINT_MULT = 1.20
+
 # 2026-08-26: +6% (Tier B)
 BASEBOARD_PRICES = {
     # Material + install per LF

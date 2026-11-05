@@ -25,6 +25,7 @@ from .pricing import (
     HIDDEN_COSTS,
     MIRROR_INSTALL,
     MIRROR_PRICES,
+    MOISTURE_RESISTANT_PAINT_MULT,
     PAINT_GRADE_MULTIPLIER,
     PAINT_PREP,
     PAINT_RATES,
@@ -2229,6 +2230,9 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     wall_finish = walls.get("wall_finish", "paint" if walls.get("paint_walls") else None)
     paint_ceiling = walls.get("paint_ceiling", False)
     pg_mult = PAINT_GRADE_MULTIPLIER.get(paint_grade, 1.0) if paint_grade else 1.0
+    # Walls and ceilings in a bathroom are always moisture-resistant paint
+    wc_paint_rate_mult = pg_mult * MOISTURE_RESISTANT_PAINT_MULT * labor_mult
+    wc_paint_grade = f"moisture-resistant, {paint_grade} grade"
     do_paint = wall_finish in ("paint", "paint_and_tile")
     do_tile_walls = wall_finish in ("tile", "paint_and_tile")
 
@@ -2311,9 +2315,9 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 parts.append(f"= Paintable {paint_wall_sf:.0f} SF")
                 deduct_note = " | ".join(parts)
             _add(line_items, 6,
-                 f"Wall painting ({paint_grade} grade)",
+                 f"Wall painting ({wc_paint_grade})",
                  paint_wall_sf, "SF",
-                 PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
+                 PAINT_RATES["wall_per_sf"] * wc_paint_rate_mult,
                  "finish", notes=deduct_note)
             _wall_paint_added = True
 
@@ -2376,9 +2380,9 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     full_paint_wall_sf = walls.get("full_paint_wall_sf", 0) or 0
     if full_paint_wall_sf > 0 and paint_grade:
         _add(line_items, 6,
-             f"Wall painting, 2 coats ({paint_grade} grade)",
+             f"Wall painting, 2 coats ({wc_paint_grade})",
              round(full_paint_wall_sf, 1), "SF",
-             PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
+             PAINT_RATES["wall_per_sf"] * wc_paint_rate_mult,
              "finish",
              notes="Full wall paint (excl. tub/shower areas)"
                    " — required when any wall drywall repair")
@@ -2386,35 +2390,27 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     elif do_paint and paint_grade and wall_sf > 0 and not _wall_paint_added:
         # Fallback: no drywall repair, no deduction paint — use wall_sf directly
         _add(line_items, 6,
-             f"Wall painting ({paint_grade} grade)",
+             f"Wall painting ({wc_paint_grade})",
              wall_sf, "SF",
-             PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
+             PAINT_RATES["wall_per_sf"] * wc_paint_rate_mult,
              "finish")
 
     # ── Ceiling painting ──
     full_paint_ceil_sf = walls.get("full_paint_ceiling_sf", 0) or 0
     if full_paint_ceil_sf > 0 and paint_grade:
         _add(line_items, 6,
-             f"Ceiling painting, 2 coats ({paint_grade} grade)",
+             f"Ceiling painting, 2 coats ({wc_paint_grade})",
              round(full_paint_ceil_sf, 1), "SF",
-             PAINT_RATES["ceiling_per_sf"] * pg_mult * labor_mult,
+             PAINT_RATES["ceiling_per_sf"] * wc_paint_rate_mult,
              "finish",
              notes="Full ceiling paint"
                    " — required when any ceiling drywall repair")
     elif paint_ceiling and paint_grade and floor_sf > 0:
-        _moisture = (estimate.water_damage
-                     or estimate.mold_suspected)
-        _ceil_mult = 1.20 if _moisture else 1.0
-        _ceil_label = ("moisture-resistant"
-                       if _moisture else paint_grade)
         _add(line_items, 6,
-             f"Ceiling painting ({_ceil_label} grade)",
+             f"Ceiling painting ({wc_paint_grade})",
              floor_sf, "SF",
-             PAINT_RATES["ceiling_per_sf"]
-             * pg_mult * _ceil_mult * labor_mult,
-             "finish",
-             notes=("Moisture-resistant paint per code"
-                    " for wet area" if _moisture else None))
+             PAINT_RATES["ceiling_per_sf"] * wc_paint_rate_mult,
+             "finish")
 
     # ── Door/window trim paint ──
     _door_trim = walls.get("door_trim_count", 0) or 0
