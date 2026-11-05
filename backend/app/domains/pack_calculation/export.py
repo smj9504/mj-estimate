@@ -11,7 +11,7 @@ Original source: moving_estimate moving-estimator-backend export service
 import io
 import re
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 import random
 import string
 from xml.sax.saxutils import escape as _esc
@@ -672,6 +672,52 @@ def _section_details_to_line_items(
 # PDF EXPORT - EXACT SOS FORMAT
 # ============================================
 
+_FLOOR_ORDER = ('basement', '1st', '2nd', '3rd', '4th+')
+_FLOOR_LABEL = {
+    'basement': 'Basement', '1st': '1st Floor', '2nd': '2nd Floor',
+    '3rd': '3rd Floor', '4th+': '4th Floor+',
+}
+# pack_rooms.floor_level -> the floor as the builder names it
+_FLOOR_FROM_LEVEL = {
+    'BASEMENT': 'basement', 'MAIN_LEVEL': '1st', 'SECOND_FLOOR': '2nd',
+    'THIRD_FLOOR': '3rd', 'FOURTH_FLOOR': '4th+', 'FIFTH_FLOOR_PLUS': '4th+',
+}
+
+
+def estimate_locations(calc) -> List[Tuple[Optional[str], str]]:
+    """(floor, room name) for each room a saved estimate packs, in the builder's
+    order. Room summaries keep the order, and the floor since it was added; a
+    Photo AI estimate's rooms have kept their floor all along."""
+    floors: Dict[str, Optional[str]] = {}
+    for room in calc.rooms or []:
+        level = getattr(room.floor_level, 'value', room.floor_level)
+        floors.setdefault(room.room_name, _FLOOR_FROM_LEVEL.get(level))
+    summaries = [s for s in (calc.room_summaries or []) if s.get('room_name')]
+    if summaries:
+        return [(s.get('floor') or floors.get(s['room_name']), s['room_name']) for s in summaries]
+    return [(floor, name) for name, floor in floors.items()]
+
+
+def _locations_by_floor(locations: List[Tuple[Optional[str], str]]) -> List[Tuple[str, str]]:
+    """Each floor's label and its rooms, basement up; rooms without a floor last.
+    Rooms of the same name on a floor (a quick estimate's presets) are counted."""
+    by_floor: Dict[Optional[str], List[str]] = {}
+    for floor, name in locations:
+        by_floor.setdefault(floor if floor in _FLOOR_LABEL else None, []).append(name)
+    lines = []
+    for floor in (*_FLOOR_ORDER, None):
+        names = by_floor.get(floor)
+        if not names:
+            continue
+        counts: Dict[str, int] = {}
+        for name in names:
+            counts[name] = counts.get(name, 0) + 1
+        rooms = ', '.join(name if n == 1 else f"{name} x{n}" for name, n in counts.items())
+        label = _FLOOR_LABEL[floor] if floor else ('Rooms' if len(by_floor) == 1 else 'Other')
+        lines.append((label, rooms))
+    return lines
+
+
 def generate_estimate_pdf(
     estimate_data: Dict[str, Any],
     client_name: Optional[str] = None,
@@ -682,10 +728,15 @@ def generate_estimate_pdf(
     company_info: Optional[Dict] = None,
     estimate_number: Optional[str] = None,
     tax_rate: float = 0,
-    area_breakdown: Optional[str] = None,
+    locations: Optional[List[Tuple[Optional[str], str]]] = None,
     prices: Optional[Dict[str, float]] = None,
 ) -> bytes:
-    """Generate professional PDF estimate matching SOS Moving format exactly"""
+    """Generate professional PDF estimate matching SOS Moving format exactly.
+
+    locations: (floor, room name) for each room packed, floor as basement /
+    1st / 2nd / 3rd / 4th+ or None when the estimate didn't keep it; listed
+    by floor under the project description.
+    """
 
     if not estimate_number:
         estimate_number = generate_estimate_number()
@@ -878,44 +929,16 @@ Estimate date: {estimate_date}</font>""",
         description = """Complete contents pack-out of a water-damaged residential property. Inventory and condition documentation, professional packing and wrapping, furniture disassembly, appliance preparation, transport to climate-controlled storage, and pack-back with reassembly upon restoration completion."""
     story.append(Paragraph(description, style_small))
 
-    # Room breakdown by floor — includes size/density when AI rooms are available,
-    # falls back to free-text area_breakdown for quick-estimate path.
-    _FLOOR_ORDER = ['basement', '1st', '2nd', '3rd', '4th+']
-    _FLOOR_LABEL = {
-        'basement': 'Basement', '1st': '1st Floor',
-        '2nd': '2nd Floor', '3rd': '3rd Floor', '4th+': '4th Floor+',
-    }
-    _SIZE_LABEL    = {'small': 'Small', 'large': 'Large', 'xlarge': 'X-Large'}
-    _DENSITY_LABEL = {'light': 'Light', 'normal': 'Normal', 'dense': 'Dense',
-                      'heavy': 'Heavy', 'extreme': 'Extreme'}
-
-    ai_rooms = estimate_data.get('ai_rooms', [])
-    if ai_rooms:
-        by_floor: dict = {}
-        for r in ai_rooms:
-            fl = (r.get('floor') or '1st').lower()
-            name = r.get('room_name') or r.get('name', 'Room')
-            size = _SIZE_LABEL.get(r.get('room_size') or r.get('roomSize') or 'large', 'Large')
-            density = _DENSITY_LABEL.get(r.get('density') or 'normal', 'Normal')
-            by_floor.setdefault(fl, []).append(f"{name} ({size} / {density})")
-        if by_floor:
-            story.append(Spacer(1, 0.1*inch))
-            story.append(Paragraph("<b>Room Breakdown by Floor</b>", style_bold))
-            for fl in _FLOOR_ORDER:
-                if fl not in by_floor:
-                    continue
-                label = _FLOOR_LABEL.get(fl, fl.title())
-                names = ',  '.join(by_floor[fl])
-                story.append(Paragraph(f"<b>{label}:</b>  {names}", style_small))
-            story.append(Spacer(1, 0.05*inch))
-    elif area_breakdown:
-        # Quick-estimate fallback: no AI rooms, show free-text breakdown
+    # Where the work is: the estimate's rooms, by floor
+    if locations:
+        heading = (
+            "Pack-Out / Pack-In Locations"
+            if estimate_data.get('include_packback', True) else "Pack-Out Locations"
+        )
         story.append(Spacer(1, 0.1*inch))
-        story.append(Paragraph("<b>Area Breakdown</b>", style_bold))
-        story.append(Paragraph(
-            area_breakdown.replace('\n\n', '<br/><br/>').replace('\n', '<br/>'),
-            style_small,
-        ))
+        story.append(Paragraph(f"<b>{heading}</b>", style_bold))
+        for label, names in _locations_by_floor(locations):
+            story.append(Paragraph(f"<b>{_esc(label)}:</b>  {_esc(names)}", style_small))
 
     story.append(Spacer(1, 0.15*inch))
 
@@ -1147,6 +1170,7 @@ def saved_estimate_pdf(calc) -> bytes:
         property_address=calc.project_address,
         notes=calc.notes,
         company_info=build_company_info(calc.company) if calc.company else None,
+        locations=estimate_locations(calc),
     )
 
 

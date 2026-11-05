@@ -210,6 +210,73 @@ def test_supplement_attachments_use_the_same_pdf(env):
     assert 'Pack & Move Co' in text and 'Pat & Sam Client' in text and '555-0199' in text
 
 
+def test_the_pdf_lists_the_rooms_packed_by_floor(env):
+    api, database, tmp_path = env
+    ids, _ = _seed(database, tmp_path)
+    calc_id = _photo_estimate(api, ids, rooms=[
+        {'room_name': 'Master Bedroom', 'floor': '2nd', 'items': [_item('Dresser')]},
+        {'room_name': 'Kitchen', 'floor': '1st', 'items': [_item('Dining table')]},
+        {'room_name': 'Rec Room', 'floor': 'basement', 'items': [_item('Sofa')]},
+        {'room_name': 'Den', 'floor': '1st', 'items': [_item('Desk')]},
+    ])
+
+    text = _text(_pdf(api.get(f"{BASE}/{calc_id}/export/pdf")))
+    assert 'Pack-Out / Pack-In Locations' in text
+    basement = text.index('Basement: Rec Room')
+    first = text.index('1st Floor: Kitchen, Den')
+    second = text.index('2nd Floor: Master Bedroom')
+    # Under the description, basement up, before the line items
+    assert text.index('upon restoration completion') < basement < first < second < text.index('Pack-Out Labor')
+
+
+def test_an_estimate_saved_before_summaries_kept_the_floor_still_lists_it(env):
+    """Photo AI rooms kept their floor all along; older summaries don't have it"""
+    from app.domains.pack_calculation.export import estimate_locations
+    from app.domains.pack_calculation.models import PackCalculation
+
+    api, database, tmp_path = env
+    ids, _ = _seed(database, tmp_path)
+    calc_id = _photo_estimate(api, ids, rooms=[
+        {'room_name': 'Kitchen', 'floor': '1st', 'items': [_item('Dining table')]},
+        {'room_name': 'Rec Room', 'floor': 'basement', 'items': [_item('Sofa')]},
+    ])
+    s = database.get_session()
+    calc = s.query(PackCalculation).filter(PackCalculation.id == calc_id).first()
+    calc.room_summaries = [{k: v for k, v in r.items() if k != 'floor'} for r in calc.room_summaries]
+    s.commit()
+    calc = s.query(PackCalculation).filter(PackCalculation.id == calc_id).first()
+    assert estimate_locations(calc) == [('1st', 'Kitchen'), ('basement', 'Rec Room')]
+    s.close()
+
+
+def test_a_quick_estimate_lists_its_rooms_and_says_pack_out_only_without_pack_back(env):
+    api, database, tmp_path = env
+    ids, _ = _seed(database, tmp_path)
+    resp = api.post(f"{BASE}/quick-estimate", json={
+        'company_id': ids.company, 'include_packback': False,
+        'rooms': [
+            {'preset': 'bedroom_standard', 'floor': '2nd'},
+            {'preset': 'bedroom_standard', 'floor': '2nd'},
+            {'preset': 'living_standard', 'floor': '1st'},
+        ],
+    })
+    assert resp.status_code == 200, resp.text
+    names = {s['floor']: s['room_name'] for s in resp.json()['room_summaries']}
+
+    text = _text(_pdf(api.get(f"{BASE}/{resp.json()['id']}/export/pdf")))
+    assert 'Pack-Out Locations' in text and 'Pack-Out / Pack-In Locations' not in text
+    assert f"1st Floor: {names['1st']}" in text
+    assert f"2nd Floor: {names['2nd']} x2" in text
+
+
+def test_rooms_without_a_floor_are_listed_as_rooms():
+    from app.domains.pack_calculation.export import _locations_by_floor
+
+    assert _locations_by_floor([(None, 'Bedroom'), (None, 'Kitchen')]) == [('Rooms', 'Bedroom, Kitchen')]
+    assert _locations_by_floor([('1st', 'Kitchen'), (None, 'Shed')]) == [
+        ('1st Floor', 'Kitchen'), ('Other', 'Shed')]
+
+
 # ── Report ────────────────────────────────────
 
 def test_the_report_offers_each_rooms_items_and_photos(env):

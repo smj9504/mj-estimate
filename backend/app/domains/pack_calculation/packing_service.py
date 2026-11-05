@@ -306,6 +306,12 @@ NOTABLE_CATEGORIES = {
 }
 
 
+def _floor_key(floor) -> Optional[str]:
+    """A room's floor as its schema value ('1st'), from the enum or the string"""
+    value = getattr(floor, "value", floor)
+    return str(value) if value else None
+
+
 def snap_to_storage_unit(raw_sf: float) -> int:
     """Snap raw SF to the nearest standard self-storage unit size.
     Always rounds UP to the next available unit. Returns 0 if no storage needed."""
@@ -891,6 +897,7 @@ class EstimateCalculator:
 
             summaries.append(RoomItemSummary(
                 room_name=room.room_name,
+                floor=_floor_key(room.floor),
                 notable_items=notable[:8],
                 categories_present=sorted(categories),
                 high_value_items=high_value[:5],
@@ -918,6 +925,7 @@ class EstimateCalculator:
             )
             summaries.append(RoomItemSummary(
                 room_name=preset.name,
+                floor=_floor_key(room.floor),
                 notable_items=[],
                 categories_present=cats,
                 high_value_items=[],

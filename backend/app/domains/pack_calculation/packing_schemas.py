@@ -193,6 +193,8 @@ class SectionBreakdown(BaseModel):
 
 class RoomItemSummary(BaseModel):
     room_name: str
+    # basement / 1st / 2nd / 3rd / 4th+; estimates saved before it was kept have none
+    floor: Optional[str] = None
     notable_items: List[str] = Field(default_factory=list)
     categories_present: List[str] = Field(default_factory=list)
     high_value_items: List[str] = Field(default_factory=list)
