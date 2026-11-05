@@ -1581,6 +1581,8 @@ export interface WMFinancialComparison {
     negotiation_revision: number | null;
     negotiation_type: string | null;
     negotiation_date: string | null;
+    // The latest WM figure is an amount typed in, not an estimate received
+    is_manual?: boolean;
   } | null;
   comparison: {
     our_total: number;

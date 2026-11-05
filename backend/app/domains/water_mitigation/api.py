@@ -5675,6 +5675,11 @@ def get_financial_comparison(
                     "negotiation_revision": latest_neg.revision_number if latest_neg else None,
                     "negotiation_type": latest_neg.revision_type if latest_neg else None,
                     "negotiation_date": latest_neg.date_received.isoformat() if latest_neg and latest_neg.date_received else None,
+                    # Only an amount typed in (insurance-estimate/manual): no estimate came
+                    "is_manual": bool(
+                        latest_neg
+                        and (latest_neg.extraction_metadata or {}).get('is_manual')
+                    ),
                 }
 
         # --- Comparison ---

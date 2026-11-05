@@ -445,7 +445,8 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
     });
   }
 
-  if (insurance_estimate?.negotiation_date) {
+  // A typed-in amount isn't an estimate the carrier sent
+  if (insurance_estimate?.negotiation_date && !insurance_estimate.is_manual) {
     items.push({
       key: 'received',
       label: 'Estimate received',
