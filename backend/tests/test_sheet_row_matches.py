@@ -1050,12 +1050,12 @@ def test_a_client_holding_the_whole_address_in_its_street_is_still_found(db, api
     assert db.query(Client).one().id == client.id
 
 
-def test_a_different_name_at_the_same_address_stays_with_that_client(db, api):
+def test_a_different_name_at_the_same_address_joins_that_client_and_is_added_to_it(db, api):
     client = manual_client(db, name='Already Here')
 
     enter_job(api, homeowner_name='Someone Else', claim_number='CL-1')
 
-    assert db.query(Client).one().display_name == 'Already Here'
+    assert db.query(Client).one().display_name == 'Already Here & Someone Else'
     assert db.query(Claim).one().client_id == client.id
 
 
@@ -1345,3 +1345,141 @@ def test_the_job_form_only_offers_leads_the_staff_member_may_see(db, sync, api, 
     found = api.post(LEADS, json={'homeowner_phone': LEAD_PHONE}).json()
 
     assert [f['id'] for f in found] == [str(visible.id)]
+
+
+# The job page links to the client the job is under
+
+def job_client(api, job_id):
+    response = api.get(f'{JOBS}/{job_id}/client')
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_a_job_on_a_claim_links_to_the_claims_client(db, api):
+    job = enter_job(api, homeowner_name='Pat Owner', claim_number='CL-7')
+
+    claim = db.query(Claim).one()
+    assert job_client(api, job['id']) == {'id': str(claim.client_id), 'name': 'Pat Owner'}
+
+
+def test_a_job_with_no_claim_links_to_the_client_at_its_address(db, api):
+    first = enter_job(api)
+    client = db.query(Client).one()
+    assert job_client(api, first['id']) == {'id': str(client.id), 'name': STREET}
+
+    # A second job there joins it, and the client takes the homeowner's name
+    second = enter_job(api, homeowner_name='Someone Else')
+    assert db.query(Client).count() == 1
+    assert job_client(api, second['id']) == {'id': str(client.id), 'name': 'Someone Else'}
+    assert job_client(api, first['id'])['id'] == str(client.id)
+
+
+def test_looking_the_client_up_changes_nothing(db, api):
+    # Never synced, so no client yet: the next save would make one, the lookup doesn't
+    job = WaterMitigationJob(property_address=STREET, property_street=STREET, **PLACE)
+    # A sheet row with no homeowner gets no client at all
+    row = WaterMitigationJob(property_address='200 Example St', google_sheet_name=SHEET, google_sheet_row_number=9)
+    db.add_all([job, row])
+    db.commit()
+
+    assert job_client(api, job.id) is None
+    assert job_client(api, row.id) is None
+    assert db.query(Client).count() == 0
+    db.refresh(job)
+    assert job.homeowner_name is None
+
+
+def test_no_link_to_a_client_the_staff_member_cant_open(db, api, monkeypatch):
+    ours, theirs = Company(name='Ours'), Company(name='Theirs')
+    db.add_all([ours, theirs])
+    db.commit()
+    # Our company's job on another company's claim: the job shows, its client doesn't
+    client = manual_client(db, address=STREET, company_id=theirs.id)
+    claim = Claim(client_id=client.id, claim_number='CL-THEIRS')
+    db.add(claim)
+    db.commit()
+    job = WaterMitigationJob(property_address=STREET, property_street=STREET, company_id=ours.id,
+                             claim_id=claim.id, **PLACE)
+    db.add(job)
+    db.commit()
+    member_id = str(uuid.uuid4())
+    app.dependency_overrides[get_current_staff] = lambda: SimpleNamespace(id=member_id, role=StaffRole.staff)
+    monkeypatch.setattr(auth_service, 'get_staff_by_id', lambda *args: SimpleNamespace(id=member_id))
+    monkeypatch.setattr(screen_access, 'may_open', lambda *args: True)
+    monkeypatch.setattr(company_scope, '_in_all_companies', lambda *args: False)
+    monkeypatch.setattr(company_scope, 'staff_company_ids', lambda *args: [str(ours.id)])
+
+    assert job_client(api, job.id) is None
+
+    # Their staff see the client, but not our job
+    monkeypatch.setattr(company_scope, 'staff_company_ids', lambda *args: [str(theirs.id)])
+    assert api.get(f'{JOBS}/{job.id}/client').status_code == 404
+
+
+# Another job at the client's address under another name adds that name to the client
+
+def owner_names(client):
+    return [(o['name'], o['is_primary']) for o in client.owners]
+
+
+def test_a_second_job_at_the_address_under_another_name_is_added_to_the_client(db, api):
+    enter_job(api, homeowner_name='Pat Owner', homeowner_phone='555-010-0001')
+    enter_job(api, homeowner_name='Sam Renter', homeowner_phone='555-010-0002', homeowner_email='sam@example.com')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Owner & Sam Renter'
+    assert owner_names(client) == [('Pat Owner', True), ('Sam Renter', False)]
+    assert (client.owners[1]['phone'], client.owners[1]['email']) == ('555-010-0002', 'sam@example.com')
+    # The client's own contact stays the first homeowner's
+    assert client.phone == '555-010-0001'
+
+
+def test_the_same_person_again_adds_nothing(db, api):
+    enter_job(api, homeowner_name='Pat Owner')
+    enter_job(api, homeowner_name='owner  PAT')
+    enter_job(api, homeowner_name='Pat')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Owner'
+    assert owner_names(client) == [('Pat Owner', True)]
+
+
+def test_of_a_couple_only_the_new_person_is_added(db, api):
+    enter_job(api, homeowner_name='Pat Owner')
+    enter_job(api, homeowner_name='Pat & Sam Owner')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Owner & Sam Owner'
+    assert owner_names(client) == [('Pat Owner', True), ('Sam Owner', False)]
+
+
+def test_correcting_a_jobs_name_adds_nothing(db, api):
+    job = enter_job(api, homeowner_name='Pat Ownr')
+    edit_job(api, job, homeowner_name='Pat Owner')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Ownr'
+    assert len(client.owners) == 1
+
+
+def test_a_name_filled_in_later_is_added_once(db, api):
+    enter_job(api, homeowner_name='Pat Owner')
+    second = enter_job(api)
+    assert db.query(Client).one().display_name == 'Pat Owner'
+
+    edit_job(api, second, homeowner_name='Sam Renter')
+    edit_job(api, second, homeowner_phone='555-010-0002')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Owner & Sam Renter'
+    assert owner_names(client) == [('Pat Owner', True), ('Sam Renter', False)]
+
+
+def test_a_job_on_its_claims_client_adds_nothing(db, api):
+    # Saved again, a job on a claim stays with its claim's client whatever the name says
+    job = enter_job(api, homeowner_name='Pat Owner', claim_number='CL-1')
+    edit_job(api, job, homeowner_name='Pat Owner Jr')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Owner'
+    assert len(client.owners) == 1

@@ -36,6 +36,7 @@ import {
   ReloadOutlined,
   MoreOutlined,
   MailOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import waterMitigationService, { adjusterEmailService, type WMAdjusterEmail } from '../services/waterMitigationService';
@@ -62,6 +63,7 @@ import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
 import { WMStatusPill, WM_STATUS_TONES } from '../components/water-mitigation/wmStatus';
 import { tagTones } from '../styles/tokens';
 import { useWaterMitigationAccess } from '../hooks/useWaterMitigationAccess';
+import { useAuth } from '../contexts/AuthContext';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 
 const WMSketchTab = lazyWithRetry(() => import('../components/water-mitigation/sketch/WMSketchTab'));
@@ -147,6 +149,17 @@ const WaterMitigationDetail: React.FC = () => {
   }, [id, queryClient]);
   const [loading, setLoading] = useState(false);
   const [job, setJob] = useState<WaterMitigationJob | null>(null);
+
+  // The client the job is under. Saving the job can change it (address, claim
+  // number), so it's looked up again whenever the job's updated_at moves.
+  const { canAccessPath } = useAuth();
+  const { data: jobClient } = useQuery({
+    queryKey: ['wm-job-client', id, job?.updated_at],
+    queryFn: () => waterMitigationService.getJobClient(id!),
+    enabled: !!id && !!job,
+  });
+  const clientPath = jobClient ? `/clients/${jobClient.id}` : null;
+  const canOpenClient = !!clientPath && canAccessPath(clientPath);
 
   // Set breadcrumb title to property address
   useBreadcrumbTitle(job?.property_address || null);
@@ -459,6 +472,12 @@ const WaterMitigationDetail: React.FC = () => {
     ...adjusterItems,
     ...(isMobile ? [
       ...(adjusterItems.length > 0 ? [{ type: 'divider' as const }] : []),
+      ...(canOpenClient ? [{
+        key: 'client',
+        icon: <UserOutlined />,
+        label: 'Open Client',
+        onClick: () => navigate(clientPath!),
+      }] : []),
       {
         key: 'edit',
         icon: <EditOutlined />,
@@ -497,6 +516,13 @@ const WaterMitigationDetail: React.FC = () => {
               <Button icon={<ReloadOutlined />} onClick={() => setFollowUpOpen(true)}>
                 Follow Up
               </Button>
+            )}
+            {!isMobile && canOpenClient && (
+              <Tooltip title={jobClient!.name}>
+                <Button icon={<UserOutlined />} onClick={() => navigate(clientPath!)}>
+                  Client
+                </Button>
+              </Tooltip>
             )}
             {!isMobile && (
               <Button

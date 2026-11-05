@@ -212,6 +212,12 @@ export const waterMitigationService = {
     return response.data;
   },
 
+  // The client the job is under, or null with none yet or one this person can't open
+  getJobClient: async (jobId: string): Promise<{ id: string; name: string } | null> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/client`);
+    return response.data?.id ? response.data : null;
+  },
+
   // Update job
   updateJob: async (jobId: string, data: JobUpdate): Promise<WaterMitigationJob> => {
     const response = await api.put(`${BASE_URL}/jobs/${jobId}`, data);

@@ -10,7 +10,8 @@ hand only finds the rest. The two only meet when someone says a row is the same 
 what was entered by hand (WMSheetRowMatch).
 
 A job entered by hand goes by its address: it joins the client there, or makes one
-with just that address if there's none, claim and homeowner or not.
+with just that address if there's none, claim and homeowner or not. A homeowner who
+arrives that way under another name is added to the client ("Pat Owner & Sam Renter").
 
 Flow:
   WM Job (homeowner_name, property_address, insurance, claim_number, etc.)
@@ -21,8 +22,9 @@ Flow:
 """
 
 import logging
+import re
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
@@ -37,6 +39,17 @@ logger = logging.getLogger(__name__)
 # clients.source for a client the sheet sync made. NULL = entered in this app.
 SHEET_SOURCE = 'google_sheets'
 
+DISPLAY_NAME_MAX = 500  # clients.display_name
+
+
+def _name_words(name: str) -> Set[str]:
+    return set(re.findall(r"[a-z0-9']+", (name or '').lower())) - {'and'}
+
+
+def _name_parts(name: str) -> List[str]:
+    """'John & Jane Smith' -> ['John', 'Jane Smith']. Commas stay: 'Smith, John' is one person."""
+    return [p.strip() for p in re.split(r'\s*(?:&|/|\band\b)\s*', name or '', flags=re.IGNORECASE) if p.strip()]
+
 
 class ClientSyncService:
     """
@@ -47,9 +60,13 @@ class ClientSyncService:
     def __init__(self, db: Session):
         self.db = db
 
-    def sync_from_wm_job(self, job: WaterMitigationJob) -> Dict[str, Any]:
+    def sync_from_wm_job(self, job: WaterMitigationJob, homeowner_new: bool = False) -> Dict[str, Any]:
         """
         Main entry point: sync Client and Claim from a WM Job.
+
+        homeowner_new: the job's homeowner only now came to it (a new job, or a name
+        filled in where there was none). Under another name than its client's, that
+        name is then added to the client.
 
         Returns dict with sync results:
           {
@@ -68,14 +85,13 @@ class ClientSyncService:
 
         decision = self._same_decision(job)
 
-        homeowner_name = (job.homeowner_name or '').strip()
-        if not homeowner_name and not (decision and decision.client_id) and not self._goes_by_address(job, decision):
+        if not self._has_client(job, decision):
             logger.debug(f"WM Job {job.id}: no homeowner_name, skipping client sync")
             return result
 
         try:
             # Step 1: Match or create Client
-            client, client_action = self._sync_client(job, decision)
+            client, client_action = self._sync_client(job, decision, homeowner_new)
             result['client_id'] = str(client.id)
             result['client_action'] = client_action
 
@@ -121,9 +137,24 @@ class ClientSyncService:
 
         return result
 
+    def find_client(self, job: WaterMitigationJob) -> Optional[Client]:
+        """The client this job is under: the one sync_from_wm_job keeps it with,
+        found by the same rules without changing or making anything. None when
+        the next save would make a new one."""
+        decision = self._same_decision(job)
+        if not self._has_client(job, decision):
+            return None
+        found = self._find_client(job, decision)
+        return found[0] if found else None
+
     # ================================================================
     # Client matching & sync
     # ================================================================
+
+    def _has_client(self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch]) -> bool:
+        """A sheet row needs a homeowner (or someone's say) before it gets a client"""
+        homeowner_name = (job.homeowner_name or '').strip()
+        return bool(homeowner_name) or bool(decision and decision.client_id) or self._goes_by_address(job, decision)
 
     def _same_decision(self, job: WaterMitigationJob) -> Optional[WMSheetRowMatch]:
         """The decision that this job's sheet row is the same as something entered by hand"""
@@ -157,9 +188,29 @@ class ClientSyncService:
         return not self._from_sheet(job, decision) and bool(self._job_address(job)['street'])
 
     def _sync_client(
-        self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch] = None
+        self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch] = None,
+        homeowner_new: bool = False,
     ) -> Tuple[Client, str]:
         """Match or create a Client from WM Job data. Returns (client, action)."""
+        found = self._find_client(job, decision)
+        if found:
+            client, action, found_by = found
+            self._update_client_from_job(client, job)
+            # The job's own client (its claim's) or the one at its address; a phone or
+            # email match can be someone's client somewhere else
+            if homeowner_new and found_by in ('claim', 'address'):
+                self._add_homeowner(client, job)
+            return client, action
+
+        # No match → create new Client
+        client = self._create_client_from_job(job, decision)
+        return client, 'created'
+
+    def _find_client(
+        self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch] = None
+    ) -> Optional[Tuple[Client, str, str]]:
+        """The existing client for this job, with the sync's action word and what found
+        it (claim, decision, address, name, phone or email). Reads only."""
 
         # Priority 1: WM Job already linked to a Claim that has a Client
         if job.claim_id:
@@ -167,15 +218,13 @@ class ClientSyncService:
             if claim and claim.client_id:
                 client = self.db.query(Client).filter(Client.id == claim.client_id).first()
                 if client:
-                    self._update_client_from_job(client, job)
-                    return client, 'updated'
+                    return client, 'updated', 'claim'
 
         # Priority 2: Someone said which client this job's sheet row belongs with
         if decision and decision.client_id:
             client = self.db.query(Client).filter(Client.id == decision.client_id).first()
             if client:
-                self._update_client_from_job(client, job)
-                return client, 'updated'
+                return client, 'updated', 'decision'
 
         same_origin = self._same_origin(job, decision)
 
@@ -185,35 +234,29 @@ class ClientSyncService:
         if self._goes_by_address(job, decision):
             client = self._match_by_address(job, same_origin)
             if client:
-                self._update_client_from_job(client, job)
-                return client, 'updated'
+                return client, 'updated', 'address'
             same_origin = and_(same_origin, or_(Client.address.is_(None), Client.address == ''))
 
         # Priority 4: Match by homeowner_name + property_address
         client = self._match_by_name_and_address(job, same_origin)
         if client:
-            self._update_client_from_job(client, job)
-            return client, 'updated'
+            return client, 'updated', 'name'
 
         # Priority 5: Match by phone (if available)
         phone = (job.homeowner_phone or '').strip()
         if phone:
             client = self._match_by_phone(phone, same_origin)
             if client:
-                self._update_client_from_job(client, job)
-                return client, 'matched'
+                return client, 'matched', 'phone'
 
         # Priority 6: Match by email (if available)
         email = (job.homeowner_email or '').strip()
         if email:
             client = self._match_by_email(email, same_origin)
             if client:
-                self._update_client_from_job(client, job)
-                return client, 'matched'
+                return client, 'matched', 'email'
 
-        # No match → create new Client
-        client = self._create_client_from_job(job, decision)
-        return client, 'created'
+        return None
 
     def _match_by_address(self, job: WaterMitigationJob, same_origin: Any) -> Optional[Client]:
         """The client at this job's address. Oldest first: a job with no claim has nothing
@@ -407,6 +450,38 @@ class ClientSyncService:
         if job.company_id and not client.company_id:
             client.company_id = job.company_id
 
+        self.db.flush()
+
+    def _add_homeowner(self, client: Client, job: WaterMitigationJob) -> None:
+        """A job's homeowner came to the client under a name it doesn't have (another
+        job at its address): 'Pat Owner' becomes 'Pat Owner & Sam Renter', and Sam is added as an owner
+        (not the primary). A name whose every word the client already has is the same
+        person ('Owner Pat', 'Pat'). Of 'Pat & Sam Owner' only 'Sam Owner' is added."""
+        homeowner_name = (job.homeowner_name or '').strip()
+        display_name = (client.display_name or '').strip()
+        # Still named after its address: that's for _update_client_from_job to name
+        if not homeowner_name or not display_name or display_name == (client.address or '').strip():
+            return
+
+        owners = [o for o in (client.owners or []) if isinstance(o, dict)]
+        known = _name_words(display_name)
+        for owner in owners:
+            known |= _name_words(owner.get('name') or '')
+        new_parts = [part for part in _name_parts(homeowner_name) if not _name_words(part) <= known]
+        if not new_parts:
+            return
+
+        added = ' & '.join(new_parts)
+        longer = f"{display_name} & {added}"
+        if len(longer) <= DISPLAY_NAME_MAX:
+            client.display_name = longer
+        client.owners = [*(client.owners or []), {
+            'name': added,
+            'phone': (job.homeowner_phone or '').strip() or None,
+            'email': (job.homeowner_email or '').strip() or None,
+            'is_primary': False,
+        }]
+        logger.info(f"Client {client.id}: added '{added}' from WM Job {job.id} at its address")
         self.db.flush()
 
     # ================================================================
@@ -615,14 +690,14 @@ def mark_sheet_clients(db: Session) -> None:
     db.commit()
 
 
-def sync_client_from_wm_job(db: Session, job: WaterMitigationJob) -> Dict[str, Any]:
+def sync_client_from_wm_job(db: Session, job: WaterMitigationJob, homeowner_new: bool = False) -> Dict[str, Any]:
     """
     Convenience function - creates ClientSyncService and runs sync.
     Safe to call - catches errors and logs them without propagating.
     """
     try:
         service = ClientSyncService(db)
-        return service.sync_from_wm_job(job)
+        return service.sync_from_wm_job(job, homeowner_new)
     except Exception as e:
         logger.error(f"Client sync failed for WM Job {job.id}: {e}", exc_info=True)
         return {

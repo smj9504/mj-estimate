@@ -156,7 +156,7 @@ def create_job(
             # The row itself, which the sync writes to; the service only hands back dicts
             wm_job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == created_job['id']).first()
             if wm_job:
-                sync_result = sync_client_from_wm_job(db, wm_job)
+                sync_result = sync_client_from_wm_job(db, wm_job, homeowner_new=True)
                 created_job['client_sync'] = sync_result
         except Exception as sync_err:
             logger.warning(f"Client sync after WM job create failed (non-fatal): {sync_err}")
@@ -279,7 +279,7 @@ def fill_in_job(
     try:
         from app.domains.client.client_sync_service import sync_client_from_wm_job
         db.refresh(wm_job)
-        sync_client_from_wm_job(db, wm_job)
+        sync_client_from_wm_job(db, wm_job, homeowner_new='homeowner_name' in filled)
     except Exception as sync_err:
         logger.warning(f"Client sync after filling in WM job failed (non-fatal): {sync_err}")
 
@@ -366,6 +366,28 @@ def get_job(
     return job_dict
 
 
+@router.get("/jobs/{job_id}/client", dependencies=[_job_access])
+def get_job_client(
+    job_id: UUID,
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff),
+):
+    """The client this job is under, for the job page's link to it: its claim's
+    client, or for a job with no claim the one the client sync keeps it with
+    (by address for a job entered by hand). Null when there's none yet or the
+    staff member can't open that client."""
+    from app.domains.auth.company_scope import can_see_client
+    from app.domains.client.client_sync_service import ClientSyncService
+
+    job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    client = ClientSyncService(db).find_client(job)
+    if not client or not can_see_client(db, current_staff, client.id):
+        return None
+    return {'id': str(client.id), 'name': client.display_name}
+
+
 @router.put("/jobs/{job_id}", response_model=JobResponse, dependencies=[_job_access])
 def update_job(
     job_id: UUID,
@@ -374,6 +396,13 @@ def update_job(
     db: DatabaseSession = Depends(get_db_session)
 ):
     """Update job"""
+    from app.domains.client.client_sync_service import sync_client_from_wm_job
+
+    # A name filled in where there was none is someone new to the job's client;
+    # changing a name that was there is a correction
+    before_job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == job_id).first()
+    had_homeowner = bool(before_job and (before_job.homeowner_name or '').strip())
+
     updated_job = service.update_job(job_id, job_update)
     if not updated_job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -383,10 +412,9 @@ def update_job(
 
     # Auto-sync Client/Claim from updated WM Job
     try:
-        from app.domains.client.client_sync_service import sync_client_from_wm_job
         wm_job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == job_id).first()
         if wm_job:
-            sync_client_from_wm_job(db, wm_job)
+            sync_client_from_wm_job(db, wm_job, homeowner_new=not had_homeowner)
     except Exception as sync_err:
         logger.warning(f"Client sync after WM job update failed (non-fatal): {sync_err}")
 
