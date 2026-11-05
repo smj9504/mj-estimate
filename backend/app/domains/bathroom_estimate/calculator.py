@@ -7,7 +7,9 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from .cabinets import CABINET_TYPES, cabinet_groups
 from .layout_changes import layout_change_line_items
+from .lights import LIGHT_TYPES, light_groups
 from .selections import Picks
 from .pricing import (
     get_permit_info,
@@ -61,6 +63,8 @@ from .pricing import (
     TOILET_PRICES,
     TRIM_GRADE_MULTIPLIER,
     DETACH_RESET_COSTS,
+    WALL_CABINET_INSTALL,
+    WALL_CABINET_PRICE,
     VANITY_EXTRAS,
     VANITY_INSTALL,
     VANITY_PRICES,
@@ -2184,6 +2188,25 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                  notes=f"Mirror: ${mirror_price:,.2f}{' allowance' if _m_pick is None else ''} | "
                        f"Install: ${mirror_install:,.2f}")
 
+    # Cabinets on the wall (medicine cabinet, wall cabinet over the toilet): one line per kind
+    for _cg in cabinet_groups(estimate):
+        _ct, _cn = _cg["type"], _cg["count"]
+        _clbl = CABINET_TYPES[_ct]["label"]
+        if _cg["action"] == "detach_reset":
+            _add(line_items, 5, f"Detach & Reset - {_clbl}", _cn, "EA",
+                 DETACH_RESET_COSTS[_ct] * labor_mult, "fixture",
+                 notes="Labor only: empty, remove, store, rehang level")
+            continue
+        if _ct == "wall_cabinet":
+            _c_price = apply_material_handling(WALL_CABINET_PRICE)
+            _c_install = round(WALL_CABINET_INSTALL * labor_mult, 2)
+        else:
+            _c_price = apply_material_handling(MIRROR_PRICES[_ct])
+            _c_install = round(MIRROR_INSTALL * labor_mult, 2)
+        _add(line_items, 5, f"{_clbl} (supply + install)", _cn, "EA",
+             _c_price + _c_install, "fixture",
+             notes=f"Cabinet: ${_c_price:,.2f} allowance | Install: ${_c_install:,.2f}")
+
     # ────────────────────────────────────────
     # Phase 3 (Electrical - grouped with trades)
     # ────────────────────────────────────────
@@ -2195,43 +2218,35 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         _add(line_items, 2, "GFCI outlet installation", gfci_count, "EA",
              ELECTRICAL_RATES["gfci_outlet_each"] * labor_mult, "electrical")
 
-    # Vanity light — explicit replace or D&R takes priority over electrical_spec count
-    if getattr(estimate, 'replace_vanity_light', False):
-        vl_count = (elec.get("vanity_lights") or 0) or 1
-        _vl_pick = picks.each("vanity_light")
-        if _vl_pick is None:
-            _add(line_items, 2, "Vanity light fixture installation", vl_count, "EA",
-                 ELECTRICAL_RATES["vanity_light_install"] * labor_mult, "electrical")
+    # Lights: one line per kind (a 3-light vanity bar, recessed cans, sconces…)
+    for _lg in light_groups(estimate):
+        _lt, _ln = _lg["type"], _lg["count"]
+        _lbl = LIGHT_TYPES[_lt]["label"]
+        _bulbs = f" ({_lg['bulbs']}-light)" if _lg.get("bulbs") else ""
+        if _lg["action"] == "detach_reset":
+            _add(line_items, 2, f"Detach & Reset - {_lbl}{_bulbs}", _ln, "EA",
+                 DETACH_RESET_COSTS["vanity_light"] * labor_mult, "electrical",
+                 notes="Labor only: careful removal, store, reinstall")
+        elif _lt == "recessed":
+            if _ln > 1:
+                _add(line_items, 2, f"Recessed light installation ({_ln} cans)", _ln, "EA",
+                     ELECTRICAL_RATES["recessed_light_multi"] * labor_mult, "electrical",
+                     notes="Cut ceiling, install housing + trim + wire per can")
+            else:
+                _add(line_items, 2, "Recessed light installation (1 can)", 1, "EA",
+                     ELECTRICAL_RATES["recessed_light_install"] * labor_mult, "electrical")
         else:
-            _vl_price = apply_material_handling(_vl_pick)
-            _vl_install = round(ELECTRICAL_RATES["vanity_light_install"] * labor_mult, 2)
-            _add(line_items, 2, f"Vanity light - {picks.name('vanity_light')} (supply + install)",
-                 vl_count, "EA", _vl_price + _vl_install, "fixture",
-                 notes=f"Fixture: ${_vl_price:,.2f} | Install: ${_vl_install:,.2f}")
-    elif getattr(estimate, 'detach_reset_vanity_light', False):
-        vl_count = (elec.get("vanity_lights") or 0) or 1
-        _add(line_items, 2, "Detach & Reset - Vanity light fixture", vl_count, "EA",
-             DETACH_RESET_COSTS["vanity_light"] * labor_mult, "electrical",
-             notes="Labor only: careful removal, store, reinstall")
-    elif (elec.get("vanity_lights") or 0) > 0:
-        _add(line_items, 2, "Vanity light fixture installation", elec["vanity_lights"], "EA",
-             ELECTRICAL_RATES["vanity_light_install"] * labor_mult, "electrical")
-
-    ceiling_fix = elec.get("ceiling_fixture")
-    # Support both legacy boolean and new string type
-    if ceiling_fix:
-        if ceiling_fix == 'recessed_multi':
-            can_count = elec.get("recessed_can_count", 4) or 4
-            _add(line_items, 2, f"Recessed light installation ({can_count} cans)", can_count, "EA",
-                 ELECTRICAL_RATES["recessed_light_multi"] * labor_mult, "electrical",
-                 notes="Cut ceiling, install housing + trim + wire per can")
-        elif ceiling_fix == 'recessed':
-            _add(line_items, 2, "Recessed light installation (1 can)", 1, "EA",
-                 ELECTRICAL_RATES["recessed_light_install"] * labor_mult, "electrical")
-        else:
-            # 'standard' or legacy True
-            _add(line_items, 2, "Ceiling light fixture installation", 1, "EA",
-                 ELECTRICAL_RATES["ceiling_fixture_install"] * labor_mult, "electrical")
+            _install = ELECTRICAL_RATES[LIGHT_TYPES[_lt]["rate"]] * labor_mult
+            _vl_pick = picks.each("vanity_light") if _lt == "vanity_bar" else None
+            if _vl_pick is None:
+                _add(line_items, 2, f"{_lbl} installation{_bulbs}", _ln, "EA",
+                     _install, "electrical")
+            else:
+                _vl_price = apply_material_handling(_vl_pick)
+                _vl_install = round(_install, 2)
+                _add(line_items, 2, f"Vanity light - {picks.name('vanity_light')} (supply + install)",
+                     _ln, "EA", _vl_price + _vl_install, "fixture",
+                     notes=f"Fixture: ${_vl_price:,.2f} | Install: ${_vl_install:,.2f}")
 
     # Exhaust fan: only include if auto_exhaust_fan is enabled
     fan_cfm = elec.get("exhaust_fan_cfm")
@@ -2283,6 +2298,22 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         (estimate.designation or "").replace("_", " ").title() or "Bathroom"
     )
     _wall_paint_added = False  # track to prevent duplicate
+
+    # A soffit (a lowered ceiling, as over a tub) hides the wall above its
+    # underside and has faces of its own to paint; the sketch measures both
+    _soffit_hidden = walls.get("soffit_hidden_wall_sf", 0) or 0
+    _soffit_faces = walls.get("soffit_face_sf", 0) or 0
+
+    def _with_soffits(sf):
+        """Wall SF less the wall behind soffits plus their faces, and the note's words for it."""
+        if not (_soffit_hidden or _soffit_faces):
+            return sf, []
+        parts = []
+        if _soffit_hidden:
+            parts.append(f"- Behind soffit {_soffit_hidden:.0f} SF")
+        if _soffit_faces:
+            parts.append(f"+ Soffit faces {_soffit_faces:.0f} SF")
+        return round(max(sf - _soffit_hidden, 0) + _soffit_faces, 1), parts
 
     # Wall painting
     if do_paint and paint_grade and wall_sf > 0:
@@ -2338,19 +2369,28 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         paint_wall_sf = max(wall_sf - total_deduct, 0)
 
         # In paint_and_tile mode, use sketch-provided paint_wall_sf if available
+        _from_sketch = False
         if wall_finish == "paint_and_tile":
             sketch_paint_sf = walls.get("paint_wall_sf")
             if sketch_paint_sf and sketch_paint_sf > 0:
                 paint_wall_sf = sketch_paint_sf
+                _from_sketch = True
+        _before_soffits = paint_wall_sf
+        paint_wall_sf, _soffit_parts = _with_soffits(paint_wall_sf)
 
         # Only add original wall paint if full_paint_wall_sf not set (drywall repair handles it below)
         _full_paint_wall_sf = walls.get("full_paint_wall_sf", 0) or 0
         if paint_wall_sf > 0 and not _full_paint_wall_sf:
             deduct_note = None
-            if wall_deductions:
+            if _soffit_parts and (_from_sketch or not wall_deductions):
+                parts = [f"Walls {_before_soffits:.0f} SF", *_soffit_parts,
+                         f"= Paintable {paint_wall_sf:.0f} SF"]
+                deduct_note = " | ".join(parts)
+            elif wall_deductions:
                 parts = [f"Total wall {wall_sf:.0f} SF"]
                 for label, sf in wall_deductions:
                     parts.append(f"- {label} {sf:.0f} SF")
+                parts.extend(_soffit_parts)
                 parts.append(f"= Paintable {paint_wall_sf:.0f} SF")
                 deduct_note = " | ".join(parts)
             _add(line_items, 6,
@@ -2418,21 +2458,27 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     # ── Full wall painting (entire paintable wall when any drywall repair) ──
     full_paint_wall_sf = walls.get("full_paint_wall_sf", 0) or 0
     if full_paint_wall_sf > 0 and paint_grade:
+        _full_sf, _full_soffit = _with_soffits(round(full_paint_wall_sf, 1))
         _add(line_items, 6,
              f"Wall painting, 2 coats ({wc_paint_grade})",
-             round(full_paint_wall_sf, 1), "SF",
+             _full_sf, "SF",
              PAINT_RATES["wall_per_sf"] * wc_paint_rate_mult,
              "finish",
              notes="Full wall paint (excl. tub/shower areas)"
-                   " — required when any wall drywall repair")
+                   " — required when any wall drywall repair"
+                   + (f" | Walls {full_paint_wall_sf:.0f} SF | " + " | ".join(_full_soffit)
+                      if _full_soffit else ""))
         _wall_paint_added = True
     elif do_paint and paint_grade and wall_sf > 0 and not _wall_paint_added:
         # Fallback: no drywall repair, no deduction paint — use wall_sf directly
+        _fb_sf, _fb_soffit = _with_soffits(wall_sf)
         _add(line_items, 6,
              f"Wall painting ({wc_paint_grade})",
-             wall_sf, "SF",
+             _fb_sf, "SF",
              PAINT_RATES["wall_per_sf"] * wc_paint_rate_mult,
-             "finish")
+             "finish",
+             notes=(" | ".join([f"Walls {wall_sf:.0f} SF", *_fb_soffit, f"= Paintable {_fb_sf:.0f} SF"])
+                    if _fb_soffit else None))
 
     # ── Ceiling painting ──
     full_paint_ceil_sf = walls.get("full_paint_ceiling_sf", 0) or 0

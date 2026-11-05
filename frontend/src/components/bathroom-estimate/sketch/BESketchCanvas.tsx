@@ -25,6 +25,7 @@ import type {
 } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
+import { isWallLight } from '../fixtureRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
 import { wallTileRegions } from './utils/wallFinish';
@@ -2137,9 +2138,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           )}
         </Layer>
 
-        {/* ── Fixtures Layer ── */}
+        {/* ── Fixtures Layer ── (soffits last: overhead, and only their edge takes a click) */}
         <Layer>
-          {fixtures.map((fix) => (
+          {[...fixtures.filter((f) => f.type !== 'soffit'), ...fixtures.filter((f) => f.type === 'soffit')].map((fix) => (
             <FixtureNode
               key={fix.id}
               fixture={fix}
@@ -2358,7 +2359,18 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     fix.properties.lightType,
     wallSides,
     showerDoorPosition(fix.properties),
+    {
+      aspect: hPx > 0 ? wPx / hPx : 1,
+      lightBulbs: fix.properties.lightBulbs,
+      cabinetType: fix.properties.cabinetType,
+      soffitBottom: fix.properties.soffitBottom,
+    },
   );
+  // Hung on a wall: sized along it only, its depth off the wall fixed
+  const alongWall = fix.type === 'window' || fix.type === 'mirror' || fix.type === 'cabinet'
+    || (fix.type === 'light' && isWallLight(fix.properties.lightType));
+  const roundLight = fix.type === 'light' && !alongWall;
+  const isSoffit = fix.type === 'soffit';
 
   // Attach transformer to the standalone Rect; re-sync on dimension/rotation change
   useEffect(() => {
@@ -2392,14 +2404,15 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
         onDragEnd({ x: e.target.x(), y: e.target.y() });
       }}
     >
-      {/* Hit area rect */}
+      {/* Hit area rect (a soffit's edge only, so what's under it can still be picked) */}
       <Rect
         x={-wPx / 2}
         y={-hPx / 2}
         width={wPx}
         height={hPx}
-        fill="transparent"
+        fill={isSoffit ? undefined : 'transparent'}
         stroke="transparent"
+        hitStrokeWidth={isSoffit ? 12 : 'auto'}
       />
 
       {/* SVG shape paths (normalized 0-1, scaled to fixture pixel size) */}
@@ -2419,18 +2432,37 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
         />
       ))}
 
-      {/* Label */}
-      {!hideLabel && (
-        <Text
-          x={-wPx / 2}
-          y={hPx / 2 + 2}
-          width={wPx}
-          text={fix.label ?? shape.label}
-          fontSize={Math.max(8, Math.min(11, wPx / 5))}
-          fill="#555"
-          align="center"
-          listening={false}
-        />
+      {/* Label: below it; a cabinet's inside its box, clear of what's under it on the
+          plan; none on a wall light, whose lights say what it is and which shares
+          its wall with a mirror or cabinet */}
+      {!hideLabel && !(fix.type === 'light' && alongWall) && (
+        fix.type === 'cabinet' ? (
+          <Text
+            x={-wPx / 2}
+            y={-hPx / 2}
+            width={wPx}
+            height={hPx}
+            text={fix.label ?? shape.label}
+            fontSize={Math.max(6, Math.min(9, hPx * 0.55))}
+            fill="#555"
+            align="center"
+            verticalAlign="middle"
+            wrap="none"
+            ellipsis
+            listening={false}
+          />
+        ) : (
+          <Text
+            x={-wPx / 2}
+            y={hPx / 2 + 2}
+            width={wPx}
+            text={fix.label ?? shape.label}
+            fontSize={Math.max(8, Math.min(11, wPx / 5))}
+            fill="#555"
+            align="center"
+            listening={false}
+          />
+        )
       )}
 
       {/* Surround indicator for bathtub */}
@@ -2582,10 +2614,10 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
             // Update position to where Transformer left it
             onDragEnd(newPos);
             // Apply resize
-            const finalH = (fix.type === 'window' || fix.type === 'mirror') ? fix.dimensions.height : Math.max(12, Math.min(120, newH));
+            const finalH = alongWall ? fix.dimensions.height : Math.max(roundLight ? 4 : 12, Math.min(isSoffit ? 240 : 120, newH));
             if (Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
               onResize(
-                Math.max(12, Math.min(120, newW)),
+                Math.max(roundLight || alongWall ? 4 : 12, Math.min(isSoffit ? 240 : 120, newW)),
                 finalH,
               );
             }
@@ -2595,18 +2627,19 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
           ref={trRef}
           rotateEnabled={true}
           rotationSnaps={[0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240, 255, 270, 285, 300, 315, 330, 345]}
-          rotateAnchorOffset={(fix.type === 'window' || fix.type === 'mirror') ? 25 : 15}
-          keepRatio={fix.type === 'toilet' || fix.type === 'light'}
+          rotateAnchorOffset={alongWall ? 25 : 15}
+          keepRatio={fix.type === 'toilet' || roundLight}
           enabledAnchors={
-            fix.type === 'toilet' || fix.type === 'light'
+            fix.type === 'toilet' || roundLight
               ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
-              : fix.type === 'window' || fix.type === 'mirror'
+              : alongWall
               ? ['middle-left', 'middle-right']
               : ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']
           }
           boundBoxFunc={(oldBox, newBox) => {
-            const minPx = ppf * 0.5;
-            const maxPx = ppf * 10;
+            // 4" (a mirror or cabinet stands that far off its wall) to 20' (a soffit the room's length)
+            const minPx = (ppf * 4) / 12;
+            const maxPx = ppf * 20;
             if (newBox.width < minPx || newBox.height < minPx) return oldBox;
             if (newBox.width > maxPx || newBox.height > maxPx) return oldBox;
             return newBox;

@@ -9,7 +9,8 @@
 import * as THREE from 'three';
 import type { BathroomLooks, BathroomModel, FixtureSolid, Pt, TileLook, WallOpeningSolid, WallSolid } from './bathroom3dModel';
 import type { TileTextureCache } from './bathroom3dTextures';
-import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
+import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN, SOFFIT_BOTTOM_IN } from '../../../types/bathroomSketch';
+import { DEFAULT_BAR_BULBS, cabinetKind, lightKindOf } from '../fixtureRows';
 import { getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './utils/beGeometry';
 import { subtractRects, type FaceRect } from './utils/wallFinish';
 
@@ -23,6 +24,7 @@ const COLORS = {
   niche: '#b9b2a6',
   curtain: '#e8e2d6',
   light: '#fff3d6',
+  cabinet: '#f3f1ec',
   selected: '#1f74c9',
   mirror: '#dfe7ea',
 };
@@ -31,6 +33,11 @@ const COLORS = {
 const GLASS_TOP_IN = 76;
 /** A mirror's bottom edge, inches: clear of a vanity and its backsplash. */
 const MIRROR_BOTTOM_IN = 42;
+/** A vanity bar's middle and a sconce's, inches up the wall: over the mirror, beside it. */
+const VANITY_BAR_IN = 80;
+const SCONCE_IN = 66;
+/** A wall cabinet's bottom over a toilet, inches: clear of the tank. */
+const WALL_CABINET_BOTTOM_IN = 60;
 const BASEBOARD_IN = 3.5;
 /** Doors stand open square to their wall, as the plan's swing arc ends, clear of the doorway. */
 const OPEN_DOOR_RAD = (88 * Math.PI) / 180;
@@ -646,11 +653,105 @@ function buildMirror(f: FixtureSolid, g: THREE.Group) {
   g.add(boxAt(f.widthIn, h, 0.75, mat(COLORS.mirror, { metalness: 1, roughness: 0.04 }), 0, bottom + h / 2, 0));
 }
 
-function buildLight(f: FixtureSolid, g: THREE.Group) {
-  const recessed = f.fixture.properties.lightType === 'recessed' || f.fixture.properties.lightType === 'recessed_multi';
-  const r = recessed ? 2.8 : 6;
-  const disc = post(r, recessed ? 0.4 : 1.4, mat(COLORS.light, { emissive: COLORS.light, emissiveIntensity: 0.9 }), 0, f.ceilingIn - (recessed ? 0.4 : 1.4), 0, 32);
-  g.add(disc);
+function buildLight(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
+  const glow = mat(COLORS.light, { emissive: COLORS.light, emissiveIntensity: 0.9 });
+  const top = f.ceilingIn;
+  const backZ = -f.depthIn / 2;
+  switch (lightKindOf(f.fixture.properties.lightType)) {
+    case 'recessed':
+      g.add(post(2.8, 0.4, glow, 0, top - 0.4, 0, 32));
+      return;
+    case 'pendant': {
+      // A cord down from the ceiling and a shade, its bottom about 7' up
+      const shadeH = 8;
+      const cord = Math.min(30, Math.max(4, top - 84 - shadeH));
+      g.add(post(0.15, cord, kit.metal, 0, top - cord, 0, 8));
+      const r = Math.max(3, Math.min(f.widthIn, f.depthIn) / 2);
+      const shade = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.35, r, shadeH, 32, 1, true), glow);
+      shade.material.side = THREE.DoubleSide;
+      shade.position.set(0, top - cord - shadeH / 2, 0);
+      g.add(shade);
+      return;
+    }
+    case 'vanity_bar': {
+      // A plate on the wall, a bar out from it, a glass shade per light
+      const y = Math.min(VANITY_BAR_IN, top - 6);
+      const w = f.widthIn * 0.96;
+      g.add(boxAt(w, 4.5, 0.8, kit.metal, 0, y, backZ + 0.4));
+      g.add(boxAt(w, 0.9, 1.2, kit.metal, 0, y, backZ + 1.4));
+      const n = Math.max(1, Math.min(8, f.fixture.properties.lightBulbs || DEFAULT_BAR_BULBS));
+      const r = Math.max(1.4, Math.min(2.6, f.widthIn / n / 2.8));
+      for (let i = 0; i < n; i++) {
+        const shade = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), glow);
+        shade.position.set(-w / 2 + (w * (i + 0.5)) / n, y + r * 0.6, backZ + 2 + r);
+        g.add(shade);
+      }
+      return;
+    }
+    case 'sconce': {
+      const y = Math.min(SCONCE_IN, top - 8);
+      g.add(boxAt(4, 7, 0.8, kit.metal, 0, y, backZ + 0.4));
+      g.add(boxAt(0.8, 0.8, 2.2, kit.metal, 0, y - 1, backZ + 1.8));
+      g.add(post(2.2, 6, glow, 0, y - 2, backZ + 3.4, 24));
+      return;
+    }
+    default: {
+      // A fixture on the ceiling, as wide as drawn
+      const r = Math.max(3, Math.min(f.widthIn, f.depthIn) / 2);
+      g.add(post(r, 1.4, glow, 0, top - 1.4, 0, 32));
+    }
+  }
+}
+
+function buildCabinet(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
+  const p = f.fixture.properties;
+  const kind = cabinetKind(p.cabinetType);
+  const h = Math.min(p.cabinetHeight ?? kind.heightIn, f.ceilingIn - 2);
+  const bottom = Math.max(0, Math.min(kind.mirrored ? MIRROR_BOTTOM_IN : WALL_CABINET_BOTTOM_IN, f.ceilingIn - 1 - h));
+  const y = bottom + h / 2;
+  const W = f.widthIn;
+  const backZ = -f.depthIn / 2;
+  const body = mat(COLORS.cabinet, { roughness: 0.5 });
+  // A recessed cabinet's box is in the wall: only its frame stands out
+  const out = kind.value === 'medicine_cabinet_recessed' ? 1 : f.depthIn;
+  g.add(boxAt(W, h, out, body, 0, y, backZ + out / 2));
+  const frontZ = backZ + out;
+  if (kind.mirrored) {
+    g.add(boxAt(W - 1.2, h - 1.2, 0.3, mat(COLORS.mirror, { metalness: 1, roughness: 0.04 }), 0, y, frontZ + 0.15));
+  } else {
+    // Two doors with a knob each, meeting in the middle
+    const doorW = W / 2 - 0.6;
+    for (const side of [-1, 1]) {
+      g.add(boxAt(doorW, h - 1.2, 0.5, body, (side * W) / 4, y, frontZ + 0.25));
+      g.add(post(0.4, 0.8, kit.metal, side * 1.5, y - 0.4, frontZ + 0.9, 12));
+    }
+  }
+}
+
+/**
+ * A lowered part of the ceiling: its underside and the faces that stand out
+ * into the room, each seen from the room only, so looking down into the
+ * room from above still shows what's under it.
+ */
+function buildSoffit(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
+  const bottom = Math.min(f.fixture.properties.soffitBottom ?? SOFFIT_BOTTOM_IN, f.ceilingIn - 1);
+  const drop = f.ceilingIn - bottom;
+  const W = f.widthIn;
+  const D = f.depthIn;
+  const paint = mat(kit.looks.paint, { roughness: 0.92 });
+  const plane = (w: number, h: number, x: number, y: number, z: number, rx: number, ry: number) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), paint);
+    m.rotation.set(rx, ry, 0);
+    m.position.set(x, y, z);
+    g.add(m);
+  };
+  plane(W, D, 0, bottom, 0, Math.PI / 2, 0);
+  const against = f.against ?? { north: false, south: false, east: false, west: false };
+  const midY = bottom + drop / 2;
+  if (!against.north) plane(W, drop, 0, midY, -D / 2, 0, Math.PI);
+  if (!against.south) plane(W, drop, 0, midY, D / 2, 0, 0);
+  if (!against.east) plane(D, drop, W / 2, midY, 0, 0, Math.PI / 2);
+  if (!against.west) plane(D, drop, -W / 2, midY, 0, 0, -Math.PI / 2);
 }
 
 function buildFixture(f: FixtureSolid, kit: FixtureKit): THREE.Group {
@@ -665,10 +766,12 @@ function buildFixture(f: FixtureSolid, kit: FixtureKit): THREE.Group {
     case 'bathtub': buildBathtub(f, kit, g); break;
     case 'shower': buildShower(f, kit, g); break;
     case 'mirror': buildMirror(f, g); break;
-    case 'light': buildLight(f, g); break;
+    case 'light': buildLight(f, kit, g); break;
+    case 'cabinet': buildCabinet(f, kit, g); break;
+    case 'soffit': buildSoffit(f, kit, g); break;
     default: break;
   }
-  return shadowed(g, f.fixture.type !== 'light' && f.fixture.type !== 'shower');
+  return shadowed(g, f.fixture.type !== 'light' && f.fixture.type !== 'shower' && f.fixture.type !== 'soffit');
 }
 
 // ── The scene ──

@@ -72,6 +72,8 @@ const FIXTURE_NAMES: Record<BEFixture['type'], string> = {
   window: 'Window',
   mirror: 'Mirror',
   light: 'Light',
+  cabinet: 'Cabinet',
+  soffit: 'Soffit',
 };
 
 /** A fixture's zones by what they are on that fixture */

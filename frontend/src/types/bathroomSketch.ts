@@ -33,7 +33,15 @@ export type BEFixtureType =
   | 'door'
   | 'window'
   | 'mirror'
-  | 'light';
+  | 'light'
+  /** A medicine cabinet or a wall cabinet, hung on a wall */
+  | 'cabinet'
+  /** A lowered part of the ceiling (a bulkhead over a tub, say): drawn where it is, its underside's height set */
+  | 'soffit';
+
+export type BELightType = 'standard' | 'recessed' | 'recessed_multi' | 'pendant' | 'vanity_bar' | 'sconce';
+
+export type BECabinetType = 'medicine_cabinet' | 'medicine_cabinet_recessed' | 'wall_cabinet';
 
 export type ShowerDoorType = 'none' | 'sliding' | 'swing' | 'frameless_swing' | 'bi_fold' | 'curtain' | 'neo_angle_pivot';
 
@@ -276,10 +284,25 @@ export interface BEFixtureProperties {
   mirrorHeight?: number;
 
   // --- Light ---
-  /** Ceiling light type: standard, recessed, recessed_multi */
-  lightType?: 'standard' | 'recessed' | 'recessed_multi';
+  /**
+   * What kind of light: on the ceiling a fixture ("standard"), a pendant or
+   * recessed cans (one, or several spread across the room); on a wall a bar
+   * over the vanity or a sconce. See components/bathroom-estimate/lights.
+   */
+  lightType?: BELightType;
   /** Number of recessed cans (for recessed_multi) */
   lightCount?: number;
+  /** A vanity bar's lights: 3 for a "3-light" bar */
+  lightBulbs?: number;
+
+  // --- Cabinet ---
+  cabinetType?: BECabinetType;
+  /** Height on the wall in inches; its plan size is width × depth */
+  cabinetHeight?: number;
+
+  // --- Soffit ---
+  /** Floor to the soffit's underside, inches (the ceiling there) */
+  soffitBottom?: number;
 
   // --- Door/Window ---
   swingDirection?: 'in' | 'out';
@@ -579,7 +602,12 @@ export const BE_FIXTURE_DEFAULTS: Record<BEFixtureType, BEDimensions> = {
   window: { width: 36, height: 6 },     // plan-view wall opening (thin strip)
   mirror: { width: 30, height: 4 },     // plan-view wall-mounted (thin strip)
   light: { width: 8, height: 8 },       // plan-view ceiling/wall light (small square)
+  cabinet: { width: 24, height: 5 },    // plan-view medicine cabinet (thin strip on the wall)
+  soffit: { width: 60, height: 30 },    // plan-view lowered ceiling, as over a 5' tub
 };
+
+/** A soffit's underside when first drawn (7'), inches */
+export const SOFFIT_BOTTOM_IN = 84;
 
 /** Heights the plan can't show (inches): a shower's glass door and panels, and a mirror on the wall. */
 export const SHOWER_DOOR_HEIGHT_IN = 72;

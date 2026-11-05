@@ -30,9 +30,13 @@ import {
   BATHTUB_SURROUND_DEFAULTS,
   MIRROR_HEIGHT_IN,
   SHOWER_DOOR_HEIGHT_IN,
+  SOFFIT_BOTTOM_IN,
   VANITY_SUBTYPE_DEFAULTS,
 } from '../../../types/bathroomSketch';
+import type { BECabinetType, BELightType } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
+import { CABINET_KINDS, DEFAULT_BAR_BULBS, cabinetKind, isWallLight, lightKindOf, lightPlanSize } from '../fixtureRows';
+import { placeFor } from './utils/hangOnWall';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
 import BEWallFinishEditor from './BEWallFinishEditor';
@@ -48,6 +52,8 @@ export const FIXTURE_LABELS: Record<BEFixture['type'], string> = {
   window: 'Window',
   mirror: 'Mirror',
   light: 'Light',
+  cabinet: 'Cabinet',
+  soffit: 'Soffit',
 };
 
 const DAMAGE_LABELS: Record<BEDamageZone['damageType'], string> = {
@@ -199,6 +205,7 @@ function removeRecessedSiblings(parentId: string, data: BESketchStateAPI['data']
   for (const s of siblings) api.removeFixture(s.id);
 }
 
+/** `count` cans across the room: the light itself is the first, the rest are added */
 function spawnRecessedLights(parent: BEFixture, count: number, data: BESketchStateAPI['data'], api: BESketchStateAPI) {
   removeRecessedSiblings(parent.id, data, api);
 
@@ -227,14 +234,27 @@ function spawnRecessedLights(parent: BEFixture, count: number, data: BESketchSta
         x: minX + padX + (cols > 1 ? c * stepX : roomW / 2 - padX),
         y: minY + padY + (rows > 1 ? r * stepY : roomH / 2 - padY),
       };
-      api.addFixture('light', pos, room.id, undefined, {
-        lightType: 'recessed',
-        recessedParentId: parent.id,
-      }, { width: 6, height: 6 });
+      if (placed === 0) {
+        api.updateFixture(parent.id, { position: pos, dimensions: { width: 6, height: 6 } });
+      } else {
+        api.addFixture('light', pos, room.id, undefined, {
+          lightType: 'recessed',
+          recessedParentId: parent.id,
+        }, { width: 6, height: 6 });
+      }
       placed++;
     }
   }
 }
+
+const LIGHT_TYPE_OPTIONS: { value: BELightType; label: string }[] = [
+  { value: 'vanity_bar', label: 'Vanity light bar (wall)' },
+  { value: 'sconce', label: 'Wall sconce' },
+  { value: 'standard', label: 'Ceiling fixture' },
+  { value: 'pendant', label: 'Pendant / chandelier' },
+  { value: 'recessed', label: 'Recessed, 1 can' },
+  { value: 'recessed_multi', label: 'Recessed, several cans' },
+];
 
 // ── Fixture ──
 
@@ -283,7 +303,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     </Field>
   );
 
-  const rotation = fixture.type !== 'light' && (
+  const rotation = (fixture.type !== 'light' || isWallLight(p.lightType)) && (
     <Field label="Rotation">
       <Num
         label="Rotation, degrees"
@@ -626,24 +646,44 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
   }
 
   if (fixture.type === 'light' && !isRecessedCan) {
+    const ppf = data.settings.pixelsPerFoot;
+    const kind = lightKindOf(p.lightType);
+    // A new kind: its size, and a light on a wall onto the wall behind the vanity
+    const changeType = (v: BELightType) => {
+      const bulbs = v === 'vanity_bar' ? (p.lightBulbs || DEFAULT_BAR_BULBS) : undefined;
+      const dims = lightPlanSize(v, bulbs);
+      setProps({ lightType: v, lightBulbs: bulbs });
+      const k = lightKindOf(v);
+      const spot = k === 'vanity_bar' || k === 'sconce' ? placeFor(data.fixtures, fixture, k, dims, ppf) : null;
+      updateFixture(fixture.id, spot ?? { dimensions: dims });
+      if (v === 'recessed_multi') spawnRecessedLights(fixture, p.lightCount ?? 4, data, api);
+      else removeRecessedSiblings(fixture.id, data, api);
+    };
     return (
       <>
         <Field label="Type">
           <Select
             aria-label="Light type"
             value={p.lightType ?? 'standard'}
-            onChange={(v) => {
-              setProps({ lightType: v });
-              if (v === 'recessed_multi') spawnRecessedLights(fixture, p.lightCount ?? 4, data, api);
-              else removeRecessedSiblings(fixture.id, data, api);
-            }}
-            options={[
-              { value: 'standard', label: 'Ceiling fixture' },
-              { value: 'recessed', label: 'Recessed, 1 can' },
-              { value: 'recessed_multi', label: 'Recessed, several cans' },
-            ]}
+            onChange={changeType}
+            options={LIGHT_TYPE_OPTIONS}
           />
         </Field>
+        {kind === 'vanity_bar' && (
+          <Field label="Lights" hint={'A "3-light" bar has 3'}>
+            <Num
+              label="Lights on the bar"
+              value={p.lightBulbs || DEFAULT_BAR_BULBS}
+              min={1}
+              max={8}
+              onChange={(v) => {
+                if (!v) return;
+                setProps({ lightBulbs: v });
+                updateFixture(fixture.id, { dimensions: lightPlanSize('vanity_bar', v) });
+              }}
+            />
+          </Field>
+        )}
         {p.lightType === 'recessed_multi' && (
           <Field label="Cans" hint="Spread across the room. Drag any of them to move it.">
             <Num
@@ -659,7 +699,98 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             />
           </Field>
         )}
+        {isWallLight(p.lightType) ? (
+          <Field label="Width">
+            <Num
+              label="Width, inches"
+              value={fixture.dimensions.width}
+              min={4}
+              max={72}
+              unit="in"
+              onChange={(v) => v && updateFixture(fixture.id, { dimensions: { ...fixture.dimensions, width: v } })}
+            />
+          </Field>
+        ) : size}
+        {rotation}
+      </>
+    );
+  }
+
+  if (fixture.type === 'cabinet') {
+    const kind = cabinetKind(p.cabinetType);
+    const changeType = (v: BECabinetType) => {
+      const k = cabinetKind(v);
+      setProps({ cabinetType: v, cabinetHeight: k.heightIn });
+      const spot = placeFor(data.fixtures, fixture, v === 'wall_cabinet' ? 'wall_cabinet' : 'medicine_cabinet',
+        k.size, data.settings.pixelsPerFoot);
+      updateFixture(fixture.id, spot ?? { dimensions: { ...k.size } });
+    };
+    return (
+      <>
+        <Field label="Type">
+          <Select
+            aria-label="Cabinet type"
+            value={kind.value}
+            onChange={changeType}
+            options={CABINET_KINDS.map(({ value, label }) => ({ value, label }))}
+          />
+        </Field>
+        <Field label="Size" hint="Width along the wall × how far it stands out">
+          <Num
+            pair
+            label="Width, inches"
+            value={fixture.dimensions.width}
+            min={8}
+            max={72}
+            onChange={(v) => v && updateFixture(fixture.id, { dimensions: { ...fixture.dimensions, width: v } })}
+          />
+          <span className="bes-times" aria-hidden="true">×</span>
+          <Num
+            pair
+            label="Depth, inches"
+            value={fixture.dimensions.height}
+            min={2}
+            max={16}
+            unit="in"
+            onChange={(v) => v && updateFixture(fixture.id, { dimensions: { ...fixture.dimensions, height: v } })}
+          />
+        </Field>
+        <Field label="Height">
+          <Num
+            label="Height, inches"
+            value={p.cabinetHeight ?? kind.heightIn}
+            min={8}
+            max={60}
+            unit="in"
+            onChange={(v) => v && setProps({ cabinetHeight: v })}
+          />
+        </Field>
+        {rotation}
+      </>
+    );
+  }
+
+  if (fixture.type === 'soffit') {
+    const room = data.rooms.find((r) => r.id === fixture.roomId) ?? data.rooms.find((r) => !r.parentRoomId);
+    const ceiling = room?.heightInches || 96;
+    const bottom = p.soffitBottom ?? SOFFIT_BOTTOM_IN;
+    return (
+      <>
+        <Field
+          label="Ceiling under it"
+          hint={`${feetInches(bottom / 12)} here, ${feetInches(ceiling / 12)} in the room: it hangs ${Math.max(0, ceiling - bottom)}" down. The wall behind it comes off the paint; its faces go on.`}
+        >
+          <Num
+            label="Soffit underside height, inches"
+            value={bottom}
+            min={48}
+            max={ceiling}
+            unit="in"
+            onChange={(v) => v && setProps({ soffitBottom: v })}
+          />
+        </Field>
         {size}
+        {rotation}
       </>
     );
   }
@@ -797,7 +928,16 @@ const RoomInspector: React.FC<{ room: BERoom; api: BESketchStateAPI }> = ({ room
       </Fact>
       <Fact label="Walls">{room.wallAreaSF} SF</Fact>
       <Fact label="Perimeter">{room.perimeterLF} LF</Fact>
-      <Fact label="Height">{room.heightInches} in</Fact>
+      <Field label="Ceiling" hint={`${feetInches((room.heightInches || 96) / 12)}. Sets its walls' height; a lower part (over a tub) is a soffit.`}>
+        <Num
+          label="Ceiling height, inches"
+          value={room.heightInches || 96}
+          min={60}
+          max={240}
+          unit="in"
+          onChange={(v) => v && v >= 60 && api.setRoomHeight(room.id, v)}
+        />
+      </Field>
     </>
   );
 };

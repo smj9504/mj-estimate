@@ -23,6 +23,8 @@ import {
 } from '@ant-design/icons';
 import type { BESketchData, BESketchTool } from '../../../types/bathroomSketch';
 import { BATHTUB_SURROUND_DEFAULTS, MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
+import { soffitAreas } from './utils/soffit';
+import { cabinetsFromSketch, lightsFromSketch, type FixtureRow } from '../fixtureRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { showerDoorPosition } from './utils/beGeometry';
 import { roomWallFinishTotals } from './utils/wallFinish';
@@ -110,9 +112,11 @@ export interface SketchFixtureSync {
   replace_toilet?: boolean;
   replace_mirror?: boolean;
 
+  /** The room's ceiling height, feet */
+  height_ft?: number;
+
   // Demo flags
   demo_walls?: boolean;
-  replace_vanity_light?: boolean;
   water_damage?: boolean;
   repair_drywall_walls?: boolean;
   repair_drywall_walls_sf?: number;
@@ -127,6 +131,10 @@ export interface SketchFixtureSync {
 
   // Electrical
   electrical_spec?: Record<string, any>;
+  /** The lights drawn on the plan, by kind (merged into electrical_spec.lights by the page) */
+  sketch_lights?: FixtureRow[];
+  /** The cabinets drawn on the plan, by kind (merged into accessories_spec.cabinets by the page) */
+  sketch_cabinets?: FixtureRow[];
 
   // Drywall repair (from sketch drywall zones)
   hidden_costs?: Record<string, any>;
@@ -196,6 +204,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
 
     // Wall SF: primary room + additional rooms, minus door/window openings
     const heightFt = (bathroom.heightInches || 96) / 12;
+    sync.height_ft = Math.round(heightFt * 100) / 100;
     const perimeterFt = 2 * (widthFt + depthFt);
     const grossWallSF = perimeterFt * heightFt;
 
@@ -288,9 +297,11 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     // Determine wall_finish mode
     const hasAnyTile = tileWallSF > 0;
     const hasAnyPaint = paintWallSF > 0;
-    const wallsSpecBase: Record<string, any> = existingTileWallSF > 0
-      ? { existing_tile_wall_sf: existingTileWallSF }
-      : {};
+    const wallsSpecBase: Record<string, any> = {
+      ...(existingTileWallSF > 0 ? { existing_tile_wall_sf: existingTileWallSF } : {}),
+      // Always sent, so a soffit taken off the plan comes off the estimate
+      ...soffitAreas(fixtures, bathroom, ppf),
+    };
     if (hasAnyTile && hasAnyPaint) {
       sync.walls_spec = { ...wallsSpecBase, wall_finish: 'paint_and_tile', paint_wall_sf: paintWallSF, tile_wall_sf: tileWallSF };
     } else if (hasAnyTile) {
@@ -306,7 +317,6 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
   const vanities = fixtures.filter(f => f.type === 'vanity');
   const toilet = fixtures.find(f => f.type === 'toilet');
   const mirrors = fixtures.filter(f => f.type === 'mirror');
-  const lights = fixtures.filter(f => f.type === 'light');
 
   sync.replace_tub = !!bathtub;
   sync.replace_shower = !!shower;
@@ -316,40 +326,14 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     sync.toilet_spec = { type: 'two_piece_standard' };
   }
   sync.replace_mirror = mirrors.length > 0;
-  // Ceiling light → electrical_spec
-  // Electrical spec: lights + defaults (GFCI, exhaust fan)
-  const elecSpec: Record<string, any> = {
+  // Electrical spec defaults (GFCI, exhaust fan); the lights go by kind, each one on the plan counted
+  sync.electrical_spec = {
     gfci_count: 1,
     exhaust_fan_cfm: 80,
     exhaust_fan_switch: 'standard',
   };
-  if (lights.length > 0) {
-    // Non-sibling lights (exclude auto-generated recessed children)
-    const parentLights = lights.filter((l) => !l.properties.recessedParentId);
-    const childLights = lights.filter((l) => !!l.properties.recessedParentId);
-    if (parentLights.length > 0) {
-      const lp = parentLights[0].properties;
-      const lightType = lp.lightType ?? 'standard';
-      elecSpec.ceiling_fixture = lightType;
-      if (lightType === 'recessed_multi') {
-        // Use actual child count on canvas (user may have deleted some)
-        const actualCount = childLights.filter(
-          (c) => c.properties.recessedParentId === parentLights[0].id
-        ).length;
-        elecSpec.recessed_can_count = actualCount > 0 ? actualCount : (lp.lightCount ?? 4);
-      }
-    } else if (childLights.length > 0) {
-      // Parent deleted but children remain — count them as recessed
-      elecSpec.ceiling_fixture = 'recessed_multi';
-      elecSpec.recessed_can_count = childLights.length;
-    }
-    sync.replace_vanity_light = true;
-  } else {
-    // All lights removed — clear ceiling fixture
-    elecSpec.ceiling_fixture = undefined;
-    sync.replace_vanity_light = false;
-  }
-  sync.electrical_spec = elecSpec;
+  sync.sketch_lights = lightsFromSketch(fixtures);
+  sync.sketch_cabinets = cabinetsFromSketch(fixtures);
   // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);
 

@@ -75,6 +75,21 @@ export const FIXTURE_GLYPHS: Record<BEFixtureType, React.ReactNode> = {
       <path d="M4.1 4.1l7.8 7.8M11.9 4.1l-7.8 7.8" />
     </Svg>
   ),
+  // A box on the wall, its door marked like the plan draws it
+  cabinet: (
+    <Svg>
+      <path d="M1.5 4.5h13" />
+      <rect x="2.5" y="4.5" width="11" height="5" rx="0.5" />
+      <path d="M2.5 9.5l11-5" opacity="0.55" />
+    </Svg>
+  ),
+  // A lowered ceiling: dashed, as anything overhead on a plan
+  soffit: (
+    <Svg>
+      <rect x="1.5" y="3.5" width="13" height="9" rx="0.5" strokeDasharray="2 1.6" />
+      <path d="M1.5 3.5l13 9M14.5 3.5l-13 9" opacity="0.45" />
+    </Svg>
+  ),
 };
 
 /** A wall seen from above: a solid bar */

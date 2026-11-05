@@ -602,6 +602,91 @@ const recessedCan: FixtureShape = {
   ],
 };
 
+// ── Lights on a wall, a pendant (the wall is the top edge, y = 0) ──
+
+/** An ellipse path of radius r across the depth, round on the plan for a box `aspect` wide per deep */
+function dot(cx: number, cy: number, ry: number, aspect: number): string {
+  const rx = ry / Math.max(0.2, aspect);
+  return `M${cx - rx},${cy} a${rx},${ry} 0 1,0 ${2 * rx},0 a${rx},${ry} 0 1,0 ${-2 * rx},0`;
+}
+
+function buildVanityBar(bulbs: number, aspect: number): FixtureShape {
+  const n = Math.max(1, Math.min(8, Math.round(bulbs)));
+  const paths: PathEntry[] = [
+    // Back plate on the wall, the bar out from it
+    { d: 'M0,0 L1,0', fill: N, stroke: S, strokeWidth: 2 },
+    { d: 'M0.02,0.08 L0.98,0.08 L0.98,0.42 L0.02,0.42 Z', fill: F, stroke: S, strokeWidth: 1.2 },
+  ];
+  for (let i = 0; i < n; i++) {
+    const cx = (i + 0.5) / n;
+    paths.push({ d: `M${cx},0.42 L${cx},0.5`, fill: N, stroke: SL, strokeWidth: 0.6 });
+    paths.push({ d: dot(cx, 0.72, 0.24, aspect), fill: '#fff8e1', stroke: S, strokeWidth: 0.9 });
+  }
+  return { label: `${n}-light`, paths };
+}
+
+function buildSconce(aspect: number): FixtureShape {
+  return {
+    label: 'Sconce',
+    paths: [
+      { d: 'M0.15,0 L0.85,0', fill: N, stroke: S, strokeWidth: 2 },
+      { d: 'M0.35,0.04 L0.65,0.04 L0.65,0.25 L0.35,0.25 Z', fill: F, stroke: S, strokeWidth: 1 },
+      { d: dot(0.5, 0.62, 0.34, aspect), fill: '#fff8e1', stroke: S, strokeWidth: 1.2 },
+    ],
+  };
+}
+
+const pendant: FixtureShape = {
+  label: 'Pendant',
+  paths: [
+    { d: 'M0.5,0.08 A0.42,0.42 0 1,1 0.5,0.92 A0.42,0.42 0 1,1 0.5,0.08 Z', fill: N, stroke: S, strokeWidth: 1.5 },
+    { d: 'M0.5,0.32 A0.18,0.18 0 1,1 0.5,0.68 A0.18,0.18 0 1,1 0.5,0.32 Z', fill: '#fff8e1', stroke: S, strokeWidth: 0.8 },
+    { d: 'M0.5,0.08 L0.5,0.32 M0.5,0.68 L0.5,0.92 M0.08,0.5 L0.32,0.5 M0.68,0.5 L0.92,0.5', fill: N, stroke: SL, strokeWidth: 0.6 },
+  ],
+};
+
+// ── Cabinets on a wall (the wall is the top edge) ──
+
+function buildCabinet(cabinetType?: string): FixtureShape {
+  const paths: PathEntry[] = [
+    { d: 'M0,0 L1,0', fill: N, stroke: S, strokeWidth: 2 },
+    { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: '#fbfaf7', stroke: S, strokeWidth: 1.5 },
+  ];
+  if (cabinetType === 'wall_cabinet') {
+    // Two doors meeting in the middle (its name goes inside the box)
+    paths.push({ d: 'M0.5,0.8 L0.5,1', fill: N, stroke: S, strokeWidth: 0.8 });
+  } else {
+    // Its door is a mirror: glass along the front
+    paths.push({ d: 'M0.02,0.86 L0.98,0.86 L0.98,1 L0.02,1 Z', fill: GLASS, stroke: '#2196f3', strokeWidth: 0.8 });
+  }
+  const label = cabinetType === 'wall_cabinet' ? 'Wall cab.'
+    : cabinetType === 'medicine_cabinet_recessed' ? 'Med. cab. (rec.)' : 'Med. cab.';
+  return { label, paths };
+}
+
+// ── Soffit: a lowered ceiling, overhead, so light and crossed ──
+
+const feetInches = (inches: number) => `${Math.floor(inches / 12)}'${Math.round(inches % 12)}"`;
+
+function buildSoffit(bottomIn: number): FixtureShape {
+  return {
+    label: `Soffit ${feetInches(bottomIn)}`,
+    paths: [
+      { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: 'rgba(120, 110, 90, 0.06)', stroke: '#8a8070', strokeWidth: 1.2 },
+      { d: 'M0,0 L1,1 M1,0 L0,1', fill: N, stroke: '#b5ad9f', strokeWidth: 0.6 },
+    ],
+  };
+}
+
+/** What a fixture's plan symbol needs beyond its type, sub-type and size */
+export interface FixtureShapeExtras {
+  /** Width over depth on the plan, to keep a vanity bar's lights round */
+  aspect?: number;
+  lightBulbs?: number;
+  cabinetType?: string;
+  soffitBottom?: number;
+}
+
 // ── Lookup ──
 
 const BATHTUB_SHAPES: Partial<Record<BathtubSubType, FixtureShape>> = {
@@ -623,6 +708,7 @@ export function getFixtureShape(
   lightType?: string,
   wallSides?: WallSides | null,
   showerDoorPosition?: ShowerDoorPosition,
+  extras: FixtureShapeExtras = {},
 ): FixtureShape {
   switch (type) {
     case 'bathtub':
@@ -652,7 +738,18 @@ export function getFixtureShape(
     case 'mirror':
       return mirror;
     case 'light':
-      return (lightType === 'recessed' || lightType === 'recessed_multi') ? recessedCan : light;
+      switch (lightType) {
+        case 'recessed':
+        case 'recessed_multi': return recessedCan;
+        case 'vanity_bar': return buildVanityBar(extras.lightBulbs ?? 3, extras.aspect ?? 5);
+        case 'sconce': return buildSconce(extras.aspect ?? 1.2);
+        case 'pendant': return pendant;
+        default: return light;
+      }
+    case 'cabinet':
+      return buildCabinet(extras.cabinetType);
+    case 'soffit':
+      return buildSoffit(extras.soffitBottom ?? 84);
     default:
       return { label: type, paths: [{ d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 1.5 }] };
   }

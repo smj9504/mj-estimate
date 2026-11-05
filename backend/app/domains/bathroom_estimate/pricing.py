@@ -682,6 +682,15 @@ MIRROR_PRICES = {
 # 2026-08-26: +17% (Tier A — pure install labor)
 MIRROR_INSTALL = 151                  # labor to hang (anchoring, leveling)
 
+# Wall cabinet (the one over the toilet; cabinets.py). A medicine cabinet is
+# priced from MIRROR_PRICES + MIRROR_INSTALL like a mirror of that type.
+# Researched 2026-11-05: over-toilet wood wall cabinets retail ~$100-$250;
+# no reliable install figure, so its labor sits a little over hanging a
+# mirror (anchored into studs, leveled). Defaults, not company rates: adjust
+# when real jobs show they're off.
+WALL_CABINET_PRICE = 185              # material allowance, ~24"W x 30"H wood cabinet
+WALL_CABINET_INSTALL = 175            # anchor to studs, level, doors adjusted
+
 # Toilet, Tier B +5% (fixture material — toilet SET labor is in PLUMBING_RATES)
 TOILET_PRICES = {
     # Material only (install under plumbing)
@@ -829,6 +838,13 @@ DETACH_RESET_COSTS = {
     "mirror": 116,                    # ~0.75 hrs ($65-$125)
     # Vanity light: disconnect, remove, store, reinstall
     "vanity_light": 104,              # ~0.5-0.75 hrs ($65-$110)
+    # Cabinets on the wall: empty, unscrew from the studs, store, rehang level.
+    # Researched 2026-11-05 (surface medicine cabinet 1-2 hrs to install,
+    # recessed 3-5 hrs, CountBricks/HomeWyse 2026); D&R taken as a fraction
+    # of that. Defaults, not company rates: adjust when real jobs show they're off.
+    "medicine_cabinet": 135,          # ~1 hr
+    "medicine_cabinet_recessed": 165, # ~1.25 hrs: screws inside the box, re-caulk the flange
+    "wall_cabinet": 150,              # ~1-1.25 hrs, two hands to rehang
     # Accessories (towel bars, tp holders, etc.): remove all, store, reinstall
     # Per-piece: unscrew/pull anchors, label, bag, reinstall w/ new anchors
     # Sources: Xactimate D&R, Angi 2025-2026

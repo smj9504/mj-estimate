@@ -330,11 +330,10 @@ export function useBESketchState(initialData?: BESketchData) {
 
       const floorAreaSF = areaPx2 / (ppf * ppf);
       const perimeterLF = pxToInches(perimeterPx, ppf) / 12;
-      const heightInches = 96;
-      const wallAreaSF = (perimeterLF * heightInches) / 144;
 
       mutate((d) => {
         const room = d.rooms.find((r) => r.id === id);
+        const wallAreaSF = (perimeterLF * (room?.heightInches || 96)) / 144;
 
         // Sync walls to match new boundary edges
         let newWalls = d.walls;
@@ -375,6 +374,25 @@ export function useBESketchState(initialData?: BESketchData) {
         ...d,
         rooms: d.rooms.map((r) => (r.id === id ? { ...r, ...updates } : r)),
       }));
+    },
+    [mutate],
+  );
+
+  /** A room's ceiling height, and its own walls' with it */
+  const setRoomHeight = useCallback(
+    (id: string, heightInches: number) => {
+      mutate((d) => {
+        const room = d.rooms.find((r) => r.id === id);
+        if (!room) return d;
+        const own = new Set(room.wallIds);
+        return {
+          ...d,
+          walls: d.walls.map((w) => (own.has(w.id) ? { ...w, heightInches } : w)),
+          rooms: d.rooms.map((r) => (r.id === id
+            ? { ...r, heightInches, wallAreaSF: Math.round(((r.perimeterLF * heightInches) / 144) * 100) / 100 }
+            : r)),
+        };
+      });
     },
     [mutate],
   );
@@ -825,6 +843,7 @@ export function useBESketchState(initialData?: BESketchData) {
     addRoom,
     updateRoom,
     updateRoomMeta,
+    setRoomHeight,
     removeRoom,
 
     // Fixture ops

@@ -17,6 +17,7 @@ import math
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from .lights import is_wall_light
 from .pricing import LAYOUT_CHANGE_RATES
 
 # A fixture that moved less than this hasn't moved (inches)
@@ -30,7 +31,8 @@ MIN_WALL_IN = 12.0
 
 PLUMBING = ("toilet", "vanity", "bathtub", "shower")
 NAMES = {"toilet": "Toilet", "vanity": "Vanity", "bathtub": "Tub", "shower": "Shower",
-         "door": "Door", "light": "Light"}
+         "door": "Door", "light": "Light", "wall_light": "Wall light"}
+LIGHTS = ("light", "wall_light")
 
 Point = Tuple[float, float]
 
@@ -40,7 +42,7 @@ class LayoutChange:
     key: str
     # moved | added | removed | converted | sinks_added | wall_added | wall_removed
     kind: str
-    # toilet | vanity | bathtub | shower | door | light | wall | tub_to_shower | shower_to_tub
+    # toilet | vanity | bathtub | shower | door | light | wall_light | wall | tub_to_shower | shower_to_tub
     item: str
     label: str
     distance_in: float = 0.0
@@ -64,6 +66,14 @@ def _dist(a: Point, b: Point) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
+def _kind(f: Dict[str, Any]) -> Optional[str]:
+    """A fixture's type, a light on a wall (vanity bar, sconce) kept apart from one on the ceiling."""
+    t = f.get("type")
+    if t == "light" and is_wall_light((f.get("properties") or {}).get("lightType")):
+        return "wall_light"
+    return t
+
+
 def _sinks(f: Dict[str, Any]) -> int:
     props = f.get("properties") or {}
     return max(1, int(props.get("sinkCount") or 1))
@@ -77,14 +87,14 @@ def _pair(base: List[Dict], option: List[Dict], bppf: float, oppf: float):
     left: List[Dict] = []
     for f in option:
         b = by_id.get(f.get("id"))
-        if b is not None and b.get("type") == f.get("type"):
+        if b is not None and _kind(b) == _kind(f):
             pairs.append((b, f))
             used.add(id(b))
         else:
             left.append(f)
     base_left = [b for b in base if id(b) not in used]
     for f in list(left):
-        same = [b for b in base_left if b.get("type") == f.get("type")]
+        same = [b for b in base_left if _kind(b) == _kind(f)]
         if not same:
             continue
         b = min(same, key=lambda c: _dist(_center(c, bppf), _center(f, oppf)))
@@ -140,16 +150,16 @@ def layout_changes(base_sketch: Optional[Dict[str, Any]], option_sketch: Optiona
     base_sketch = base_sketch or {}
     option_sketch = option_sketch or {}
     bppf, oppf = _ppf(base_sketch), _ppf(option_sketch)
-    kinds = PLUMBING + ("door", "light")
-    base = [f for f in base_sketch.get("fixtures") or [] if f.get("type") in kinds]
-    option = [f for f in option_sketch.get("fixtures") or [] if f.get("type") in kinds]
+    kinds = PLUMBING + ("door",) + LIGHTS
+    base = [f for f in base_sketch.get("fixtures") or [] if _kind(f) in kinds]
+    option = [f for f in option_sketch.get("fixtures") or [] if _kind(f) in kinds]
     pairs, removed, added = _pair(base, option, bppf, oppf)
     changes: List[LayoutChange] = []
 
     # A tub taken out where a shower went in (or the other way round) is a conversion
     for old_type, new_type, item in (("bathtub", "shower", "tub_to_shower"), ("shower", "bathtub", "shower_to_tub")):
-        for b in [f for f in removed if f.get("type") == old_type]:
-            near = [f for f in added if f.get("type") == new_type
+        for b in [f for f in removed if _kind(f) == old_type]:
+            near = [f for f in added if _kind(f) == new_type
                     and _dist(_center(b, bppf), _center(f, oppf)) <= SAME_SPOT_IN]
             if not near:
                 continue
@@ -160,9 +170,9 @@ def layout_changes(base_sketch: Optional[Dict[str, Any]], option_sketch: Optiona
             changes.append(LayoutChange(f"converted:{b.get('id')}", "converted", item, label))
 
     for b, f in pairs:
-        kind = f.get("type")
+        kind = _kind(f)
         moved = _dist(_center(b, bppf), _center(f, oppf))
-        threshold = LIGHT_MOVE_IN if kind == "light" else MOVE_IN
+        threshold = LIGHT_MOVE_IN if kind in LIGHTS else MOVE_IN
         if moved > threshold:
             changes.append(LayoutChange(
                 f"moved:{f.get('id')}", "moved", kind,
@@ -177,14 +187,14 @@ def layout_changes(base_sketch: Optional[Dict[str, Any]], option_sketch: Optiona
             ))
 
     for f in added:
-        kind = f.get("type")
+        kind = _kind(f)
         changes.append(LayoutChange(
             f"added:{f.get('id')}", "added", kind, f"New {NAMES[kind].lower()}",
             count=_sinks(f) if kind == "vanity" else 1,
         ))
     for b in removed:
-        kind = b.get("type")
-        if kind == "light":
+        kind = _kind(b)
+        if kind in LIGHTS:
             continue  # a light taken down needs no more than its fixture removal
         changes.append(LayoutChange(f"removed:{b.get('id')}", "removed", kind, f"{NAMES[kind]} taken out"))
 
@@ -280,11 +290,12 @@ def layout_change_line_items(
                 items.append(_item(3, "Cut & frame new door opening", 1, "EA", r["door_new_opening"], "substrate", note))
             else:
                 items.append(_item(3, "Infill old door opening", 1, "EA", r["door_infill"], "substrate", note))
-        elif c.item == "light":
+        elif c.item in LIGHTS:
+            where = "wall" if c.item == "wall_light" else "ceiling"
             if c.kind == "moved":
-                items.append(_item(2, "Relocate ceiling light box", 1, "EA", r["light_relocation"], "electrical", note))
+                items.append(_item(2, f"Relocate {where} light box", 1, "EA", r["light_relocation"], "electrical", note))
             else:
-                items.append(_item(2, "New ceiling light box & wiring", 1, "EA", r["light_new_box"], "electrical", note))
+                items.append(_item(2, f"New {where} light box & wiring", 1, "EA", r["light_new_box"], "electrical", note))
         elif c.kind == "wall_added":
             items.append(_item(3, "Frame new partition wall (2x4, drywall both sides, finished)", c.length_ft, "LF",
                                r["partition_wall_per_lf"], "substrate", note))

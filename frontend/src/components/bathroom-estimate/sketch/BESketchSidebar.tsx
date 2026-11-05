@@ -10,6 +10,9 @@ import React, { useCallback, useState } from 'react';
 import { Button } from 'antd';
 import { AppstoreAddOutlined, RightOutlined } from '@ant-design/icons';
 import type { BEFixtureType, BEPoint, BESketchTool } from '../../../types/bathroomSketch';
+import { BE_FIXTURE_DEFAULTS, SOFFIT_BOTTOM_IN } from '../../../types/bathroomSketch';
+import { cabinetKind } from '../fixtureRows';
+import { placeFor } from './utils/hangOnWall';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { FIXTURE_GLYPHS } from './beGlyphs';
 import BELayoutPicker from './BELayoutPicker';
@@ -23,7 +26,7 @@ interface BESketchSidebarProps {
   sheet?: boolean;
 }
 
-const ADDABLE: BEFixtureType[] = ['bathtub', 'shower', 'vanity', 'toilet', 'door', 'window', 'mirror', 'light'];
+const ADDABLE: BEFixtureType[] = ['bathtub', 'shower', 'vanity', 'toilet', 'door', 'window', 'mirror', 'light', 'cabinet', 'soffit'];
 
 // The canvas's own colours, so a list row and its zone on the plan match
 const DRYWALL_SWATCH = { wall: '#ff9800', ceiling: '#42a5f5' };
@@ -85,7 +88,7 @@ const ZoneRows: React.FC<{ items: TakeoffItem[]; onSelect: (id: string) => void 
 );
 
 const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 300, sheet }) => {
-  const { data, selectedId, setSelectedId, setActiveTool, addFixture } = api;
+  const { data, selectedId, setSelectedId, setActiveTool, addFixture, updateFixture } = api;
   const ppf = data.settings.pixelsPerFoot;
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setOpen((o) => ({ ...o, [key]: !o[key] }));
@@ -101,6 +104,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 300, she
       const ys = room.boundary.map((p) => p.y);
       pos = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
     }
+    const cabinet = cabinetKind('medicine_cabinet');
     const id = addFixture(type, pos, room?.id, undefined, {
       bathtubSubType: type === 'bathtub' ? 'standard_alcove' : undefined,
       showerFloorType: type === 'shower' ? 'tile' : undefined,
@@ -109,10 +113,19 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 300, she
       showerDoorType: type === 'shower' ? 'sliding' : undefined,
       showerDoorSide: type === 'shower' ? 'front' : undefined,
       lightType: type === 'light' ? 'standard' : undefined,
-    });
+      cabinetType: type === 'cabinet' ? cabinet.value : undefined,
+      cabinetHeight: type === 'cabinet' ? cabinet.heightIn : undefined,
+      soffitBottom: type === 'soffit' ? SOFFIT_BOTTOM_IN : undefined,
+    }, type === 'cabinet' ? cabinet.size : undefined);
+    // A medicine cabinet on the wall behind the vanity, a soffit over the tub or shower
+    if (type === 'cabinet' || type === 'soffit') {
+      const draft = { id, type, position: pos, rotation: 0, dimensions: type === 'cabinet' ? cabinet.size : BE_FIXTURE_DEFAULTS.soffit, properties: {} };
+      const spot = placeFor(data.fixtures, draft, type === 'cabinet' ? 'medicine_cabinet' : 'soffit', draft.dimensions, ppf);
+      if (spot) updateFixture(id, spot);
+    }
     setSelectedId(id);
     setActiveTool('select');
-  }, [addFixture, data.rooms, setSelectedId, setActiveTool]);
+  }, [addFixture, updateFixture, data.rooms, data.fixtures, ppf, setSelectedId, setActiveTool]);
 
   const markAction = (tool: BESketchTool) => (
     <>
@@ -204,6 +217,19 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 300, she
               </button>
             );
           })}
+        </section>
+      )}
+
+      {data.fixtures.some((f) => f.type === 'soffit') && (
+        <section className="bes-section">
+          <h3 className="bes-section-title">Soffits</h3>
+          {data.fixtures.filter((f) => f.type === 'soffit').map((f, i) => (
+            <button key={f.id} type="button" className="bes-row" onClick={() => setSelectedId(f.id)}>
+              <span className="bes-row-name">Soffit {i + 1}</span>
+              <span className="bes-row-meta">{feetInches(f.dimensions.width / 12)} × {feetInches(f.dimensions.height / 12)}</span>
+              <span className="bes-row-value">{feetInches((f.properties.soffitBottom ?? SOFFIT_BOTTOM_IN) / 12)} high</span>
+            </button>
+          ))}
         </section>
       )}
 

@@ -67,6 +67,8 @@ import BESelectionsPanel from '../components/bathroom-estimate/BESelectionsPanel
 import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
 import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
 import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
+import BEFixtureRows from '../components/bathroom-estimate/BEFixtureRows';
+import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
 import { exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 
@@ -352,6 +354,8 @@ const BathroomEstimateDetail: React.FC = () => {
         ...(estimate.walls_spec || {}),
         paint_ceiling: (estimate.walls_spec || {}).paint_ceiling ?? true,
       };
+      // One vanity light and one ceiling light, saved before lights went by kind: as rows
+      Object.assign(estimate, withLightRows(estimate));
 
       const hc = estimate.hidden_costs || {};
       estimate.hidden_costs = {
@@ -501,9 +505,7 @@ const BathroomEstimateDetail: React.FC = () => {
     syncFixtureAction('vanity', sync.replace_vanity);
     syncFixtureAction('toilet', sync.replace_toilet);
     syncFixtureAction('mirror', sync.replace_mirror);
-    if (sync.replace_vanity_light !== undefined) {
-      updates.replace_vanity_light = sync.replace_vanity_light;
-    }
+    if (sync.height_ft) updates.height_ft = sync.height_ft;
     if (sync.demo_walls !== undefined) updates.demo_walls = sync.demo_walls;
 
     // Water damage repair flags (auto-set from drywall repair zones)
@@ -560,8 +562,16 @@ const BathroomEstimateDetail: React.FC = () => {
     if (sync.toilet_spec) {
       updates.toilet_spec = { ...(current.toilet_spec || {}), ...sync.toilet_spec };
     }
-    if (sync.electrical_spec) {
-      updates.electrical_spec = { ...(current.electrical_spec || {}), ...sync.electrical_spec };
+    if (sync.electrical_spec || sync.sketch_lights) {
+      const elec = { ...(current.electrical_spec || {}), ...(sync.electrical_spec || {}) };
+      if (sync.sketch_lights) elec.lights = mergeFromSketch(current.electrical_spec?.lights, sync.sketch_lights);
+      updates.electrical_spec = elec;
+    }
+    if (sync.sketch_cabinets) {
+      updates.accessories_spec = {
+        ...(current.accessories_spec || {}),
+        cabinets: mergeFromSketch(current.accessories_spec?.cabinets, sync.sketch_cabinets),
+      };
     }
     if (sync.walls_spec) {
       updates.walls_spec = { ...(current.walls_spec || {}), ...sync.walls_spec };
@@ -1294,9 +1304,7 @@ const BathroomEstimateDetail: React.FC = () => {
                   prev.detach_reset_vanity !== cur.detach_reset_vanity ||
                   prev.detach_reset_toilet !== cur.detach_reset_toilet ||
                   prev.replace_mirror !== cur.replace_mirror ||
-                  prev.detach_reset_mirror !== cur.detach_reset_mirror ||
-                  prev.replace_vanity_light !== cur.replace_vanity_light ||
-                  prev.detach_reset_vanity_light !== cur.detach_reset_vanity_light
+                  prev.detach_reset_mirror !== cur.detach_reset_mirror
                 }>
                   {() => {
                     const getAction = (fixture: string) => {
@@ -1362,33 +1370,26 @@ const BathroomEstimateDetail: React.FC = () => {
                                 </Radio.Group>
                               </div>
                             </Col>
-                            <Col xs={24} sm={12} md={6}>
-                              <div style={{ marginBottom: 8 }}>
-                                <Text strong style={{ display: 'block', marginBottom: 4 }}>Vanity Light</Text>
-                                <Radio.Group
-                                  value={
-                                    form.getFieldValue('replace_vanity_light') ? 'replace' :
-                                    form.getFieldValue('detach_reset_vanity_light') ? 'detach_reset' : 'none'
-                                  }
-                                  onChange={(e) => {
-                                    form.setFieldsValue({
-                                      replace_vanity_light: e.target.value === 'replace',
-                                      detach_reset_vanity_light: e.target.value === 'detach_reset',
-                                    });
-                                  }}
-                                >
-                                  <Radio.Button value="none">None</Radio.Button>
-                                  <Radio.Button value="replace">New</Radio.Button>
-                                  <Radio.Button value="detach_reset">D&R</Radio.Button>
-                                </Radio.Group>
-                              </div>
-                            </Col>
                           </>
                         )}
                       </Row>
                     );
                   }}
                 </Form.Item>
+                <Row gutter={[16, 12]} style={{ marginBottom: 8 }}>
+                  <Col xs={24} lg={12}>
+                    <Text strong style={{ display: 'block', marginBottom: 4 }}>Lights</Text>
+                    <Form.Item name={['electrical_spec', 'lights']} noStyle>
+                      <BEFixtureRows kinds={LIGHT_KINDS} noun="light" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Text strong style={{ display: 'block', marginBottom: 4 }}>Wall cabinets</Text>
+                    <Form.Item name={['accessories_spec', 'cabinets']} noStyle>
+                      <BEFixtureRows kinds={CABINET_KINDS} noun="cabinet" typeWidth={250} />
+                    </Form.Item>
+                  </Col>
+                </Row>
                 <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
                   Replace = new fixture (material + labor) | D&R = Detach & Reset (labor only, reinstall same fixture)
                 </Text>
@@ -2570,28 +2571,6 @@ const BathroomEstimateDetail: React.FC = () => {
                           <InputNumber style={{ width: '100%' }} min={0} />
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={8} md={5}>
-                        <Form.Item label="Ceiling Light" name={['electrical_spec', 'ceiling_fixture']}>
-                          <Select
-                            allowClear
-                            placeholder="None"
-                            options={[
-                              { label: 'Standard fixture', value: 'standard' },
-                              { label: 'Recessed (1 can)', value: 'recessed' },
-                              { label: 'Recessed (multi)', value: 'recessed_multi' },
-                            ]}
-                          />
-                        </Form.Item>
-                      </Col>
-                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev?.electrical_spec?.ceiling_fixture !== cur?.electrical_spec?.ceiling_fixture}>
-                        {() => form.getFieldValue(['electrical_spec', 'ceiling_fixture']) === 'recessed_multi' && (
-                          <Col xs={8} sm={6} md={3}>
-                            <Form.Item label="Cans" name={['electrical_spec', 'recessed_can_count']}>
-                              <InputNumber style={{ width: '100%' }} min={2} max={12} />
-                            </Form.Item>
-                          </Col>
-                        )}
-                      </Form.Item>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Fan CFM" name={['electrical_spec', 'exhaust_fan_cfm']}>
                           <Select
