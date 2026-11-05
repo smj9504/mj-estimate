@@ -547,7 +547,9 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     sync.walls_spec = {
       ...existingWallsSpec,
       paint_walls: hasWallDw,
-      paint_ceiling: hasCeilDw,
+      // A ceiling repair needs the ceiling painted; otherwise the Paint Ceiling
+      // box is the person's choice, which a sketch sync must not undo
+      ...(hasCeilDw ? { paint_ceiling: true } : {}),
       paint_grade: existingWallsSpec.paint_grade ?? 'mid',
       seal_prime_wall_sf: Math.round(wallDwSF * 10) / 10,
       seal_prime_ceiling_sf: Math.round(ceilDwSF * 10) / 10,
