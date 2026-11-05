@@ -92,6 +92,37 @@ def test_the_total_follows_line_items_added_and_deleted(service):
     assert after_delete["total"] == 1200
 
 
+def test_the_total_is_the_exact_sum_and_no_line_is_changed_to_round_it(service):
+    # It used to round to $10 and push the difference into the biggest line,
+    # so a price typed on that line came back a few dollars off
+    estimate = new_job(service)
+    add_line(service, estimate["id"], "Vanity 36in", 1234.56, phase=5)
+    after = add_line(service, estimate["id"], "Floor tile 12x12 porcelain", 87.13)
+    assert after["total"] == pytest.approx(1321.69)
+    assert after["subtotal"] == pytest.approx(1321.69)
+    vanity = next(li for li in after["line_items"] if li["description"] == "Vanity 36in")
+    assert (vanity["unit_price"], vanity["total"]) == (1234.56, 1234.56)
+
+    edited = service.update_line_item(estimate["id"], vanity["id"], {"unit_price": 1501.37})
+    vanity = next(li for li in edited["line_items"] if li["description"] == "Vanity 36in")
+    assert (vanity["unit_price"], vanity["total"]) == (1501.37, 1501.37)
+    assert edited["total"] == pytest.approx(1588.50)
+
+
+def test_a_calculated_total_is_the_sum_of_its_lines_with_each_line_qty_times_price(service):
+    from app.domains.bathroom_estimate.calculator import calculate_estimate
+    result = calculate_estimate(BathroomEstimate(
+        property_address="12 Elm St", state="MD", zip_code="20850",
+        length_ft=8, width_ft=6, floor_sf=40, wall_sf=600, height_ft=8,
+        walls_spec={"wall_finish": "paint", "paint_grade": "mid"},
+        replace_tub=True, bathtub_spec={"type": "alcove", "material": "acrylic"},
+    ))
+    lines = result["line_items"]
+    assert result["total"] == pytest.approx(sum(li["total"] for li in lines), abs=0.005)
+    for li in lines:
+        assert li["total"] == pytest.approx(round(li["quantity"] * li["unit_price"], 2), abs=0.005), li["description"]
+
+
 def test_an_insurance_job_starts_with_its_restoration_and_a_remodel_with_option_a(service):
     claim = new_job(service)
     assert claim["kind"] == "restore"

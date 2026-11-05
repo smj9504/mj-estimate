@@ -2953,23 +2953,10 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     # grand total is simply the subtotal. No separate tax amount is ever
     # reported to the client.
     tax_amount = 0
+    # The total is the exact sum of the line items. It is never rounded to a
+    # clean number here: that would push a few dollars into one line item
+    # without saying so. A round figure comes only from target_total below.
     total = round(subtotal, 2)
-
-    # ────────────────────────────────────────
-    # Round total to nearest $10 for clean pricing
-    # Absorb difference into largest line item so sums stay exact
-    # ────────────────────────────────────────
-    rounded_total = round(total / 10) * 10
-    _round_diff = round(rounded_total - total, 2)
-    if _round_diff != 0 and line_items:
-        _lg = max(line_items, key=lambda x: x["total"])
-        _lg["total"] = round(_lg["total"] + _round_diff, 2)
-        if _lg["quantity"]:
-            _lg["unit_price"] = round(
-                _lg["total"] / _lg["quantity"], 2
-            )
-        subtotal = sum(item["total"] for item in line_items)
-        total = round(subtotal, 2)
 
     # ────────────────────────────────────────
     # Target total adjustment (reverse pricing)

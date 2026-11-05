@@ -706,19 +706,10 @@ class BathroomEstimateService:
             return
 
         # O&P is already absorbed into line item pricing by the calculator.
-        # This method just re-sums from current line items.
-        subtotal = sum(li.total for li in estimate.line_items)
-
-        total = round(subtotal / 10) * 10
-        # Absorb rounding difference into largest line item
-        _diff = round(total - subtotal, 2)
-        if _diff != 0 and estimate.line_items:
-            _lg = max(estimate.line_items, key=lambda x: x.total)
-            _lg.total = round(_lg.total + _diff, 2)
-            if _lg.quantity:
-                _lg.unit_price = round(_lg.total / _lg.quantity, 2)
-            subtotal = sum(li.total for li in estimate.line_items)
-            total = round(subtotal, 2)
+        # This method just re-sums from current line items. The total is
+        # never rounded, so no line item is ever changed behind the user.
+        subtotal = round(sum(li.total for li in estimate.line_items), 2)
+        total = subtotal
         self.estimate_repo.update(estimate_id, {
             "subtotal": subtotal,
             "overhead_amount": 0,
