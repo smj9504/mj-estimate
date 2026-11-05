@@ -29,6 +29,7 @@ override no longer applies.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 # Order matters: a stage's position is how far along the claim is.
@@ -99,6 +100,17 @@ class StageFacts:
     bids: Dict[str, List[str]] = field(default_factory=dict)
     revision_types: Set[str] = field(default_factory=set)
     depreciation_paid: bool = False
+    # When each open supplement_estimate_prep task was opened
+    prep_tasks_opened: List[datetime] = field(default_factory=list)
+    # supplement_id -> when it went out (submitted, or answered without a date for that)
+    supplements_out: Dict[str, datetime] = field(default_factory=dict)
+
+
+def _utc(when: Optional[datetime]) -> Optional[datetime]:
+    """Naive UTC, so times from Postgres (aware) and SQLite (naive) compare"""
+    if when is None or when.tzinfo is None:
+        return when
+    return when.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _get(claim: Any, name: str) -> Any:
@@ -127,19 +139,27 @@ def load_stage_facts(session, claim_ids: Iterable[Any]) -> Dict[str, StageFacts]
 
     for row in session.query(
         FollowUpTask.claim_id, FollowUpTask.task_type, FollowUpTask.status,
-        FollowUpTask.depreciation_phase, FollowUpTask.payment_status,
+        FollowUpTask.depreciation_phase, FollowUpTask.payment_status, FollowUpTask.created_at,
     ).filter(FollowUpTask.claim_id.in_(ids), FollowUpTask.status != 'cancelled').all():
-        facts[str(row.claim_id)].tasks.append(
+        claim_facts = facts[str(row.claim_id)]
+        claim_facts.tasks.append(
             (row.task_type, row.status, row.depreciation_phase, row.payment_status)
         )
+        if (row.task_type == 'supplement_estimate_prep' and row.status in OPEN_TASK_STATUSES
+                and row.created_at):
+            claim_facts.prep_tasks_opened.append(_utc(row.created_at))
 
     supplement_claims: Dict[str, str] = {}
-    for supp_id, claim_id, status, request_type in session.query(
+    for supp_id, claim_id, status, request_type, submitted, updated in session.query(
         SupplementRequest.id, SupplementRequest.claim_id,
         SupplementRequest.status, SupplementRequest.request_type,
+        SupplementRequest.submitted_date, SupplementRequest.updated_at,
     ).filter(SupplementRequest.claim_id.in_(ids)).all():
         supplement_claims[str(supp_id)] = str(claim_id)
         facts[str(claim_id)].supplements[str(supp_id)] = (status, request_type)
+        out = submitted or updated
+        if status in SUPPLEMENT_SUBMITTED_STATUSES + SUPPLEMENT_DONE_STATUSES and out:
+            facts[str(claim_id)].supplements_out[str(supp_id)] = _utc(out)
 
     if supplement_claims:
         for supp_id, status in session.query(
@@ -224,11 +244,23 @@ def _supplement_started(facts: StageFacts) -> bool:
     return bool(_supplements(facts)) or any(t[0] in SUPPLEMENT_TASK_TYPES for t in facts.tasks)
 
 
+def _prep_tasks_overtaken(facts: StageFacts, supplements: Dict[str, Tuple[str, Optional[str]]]) -> bool:
+    """Every open 'Prepare Supplement Estimate' task is older than a supplement that
+    has since gone out: that writing is done, the task was just never closed (submitting
+    on the supplement page doesn't close it). A task opened after it is a new round."""
+    open_count = len(_tasks(facts, 'supplement_estimate_prep', OPEN_TASK_STATUSES))
+    out = [when for supp_id, when in facts.supplements_out.items() if supp_id in supplements]
+    if not out or len(facts.prep_tasks_opened) < open_count:
+        return False
+    return max(facts.prep_tasks_opened) < max(out)
+
+
 def _supplement_stage(facts: StageFacts) -> Tuple[str, str]:
     """After the first estimate, on the supplement path"""
-    prep = bool(_tasks(facts, 'supplement_estimate_prep', OPEN_TASK_STATUSES))
-    submitted = bool(_tasks(facts, 'supplement_sent', OPEN_TASK_STATUSES))
     supplements = _supplements(facts)
+    prep = (bool(_tasks(facts, 'supplement_estimate_prep', OPEN_TASK_STATUSES))
+            and not _prep_tasks_overtaken(facts, supplements))
+    submitted = bool(_tasks(facts, 'supplement_sent', OPEN_TASK_STATUSES))
     for supp_id, (status, _) in supplements.items():
         bids = facts.bids.get(supp_id, [])
         if status in SUPPLEMENT_SUBMITTED_STATUSES:
