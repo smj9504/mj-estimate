@@ -436,6 +436,10 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
   };
 
   const doSend = async (values: any) => {
+    if (!selectedAccountId) {
+      message.warning('Choose a sending account');
+      return;
+    }
     const toList = Array.isArray(values.to_addresses)
       ? values.to_addresses.filter(Boolean)
       : typeof values.to_addresses === 'string'
@@ -913,6 +917,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           icon={<SendOutlined />}
           onClick={handleSend}
           loading={isSending}
+          disabled={!selectedAccountId}
         >
           Send{totalAttachments > 0 ? ` (${totalAttachments} files)` : ''}
         </Button>

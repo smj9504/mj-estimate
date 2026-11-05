@@ -457,6 +457,11 @@ def send_electrician_report_to_pa(
         raise HTTPException(status_code=404, detail="Report not found")
     if not request.to_addresses:
         raise HTTPException(status_code=400, detail="No recipients")
+    from app.domains.claim_followup.service import require_sending_account
+    try:
+        require_sending_account(db, request.email_account_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     try:
         report_dict = report.to_dict()

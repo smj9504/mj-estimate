@@ -15,7 +15,6 @@ import {
 import PaymentConfig from './PaymentConfig';
 import DocumentTypesConfig from './DocumentTypesConfig';
 import TradesConfig from './TradesConfig';
-import SystemSettingsConfig from './SystemSettingsConfig';
 
 interface ConfigManagementLayoutProps {
   defaultTab?: string;
@@ -90,28 +89,6 @@ const ConfigManagementLayout: React.FC<ConfigManagementLayoutProps> = ({
             style={{ marginBottom: 16 }}
           />
           <TradesConfig />
-        </>
-      ),
-    },
-    {
-      key: 'system-settings',
-      label: (
-        <Space>
-          <SettingOutlined />
-          System Settings
-        </Space>
-      ),
-      children: (
-        <>
-          <Alert
-            message="System Settings"
-            description="Global runtime toggles. Changes apply immediately across the app - no redeploy needed."
-            type="info"
-            showIcon
-            icon={<InfoCircleOutlined />}
-            style={{ marginBottom: 16 }}
-          />
-          <SystemSettingsConfig />
         </>
       ),
     },

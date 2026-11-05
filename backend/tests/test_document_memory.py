@@ -311,10 +311,6 @@ def test_pdf_renders_do_not_overlap_other_document_work(lock_held_elsewhere, ren
 @pytest.fixture
 def smtp(monkeypatch):
     from app.domains.claim_followup.smtp_service import SmtpService
-    settings_module = ModuleType('app.domains.admin.settings_service')
-    settings_module.ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK_KEY = 'route'
-    settings_module.get_bool_setting = lambda *args, **kwargs: False
-    monkeypatch.setitem(sys.modules, settings_module.__name__, settings_module)
     service = SmtpService()
     monkeypatch.setattr(service, '_get_smtp_config', lambda account_id: {})
     return service

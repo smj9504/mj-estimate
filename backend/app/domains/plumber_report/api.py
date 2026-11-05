@@ -606,6 +606,11 @@ async def send_plumber_report_to_pa(
 
     if not request.to_addresses:
         raise HTTPException(status_code=400, detail="No recipients")
+    from app.domains.claim_followup.service import require_sending_account
+    try:
+        require_sending_account(db, request.email_account_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Generate PDF (run in thread to avoid blocking event loop)
     try:

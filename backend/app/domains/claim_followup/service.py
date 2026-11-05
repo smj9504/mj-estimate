@@ -36,6 +36,36 @@ def is_wm_payment_task(task: Dict[str, Any]) -> bool:
     return task_type == 'payment_check' and bool(_WM_TITLE.search(task.get('title') or ''))
 
 
+NO_SENDING_ACCOUNT = (
+    "Choose a sending account. Email goes out only from an account added "
+    "under Email Accounts."
+)
+
+
+def require_sending_account(session, account_id: Optional[str]) -> None:
+    """Email a person sends from the app goes out only from an account added
+    under Email Accounts that is on and allowed to send - never from the
+    server's own address. Raises ValueError otherwise."""
+    import uuid
+
+    from app.domains.email_ingestion.models import EmailAccount
+
+    try:
+        account_uuid = uuid.UUID(str(account_id or ""))
+    except ValueError:
+        raise ValueError(NO_SENDING_ACCOUNT) from None
+    account = session.query(EmailAccount).filter(
+        EmailAccount.id == account_uuid
+    ).first()
+    if account is None:
+        raise ValueError(NO_SENDING_ACCOUNT)
+    if not account.is_active or account.can_send is False:
+        raise ValueError(
+            f"{account.email_address} is turned off for sending. "
+            "Choose another account or turn it on under Email Accounts."
+        )
+
+
 def _with_open_tracking_pixel(body_html: str, email_id: str) -> tuple:
     """Append an invisible 1x1 tracking pixel that records when the email is opened.
 
@@ -1990,17 +2020,17 @@ class ClaimFollowUpService:
 
             email_repo = get_sent_email_repository(session)
 
-            # Determine from_address
+            require_sending_account(session, data.get('email_account_id'))
+
+            # Determine from_address. SmtpService always sends as the
+            # account's own address; a different from_address only becomes
+            # Reply-To there.
             from_address = data.get('from_address')
-            if not from_address and data.get('email_account_id'):
+            if not from_address:
                 from app.domains.email_ingestion.repository import get_email_account_repository
                 account_repo = get_email_account_repository(session)
                 account = account_repo.get_by_id(data['email_account_id'])
-                if account:
-                    from_address = account['email_address']
-
-            if not from_address:
-                from_address = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com')
+                from_address = account['email_address']
 
             # Collect WM document attachments if requested (for follow-up emails)
             raw_attachments = list(data.get('attachments', []))
@@ -2058,7 +2088,6 @@ class ClaimFollowUpService:
             ]
 
             claim_id = data.get('claim_id')
-            manual_from = bool(data.get('from_address')) and not data.get('email_account_id')
 
             # If no claim is linked, send via SMTP directly (no DB record)
             if claim_id is None:
@@ -2073,7 +2102,6 @@ class ClaimFollowUpService:
                     body_html=data['body_html'],
                     attachments=raw_attachments,
                     reply_to=data.get('reply_to'),
-                    skip_signature=manual_from,
                     display_name_override=data.get('display_name'),
                     signature_email_override=data.get('signature_email'),
                     signature_phone_override=data.get('signature_phone'),
@@ -2151,7 +2179,6 @@ class ClaimFollowUpService:
                     body_html=outbound_body,
                     attachments=raw_attachments,
                     reply_to=data.get('reply_to'),
-                    skip_signature=manual_from,
                     display_name_override=data.get('display_name'),
                     signature_email_override=data.get('signature_email'),
                     signature_phone_override=data.get('signature_phone'),

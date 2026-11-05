@@ -148,33 +148,10 @@ class SmtpService:
                     or smtp_config.get("display_name", "")
                 )
 
-        # A personal Gmail/Outlook/Yahoo mailbox (as opposed to a custom
-        # send-only account like Resend) has no domain-level SPF/DKIM/DMARC
-        # the sender controls, which was suspected to be why mail through
-        # it landed in spam more often - though enter.construction's SPF/
-        # DKIM/DMARC all passed on inspection, so the actual cause wasn't
-        # confirmed to be reputation-related. Routing through the fallback
-        # is opt-in via an admin-toggleable setting rather than automatic,
-        # pending that investigation; when on, the user's mailbox is kept
-        # as Reply-To and signature contact so replies/identity still
-        # point at them. DB setting (admin UI) overrides the env var
-        # default so this can be flipped without a redeploy.
-        from app.domains.admin.settings_service import (
-            ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK_KEY,
-            get_bool_setting,
-        )
-        route_through_fallback = get_bool_setting(
-            ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK_KEY,
-            default=settings.ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK,
-        )
-        if is_personal_account and route_through_fallback:
-            personal_email = from_address
-            fallback_config = self._get_smtp_config(None)
-            from_address = fallback_config.get("email_address") or from_address
-            reply_to = reply_to or personal_email
-            signature_email_override = signature_email_override or personal_email
-            signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
-            smtp_config = fallback_config
+        # A chosen account always sends through its own SMTP server. Routing
+        # personal accounts through the server's own address (an admin
+        # toggle until 2026-11-05) was removed: email a person sends goes out
+        # only from an account added under Email Accounts.
         # Account lookup, including an OAuth token refresh when it expired.
         timer.lap("account")
 

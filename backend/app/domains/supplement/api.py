@@ -1065,6 +1065,15 @@ def reply_to_info_request(
             to_email = followup.contact_email
             if not to_email:
                 raise HTTPException(status_code=400, detail="No contact email")
+            from app.domains.supplement.service import (
+                NO_ACCOUNT_ON_INFO_REQUEST,
+                info_request_sending_account,
+            )
+            account_id = data.get("email_account_id") or info_request_sending_account(
+                session, followup
+            )
+            if not account_id:
+                raise HTTPException(status_code=400, detail=NO_ACCOUNT_ON_INFO_REQUEST)
 
             # Build subject (Re: original subject)
             from app.domains.claim_followup.models import SentEmail
@@ -1085,7 +1094,7 @@ def reply_to_info_request(
             claim_id = str(sup.claim_id) if sup else ""
             email_result = email_service.send_email({
                 "claim_id": claim_id,
-                "email_account_id": data.get("email_account_id"),
+                "email_account_id": account_id,
                 "to_addresses": [to_email],
                 "subject": subject,
                 "body_html": body_html,
@@ -1121,6 +1130,8 @@ def reply_to_info_request(
             session.close()
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error replying to info request: {e}")
         raise HTTPException(status_code=500, detail=str(e))

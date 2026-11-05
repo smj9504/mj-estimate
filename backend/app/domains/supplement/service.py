@@ -9,6 +9,27 @@ from sqlalchemy.sql import func
 
 logger = logging.getLogger(__name__)
 
+NO_ACCOUNT_ON_INFO_REQUEST = (
+    "This request went out from the server's own address, which is no longer "
+    "used. Send a new info request and choose a sending account."
+)
+
+
+def info_request_sending_account(session, followup) -> Optional[str]:
+    """The account the info request's latest email went out from, so a resend
+    or reply leaves from the same mailbox. None when it went out from the
+    server's own address (before 2026-11-05) or nothing was sent."""
+    if not followup.sent_email_id:
+        return None
+    from app.domains.claim_followup.models import SentEmail
+
+    sent = session.query(SentEmail).filter(
+        SentEmail.id == followup.sent_email_id
+    ).first()
+    if sent is None or not sent.email_account_id:
+        return None
+    return str(sent.email_account_id)
+
 
 def sync_original_amount(session, claim_id: str) -> None:
     """Point the claim's open supplements' Original at the carrier's latest
@@ -751,6 +772,8 @@ class SupplementService:
             ).first()
             if not sup:
                 raise ValueError("Supplement not found")
+            from app.domains.claim_followup.service import require_sending_account
+            require_sending_account(session, data.get("email_account_id"))
 
             claim = session.query(Claim).filter(Claim.id == sup.claim_id).first()
             client = session.query(Client).filter(
@@ -1165,6 +1188,8 @@ class SupplementService:
             request_to_type = data.get("request_to_type", "public_adjuster")
             items_needed = data.get("items_needed", [])
             email_account_id = data.get("email_account_id")
+            from app.domains.claim_followup.service import require_sending_account
+            require_sending_account(session, email_account_id)
 
             if not to_email:
                 raise ValueError("Recipient email is required")
@@ -1278,6 +1303,11 @@ class SupplementService:
             to_name = followup.contact_name or ""
             if not to_email:
                 raise ValueError("No email address on original request")
+            account_id = data.get("email_account_id") or info_request_sending_account(
+                session, followup
+            )
+            if not account_id:
+                raise ValueError(NO_ACCOUNT_ON_INFO_REQUEST)
 
             address = client.address if client else ""
             claim_number = claim.claim_number if claim else ""
@@ -1313,7 +1343,7 @@ class SupplementService:
             email_service = ClaimFollowUpService()
             email_result = email_service.send_email({
                 "claim_id": str(sup.claim_id) if sup else "",
-                "email_account_id": data.get("email_account_id"),
+                "email_account_id": account_id,
                 "to_addresses": [to_email],
                 "subject": subject,
                 "body_html": body_html,

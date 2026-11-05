@@ -56,6 +56,7 @@ import {
   DEFAULT_INSPECTION_CHECKLIST,
 } from '../services/electricianReportService';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
+import SendingAccountSelect from '../components/common/SendingAccountSelect';
 import { companyService } from '../services/companyService';
 import { clientService, claimService } from '../services/clientService';
 import { Company } from '../types';
@@ -2992,20 +2993,13 @@ JOB DETAILS.
                 )}
               </Text>
             )}
-            {paEmailInfo.email_accounts.length > 0 && (
-              <Form.Item name="email_account_id" label="Send From">
-                <Select
-                  allowClear
-                  placeholder="Select sender account"
-                  options={paEmailInfo.email_accounts.map((a) => ({
-                    label: a.display_name
-                      ? `${a.display_name} (${a.email_address})`
-                      : a.email_address,
-                    value: a.id,
-                  }))}
-                />
-              </Form.Item>
-            )}
+            <Form.Item
+              name="email_account_id"
+              label="Send From"
+              rules={[{ required: true, message: 'Choose a sending account' }]}
+            >
+              <SendingAccountSelect accounts={paEmailInfo.email_accounts} />
+            </Form.Item>
             <Form.Item
               name="to_addresses"
               label="To (PA)"

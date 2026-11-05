@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import RichTextEditor from '../editor/RichTextEditor';
+import SendingAccountSelect from '../common/SendingAccountSelect';
 import AdjusterEmailsPanel, { senderName } from './AdjusterEmails';
 import AttachmentPreviewModal, { AttachmentLink, type AttachmentToPreview } from './AttachmentPreviewModal';
 import {
@@ -78,7 +79,6 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
   const [toEmails, setToEmails] = useState<string[]>([]);
   const [bccEmails, setBccEmails] = useState<string[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
-  const [manualFromEmail, setManualFromEmail] = useState('');
 
   // Document re-attachment (optional, default none)
   const [reattachDocs, setReattachDocs] = useState(false);
@@ -130,7 +130,6 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
       setNewMailAt(null);
       setToEmails([]);
       setBccEmails([]);
-      setManualFromEmail('');
       setReattachDocs(false);
       setSelectedDocs([]);
       setEmailContent({ subject: '', body_html: '' });
@@ -202,7 +201,6 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
         subject: emailContent.subject,
         body_html: emailContent.body_html,
         email_account_id: selectedAccountId,
-        from_address: manualFromEmail.trim() || undefined,
         selected_documents: reattachDocs ? selectedDocs : [],
       };
 
@@ -265,7 +263,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
           icon={<SendOutlined />}
           loading={sending}
           onClick={handleSend}
-          disabled={toEmails.length === 0}
+          disabled={toEmails.length === 0 || !selectedAccountId}
         >
           Send Follow-Up
         </Button>,
@@ -331,36 +329,11 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
           {/* Email Account */}
           <div style={{ marginBottom: 12 }}>
             <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>From:</Text>
-            {info.email_accounts.length > 0 && (
-              <Select
-                value={manualFromEmail ? undefined : selectedAccountId}
-                onChange={(val) => { setSelectedAccountId(val); setManualFromEmail(''); }}
-                style={{ width: '100%', marginBottom: 6 }}
-                placeholder="Select email account..."
-                allowClear
-                disabled={!!manualFromEmail}
-                options={info.email_accounts.map(a => ({
-                  value: a.id,
-                  label: `${a.display_name} (${a.email_address})`,
-                }))}
-              />
-            )}
-            <Input
-              placeholder="Or type the email replies should go to..."
-              value={manualFromEmail}
-              onChange={e => {
-                setManualFromEmail(e.target.value);
-                if (e.target.value.trim()) setSelectedAccountId(undefined);
-              }}
-              allowClear
-              style={{ width: '100%' }}
+            <SendingAccountSelect
+              accounts={info.email_accounts}
+              value={selectedAccountId}
+              onChange={setSelectedAccountId}
             />
-            {manualFromEmail.trim() && (
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                Sent from our verified address so it doesn't land in spam;
-                replies go to this address.
-              </Text>
-            )}
           </div>
 
           {/* To */}

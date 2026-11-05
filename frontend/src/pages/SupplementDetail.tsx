@@ -27,6 +27,7 @@ import { listEstimates as listPackingEstimates } from '../services/packingEstima
 import { companyService } from '../services/companyService';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
 import { PageHeader, Pill, PropertyList, humanize, useSheetModal, type TagTone } from '../components/common/ui';
+import SendingAccountSelect from '../components/common/SendingAccountSelect';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
 import ClaimPhotoViewer from '../components/client/photo-viewer/ClaimPhotoViewer';
 import WMDemoDrawer from '../components/supplement/WMDemoDrawer';
@@ -206,7 +207,6 @@ const SupplementDetail: React.FC = () => {
   const [paToEmails, setPaToEmails] = useState<string[]>([]);
   const [paCcEmails, setPaCcEmails] = useState<string[]>([]);
   const [paSelectedAccountId, setPaSelectedAccountId] = useState<string | undefined>();
-  const [paManualFromEmail, setPaManualFromEmail] = useState('');
   const [paDescriptionDraft, setPaDescriptionDraft] = useState('');
   const [polishingDescription, setPolishingDescription] = useState(false);
   const [paExtraFiles, setPaExtraFiles] = useState<File[]>([]);
@@ -438,7 +438,6 @@ const SupplementDetail: React.FC = () => {
       setPaCustomNotes('');
       setPaToEmails(info.pa_email ? [info.pa_email] : []);
       setPaCcEmails((info.cc_emails || []).map((c: any) => c.email));
-      setPaManualFromEmail('');
       // Pre-populate description draft from bid item descriptions
       const descLines = (supplement.bid_items || [])
         .map(item => {
@@ -491,7 +490,6 @@ const SupplementDetail: React.FC = () => {
         body_html: paEmailContent.body_html,
         pa_name: paInfo.pa_name,
         email_account_id: paSelectedAccountId,
-        from_address: paManualFromEmail.trim() || undefined,
         extra_file_ids: extraFileIds,
       });
       message.success(`Sent to PA with ${result.attachments_count} PDF attachment(s)`);
@@ -1754,7 +1752,9 @@ const SupplementDetail: React.FC = () => {
                                     setReplyingToId(null);
                                     setReplyText('');
                                     loadFollowups(supplement.id);
-                                  } catch { message.error('Failed to send reply'); }
+                                  } catch (err: any) {
+                                    message.error(err?.response?.data?.detail || 'Failed to send reply');
+                                  }
                                   finally { setSendingReply(false); }
                                 }}>
                                 Send
@@ -1914,14 +1914,13 @@ const SupplementDetail: React.FC = () => {
                     </Form.Item>
                   </Col>
                 </Row>
-                <Form.Item name="email_account_id" label="Send From">
-                  <Select
-                    placeholder="Default email account"
-                    allowClear
-                    options={sendableEmailAccounts.map((acc: any) => ({
-                      value: acc.id, label: acc.email_address || acc.name,
-                    }))}
-                  />
+                <Form.Item
+                  name="email_account_id"
+                  label="Send From"
+                  initialValue={sendableEmailAccounts[0]?.id}
+                  rules={[{ required: true, message: 'Choose a sending account' }]}
+                >
+                  <SendingAccountSelect accounts={sendableEmailAccounts} />
                 </Form.Item>
                 <div style={{ marginBottom: 12 }}>
                   <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Information Needed</Text>
@@ -2074,7 +2073,7 @@ const SupplementDetail: React.FC = () => {
             icon={<SendOutlined />}
             loading={sendPaLoading}
             onClick={handleSendToPa}
-            disabled={paToEmails.length === 0}
+            disabled={paToEmails.length === 0 || !paSelectedAccountId}
           >
             Send Email
           </Button>,
@@ -2096,39 +2095,11 @@ const SupplementDetail: React.FC = () => {
 
             <div style={{ marginBottom: 12 }}>
               <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>From:</Text>
-              {sendableEmailAccounts.length > 0 && (
-                <Select
-                  value={paManualFromEmail ? undefined : paSelectedAccountId}
-                  onChange={(val) => { setPaSelectedAccountId(val); setPaManualFromEmail(''); }}
-                  style={{ width: '100%', marginBottom: 6 }}
-                  placeholder="Select email account..."
-                  allowClear
-                  disabled={!!paManualFromEmail}
-                  options={sendableEmailAccounts.map((a: any) => ({
-                    value: a.id,
-                    label: `${a.display_name} (${a.email_address})`,
-                  }))}
-                />
-              )}
-              <Input
-                placeholder="Or type the email replies should go to..."
-                value={paManualFromEmail}
-                onChange={e => {
-                  setPaManualFromEmail(e.target.value);
-                  if (e.target.value.trim()) setPaSelectedAccountId(undefined);
-                }}
-                allowClear
-                style={{ width: '100%' }}
+              <SendingAccountSelect
+                accounts={sendableEmailAccounts}
+                value={paSelectedAccountId}
+                onChange={setPaSelectedAccountId}
               />
-              {!paSelectedAccountId && !paManualFromEmail && (
-                <Text type="warning" style={{ fontSize: 12 }}>Select an account or enter email address</Text>
-              )}
-              {paManualFromEmail.trim() && (
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                  Sent from our verified address so it doesn't land in spam;
-                  replies go to this address.
-                </Text>
-              )}
             </div>
 
             <div style={{ marginBottom: 12 }}>

@@ -14,6 +14,7 @@ import {
   CloseCircleFilled, MailOutlined,
 } from '@ant-design/icons';
 import RichTextEditor from '../editor/RichTextEditor';
+import SendingAccountSelect from '../common/SendingAccountSelect';
 import AttachmentPreviewModal, { AttachmentLink, type AttachmentToPreview } from './AttachmentPreviewModal';
 import waterMitigationService, {
   adjusterEmailService,
@@ -56,7 +57,6 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
   const [toEmails, setToEmails] = useState<string[]>([]);
   const [bccEmails, setBccEmails] = useState<string[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
-  const [manualFromEmail, setManualFromEmail] = useState('');
 
   // Document selection
   const [selectedDocs, setSelectedDocs] = useState<string[]>([...DOC_ORDER]);
@@ -135,7 +135,6 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
       setCustomNotes('');
       setToEmails([]);
       setBccEmails([]);
-      setManualFromEmail('');
       setSelectedDocs([...DOC_ORDER]);
       setEmailContent({ subject: '', body_html: '' });
       setJobDocuments([]);
@@ -189,7 +188,6 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
         subject: emailContent.subject,
         body_html: emailContent.body_html,
         email_account_id: selectedAccountId,
-        from_address: manualFromEmail.trim() || undefined,
         selected_documents: selectedDocs,
       };
 
@@ -247,7 +245,7 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
           icon={<SendOutlined />}
           loading={sending}
           onClick={handleSend}
-          disabled={toEmails.length === 0 || selectedDocs.length === 0}
+          disabled={toEmails.length === 0 || selectedDocs.length === 0 || !selectedAccountId}
         >
           Send Email
         </Button>,
@@ -431,46 +429,11 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
           {/* Email Account */}
           <div style={{ marginBottom: 12 }}>
             <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>From:</Text>
-            {info.email_accounts.length > 0 && (
-              <Select
-                value={manualFromEmail ? undefined : selectedAccountId}
-                onChange={(val) => { setSelectedAccountId(val); setManualFromEmail(''); }}
-                style={{ width: '100%', marginBottom: 6 }}
-                placeholder="Select email account..."
-                allowClear
-                disabled={!!manualFromEmail}
-                options={info.email_accounts.map(a => ({
-                  value: a.id,
-                  label: `${a.display_name} (${a.email_address})`,
-                }))}
-              />
-            )}
-            <Input
-              placeholder="Or type the email replies should go to..."
-              value={manualFromEmail}
-              onChange={e => {
-                setManualFromEmail(e.target.value);
-                if (e.target.value.trim()) setSelectedAccountId(undefined);
-              }}
-              allowClear
-              style={{ width: '100%' }}
+            <SendingAccountSelect
+              accounts={info.email_accounts}
+              value={selectedAccountId}
+              onChange={setSelectedAccountId}
             />
-            {!selectedAccountId && !manualFromEmail && (
-              <Text type="warning" style={{ fontSize: 12 }}>Select an account or enter email address</Text>
-            )}
-            {selectedAccountId && !manualFromEmail && (
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                Sent via a verified relay for deliverability, but shows your name
-                {info.reply_to?.name ? ` and "${info.reply_to.name}"` : ''} in From, and
-                replies go to the account selected above.
-              </Text>
-            )}
-            {manualFromEmail.trim() && (
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                Sent from our verified address so it doesn't land in spam;
-                replies go to this address.
-              </Text>
-            )}
           </div>
 
           {/* To */}

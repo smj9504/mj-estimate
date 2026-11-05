@@ -3,7 +3,8 @@ System-wide settings storage (simple key-value table).
 
 Distinct from per-domain config (e.g. company/email account settings) -
 this holds global toggles an admin can flip at runtime without a
-deployment, such as ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK.
+deployment. Its only toggle (routing personal email accounts through the
+server's own address) was removed on 2026-11-05; the table stays.
 """
 
 from sqlalchemy import Column, String, Text, DateTime

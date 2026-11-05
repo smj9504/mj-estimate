@@ -13,6 +13,7 @@ import {
   SendOutlined, FilePdfOutlined, FileOutlined, MailOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import RichTextEditor from '../editor/RichTextEditor';
+import SendingAccountSelect from '../common/SendingAccountSelect';
 import AttachmentPreviewModal, { AttachmentLink, type AttachmentToPreview } from './AttachmentPreviewModal';
 import waterMitigationService, {
   adjusterEmailService,
@@ -77,7 +78,6 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
   const [ccEmails, setCcEmails] = useState<string[]>([]);
   const [bccEmails, setBccEmails] = useState<string[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
-  const [manualFromEmail, setManualFromEmail] = useState('');
 
   const loadInfo = useCallback(async () => {
     if (!jobId) return;
@@ -113,7 +113,6 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
       setToEmails([]);
       setCcEmails([]);
       setBccEmails([]);
-      setManualFromEmail('');
       setEmailContent({ subject: '', body_html: '' });
     }
   // The selection is read once, when the modal opens
@@ -139,7 +138,6 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
         subject: emailContent.subject,
         body_html: emailContent.body_html,
         email_account_id: selectedAccountId,
-        from_address: manualFromEmail.trim() || undefined,
         document_ids: items.map(i => i.id),
       };
 
@@ -205,7 +203,7 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
           icon={<SendOutlined />}
           loading={sending}
           onClick={handleSend}
-          disabled={toEmails.length === 0 || items.length === 0}
+          disabled={toEmails.length === 0 || items.length === 0 || !selectedAccountId}
         >
           Send Email
         </Button>,
@@ -221,36 +219,11 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
           {/* Email Account */}
           <div style={{ marginBottom: 12 }}>
             <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>From:</Text>
-            {info.email_accounts.length > 0 && (
-              <Select
-                value={manualFromEmail ? undefined : selectedAccountId}
-                onChange={(val) => { setSelectedAccountId(val); setManualFromEmail(''); }}
-                style={{ width: '100%', marginBottom: 6 }}
-                placeholder="Select email account..."
-                allowClear
-                disabled={!!manualFromEmail}
-                options={info.email_accounts.map(a => ({
-                  value: a.id,
-                  label: `${a.display_name} (${a.email_address})`,
-                }))}
-              />
-            )}
-            <Input
-              placeholder="Or type the email replies should go to..."
-              value={manualFromEmail}
-              onChange={e => {
-                setManualFromEmail(e.target.value);
-                if (e.target.value.trim()) setSelectedAccountId(undefined);
-              }}
-              allowClear
-              style={{ width: '100%' }}
+            <SendingAccountSelect
+              accounts={info.email_accounts}
+              value={selectedAccountId}
+              onChange={setSelectedAccountId}
             />
-            {manualFromEmail.trim() && (
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                Sent from our verified address so it doesn't land in spam;
-                replies go to this address.
-              </Text>
-            )}
           </div>
 
           {/* To */}

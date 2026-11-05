@@ -865,6 +865,8 @@ class AdjusterEmailService:
             ).first()
             if not job:
                 raise ValueError("Job not found")
+            from app.domains.claim_followup.service import require_sending_account
+            require_sending_account(session, data.get("email_account_id"))
 
             to_addresses = data.get("to_addresses", [])
             cc_addresses = data.get("cc_addresses", [])
@@ -1008,6 +1010,8 @@ class AdjusterEmailService:
             ).first()
             if not job:
                 raise ValueError("Job not found")
+            from app.domains.claim_followup.service import require_sending_account
+            require_sending_account(session, data.get("email_account_id"))
 
             to_addresses = data.get("to_addresses", [])
             cc_addresses = data.get("cc_addresses", [])
@@ -1118,6 +1122,8 @@ class AdjusterEmailService:
             ).first()
             if not job:
                 raise ValueError("Job not found")
+            from app.domains.claim_followup.service import require_sending_account
+            require_sending_account(session, data.get("email_account_id"))
 
             to_addresses = data.get("to_addresses", [])
             # In the order picked, each once

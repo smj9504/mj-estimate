@@ -18,6 +18,7 @@ import app.main  # noqa: E402,F401
 from app.domains.claim_followup.models import FollowUpTask, SentEmail  # noqa: E402
 from app.domains.claim_followup.smtp_service import SmtpService  # noqa: E402
 from app.domains.client.models import ClaimActivity  # noqa: E402
+from app.domains.email_ingestion.models import EmailAccount  # noqa: E402
 from app.domains.water_mitigation.adjuster_email_service import AdjusterEmailService  # noqa: E402
 from app.domains.water_mitigation.models import WaterMitigationJob  # noqa: E402
 
@@ -40,7 +41,7 @@ class FakeDatabase:
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'wm.db'}")
-    for model in (WaterMitigationJob, FollowUpTask, SentEmail, ClaimActivity):
+    for model in (WaterMitigationJob, FollowUpTask, SentEmail, ClaimActivity, EmailAccount):
         model.__table__.create(engine)
     database = FakeDatabase(engine)
 
@@ -59,7 +60,11 @@ def env(tmp_path, monkeypatch):
         adjuster_name='Pat Lee',
         adjuster_email='pat@carrier.com',
     )
-    session.add(job)
+    account = EmailAccount(
+        display_name='Office', email_address='office@abcrestoration.com',
+        username='office@abcrestoration.com', encrypted_password='x',
+    )
+    session.add_all([job, account])
     session.commit()
 
     def add_task(status='pending', linked=True, **fields):
@@ -81,6 +86,7 @@ def env(tmp_path, monkeypatch):
     yield {
         'service': service, 'session': session, 'job_id': str(job.id),
         'claim_id': claim_id, 'add_task': add_task, 'smtp_calls': smtp_calls,
+        'account_id': str(account.id),
     }
     session.close()
     engine.dispose()
@@ -88,6 +94,7 @@ def env(tmp_path, monkeypatch):
 
 def send(env):
     return env['service'].send_followup(env['job_id'], {
+        'email_account_id': env['account_id'],
         'to_addresses': ['pat@carrier.com'],
         'subject': 'Follow Up - CLM-77',
         'body_html': '<p>Checking in on the documents.</p>',
