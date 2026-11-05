@@ -1,7 +1,7 @@
 export { default as EmailComposer } from './EmailComposer';
 export { default as EmailTemplateManager } from './EmailTemplateManager';
 export { default as EmailHistory } from './EmailHistory';
-export { default as ReceivedEmails } from './ReceivedEmails';
+export { default as ReceivedEmails, useClaimInboxCheck } from './ReceivedEmails';
 export { default as ReceivedInbox } from './ReceivedInbox';
 export { default as CommunicationTimeline } from './CommunicationTimeline';
 export { default as PaymentTracker } from './PaymentTracker';

@@ -28,6 +28,7 @@ from app.domains.email_ingestion.schemas import (
     EmailAccountResponse,
     EmailAccountTestResponse,
     EmailAccountUpdate,
+    InboxCheckResponse,
     IngestionLogResponse,
     IngestionStatsResponse,
     ManualAssignRequest,
@@ -440,6 +441,34 @@ def list_received_emails(
         search=search, limit=limit, offset=offset,
         scope=_mail_scope(db, current_staff, ReceivedEmail),
     )
+
+
+@router.post("/claims/{claim_id}/check-inbox", response_model=InboxCheckResponse)
+def check_claim_inbox(
+    claim_id: str,
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """Search the connected inboxes for the claim's mail now instead of at
+    the next morning poll. What's found is listed by /received?claim_id=.
+
+    A plain def, so FastAPI runs it - IMAP round-trips per account - on a
+    worker thread rather than the event loop.
+    """
+    if not _is_uuid(claim_id):
+        raise HTTPException(status_code=404, detail="Claim not found")
+    require_claim(db, current_staff, claim_id)
+    # Give the connection back before the slow part: Neon drops ones left
+    # idle in a transaction
+    db.rollback()
+    from app.domains.email_ingestion.claim_inbox import ClaimInboxService
+    try:
+        return ClaimInboxService().check_claim_inbox(claim_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error checking inbox for claim {claim_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Inbox check failed: {e}")
 
 
 @router.get("/received/{email_id}", response_model=ReceivedEmailDetailResponse)

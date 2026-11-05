@@ -30,6 +30,22 @@ _HTML_LEFTOVERS = re.compile(
 # Characters senders pad a hidden preview line with
 _INVISIBLE_CHARS = re.compile("[\u00ad\u034f\u200b-\u200d\u2060\ufeff]")
 
+# Past this size a message is read part by part instead of whole. Parsing a
+# message in one piece takes about seven times its size in memory: a 46MB
+# email of inline photos took 323MB, more than the 512MB server had left, so
+# every morning poll died on it and started over from the same day.
+WHOLE_MESSAGE_MAX_BYTES = 8 * 1024 * 1024
+
+# The words of a message come first in its body; quoted history and files
+# follow. Header-and-text reads stop here.
+TEXT_FETCH_BYTES = 1024 * 1024
+
+# How far into a message read in parts the parts are listed
+_MAX_PARTS_PER_LEVEL = 50
+_MAX_PART_DEPTH = 3
+
+_MESSAGE_SIZE_PATTERN = re.compile(rb"RFC822\.SIZE (\d+)")
+
 
 @dataclass
 class EmailAttachment:
@@ -58,6 +74,13 @@ class FetchedEmail:
     references: str = ""
     to: str = ""
     cc: str = ""
+    # Files on a message read in parts that weren't downloaded (all but PDFs)
+    unread_attachment_names: List[str] = field(default_factory=list)
+
+    @property
+    def attachment_names(self) -> List[str]:
+        """Every attached file's name, downloaded or not"""
+        return [a.filename for a in self.attachments] + self.unread_attachment_names
 
     @property
     def pdf_attachments(self) -> List[EmailAttachment]:
@@ -73,6 +96,9 @@ def _decode_header_value(value: str) -> str:
     """Decode RFC 2047 encoded header value"""
     if not value:
         return ""
+    # Unfold: a long subject or file name arrives split over lines, and the
+    # line breaks used to stay in it ("Sledding Hill\r\n Rd.pdf")
+    value = re.sub(r"\r?\n(?=[ \t])", "", str(value))
     decoded_parts = decode_header(value)
     result = []
     for part, charset in decoded_parts:
@@ -134,8 +160,9 @@ def _extract_body(msg: email.message.Message) -> Tuple[str, str]:
             content_type = part.get_content_type()
             content_disposition = str(part.get("Content-Disposition", ""))
 
-            # Skip attachments
-            if "attachment" in content_disposition:
+            # Skip attachments, and pictures and files shown inline: only the
+            # text parts are kept, and decoding the rest as text cost memory
+            if "attachment" in content_disposition or part.get_content_maintype() != "text":
                 continue
 
             try:
@@ -403,6 +430,10 @@ class IMAPClient:
 
     def _fetch_single(self, msg_id: bytes) -> Optional[FetchedEmail]:
         """Fetch a single email by its IMAP sequence ID"""
+        size = self._message_size(msg_id)
+        if size is not None and size > WHOLE_MESSAGE_MAX_BYTES:
+            return self._fetch_in_parts(msg_id, size)
+
         # BODY.PEEK[] rather than RFC822: RFC822 sets \Seen, and now that
         # every message is fetched (not just ones with attachments) a poll
         # would mark the whole inbox read in Gmail.
@@ -454,16 +485,115 @@ class IMAPClient:
             cc=cc,
         )
 
+    def _message_size(self, msg_id: bytes) -> Optional[int]:
+        """The message's size in bytes as the server stores it, or None if
+        the server didn't say."""
+        try:
+            status, data = self._connection.fetch(msg_id, "(RFC822.SIZE)")
+        except imaplib.IMAP4.error as e:
+            logger.debug(f"Size fetch failed for {msg_id}: {e}")
+            return None
+        if status != "OK" or not data:
+            return None
+        for item in data:
+            line = item[0] if isinstance(item, tuple) else item
+            if isinstance(line, bytes):
+                match = _MESSAGE_SIZE_PATTERN.search(line)
+                if match:
+                    return int(match.group(1))
+        return None
+
+    def _fetch_section(self, msg_id: bytes, section: str) -> Optional[bytes]:
+        """One body section's bytes (e.g. "2", "1.2.MIME"), or None when the
+        message has no such part."""
+        status, data = self._connection.fetch(msg_id, f"(BODY.PEEK[{section}])")
+        if status != "OK" or not data:
+            return None
+        for item in data:
+            if isinstance(item, tuple) and len(item) == 2 and item[1]:
+                return item[1]
+        return None
+
+    def _leaf_parts(self, msg_id: bytes, prefix: str = "", depth: int = 0):
+        """(section, MIME header bytes) for each non-container part, in
+        order, read from the server one header at a time."""
+        for number in range(1, _MAX_PARTS_PER_LEVEL + 1):
+            section = f"{prefix}{number}"
+            try:
+                header = self._fetch_section(msg_id, f"{section}.MIME")
+            except imaplib.IMAP4.error:
+                return
+            if not header:
+                return
+            part = email.message_from_bytes(header)
+            nested = part.get_content_maintype() == "multipart" or (
+                part.get_content_type() == "message/rfc822"
+            )
+            if nested:
+                if depth < _MAX_PART_DEPTH:
+                    yield from self._leaf_parts(msg_id, f"{section}.", depth + 1)
+                continue
+            yield section, header
+
+    def _fetch_in_parts(self, msg_id: bytes, size: int) -> Optional[FetchedEmail]:
+        """A message too big to parse whole: its headers and the start of its
+        text, then each part's own headers, downloading only PDF files and
+        those one at a time. Other files are kept by name only.
+
+        A forwarded message nested deeper than _MAX_PART_DEPTH keeps its
+        files unread.
+        """
+        fetched = self._fetch_headers_only(msg_id)
+        if fetched is None:
+            return None
+
+        for section, header in self._leaf_parts(msg_id):
+            part = email.message_from_bytes(header)
+            disposition = str(part.get("Content-Disposition", ""))
+            # Same rule as _extract_attachments
+            if "attachment" not in disposition and part.get_content_maintype() != "application":
+                continue
+            filename = part.get_filename()
+            if not filename:
+                continue
+            filename = _decode_header_value(filename)
+            content_type = part.get_content_type()
+            if not (content_type == "application/pdf" or filename.lower().endswith(".pdf")):
+                fetched.unread_attachment_names.append(filename)
+                continue
+            try:
+                body = self._fetch_section(msg_id, section)
+                data = email.message_from_bytes(header + (body or b"")).get_payload(decode=True)
+            except Exception as e:
+                logger.warning(f"Failed to read attachment {filename}: {e}")
+                fetched.unread_attachment_names.append(filename)
+                continue
+            if not data or len(data) > 50 * 1024 * 1024:
+                fetched.unread_attachment_names.append(filename)
+                continue
+            fetched.attachments.append(EmailAttachment(
+                filename=filename, content_type=content_type, data=data,
+            ))
+
+        logger.info(
+            f"Message {fetched.message_id} is {size / 1e6:.1f}MB: read in parts, "
+            f"{len(fetched.attachments)} PDF(s) downloaded, "
+            f"{len(fetched.unread_attachment_names)} other file(s) left on the server"
+        )
+        return fetched
+
     def _fetch_headers_only(self, msg_id: bytes) -> Optional[FetchedEmail]:
         """Fetch only headers + text body (no attachments) for reply tracking.
 
         Uses BODY.PEEK[HEADER] + BODY.PEEK[TEXT] instead of full RFC822,
-        significantly faster for emails with large attachments.
+        significantly faster for emails with large attachments. Only the
+        first TEXT_FETCH_BYTES of the body are read: the text comes first,
+        and a whole 46MB body held at once is what took the server down.
         """
         try:
             # Fetch headers only first
             status, data = self._connection.fetch(
-                msg_id, "(BODY.PEEK[HEADER] BODY.PEEK[TEXT])"
+                msg_id, f"(BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{TEXT_FETCH_BYTES}>)"
             )
             if status != "OK" or not data:
                 return None
@@ -548,6 +678,8 @@ class IMAPClient:
                 attachments=[],
                 in_reply_to=in_reply_to,
                 references=references,
+                to=_decode_header_value(msg.get("To", "")),
+                cc=_decode_header_value(msg.get("Cc", "")),
             )
         except Exception as e:
             logger.warning(f"Header-only fetch failed for {msg_id}: {e}")

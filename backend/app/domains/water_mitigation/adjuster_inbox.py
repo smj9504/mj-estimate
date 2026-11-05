@@ -292,9 +292,15 @@ def _imap_quote(value: str) -> Optional[str]:
     return f'"{cleaned}"'
 
 
-def _is_send_only(account: Dict[str, Any]) -> bool:
-    # Send-only accounts (Resend etc.) have no inbox; see EmailAccount.smtp_server
-    return account.get("provider_type") == "custom" and bool(account.get("smtp_server"))
+def search_since(created_at: Optional[datetime]) -> datetime:
+    """How far back an on-demand search for a job or claim looks: from a
+    little before it was entered, at most _SEARCH_MAX_AGE."""
+    since = datetime.now(timezone.utc) - _SEARCH_MAX_AGE
+    if created_at:
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        since = max(since, created_at - _SEARCH_LOOKBACK)
+    return since
 
 
 class AdjusterInboxService:
@@ -371,42 +377,15 @@ class AdjusterInboxService:
             if quoted:
                 criteria.append(f"TEXT {quoted}")
 
-        now = datetime.now(timezone.utc)
-        result: Dict[str, Any] = {
-            "checked_at": now,
-            "accounts_checked": 0,
-            "saved": 0,
-            "errors": [],
-            "skipped_reason": None,
-        }
         if not criteria:
-            result["skipped_reason"] = "The job has no adjuster email or claim number to search for."
-            return result
+            return {
+                "checked_at": datetime.now(timezone.utc),
+                "accounts_checked": 0,
+                "saved": 0,
+                "errors": [],
+                "skipped_reason": "The job has no adjuster email or claim number to search for.",
+            }
 
-        since = now - _SEARCH_MAX_AGE
-        if created_at:
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-            since = max(since, created_at - _SEARCH_LOOKBACK)
-
-        ingestion = EmailIngestionService(self.database)
-        accounts = [a for a in ingestion.get_accounts() if not _is_send_only(a)]
-        if not accounts:
-            result["skipped_reason"] = "No email inbox is connected."
-            return result
-
-        for account in accounts:
-            try:
-                result["saved"] += ingestion.search_account(
-                    account, criteria, since_date=since, limit=_SEARCH_LIMIT
-                )
-                result["accounts_checked"] += 1
-            except Exception as e:
-                logger.warning(
-                    f"Adjuster inbox check failed for {account['email_address']}: {e}"
-                )
-                result["errors"].append({
-                    "account": account["email_address"],
-                    "error": str(e),
-                })
-        return result
+        return EmailIngestionService(self.database).search_inboxes(
+            criteria, since_date=search_since(created_at), limit=_SEARCH_LIMIT
+        )

@@ -18,6 +18,7 @@ import type {
   ReceivedEmail,
   ReceivedEmailDetail,
   ReceivedEmailList,
+  InboxCheckResult,
 } from '../types/emailIngestion';
 
 const BASE = '/api/email-ingestion';
@@ -149,5 +150,14 @@ export const emailIngestionService = {
   async assignReceived(id: string, claimId: string | null) {
     const { data } = await api.post(`${BASE}/received/${id}/assign`, { claim_id: claimId });
     return data as ReceivedEmail;
+  },
+
+  /**
+   * Search every connected inbox for the claim's mail now instead of at the
+   * next morning poll — IMAP round-trips per account, so it can take a while.
+   */
+  async checkClaimInbox(claimId: string) {
+    const { data } = await api.post(`${BASE}/claims/${claimId}/check-inbox`, null, { timeout: 120000 });
+    return data as InboxCheckResult;
   },
 };

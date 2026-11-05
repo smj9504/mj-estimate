@@ -60,6 +60,7 @@ import {
   InboxOutlined,
   CloudDownloadOutlined,
   FullscreenOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -99,7 +100,7 @@ import ClaimTodos from '../components/client/ClaimTodos';
 import AccuLynxArchiveTab from '../components/client/AccuLynxArchiveTab';
 import { acculynxArchiveService } from '../services/acculynxArchiveService';
 import {  } from '@ant-design/icons';
-import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory, ReceivedEmails } from '../components/claim-followup';
+import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory, ReceivedEmails, useClaimInboxCheck } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
 import type {
   AdjusterContact,
@@ -2496,6 +2497,7 @@ const ClaimLinks: React.FC<{ claim: Claim }> = ({ claim }) => {
 // Sent and received mail for the claim, one view at a time
 const ClaimEmailSection: React.FC<{ claimId: string; onSend: () => void }> = ({ claimId, onSend }) => {
   const [view, setView] = useState<'sent' | 'received'>('sent');
+  const inboxCheck = useClaimInboxCheck(claimId);
   return (
     <ClaimSection
       title="Email"
@@ -2517,9 +2519,24 @@ const ClaimEmailSection: React.FC<{ claimId: string; onSend: () => void }> = ({ 
         </div>
       )}
       actions={(
-        <Button size="small" type="text" icon={<SendOutlined />} onClick={onSend}>
-          Send Email
-        </Button>
+        <>
+          {view === 'received' && (
+            <Tooltip title="Mail is read from the inboxes each morning. This looks for this claim's mail now.">
+              <Button
+                size="small"
+                type="text"
+                icon={<ReloadOutlined />}
+                loading={inboxCheck.isPending}
+                onClick={() => inboxCheck.mutate()}
+              >
+                {inboxCheck.isPending ? 'Checking inbox…' : 'Check inbox'}
+              </Button>
+            </Tooltip>
+          )}
+          <Button size="small" type="text" icon={<SendOutlined />} onClick={onSend}>
+            Send Email
+          </Button>
+        </>
       )}
     >
       {/* Received: inbound mail matched to this claim, attachment or not -

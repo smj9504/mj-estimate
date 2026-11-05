@@ -256,3 +256,21 @@ class ReceivedEmailListResponse(BaseModel):
 class ReceivedEmailAssignRequest(BaseModel):
     # None unlinks the email from its claim
     claim_id: Optional[UUID] = None
+
+
+class InboxCheckError(BaseModel):
+    account: str
+    error: str
+
+
+class InboxCheckResponse(BaseModel):
+    """An on-demand search of the connected inboxes"""
+    checked_at: datetime
+    accounts_checked: int
+    # Messages newly stored, on this claim or another one
+    saved: int
+    # Of those, the ones filed on the claim checked
+    new_on_claim: Optional[int] = None
+    errors: List[InboxCheckError] = []
+    # Why nothing was searched, when nothing was
+    skipped_reason: Optional[str] = None

@@ -806,6 +806,45 @@ class EmailIngestionService:
         finally:
             session.close()
 
+    def search_inboxes(
+        self,
+        criteria: List[str],
+        since_date: Optional[datetime] = None,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """search_account over every connected inbox, for a check someone is
+        waiting on. One account failing doesn't stop the others; it is
+        reported in `errors`."""
+        result: Dict[str, Any] = {
+            "checked_at": datetime.now(timezone.utc),
+            "accounts_checked": 0,
+            "saved": 0,
+            "errors": [],
+            "skipped_reason": None,
+        }
+        # Send-only accounts (Resend etc.) have no inbox; see EmailAccount.smtp_server
+        accounts = [
+            a for a in self.get_accounts()
+            if not (a.get("provider_type") == "custom" and a.get("smtp_server"))
+        ]
+        if not accounts:
+            result["skipped_reason"] = "No email inbox is connected."
+            return result
+
+        for account in accounts:
+            try:
+                result["saved"] += self.search_account(
+                    account, criteria, since_date=since_date, limit=limit
+                )
+                result["accounts_checked"] += 1
+            except Exception as e:
+                logger.warning(f"Inbox check failed for {account['email_address']}: {e}")
+                result["errors"].append({
+                    "account": account["email_address"],
+                    "error": str(e),
+                })
+        return result
+
     def _save_received_email(
         self,
         session,
@@ -874,7 +913,7 @@ class EmailIngestionService:
             snippet=_snippet(text),
             body_text=_cap(fetched_email.body_text, _MAX_BODY_CHARS),
             body_html=_cap(fetched_email.body_html, _MAX_BODY_CHARS),
-            attachment_names=[a.filename for a in fetched_email.attachments] or None,
+            attachment_names=fetched_email.attachment_names or None,
             matched_client_id=client_id,
             matched_claim_id=claim_id,
             match_method=method,

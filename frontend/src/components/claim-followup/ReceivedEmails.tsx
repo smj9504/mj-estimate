@@ -67,6 +67,35 @@ const MATCH_LABELS: Record<string, string> = {
   same_email: 'Same email',
 };
 
+/**
+ * Search the inboxes for the claim's mail now — the morning poll may not have
+ * seen a reply yet — and refresh the received list. Says how much was found.
+ */
+export const useClaimInboxCheck = (claimId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => emailIngestionService.checkClaimInbox(claimId),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['received-emails-claim', claimId] });
+      queryClient.invalidateQueries({ queryKey: ['received-emails'] });
+      if (result.skipped_reason) {
+        message.info(result.skipped_reason);
+        return;
+      }
+      const failed = result.errors.map((e) => e.account).join(', ');
+      if (failed && !result.accounts_checked) {
+        message.error(`Couldn't check ${failed}`);
+        return;
+      }
+      const found = result.new_on_claim ?? 0;
+      if (found) message.success(`${found} new email${found === 1 ? '' : 's'} on this claim`);
+      else message.info('No new mail for this claim');
+      if (failed) message.warning(`Couldn't check ${failed}`);
+    },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Inbox check failed'),
+  });
+};
+
 const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
   const queryClient = useQueryClient();
 

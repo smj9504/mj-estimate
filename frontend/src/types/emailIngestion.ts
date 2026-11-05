@@ -209,3 +209,16 @@ export interface ReceivedEmailList {
   items: ReceivedEmail[];
   total: number;
 }
+
+/** An on-demand search of the connected inboxes */
+export interface InboxCheckResult {
+  checked_at: string;
+  accounts_checked: number;
+  /** Messages newly stored, on this claim or another one */
+  saved: number;
+  /** Of those, the ones filed on the claim checked */
+  new_on_claim?: number | null;
+  errors: { account: string; error: string }[];
+  /** Why nothing was searched, when nothing was */
+  skipped_reason?: string | null;
+}
