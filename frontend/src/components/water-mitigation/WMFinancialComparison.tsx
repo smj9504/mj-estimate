@@ -57,6 +57,9 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
   // Carrier pays our invoice as billed (no WM estimate)
   const [markingPaid, setMarkingPaid] = useState(false);
 
+  // Taking back a WM estimate entered by mistake
+  const [clearing, setClearing] = useState(false);
+
   const load = useCallback(async () => {
     if (!jobId) return;
     setLoading(true);
@@ -189,6 +192,19 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
     }
   };
 
+  const handleClear = async () => {
+    setClearing(true);
+    try {
+      await financialComparisonService.clearInsuranceEstimate(jobId);
+      message.success('WM insurance estimate cleared.');
+      await load();
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to clear the estimate.');
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const uploadButton = (
     <Upload
       accept=".pdf"
@@ -230,6 +246,30 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
 
   const hasWmEstimate = !!wmSec || !!insurance_estimate?.wm_estimate_amount;
   const paidPerInvoice = insurance_estimate?.wm_cost_status === 'paid_per_invoice' && !hasWmEstimate;
+
+  // The estimate shown is one Clear takes back (not the WM part of the
+  // carrier's combined rebuild estimate, which the card falls back to)
+  const revisionCount = insurance_estimate?.wm_revision_count ?? 0;
+  const clearLink = hasWmEstimate && insurance_estimate?.can_clear ? (
+    <Popconfirm
+      title="Clear the WM insurance estimate?"
+      description={
+        <div style={{ maxWidth: 300 }}>
+          For an estimate entered by mistake.
+          {revisionCount > 1 ? ` All ${revisionCount} WM revisions come off the claim` : ' It comes off the claim'}
+          {' '}and the client's status goes back to what it was before.
+        </div>
+      }
+      okText="Clear"
+      okButtonProps={{ danger: true }}
+      cancelText="Cancel"
+      onConfirm={handleClear}
+    >
+      <Button type="link" size="small" danger style={{ padding: 0, height: 'auto' }} loading={clearing}>
+        Clear
+      </Button>
+    </Popconfirm>
+  ) : null;
 
   const diffPositive = comparison.difference != null && comparison.difference > 0;
   const diffNegative = comparison.difference != null && comparison.difference < 0;
@@ -379,6 +419,7 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
             </div>
           )}
           {insuranceValue}
+          {!editing && clearLink && <div style={{ marginTop: 2 }}>{clearLink}</div>}
         </div>
       ),
     },

@@ -192,6 +192,119 @@ def undo_wm_paid_per_invoice(session, claim) -> None:
     session.flush()
 
 
+def wm_estimate_fields(claim) -> dict:
+    """The claim's WM estimate fields as they stand. The WM job keeps them on
+    each WM estimate it records (extraction_metadata.claim_before), so
+    clear_wm_estimate can put the claim back as it was."""
+    amount = claim.wm_estimate_amount
+    return {
+        'wm_cost_status': claim.wm_cost_status,
+        'wm_estimate_amount': float(amount) if amount is not None else None,
+        'wm_estimate_file_id': claim.wm_estimate_file_id,
+        'wm_estimate_file_name': claim.wm_estimate_file_name,
+    }
+
+
+# The WM statuses a recorded WM estimate sets
+WM_ESTIMATE_STATUSES = ('separate_estimate', 'included_in_rebuild')
+
+
+def clear_wm_estimate(session, claim, job_id: Optional[str] = None) -> Optional[dict]:
+    """Take back the claim's WM insurance estimate, entered by mistake.
+
+    Removes every water_mitigation estimate revision on the claim and puts the
+    claim's WM fields back as they were before the first one (kept on it since
+    2026-11-05; older ones fall back to no WM estimate). The PDFs the WM job
+    uploaded for them go too, so the Document Hub stops listing them. With the
+    revisions gone the claim's stage works itself out as before. Returns None
+    when there is nothing to clear. Does not commit.
+    """
+    from sqlalchemy import or_
+
+    from app.domains.client.models import ClaimActivity, ClaimNegotiation
+    from app.domains.file.models import File
+
+    claim_id = str(claim.id)
+    revisions = session.query(ClaimNegotiation).filter(
+        ClaimNegotiation.claim_id == claim_id,
+        ClaimNegotiation.estimate_category == 'water_mitigation',
+    ).order_by(ClaimNegotiation.revision_number, ClaimNegotiation.created_at).all()
+    if not revisions and claim.wm_estimate_amount is None and not claim.wm_estimate_file_id:
+        return None
+
+    def meta(revision) -> dict:
+        return revision.extraction_metadata if isinstance(revision.extraction_metadata, dict) else {}
+
+    amounts = [float(r.rcv_amount or 0) for r in revisions]
+    if not amounts and claim.wm_estimate_amount is not None:
+        amounts = [float(claim.wm_estimate_amount)]
+
+    before = meta(revisions[0]).get('claim_before') if revisions else None
+    if not isinstance(before, dict):
+        before = None
+
+    # A status set since (paid per invoice, say) stays
+    if claim.wm_cost_status in WM_ESTIMATE_STATUSES:
+        if before is not None:
+            claim.wm_cost_status = before.get('wm_cost_status')
+        else:
+            # The carrier's combined rebuild estimate still covers the WM
+            combined_left = session.query(ClaimNegotiation.id).filter(
+                ClaimNegotiation.claim_id == claim_id,
+                ClaimNegotiation.estimate_category == 'combined',
+            ).first()
+            if not (claim.wm_cost_status == 'included_in_rebuild' and combined_left):
+                claim.wm_cost_status = None
+    claim.wm_estimate_amount = (before or {}).get('wm_estimate_amount')
+    claim.wm_estimate_file_id = (before or {}).get('wm_estimate_file_id')
+    claim.wm_estimate_file_name = (before or {}).get('wm_estimate_file_name')
+
+    # Older revision edits pointed the claim's current amounts at a WM revision;
+    # those amounts would keep the claim looking like it has the rebuild estimate
+    removed = {(float(r.rcv_amount or 0), float(r.acv_amount or 0)) for r in revisions}
+    current = (float(claim.current_rcv or 0), float(claim.current_acv or 0))
+    if any(current) and current in removed:
+        rebuild = session.query(ClaimNegotiation).filter(
+            ClaimNegotiation.claim_id == claim_id,
+            or_(
+                ClaimNegotiation.estimate_category.is_(None),
+                ClaimNegotiation.estimate_category != 'water_mitigation',
+            ),
+        ).order_by(ClaimNegotiation.created_at.desc()).first()
+        claim.current_rcv = (rebuild.rcv_amount or 0) if rebuild else 0
+        claim.current_acv = (rebuild.acv_amount or 0) if rebuild else 0
+        claim.current_depreciation = (rebuild.depreciation_amount or 0) if rebuild else 0
+
+    # Only the PDFs uploaded on the WM job: one filed from email or a
+    # follow-up is the carrier's document whatever it was taken for
+    uploaded = {
+        str(r.document_url) for r in revisions
+        if r.document_url and meta(r).get('source') == 'wm_job_upload'
+    }
+    uploaded -= {str(claim.wm_estimate_file_id), str(claim.insurance_estimate_file_id)}
+    if uploaded:
+        for f in session.query(File).filter(File.id.in_(list(uploaded))).all():
+            f.is_active = False
+
+    for revision in revisions:
+        session.delete(revision)
+
+    shown = ', '.join(f'${a:,.2f}' for a in amounts)
+    session.add(ClaimActivity(
+        claim_id=claim_id,
+        activity_type='wm_estimate_cleared',
+        title='WM insurance estimate cleared',
+        description=(
+            'The water mitigation estimate was entered by mistake and was removed'
+            + (f' ({shown}).' if shown else '.')
+        ),
+        related_entity_type='wm_job' if job_id else 'claim',
+        related_entity_id=str(job_id) if job_id else claim_id,
+    ))
+    session.flush()
+    return {'removed': len(revisions), 'wm_cost_status': claim.wm_cost_status}
+
+
 def mark_rebuild_estimate_requested(
     session, claim, company_id=None, stage: str = 'requested',
 ) -> None:

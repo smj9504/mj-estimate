@@ -1548,6 +1548,10 @@ export interface WMFinancialComparison {
     generated_at: string | null;
   } | null;
   insurance_estimate: {
+    /** WM estimate revisions on the claim; Clear removes them all */
+    wm_revision_count: number;
+    /** There is a WM estimate on the claim that Clear can take back */
+    can_clear: boolean;
     wm_cost_status: string | null;
     wm_estimate_amount: number | null;
     /** What the carrier approved on our invoice (set when paid_per_invoice) */
@@ -1685,6 +1689,17 @@ export const financialComparisonService = {
       `${BASE_URL}/jobs/${jobId}/insurance-estimate/manual`,
       { wm_amount: params.wmAmount, notes: params.notes },
     );
+    return response.data;
+  },
+
+  /**
+   * Clear a WM estimate entered by mistake: every WM revision on the claim
+   * goes and the claim (and so the client's stage) goes back to before it.
+   */
+  clearInsuranceEstimate: async (
+    jobId: string,
+  ): Promise<{ success: boolean; removed: number; wm_cost_status: string | null }> => {
+    const response = await api.delete(`${BASE_URL}/jobs/${jobId}/insurance-estimate`);
     return response.data;
   },
 

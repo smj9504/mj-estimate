@@ -5615,7 +5615,23 @@ def get_financial_comparison(
                         document_file_id = str(file_rec.id)
                         document_name = latest_neg.document_name or file_rec.original_name
 
+                # What Clear would take back (claim_paths.clear_wm_estimate)
+                wm_revision_count = (
+                    db.query(ClaimNegotiation)
+                    .filter(
+                        ClaimNegotiation.claim_id == job.claim_id,
+                        ClaimNegotiation.estimate_category == 'water_mitigation',
+                    )
+                    .count()
+                )
+
                 insurance_estimate = {
+                    "wm_revision_count": wm_revision_count,
+                    "can_clear": bool(
+                        wm_revision_count
+                        or claim.wm_estimate_amount is not None
+                        or claim.wm_estimate_file_id
+                    ),
                     "wm_cost_status": claim.wm_cost_status,
                     # Set when the carrier pays our invoice (paid_per_invoice)
                     "approved_amount": float(job.approved_amount) if job.approved_amount is not None else None,
@@ -5782,6 +5798,7 @@ async def save_wm_insurance_estimate(
 
     from sqlalchemy import func
 
+    from app.domains.client.claim_paths import wm_estimate_fields
     from app.domains.client.models import Claim, ClaimNegotiation
     from app.domains.file.service import FileService
     from .models import WaterMitigationJob
@@ -5896,6 +5913,8 @@ async def save_wm_insurance_estimate(
             'is_combined': is_combined,
             # Keep the full parse for reference when the PDF covered rebuild too.
             'all_sections': parsed_all_sections if is_combined else None,
+            # What clearing the estimate puts back
+            'claim_before': wm_estimate_fields(claim),
         },
         notes=notes or default_note,
     )
@@ -5946,6 +5965,7 @@ def save_wm_insurance_estimate_manual(
     """
     from sqlalchemy import func
 
+    from app.domains.client.claim_paths import wm_estimate_fields
     from app.domains.client.models import Claim, ClaimNegotiation
     from .models import WaterMitigationJob
 
@@ -6008,6 +6028,8 @@ def save_wm_insurance_estimate_manual(
             'source': 'wm_job_manual',
             'job_id': str(job_id),
             'is_manual': True,
+            # What clearing the estimate puts back
+            'claim_before': wm_estimate_fields(claim),
         },
         notes=payload.notes or 'Water Mitigation estimate entered manually',
     )
@@ -6026,6 +6048,39 @@ def save_wm_insurance_estimate_manual(
         "wm_amount": wm_amount,
         "is_manual": True,
     }
+
+
+@router.delete("/jobs/{job_id}/insurance-estimate", dependencies=[_job_access])
+def clear_wm_insurance_estimate(
+    job_id: UUID,
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Clear the claim's WM insurance estimate when it was entered by mistake.
+
+    Every WM estimate revision on the claim goes, the claim's WM fields go back
+    to what they were before it, and with that the client's stage too
+    (claim_paths.clear_wm_estimate).
+    """
+    from app.domains.client.claim_paths import clear_wm_estimate
+    from app.domains.client.models import Claim
+    from .models import WaterMitigationJob
+
+    job = db.query(WaterMitigationJob).filter(
+        WaterMitigationJob.id == job_id
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.claim_id:
+        raise HTTPException(status_code=400, detail="This job is not linked to a claim.")
+    claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Linked claim not found")
+
+    result = clear_wm_estimate(db, claim, job_id=str(job.id))
+    if result is None:
+        raise HTTPException(status_code=404, detail="There is no WM insurance estimate to clear.")
+    db.commit()
+    return {"success": True, **result}
 
 
 class WMPaidPerInvoiceRequest(BaseModel):
