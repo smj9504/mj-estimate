@@ -343,11 +343,14 @@ def test_different_makes_its_own_job_and_client_and_leaves_the_manual_ones_alone
     sheet_job = jobs_on_row(db)[0]
     assert result == {'status': 'different', 'job_id': str(sheet_job.id)}
     assert sheet_job.id != job.id
-    assert job.google_sheet_row_number is None and job.homeowner_name == 'Hand Entered' and job.claim_id is None
+    assert job.google_sheet_row_number is None and job.homeowner_name == 'Hand Entered'
 
     sheet_client = db.query(Client).filter(Client.id != hand_client.id).one()
     assert sheet_client.source == SHEET_SOURCE and sheet_client.display_name == 'Sheet Homeowner'
-    assert db.query(Claim).one().client_id == sheet_client.id
+    # Each keeps its own claim: the manual job its provisional one, with no number
+    assert db.query(Claim).filter(Claim.id == sheet_job.claim_id).one().client_id == sheet_client.id
+    own = db.query(Claim).filter(Claim.id == job.claim_id).one()
+    assert own.client_id == hand_client.id and own.claim_number == ''
     db.refresh(hand_client)
     assert hand_client.source is None and hand_client.display_name == 'Hand Entered'
 
@@ -1006,7 +1009,8 @@ def test_a_job_with_only_an_address_makes_a_client_named_after_it(db, api):
     assert (client.city, client.state, client.zipcode) == ('Springfield', 'VA', '22152')
     # What the field visit and on-site signing look a client up by
     assert client.normalized_address == '100 example st'
-    assert db.query(Claim).count() == 0
+    # With a provisional claim, so the job shows under the client
+    assert db.query(Claim).one().client_id == client.id
 
 
 def test_a_job_with_a_homeowner_and_no_claim_makes_their_client(db, api):
@@ -1016,7 +1020,7 @@ def test_a_job_with_a_homeowner_and_no_claim_makes_their_client(db, api):
     assert client.display_name == 'Pat Doe' and client.address == STREET
     assert client.owners[0]['name'] == 'Pat Doe' and client.owners[0]['phone'] == '555-010-0100'
     assert client.normalized_address == '100 example st'
-    assert db.query(Claim).count() == 0
+    assert db.query(Claim).one().client_id == client.id
 
 
 def test_a_job_with_a_claim_files_it_under_the_client_at_its_address(db, api):

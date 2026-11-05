@@ -15,7 +15,8 @@ with just that address if there's none, claim and homeowner or not.
 Flow:
   WM Job (homeowner_name, property_address, insurance, claim_number, etc.)
     → Match or create Client
-    → Match or create Claim (if claim_number present)
+    → Match or create Claim (if claim_number present; with none, a provisional
+      claim with no number, which takes the number when it comes)
     → Link WM Job to Claim (via claim_id)
 """
 
@@ -92,6 +93,15 @@ class ClientSyncService:
                 if str(job.claim_id) != str(claim.id) if job.claim_id else True:
                     job.claim_id = claim.id
                     self.db.flush()
+            elif not job.claim_id and job.active:
+                # No claim number yet: a provisional claim with none, so the job shows
+                # under its client. It takes the number when one comes (_sync_claim).
+                # A job taken off the list (a duplicate row) gets none.
+                claim = self._create_claim_from_job(job, client)
+                job.claim_id = claim.id
+                self.db.flush()
+                result['claim_id'] = str(claim.id)
+                result['claim_action'] = 'created'
 
             # The WM company works the claim, so its people see it
             if job.claim_id and job.company_id:
@@ -425,6 +435,14 @@ class ClientSyncService:
                 if number_matches:
                     self._update_claim_from_job(claim, job)
                     return claim, 'updated'
+                # A provisional claim, made before the number was known, takes it,
+                # unless a claim with that number is already there: the job joins that
+                # one below, and the provisional claim stays as it is.
+                provisional = claim.claim_type != 'cash' and not (claim.claim_number or '').strip()
+                if provisional and self._claim_by_number(job, client, claim_number) is None:
+                    claim.claim_number = claim_number
+                    self._update_claim_from_job(claim, job)
+                    return claim, 'updated'
                 if self._claim_has_history(claim):
                     logger.warning(
                         f"WM Job {job.id}: Sheet claim_number '{claim_number}' differs from "
@@ -436,30 +454,30 @@ class ClientSyncService:
                     self._update_claim_from_job(claim, job)
                     return claim, 'updated'
 
-        # Priority 2: Match by claim_number within this client's claims
+        # Priority 2: Match by claim_number
         if claim_number:
-            claim = self.db.query(Claim).filter(
-                Claim.client_id == client.id,
-                func.lower(Claim.claim_number) == claim_number.lower(),
-            ).first()
+            claim = self._claim_by_number(job, client, claim_number)
             if claim:
-                self._update_claim_from_job(claim, job)
-                return claim, 'matched'
-
-            # Also search globally (claim might exist under different client - edge case),
-            # but not across a sheet client and one entered by hand
-            claim = self.db.query(Claim).join(Client, Claim.client_id == Client.id).filter(
-                func.lower(Claim.claim_number) == claim_number.lower(),
-                self._same_origin(job, self._same_decision(job)),
-            ).first()
-            if claim:
-                # If found under different client, still match (claim_number is unique per insurance)
                 self._update_claim_from_job(claim, job)
                 return claim, 'matched'
 
         # No match → create new Claim
         claim = self._create_claim_from_job(job, client)
         return claim, 'created'
+
+    def _claim_by_number(self, job: WaterMitigationJob, client: Client, claim_number: str) -> Optional[Claim]:
+        """The claim with this number: this client's first, then anyone's (claim_number
+        is unique per insurance), but not across a sheet client and one entered by hand"""
+        claim = self.db.query(Claim).filter(
+            Claim.client_id == client.id,
+            func.lower(Claim.claim_number) == claim_number.lower(),
+        ).first()
+        if claim:
+            return claim
+        return self.db.query(Claim).join(Client, Claim.client_id == Client.id).filter(
+            func.lower(Claim.claim_number) == claim_number.lower(),
+            self._same_origin(job, self._same_decision(job)),
+        ).first()
 
     def _claim_has_history(self, claim: Claim) -> bool:
         """
