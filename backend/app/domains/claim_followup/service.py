@@ -22,6 +22,19 @@ from app.domains.client.claim_paths import (
 
 logger = logging.getLogger(__name__)
 
+_WM_TITLE = re.compile(r'\bwm\b|water mitigation', re.IGNORECASE)
+
+
+def is_wm_payment_task(task: Dict[str, Any]) -> bool:
+    """A follow-up chasing the WM money. Today that is wm_payment_check; WM tasks
+    made before that type existed are payment_check titled for WM ('Follow up:
+    WM costs not included in estimate'). Any other payment_check is the rebuild
+    payment."""
+    task_type = task.get('task_type') or ''
+    if task_type == 'wm_payment_check':
+        return True
+    return task_type == 'payment_check' and bool(_WM_TITLE.search(task.get('title') or ''))
+
 
 def _with_open_tracking_pixel(body_html: str, email_id: str) -> tuple:
     """Append an invisible 1x1 tracking pixel that records when the email is opened.
@@ -790,7 +803,13 @@ class ClaimFollowUpService:
     def _sync_payment_to_wm(
         self, session, task: Dict[str, Any], data: Dict[str, Any]
     ):
-        """Sync payment_status/payment_note from follow-up task to WM job"""
+        """Sync payment_status/payment_note from a payment follow-up to the WM job.
+
+        A WM payment follow-up always syncs. The rebuild payment follow-up only
+        does when the carrier folded the WM cost into the rebuild estimate, so
+        the rebuild check is also the WM check; otherwise the WM money is
+        chased on its own and the rebuild payment must not overwrite it.
+        """
         try:
             task_type = task.get('task_type', '')
             if task_type not in ('payment_check', 'wm_payment_check'):
@@ -800,12 +819,30 @@ class ClaimFollowUpService:
             if not claim_id:
                 return
 
+            from app.domains.client.models import Claim
             from app.domains.water_mitigation.models import (
                 WaterMitigationJob,
             )
-            wm_job = session.query(WaterMitigationJob).filter(
-                WaterMitigationJob.claim_id == claim_id
-            ).first()
+            if not is_wm_payment_task(task):
+                wm_cost_status = session.query(Claim.wm_cost_status).filter(
+                    Claim.id == claim_id
+                ).scalar()
+                if wm_cost_status != 'included_in_rebuild':
+                    return
+
+            wm_job = None
+            if task.get('wm_job_id'):
+                wm_job = session.query(WaterMitigationJob).filter(
+                    WaterMitigationJob.id == task['wm_job_id']
+                ).first()
+            if wm_job is None:
+                # The claim's job; the oldest active one when it has several
+                wm_job = session.query(WaterMitigationJob).filter(
+                    WaterMitigationJob.claim_id == claim_id
+                ).order_by(
+                    WaterMitigationJob.active.desc().nullslast(),
+                    WaterMitigationJob.created_at,
+                ).first()
             if not wm_job:
                 return
 

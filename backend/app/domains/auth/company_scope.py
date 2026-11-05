@@ -69,6 +69,12 @@ def _in_all_companies(db: Any, staff_id: Any) -> bool:
     ).scalar())
 
 
+def sees_every_company(db: Any, staff: Any) -> bool:
+    """An admin, or someone set to every company: nothing is hidden from them,
+    so they may hold links that show every company's records"""
+    return sees_everything(staff) or (staff is not None and _in_all_companies(db, staff.id))
+
+
 def company_ids(db: Any, staff: Any) -> Optional[List[str]]:
     """The staff member's companies, or None for an admin (no limit)"""
     from app.domains.company.models import Company

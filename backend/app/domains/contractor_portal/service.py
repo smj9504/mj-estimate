@@ -12,6 +12,59 @@ from app.core.database_factory import get_database
 logger = logging.getLogger(__name__)
 
 
+def _active_token(session, token: str):
+    from app.domains.contractor_portal.models import ContractorPortalToken
+
+    return (
+        session.query(ContractorPortalToken)
+        .filter(
+            ContractorPortalToken.token == token,
+            ContractorPortalToken.is_active == True,
+        )
+        .first()
+    )
+
+
+def _token_company_ids(session, portal_token) -> set:
+    """The companies a portal link speaks for: its contact's company, and any
+    other company where the same person (by email) is an active contact"""
+    from app.domains.company.models import CompanyContact
+
+    contact = portal_token.contact if portal_token else None
+    if not contact:
+        return set()
+    company_ids = set()
+    if contact.company_id:
+        company_ids.add(str(contact.company_id))
+    if contact.email:
+        for c in session.query(CompanyContact).filter(
+            CompanyContact.email == contact.email,
+            CompanyContact.is_active == True,
+        ).all():
+            if c.company_id:
+                company_ids.add(str(c.company_id))
+    return company_ids
+
+
+def _token_company_on_claim(session, portal_token, claim_id: str) -> Optional[str]:
+    """Which of the link's companies works this claim, or None when none does:
+    a link only reaches the claims it lists"""
+    from app.domains.contract.models import ClaimCompany
+
+    company_ids = _token_company_ids(session, portal_token)
+    if not company_ids or not claim_id:
+        return None
+    row = (
+        session.query(ClaimCompany.company_id)
+        .filter(
+            ClaimCompany.claim_id == str(claim_id),
+            ClaimCompany.company_id.in_(company_ids),
+        )
+        .first()
+    )
+    return str(row[0]) if row else None
+
+
 class ContractorPortalService:
     def __init__(self):
         self.database = get_database()
@@ -50,44 +103,16 @@ class ContractorPortalService:
     def get_all_claims_for_contact(self, token: str) -> List[Dict[str, Any]]:
         """Get all claims across all companies this contact works for."""
         from app.domains.client.models import Claim, ClaimPayment, Client
-        from app.domains.company.models import Company, CompanyContact
+        from app.domains.company.models import Company
         from app.domains.contract.models import ClaimCompany
-        from app.domains.contractor_portal.models import ContractorPortalToken
 
         with self.database.get_session() as session:
-            portal_token = (
-                session.query(ContractorPortalToken)
-                .filter(
-                    ContractorPortalToken.token == token,
-                    ContractorPortalToken.is_active == True,
-                )
-                .first()
-            )
+            portal_token = _active_token(session, token)
             if not portal_token or not portal_token.contact:
                 return []
 
-            contact = portal_token.contact
-
-            # Find all companies this contact is associated with
-            # (same person might be contact at multiple companies)
-            company_ids = set()
-            if contact.company_id:
-                company_ids.add(str(contact.company_id))
-
-            # Also find by matching name+email across companies
-            if contact.email:
-                other_contacts = (
-                    session.query(CompanyContact)
-                    .filter(
-                        CompanyContact.email == contact.email,
-                        CompanyContact.is_active == True,
-                    )
-                    .all()
-                )
-                for c in other_contacts:
-                    if c.company_id:
-                        company_ids.add(str(c.company_id))
-
+            # The same person may be a contact at several companies
+            company_ids = _token_company_ids(session, portal_token)
             if not company_ids:
                 return []
 
@@ -151,28 +176,20 @@ class ContractorPortalService:
 
             return results
 
-    def get_payments(self, token: str, claim_id: str) -> Dict[str, Any]:
-        """Get payments for a claim with summary."""
+    def get_payments(self, token: str, claim_id: str) -> Optional[Dict[str, Any]]:
+        """Get payments for a claim with summary. None when the link doesn't
+        reach the claim (a claim none of its companies works)."""
         from app.domains.client.models import Claim, ClaimPayment
-        from app.domains.contractor_portal.models import ContractorPortalToken
 
         with self.database.get_session() as session:
-            # Validate token
-            portal_token = (
-                session.query(ContractorPortalToken)
-                .filter(
-                    ContractorPortalToken.token == token,
-                    ContractorPortalToken.is_active == True,
-                )
-                .first()
-            )
-            if not portal_token:
-                return {"payments": [], "total_by_category": {}, "grand_total": 0, "expected": {}}
+            portal_token = _active_token(session, token)
+            if not portal_token or not _token_company_on_claim(session, portal_token, claim_id):
+                return None
 
             # Get claim for expected amounts
             claim = session.query(Claim).filter(Claim.id == claim_id).first()
             if not claim:
-                return {"payments": [], "total_by_category": {}, "grand_total": 0, "expected": {}}
+                return None
 
             # Get all payments for this claim
             payments = (
@@ -223,20 +240,17 @@ class ContractorPortalService:
             }
 
     def create_payment(self, token: str, claim_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Create a payment from the contractor portal."""
+        """Create a payment from the contractor portal. None when the link
+        doesn't reach the claim. The payment is recorded as the link's company
+        that works the claim, not whatever company the request names."""
         from app.domains.client.models import ClaimPayment
-        from app.domains.contractor_portal.models import ContractorPortalToken
 
         with self.database.get_session() as session:
-            portal_token = (
-                session.query(ContractorPortalToken)
-                .filter(
-                    ContractorPortalToken.token == token,
-                    ContractorPortalToken.is_active == True,
-                )
-                .first()
-            )
+            portal_token = _active_token(session, token)
             if not portal_token:
+                return None
+            claim_company_id = _token_company_on_claim(session, portal_token, claim_id)
+            if not claim_company_id:
                 return None
 
             payment = ClaimPayment(
@@ -253,7 +267,7 @@ class ContractorPortalService:
                 check_photo_file_id=data.get("check_photo_file_id"),
                 notes=data.get("memo"),
                 source="contractor_portal",
-                contractor_company_id=data.get("company_id"),
+                contractor_company_id=claim_company_id,
             )
             session.add(payment)
             session.commit()

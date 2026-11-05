@@ -9,6 +9,9 @@ Public endpoints (no auth - manager link):
 Admin endpoints (auth required):
 - GET  /api/wm-payment-board/admin/token            - Current active link
 - POST /api/wm-payment-board/admin/token/regenerate - Retire old link, issue new
+
+The link shows every company's jobs, so only someone who already sees every
+company (an admin, or staff set to all companies) may get or replace it.
 """
 
 import logging
@@ -132,12 +135,24 @@ def set_public_note(
 admin_router = APIRouter()
 
 
+def _require_every_company(db, staff) -> None:
+    from app.domains.auth.company_scope import sees_every_company
+
+    if not sees_every_company(db, staff):
+        raise HTTPException(
+            status_code=403,
+            detail="The manager link shows every company's jobs; only an admin "
+                   "or someone set to all companies can open it",
+        )
+
+
 @admin_router.get("/token", response_model=BoardTokenResponse)
 def get_board_token(
     current_staff=Depends(get_current_staff),
     db: DatabaseSession = Depends(get_db_session),
 ):
     """Current active manager link (created on first request)."""
+    _require_every_company(db, current_staff)
     try:
         service = WMPaymentBoardService(db)
         token = service.get_or_create_token(staff_id=current_staff.id)
@@ -154,6 +169,7 @@ def regenerate_board_token(
     db: DatabaseSession = Depends(get_db_session),
 ):
     """Retire the current link and issue a new one. The old URL stops working."""
+    _require_every_company(db, current_staff)
     try:
         service = WMPaymentBoardService(db)
         token = service.regenerate_token(staff_id=current_staff.id)

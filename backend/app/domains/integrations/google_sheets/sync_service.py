@@ -963,8 +963,9 @@ class GoogleSheetsSyncService:
 
     def _apply_pa_mapping(self, job: WaterMitigationJob) -> None:
         """
-        If a Sheet→PA mapping exists for this job's sheet_name,
-        update the linked Claim's pa_contact_id accordingly.
+        If a Sheet→PA mapping exists for this job's sheet_name, put that PA
+        on the linked Claim: pa_contact_id plus the pa_* mirror and
+        has_public_adjuster, which the PA fee is counted from.
         """
         if not job.google_sheet_name:
             return
@@ -997,15 +998,19 @@ class GoogleSheetsSyncService:
         # deliberate choice (a PA that changed hands, or one the sheet tab
         # does not describe) and must survive the next sheet sync.
         if claim.pa_contact_id:
-            if claim.pa_contact_id != mapping.pa_contact_id:
+            if str(claim.pa_contact_id) != str(mapping.pa_contact_id):
                 logger.debug(
                     f"Keeping existing PA {claim.pa_contact_id} on claim "
                     f"{job.claim_id}; sheet '{job.google_sheet_name}' maps to "
                     f"{mapping.pa_contact_id}"
                 )
-            return
+                return
+            if claim.has_public_adjuster:
+                return
+            # Linked by a sync from before the mirror was filled: fill it now
 
-        claim.pa_contact_id = mapping.pa_contact_id
+        from app.domains.client.claim_pa import link_pa_contact
+        link_pa_contact(self.db, claim, mapping.pa_contact_id)
         self.db.commit()
         logger.info(
             f"Applied PA contact {mapping.pa_contact_id} to claim {job.claim_id} "

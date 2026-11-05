@@ -1160,7 +1160,7 @@ def get_all_documents(
                     "claim_number": claim_map.get(str(inv.claim_id), "") if inv.claim_id else "",
                     "date": _iso(inv.invoice_date or inv.created_at),
                     "amount": float(inv.total_amount or 0),
-                    "link": f"/invoices/{inv.id}",
+                    "link": f"/invoices/{inv.id}/edit",
                 })
 
         # 3. Estimates
@@ -1185,7 +1185,8 @@ def get_all_documents(
                     "claim_number": claim_map.get(str(est.claim_id), "") if est.claim_id else "",
                     "date": _iso(est.estimate_date or est.created_at),
                     "amount": total,
-                    "link": f"/estimates/{est.id}",
+                    "link": (f"/insurance-estimate/{est.id}" if est.estimate_type == "insurance"
+                             else f"/edit/estimate/{est.id}"),
                 })
 
         # 4. Contracts
@@ -1256,7 +1257,7 @@ def get_all_documents(
                     "claim_number": claim_map.get(str(wo.claim_id), "") if wo.claim_id else "",
                     "date": _iso(wo.scheduled_start_date or wo.created_at),
                     "amount": float(wo.estimated_cost or 0) if wo.estimated_cost else None,
-                    "link": f"/work-orders/{wo.id}",
+                    "link": f"/work-order/{wo.id}",
                 })
 
         # 7. WM Jobs

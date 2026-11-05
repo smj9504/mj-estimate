@@ -50,11 +50,56 @@ class MessagingService:
 
     # People
 
-    def people(self) -> List[Dict[str, Any]]:
-        """Everyone who can sign in, for picking whom to message"""
-        rows = self.db.query(Staff).filter(
+    def reachable_ids(self, viewer: Any) -> Optional[set]:
+        """Whom an outside person may message or send a document: the people
+        of their own companies, and the office (admins and staff set to all
+        companies). None for our own staff, who may reach everyone.
+
+        Outside people are contractor-role logins and logins that belong only
+        to public adjuster firms."""
+        from app.domains.auth.company_scope import sees_every_company, staff_company_ids
+        from app.domains.company.models import Company
+        from app.domains.staff.models import StaffCompany, StaffRole
+
+        if viewer is None or sees_every_company(self.db, viewer):
+            return None
+        own = staff_company_ids(self.db, viewer.id)
+        role = getattr(viewer, 'role', None)
+        role = getattr(role, 'value', role)
+        outsider = role == StaffRole.contractor.value
+        if not outsider and own:
+            types = {
+                t for (t,) in self.db.query(Company.company_type).filter(Company.id.in_(own)).all()
+            }
+            outsider = types == {'public_adjuster'}
+        if not outsider:
+            return None
+
+        reachable = {str(viewer.id)}
+        if own:
+            reachable |= {
+                str(r[0]) for r in self.db.query(StaffCompany.staff_id).filter(
+                    StaffCompany.company_id.in_(own)
+                ).all()
+            }
+        reachable |= {
+            str(r[0]) for r in self.db.query(Staff.id).filter(or_(
+                Staff.role.in_([StaffRole.admin, StaffRole.super_admin]),
+                Staff.all_companies.is_(True),
+            )).all()
+        }
+        return reachable
+
+    def people(self, viewer: Any = None) -> List[Dict[str, Any]]:
+        """Everyone the viewer can message: whoever can sign in, narrowed for
+        an outside person (reachable_ids)"""
+        query = self.db.query(Staff).filter(
             Staff.is_active.is_(True), Staff.can_login.is_(True)
-        ).order_by(Staff.first_name, Staff.last_name).all()
+        )
+        reachable = self.reachable_ids(viewer)
+        if reachable is not None:
+            query = query.filter(Staff.id.in_(reachable))
+        rows = query.order_by(Staff.first_name, Staff.last_name).all()
         return [
             {
                 'id': str(s.id),
@@ -72,14 +117,18 @@ class MessagingService:
         rows = self.db.query(Staff.id, Staff.first_name, Staff.last_name).filter(Staff.id.in_(ids)).all()
         return {str(r.id): f"{r.first_name} {r.last_name}".strip() for r in rows}
 
-    def require_active_staff(self, staff_ids: Iterable[str]) -> List[str]:
-        """The ids, checked to be people who can sign in"""
+    def require_active_staff(self, staff_ids: Iterable[str], viewer: Any = None) -> List[str]:
+        """The ids, checked to be people who can sign in and whom the viewer
+        may reach (reachable_ids)"""
         ids = {str(i) for i in staff_ids}
         found = {
             str(r.id) for r in self.db.query(Staff.id).filter(
                 Staff.id.in_(ids), Staff.is_active.is_(True), Staff.can_login.is_(True)
             ).all()
         } if ids else set()
+        reachable = self.reachable_ids(viewer) if ids else None
+        if reachable is not None:
+            found &= reachable
         missing = ids - found
         if missing:
             raise ValueError("Some of the people picked can't receive messages")
@@ -127,7 +176,7 @@ class MessagingService:
         """Open a conversation with others: one-to-one with one person and no
         name, otherwise a group"""
         me = str(staff.id)
-        others = self.require_active_staff(set(map(str, participant_ids)) - {me})
+        others = self.require_active_staff(set(map(str, participant_ids)) - {me}, viewer=staff)
         if not others:
             raise ValueError("Pick at least one other person")
         title = (title or '').strip() or None
@@ -157,7 +206,7 @@ class MessagingService:
         if not conversation.is_group:
             raise ValueError("People can only be added to a group; start a new group instead")
         current = set(self.member_ids(conversation.id))
-        new_ids = [i for i in self.require_active_staff(staff_ids) if i not in current]
+        new_ids = [i for i in self.require_active_staff(staff_ids, viewer=staff) if i not in current]
         if not new_ids:
             return
         now = utcnow()

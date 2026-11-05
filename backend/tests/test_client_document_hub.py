@@ -117,3 +117,42 @@ def test_a_revision_with_nothing_attached_is_not_a_document(env):
 
 def test_a_client_nobody_has_is_not_found(env):
     assert env.api.get(f'/api/clients/{uuid.uuid4()}/all-documents').status_code == 404
+
+
+def _app_routes():
+    """The page paths App.tsx serves, as patterns"""
+    import re
+    app_tsx = Path(__file__).resolve().parents[2] / 'frontend' / 'src' / 'App.tsx'
+    paths = re.findall(r'path: "([^"]+)"', app_tsx.read_text(encoding='utf-8'))
+    return [re.compile('^' + re.sub(r':[^/]+', '[^/]+', p) + '$') for p in paths if p != '*']
+
+
+def test_every_document_opens_a_page_the_app_has(env):
+    Invoice, Estimate, WorkOrder = model('invoices'), model('estimates'), model('work_orders')
+    claim_id = env.ids.claim
+    # Invoices and estimates show to their owner or a super admin
+    super_admin = SimpleNamespace(id=uuid.uuid4(), role=StaffRole.super_admin, is_active=True)
+    env.api.app.dependency_overrides[get_current_staff] = lambda: super_admin
+    env.session.add(Invoice(invoice_number='INV-1', client_id=env.ids.client, claim_id=claim_id,
+                            client_name='12 Elm St'))
+    env.session.add(Estimate(estimate_number='EST-1', client_id=env.ids.client, claim_id=claim_id,
+                             client_name='12 Elm St'))
+    env.session.add(Estimate(estimate_number='EST-2', estimate_type='insurance', client_id=env.ids.client,
+                             claim_id=claim_id, client_name='12 Elm St'))
+    env.session.add(WorkOrder(work_order_number='WO-1', client_id=env.ids.client, claim_id=claim_id,
+                              company_id=uuid.uuid4(), client_name='12 Elm St', document_type='WO',
+                              created_by_staff_id=uuid.uuid4()))
+    env.session.commit()
+
+    response = env.api.get(f'/api/clients/{env.ids.client}/all-documents')
+    assert response.status_code == 200, response.text
+    links = {d['title']: d['link'] for d in response.json()['documents']}
+    by_number = {title.split('#')[1].split(' ')[0]: link for title, link in links.items() if '#' in title}
+    assert by_number['INV-1'].endswith('/edit') and by_number['INV-1'].startswith('/invoices/')
+    assert by_number['EST-1'].startswith('/edit/estimate/')
+    assert by_number['EST-2'].startswith('/insurance-estimate/')
+    assert by_number['WO-1'].startswith('/work-order/')
+
+    routes = _app_routes()
+    for title, link in links.items():
+        assert any(r.match(link) for r in routes), f'{title} links to {link}, which no page serves'

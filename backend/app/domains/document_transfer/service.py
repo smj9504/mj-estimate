@@ -71,7 +71,7 @@ class DocumentTransferService:
             raise ValueError(f"{label} not found")
 
         me = str(staff.id)
-        recipients = self.messaging.require_active_staff(set(map(str, recipient_ids)) - {me})
+        recipients = self.messaging.require_active_staff(set(map(str, recipient_ids)) - {me}, viewer=staff)
         if not recipients:
             raise ValueError("Pick someone other than yourself")
         self._require_recipients_see(document, label, recipients)

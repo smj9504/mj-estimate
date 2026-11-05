@@ -5452,6 +5452,8 @@ def apply_sheet_pa_mappings(
         )
     ).scalars().all()
 
+    from app.domains.client.claim_pa import link_pa_contact
+
     applied = 0
     kept = 0
     for job in jobs:
@@ -5461,13 +5463,19 @@ def apply_sheet_pa_mappings(
         claim = db.execute(
             select(Claim).where(Claim.id == job.claim_id)
         ).scalar_one_or_none()
-        if not claim or claim.pa_contact_id == pa_contact_id:
+        if not claim:
+            continue
+        if claim.pa_contact_id and str(claim.pa_contact_id) == str(pa_contact_id):
+            if not claim.has_public_adjuster:
+                # Linked before the pa_* mirror was filled: fill it now
+                link_pa_contact(db, claim, pa_contact_id)
+                applied += 1
             continue
         if claim.pa_contact_id and not overwrite_existing:
             # Set by hand (or by an earlier, different mapping) — leave it.
             kept += 1
             continue
-        claim.pa_contact_id = pa_contact_id
+        link_pa_contact(db, claim, pa_contact_id)
         applied += 1
 
     db.commit()

@@ -71,7 +71,7 @@ def _message_dicts(service: MessagingService, messages: list, viewer: Any) -> Li
 @router.get("/people")
 def list_people(current_staff=Depends(get_current_staff), db=Depends(get_db)):
     """Everyone who can be messaged or sent a document"""
-    return MessagingService(db).people()
+    return MessagingService(db).people(current_staff)
 
 
 @router.get("/unread-count")

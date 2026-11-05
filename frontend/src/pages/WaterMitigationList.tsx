@@ -79,7 +79,11 @@ const WaterMitigationList: React.FC = () => {
   // The View grant opens jobs and edits their details; no new jobs, sheet
   // sync, payment view, deactivating or deleting
   const { limited } = useWaterMitigationAccess();
-  const { canAccessPath } = useAuth();
+  const { canAccessPath, user } = useAuth();
+  // The manager link shows every company's jobs: only for those who see them all
+  const seesEveryCompany = !!user && (
+    user.role === 'admin' || user.role === 'super_admin' || !!user.all_companies
+  );
   const [loading, setLoading] = useState(false);
   const [jobs, setJobs] = useState<WaterMitigationJob[]>([]);
   const [total, setTotal] = useState(0);
@@ -667,7 +671,7 @@ const WaterMitigationList: React.FC = () => {
                 />
               </>
             )}
-            <WMPaymentLinkButton size="middle" />
+            {seesEveryCompany && <WMPaymentLinkButton size="middle" />}
             <Button
               type="primary"
               icon={<PlusOutlined />}

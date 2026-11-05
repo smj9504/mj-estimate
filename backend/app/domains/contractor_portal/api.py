@@ -66,10 +66,15 @@ def create_payment_by_company(
     current_staff: Staff = Depends(get_current_staff),
     db=Depends(get_db),
 ):
-    """Create payment (used by logged-in contractors)."""
+    """Create payment (used by logged-in contractors). The payment can only be
+    recorded as one of the person's own companies."""
     require_claim(db, current_staff, claim_id)
+    payload = data.dict()
+    own = company_ids(db, current_staff)
+    if payload.get("company_id") and own is not None and str(payload["company_id"]) not in own:
+        payload["company_id"] = None
     service = _get_service()
-    result = service.create_payment_direct(claim_id, data.dict())
+    result = service.create_payment_direct(claim_id, payload)
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create payment")
     return result
@@ -166,7 +171,10 @@ def get_payments(token: str, claim_id: str):
     info = service.validate_token(token)
     if not info:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return service.get_payments(token, claim_id)
+    result = service.get_payments(token, claim_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    return result
 
 
 @public_router.post("/{token}/claims/{claim_id}/payments")
@@ -179,7 +187,8 @@ def create_payment(token: str, claim_id: str, data: ContractorPaymentCreate):
 
     result = service.create_payment(token, claim_id, data.dict())
     if not result:
-        raise HTTPException(status_code=500, detail="Failed to create payment")
+        # The token was valid a moment ago: the link doesn't reach this claim
+        raise HTTPException(status_code=404, detail="Claim not found")
     return result
 
 
