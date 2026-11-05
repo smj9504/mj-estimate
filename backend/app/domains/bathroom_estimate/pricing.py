@@ -576,6 +576,18 @@ SHOWERHEAD_PRICES = {
     "body_spray": 378,                # per set
 }
 
+# Tub faucet MATERIAL only; the labor is PLUMBING_RATES["tub_faucet_install"].
+# A tub's faucet is always removed and replaced, never detached and reset.
+# Mid-grade Moen/Delta allowances, 2026-11-05 retail: tub spout + handle trim
+# on the wall valve ~$100-$200, deck-mount (Roman tub) faucet ~$200-$400,
+# freestanding floor-mount tub filler ~$350-$900. Defaults, not company
+# rates: adjust when real jobs show they're off.
+TUB_FAUCET_PRICES = {
+    "wall": 150,                      # spout + handle trim on the wall valve
+    "deck": 280,                      # deck-mount faucet on the tub rim/deck
+    "freestanding": 520,              # floor-mount tub filler
+}
+
 SHOWER_VALVE_PRICES = {
     "pressure_balance": 300,          # code-required basic
     "thermostatic": 594,              # premium
@@ -1024,6 +1036,7 @@ SKU_PRICED_TABLES = frozenset({
     "SHOWER_CUSTOM_EXTRAS.linear_drain",  # §9-1 drain material only
     "SHOWERHEAD_PRICES",                # §9-3
     "SHOWER_VALVE_PRICES",              # §9-4
+    "TUB_FAUCET_PRICES",
     "VANITY_PRICES",                    # §10-1
     "FAUCET_PRICES",                    # §10-4
     "SINK_PRICES",                      # §11-1 material only (install = INST)

@@ -87,6 +87,10 @@ export interface BathtubSpec {
   // Set false when the faucet is elsewhere (different wall, deck-mount) so
   // opening the surround tile doesn't auto-add a valve replacement line item.
   has_faucet?: boolean;
+  // The tub's faucet is always R&R. A shower head and a hand shower on a
+  // hose, when the tub has them, are detached and reset or replaced.
+  showerhead_action?: 'none' | 'detach_reset' | 'replace';
+  handheld_action?: 'none' | 'detach_reset' | 'replace';
 }
 
 export interface VanityItemSpec {

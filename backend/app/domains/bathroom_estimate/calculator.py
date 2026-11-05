@@ -25,6 +25,7 @@ from .pricing import (
     HIDDEN_COSTS,
     MIRROR_INSTALL,
     MIRROR_PRICES,
+    TUB_FAUCET_PRICES,
     MOISTURE_RESISTANT_PAINT_MULT,
     PAINT_GRADE_MULTIPLIER,
     PAINT_PREP,
@@ -1208,10 +1209,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         if tub_spec.get("jetted"):
             tub_jetted = BATHTUB_EXTRAS["whirlpool_upgrade"]
 
-        # Tub spout/faucet — skip if plumber already fixed bathtub plumbing
-        tub_faucet = 0
-        if not plumber_fixed_tub:
-            tub_faucet = round(PLUMBING_RATES["tub_faucet_install"] * labor_mult, 2)
+        # The tub's faucet is its own line (Tub faucet - R&R, below)
 
         # Drain/overflow assembly — new tub needs new drain kit
         tub_drain = round(BATHTUB_EXTRAS["drain_overflow_kit"] * labor_mult, 2)
@@ -1222,7 +1220,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         if tub_mat not in ("cast_iron",):
             tub_mortar = round(BATHTUB_EXTRAS["mortar_bed"] * labor_mult, 2)
 
-        tub_combined = (tub_price + tub_install + tub_faucet
+        tub_combined = (tub_price + tub_install
                         + tub_jetted + tub_drain + tub_mortar)
 
         tub_parts = [
@@ -1230,10 +1228,6 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             else f"Unit: {picks.name('bathtub')} ${tub_price:,.2f}",
             f"Install: ${tub_install:,.2f}",
         ]
-        if tub_faucet:
-            tub_parts.append(f"Tub spout + faucet install: ${tub_faucet:,.2f}")
-        else:
-            tub_parts.append("Tub spout/faucet: plumber completed (excluded)")
         tub_parts.append(f"Drain/overflow kit: ${tub_drain:,.2f}")
         if tub_mortar:
             tub_parts.append(f"Mortar bed: ${tub_mortar:,.2f}")
@@ -1292,6 +1286,9 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             "Tub spout/diverter valve excluded by user — "
         )
 
+        # The shower head and hand shower are lines of their own (below), as
+        # the person chose them; the valve line no longer carries the head
+        _valve_trim_billed = False  # the valve's trim kit brings the spout + handle
         if _valve_eligible and plumber_fixed_tub:
             warnings.append(
                 (f"{_valve_item_label}: plumber already replaced "
@@ -1304,23 +1301,18 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 _body_only = (BATHTUB_EXTRAS["shower_valve_body_trim"]
                               - BATHTUB_EXTRAS["shower_valve_trim_only"])
                 valve_cost = round(_body_only * labor_mult, 2)
-                sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
-                valve_total = valve_cost + sh_head_cost
                 _add(line_items, 5,
                      _valve_body_only_label,
-                     1, "EA", valve_total, "plumbing",
+                     1, "EA", valve_cost, "plumbing",
                      notes=f"Valve body only ${valve_cost:,.2f} (trim kit excluded) | "
-                           f"Shower head + arm ${sh_head_cost:,.2f} | "
                            f"Replace while wall is open to prevent future leak")
             else:
                 valve_cost = round(BATHTUB_EXTRAS["shower_valve_body_trim"] * labor_mult, 2)
-                sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
-                valve_total = valve_cost + sh_head_cost
+                _valve_trim_billed = True
                 _add(line_items, 5,
                      _valve_item_label,
-                     1, "EA", valve_total, "plumbing",
+                     1, "EA", valve_cost, "plumbing",
                      notes=f"Pressure-balance valve body + trim ${valve_cost:,.2f} | "
-                           f"Shower head + arm ${sh_head_cost:,.2f} | "
                            f"Replace while wall is open to prevent future leak")
         elif _valve_eligible and not _valve_enabled:
             warnings.append(
@@ -1329,6 +1321,53 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 "⚠ Strongly recommend replacing valve body while wall is open; "
                 "future leak would require removing new tile."
             )
+
+    # ── Tub faucet, shower head, hand shower ──
+    # The faucet is always removed and replaced; the shower head and the hand
+    # shower on its hose, when the tub has them, are detached and reset or
+    # replaced as the person chose (tub_spec showerhead_action /
+    # handheld_action: none, detach_reset, replace).
+    if _tub_action and (tub_spec.get("type") or "alcove") != "none":
+        _tub_type_f = tub_spec.get("type") or "alcove"
+        _faucet_kind = ("freestanding" if _tub_type_f == "freestanding"
+                        else "wall" if _has_faucet_on_wall else "deck")
+        _faucet_label = {
+            "wall": "Tub faucet (spout + handle trim) - R&R",
+            "deck": "Tub faucet (deck-mount) - R&R",
+            "freestanding": "Tub filler faucet (freestanding) - R&R",
+        }[_faucet_kind]
+        if plumber_fixed_tub:
+            warnings.append(f"{_faucet_label}: plumber already replaced "
+                            "(water damage repair) — excluded from estimate")
+        else:
+            _faucet_labor = round(PLUMBING_RATES["tub_faucet_install"] * labor_mult, 2)
+            if _valve_trim_billed and _faucet_kind == "wall":
+                # The new spout and handle come in the valve's trim kit
+                _add(line_items, 5, _faucet_label, 1, "EA", _faucet_labor, "plumbing",
+                     notes=f"Remove old spout + handle, install new ${_faucet_labor:,.2f} | "
+                           "New spout + handle trim come with the valve's trim kit")
+            else:
+                _faucet_mat = apply_material_handling(TUB_FAUCET_PRICES[_faucet_kind])
+                _add(line_items, 5, _faucet_label, 1, "EA",
+                     round(_faucet_mat + _faucet_labor, 2), "plumbing",
+                     notes=f"Faucet ${_faucet_mat:,.2f} allowance | "
+                           f"Remove old, install new, connect, test ${_faucet_labor:,.2f}")
+
+        _head_labor = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
+        for _key, _name, _price_key in (
+                ("showerhead_action", "Shower head", "standard"),
+                ("handheld_action", "Hand shower & hose", "handheld")):
+            _act = tub_spec.get(_key, "none")
+            if _act == "detach_reset":
+                _add(line_items, 5, f"{_name} - Detach & Reset", 1, "EA",
+                     _head_labor, "plumbing",
+                     notes="Labor only: remove, store, reinstall (existing)")
+            elif _act == "replace":
+                _head_mat = apply_material_handling(SHOWERHEAD_PRICES[_price_key])
+                _add(line_items, 5, f"{_name} - R&R", 1, "EA",
+                     round(_head_mat + _head_labor, 2), "plumbing",
+                     notes=f"{_name} ${_head_mat:,.2f} allowance | "
+                           f"Remove old, install new ${_head_labor:,.2f}")
 
     # Shower (consolidated: body → 1 item, door → 1 item, max 2 items)
     if estimate.replace_shower:
@@ -2949,10 +2988,23 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     # grand total is simply the subtotal. No separate tax amount is ever
     # reported to the client.
     tax_amount = 0
-    # The total is the exact sum of the line items. It is never rounded to a
-    # clean number here: that would push a few dollars into one line item
-    # without saying so. A round figure comes only from target_total below.
     total = round(subtotal, 2)
+
+    # ────────────────────────────────────────
+    # Round total to nearest $10 for clean pricing
+    # Absorb difference into largest line item so sums stay exact
+    # ────────────────────────────────────────
+    rounded_total = round(total / 10) * 10
+    _round_diff = round(rounded_total - total, 2)
+    if _round_diff != 0 and line_items:
+        _lg = max(line_items, key=lambda x: x["total"])
+        _lg["total"] = round(_lg["total"] + _round_diff, 2)
+        if _lg["quantity"]:
+            _lg["unit_price"] = round(
+                _lg["total"] / _lg["quantity"], 2
+            )
+        subtotal = sum(item["total"] for item in line_items)
+        total = round(subtotal, 2)
 
     # ────────────────────────────────────────
     # Target total adjustment (reverse pricing)

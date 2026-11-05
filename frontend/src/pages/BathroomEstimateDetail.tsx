@@ -1782,6 +1782,28 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+                    <Row gutter={16} align="bottom">
+                      <Col xs={24} sm={8} md={4}>
+                        <Form.Item label="Faucet">
+                          <Text type="secondary">Always R&R</Text>
+                        </Form.Item>
+                      </Col>
+                      {([
+                        ['showerhead_action', 'Shower Head'],
+                        ['handheld_action', 'Hand Shower (hose)'],
+                      ] as const).map(([field, label]) => (
+                        <Col xs={24} sm={12} md={8} key={field}>
+                          <Form.Item label={label} name={['bathtub_spec', field]}
+                            getValueProps={(v?: string) => ({ value: v || 'none' })}>
+                            <Radio.Group>
+                              <Radio.Button value="none">None</Radio.Button>
+                              <Radio.Button value="detach_reset">D&R</Radio.Button>
+                              <Radio.Button value="replace">R&R</Radio.Button>
+                            </Radio.Group>
+                          </Form.Item>
+                        </Col>
+                      ))}
+                    </Row>
                     <Form.Item noStyle shouldUpdate={(prev, cur) =>
                       prev?.bathtub_spec?.type !== cur?.bathtub_spec?.type ||
                       prev?.bathtub_spec?.surround_tile !== cur?.bathtub_spec?.surround_tile
