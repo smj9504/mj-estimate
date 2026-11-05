@@ -125,6 +125,12 @@ class Claim(Base, BaseModel):
         JSON, nullable=True, default=list,
         comment="Adjusters past the first [{company, name, phone, email}], at most 2",
     )
+    # Set by Check inbox (email_ingestion/claim_inbox.py), not the morning poll;
+    # the client page shows a dot when it's empty or over a day old
+    inbox_checked_at = Column(
+        DateTime(timezone=True), nullable=True,
+        comment="Last time someone pressed Check inbox on this claim",
+    )
 
     # Loss info
     date_of_loss = Column(DateTime(timezone=True))

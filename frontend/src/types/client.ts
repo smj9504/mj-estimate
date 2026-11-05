@@ -321,6 +321,8 @@ export interface Claim extends ClaimStageInfo {
   adjuster_email?: string;
   /** Adjusters 2 and 3 */
   additional_adjusters?: AdjusterContact[] | null;
+  /** Last time someone pressed Check inbox on this claim */
+  inbox_checked_at?: string | null;
   date_of_loss?: string;
   loss_description?: string;
   current_acv: number;

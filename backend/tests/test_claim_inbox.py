@@ -204,6 +204,79 @@ def test_one_inbox_failing_leaves_the_others_and_is_reported(env, monkeypatch):
     assert result['errors'] == [{'account': 'office@ourco.com', 'error': 'connection reset'}]
 
 
+# ---- when the claim was last checked (the client page's dot) ----
+
+def _checked_at(env):
+    env['session'].expire_all()
+    return env['session'].query(Claim).filter(Claim.id == env['claim'].id).one().inbox_checked_at
+
+
+def test_a_check_that_reached_an_inbox_is_stored_without_touching_updated_at(env, monkeypatch):
+    claim = env['session'].query(Claim).filter(Claim.id == env['claim'].id).one()
+    updated_before = claim.updated_at
+    monkeypatch.setattr(IMAPClient, 'search_emails', lambda self, *a, **k: [])
+    monkeypatch.setattr('app.domains.email_ingestion.service.decrypt_password', lambda _: 'pw')
+
+    result = ClaimInboxService(env['database']).check_claim_inbox(str(env['claim'].id))
+
+    assert result['inbox_checked_at'] == result['checked_at']
+    stored = _checked_at(env)
+    assert stored is not None
+    assert stored.replace(tzinfo=None) == result['checked_at'].replace(tzinfo=None)
+    claim = env['session'].query(Claim).filter(Claim.id == env['claim'].id).one()
+    assert claim.updated_at == updated_before
+
+
+def test_a_check_where_every_inbox_failed_is_not_stored(env, monkeypatch):
+    def failing(self, *a, **k):
+        raise OSError('connection reset')
+
+    monkeypatch.setattr(IMAPClient, 'search_emails', failing)
+    monkeypatch.setattr('app.domains.email_ingestion.service.decrypt_password', lambda _: 'pw')
+
+    result = ClaimInboxService(env['database']).check_claim_inbox(str(env['claim'].id))
+
+    assert result['accounts_checked'] == 0
+    assert result['inbox_checked_at'] is None
+    assert _checked_at(env) is None
+
+
+def test_a_check_with_no_inbox_connected_is_not_stored(env):
+    env['session'].query(EmailAccount).delete()
+    env['session'].commit()
+
+    result = ClaimInboxService(env['database']).check_claim_inbox(str(env['claim'].id))
+
+    assert result['skipped_reason'] == 'No email inbox is connected.'
+    assert result['inbox_checked_at'] is None
+    assert _checked_at(env) is None
+
+
+def test_a_claim_with_nothing_to_search_for_counts_as_checked(env):
+    session = env['session']
+    client = Client(display_name='No Address')
+    session.add(client)
+    session.flush()
+    bare = Claim(client_id=client.id, claim_number='')
+    session.add(bare)
+    session.commit()
+
+    result = ClaimInboxService(env['database']).check_claim_inbox(str(bare.id))
+
+    assert result['skipped_reason'].startswith('The claim has no claim number')
+    assert result['inbox_checked_at'] is not None
+    session.expire_all()
+    assert session.query(Claim).filter(Claim.id == bare.id).one().inbox_checked_at is not None
+
+
+def test_the_client_page_gets_the_last_check():
+    from app.domains.client.schemas import ClaimDetailResponse
+    from app.domains.email_ingestion.schemas import InboxCheckResponse
+
+    assert 'inbox_checked_at' in ClaimDetailResponse.__fields__
+    assert 'inbox_checked_at' in InboxCheckResponse.__fields__
+
+
 # ---- reading a big message in parts ----
 
 def _sections(message, prefix=''):

@@ -3768,6 +3768,35 @@ mark.fu-tpl-missing {
   height: 24px;
 }
 
+/* "Check inbox" is due: red never checked, yellow over a day ago */
+.cl-inbox-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.cl-inbox-dot.is-never { background: var(--color-error); }
+.cl-inbox-dot.is-stale { background: #cb912f; }
+.cl-inbox-dot-hit {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px;
+}
+.ant-btn.cl-inbox-check .cl-inbox-dot {
+  margin-left: 6px;
+}
+.cl-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* Claim facts in the side column: tighter property rows */
 .cl-claim-aside .ui-props-row {
   min-height: 30px;

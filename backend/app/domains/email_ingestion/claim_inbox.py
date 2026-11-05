@@ -100,8 +100,10 @@ class ClaimInboxService:
 
         criteria = claim_search_terms(claim_number, address, sent_ids)
         if not criteria:
+            # Nothing to search for is as checked as it gets
+            checked_at = datetime.now(timezone.utc)
             return {
-                "checked_at": datetime.now(timezone.utc),
+                "checked_at": checked_at,
                 "accounts_checked": 0,
                 "saved": 0,
                 "new_on_claim": 0,
@@ -109,6 +111,7 @@ class ClaimInboxService:
                 "skipped_reason": (
                     "The claim has no claim number, street address or sent email to search for."
                 ),
+                "inbox_checked_at": self._record_check(claim_id, checked_at),
             }
         before = self._count_on_claim(claim_id)
         result = EmailIngestionService(self.database).search_inboxes(
@@ -116,7 +119,31 @@ class ClaimInboxService:
         )
         # `saved` also counts mail the search turned up about other claims
         result["new_on_claim"] = max(self._count_on_claim(claim_id) - before, 0)
+        # Only a search that reached an inbox counts: with none connected or
+        # every one failing, the client page keeps asking for a check
+        result["inbox_checked_at"] = (
+            self._record_check(claim_id, result["checked_at"])
+            if result.get("accounts_checked") else None
+        )
         return result
+
+    def _record_check(self, claim_id: str, checked_at: datetime) -> datetime:
+        """Store the check on the claim without counting it as an edit"""
+        from sqlalchemy import update
+
+        from app.domains.client.models import Claim
+
+        session = self.database.get_session()
+        try:
+            session.execute(
+                update(Claim)
+                .where(Claim.id == claim_id)
+                .values(inbox_checked_at=checked_at, updated_at=Claim.updated_at)
+            )
+            session.commit()
+        finally:
+            session.close()
+        return checked_at
 
     def _count_on_claim(self, claim_id: str) -> int:
         """Messages filed on the claim, a copy in each of two inboxes once"""

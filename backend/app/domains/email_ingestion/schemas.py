@@ -274,3 +274,5 @@ class InboxCheckResponse(BaseModel):
     errors: List[InboxCheckError] = []
     # Why nothing was searched, when nothing was
     skipped_reason: Optional[str] = None
+    # Stored on the claim as its last check; null when no inbox was searched
+    inbox_checked_at: Optional[datetime] = None

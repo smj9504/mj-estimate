@@ -387,6 +387,8 @@ class ClaimDetailResponse(ClaimBase):
     needs_supplement: bool = False
     supplement_status: Optional[str] = None
     supplement_notes: Optional[str] = None
+    # Last Check inbox on the claim (not the morning poll)
+    inbox_checked_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

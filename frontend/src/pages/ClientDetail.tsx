@@ -2494,10 +2494,41 @@ const ClaimLinks: React.FC<{ claim: Claim }> = ({ claim }) => {
   );
 };
 
+const INBOX_CHECK_STALE_MS = 24 * 60 * 60 * 1000;
+
+// A dot asking for "Check inbox": red when this claim's inbox was never
+// checked, yellow when the last check is more than a day old. The morning
+// poll doesn't count - only someone pressing Check inbox.
+const inboxCheckDue = (checkedAt?: string | null): 'never' | 'stale' | null => {
+  if (!checkedAt) return 'never';
+  const at = new Date(checkedAt).getTime();
+  if (Number.isNaN(at)) return 'never';
+  return Date.now() - at > INBOX_CHECK_STALE_MS ? 'stale' : null;
+};
+
+const InboxDueDot: React.FC<{ due: 'never' | 'stale' }> = ({ due }) => (
+  <span className={`cl-inbox-dot is-${due}`} aria-hidden="true" />
+);
+
 // Sent and received mail for the claim, one view at a time
-const ClaimEmailSection: React.FC<{ claimId: string; onSend: () => void }> = ({ claimId, onSend }) => {
+const ClaimEmailSection: React.FC<{
+  claimId: string;
+  inboxCheckedAt?: string | null;
+  onSend: () => void;
+}> = ({ claimId, inboxCheckedAt, onSend }) => {
   const [view, setView] = useState<'sent' | 'received'>('sent');
+  // A check made here, until the claim reloads with it
+  const [checkedNow, setCheckedNow] = useState<{ claimId: string; at: string } | null>(null);
   const inboxCheck = useClaimInboxCheck(claimId);
+  const due = inboxCheckDue(checkedNow?.claimId === claimId ? checkedNow.at : inboxCheckedAt);
+  const dueText = due === 'never'
+    ? "This claim's inbox was never checked"
+    : due === 'stale' ? "This claim's inbox wasn't checked in the last 24 hours" : '';
+  const checkInbox = () => inboxCheck.mutate(undefined, {
+    onSuccess: (result) => {
+      if (result.inbox_checked_at) setCheckedNow({ claimId, at: result.inbox_checked_at });
+    },
+  });
   return (
     <ClaimSection
       title="Email"
@@ -2514,6 +2545,14 @@ const ClaimEmailSection: React.FC<{ claimId: string; onSend: () => void }> = ({ 
               onClick={() => setView(v)}
             >
               {v === 'sent' ? 'Sent' : 'Received'}
+              {v === 'received' && due && view !== 'received' && (
+                <Tooltip title={`${dueText} - open Received to check it`}>
+                  <span className="cl-inbox-dot-hit">
+                    <InboxDueDot due={due} />
+                    <span className="cl-sr-only">{dueText}</span>
+                  </span>
+                </Tooltip>
+              )}
             </Button>
           ))}
         </div>
@@ -2521,15 +2560,20 @@ const ClaimEmailSection: React.FC<{ claimId: string; onSend: () => void }> = ({ 
       actions={(
         <>
           {view === 'received' && (
-            <Tooltip title="Mail is read from the inboxes each morning. This looks for this claim's mail now.">
+            <Tooltip title={due
+              ? `${dueText}. Mail is read from the inboxes each morning; this looks for this claim's mail now.`
+              : "Mail is read from the inboxes each morning. This looks for this claim's mail now."}
+            >
               <Button
                 size="small"
                 type="text"
                 icon={<ReloadOutlined />}
                 loading={inboxCheck.isPending}
-                onClick={() => inboxCheck.mutate()}
+                onClick={checkInbox}
+                className={due ? 'cl-inbox-check is-due' : 'cl-inbox-check'}
               >
                 {inboxCheck.isPending ? 'Checking inbox…' : 'Check inbox'}
+                {due && !inboxCheck.isPending && <InboxDueDot due={due} />}
               </Button>
             </Tooltip>
           )}
@@ -2719,7 +2763,11 @@ const ClaimPanel: React.FC<{
         clientId={client.id}
         clientEmail={client.email || undefined}
       />
-      <ClaimEmailSection claimId={claim.id} onSend={onEmail} />
+      <ClaimEmailSection
+        claimId={claim.id}
+        inboxCheckedAt={claim.inbox_checked_at}
+        onSend={onEmail}
+      />
       <div className="cl-claim-pair">
         <ClaimTodos clientId={client.id} claimId={claim.id} />
         <ClaimNotes clientId={client.id} claimId={claim.id} />

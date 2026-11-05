@@ -221,4 +221,6 @@ export interface InboxCheckResult {
   errors: { account: string; error: string }[];
   /** Why nothing was searched, when nothing was */
   skipped_reason?: string | null;
+  /** Stored as the claim's last check; null when no inbox could be searched */
+  inbox_checked_at?: string | null;
 }
