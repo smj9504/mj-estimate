@@ -15,7 +15,7 @@ export const WM_STATUS_TONES: Record<string, TagTone> = {
   'Paperwork received': 'purple',
   'Estimate requested': 'pink',
   'Payment on the way': 'green',
-  'Check received': 'yellow',
+  'Check received': 'green',
   'Complete': 'green',
 };
 
