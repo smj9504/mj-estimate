@@ -44,7 +44,12 @@ def model(table_name):
     return next(m.class_ for m in Base.registry.mappers if getattr(m.class_, '__tablename__', None) == table_name)
 
 
-HUB_TABLES = ['sent_emails', 'invoices', 'estimates', 'work_orders', 'water_mitigation_jobs', 'cabinet_estimates']
+HUB_TABLES = [
+    'sent_emails', 'invoices', 'estimates', 'work_orders', 'water_mitigation_jobs', 'cabinet_estimates',
+    # Where the stored files come from (client/document_files.py)
+    'files', 'followup_tasks', 'supplement_requests', 'bid_item_estimates', 'wm_documents',
+    'rebuild_projects', 'rebuild_completion_docs',
+]
 
 
 @pytest.fixture

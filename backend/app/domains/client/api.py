@@ -15,7 +15,7 @@ from app.core.database_factory import get_db_session as get_db
 from app.domains.auth import company_scope
 from app.domains.auth.dependencies import get_current_staff, require_admin
 from app.domains.auth.document_access import can_access_document
-from app.domains.client import claim_companycam
+from app.domains.client import claim_companycam, document_files
 from app.domains.client.claim_paths import SameCompanyAsWMError
 from app.domains.client.schemas import (
     ClientCreate,
@@ -1199,7 +1199,9 @@ def get_all_documents(
                 contracts = [c for c in contracts if str(c.claim_id) == claim_id]
             contracts = [c for c in contracts if _visible(c)]
             for ct in contracts:
+                contract_pdf = document_files.contract_file(ct)
                 docs.append({
+                    "file": document_files.public_entry(contract_pdf) if contract_pdf else None,
                     "id": str(ct.id),
                     "doc_type": "contract",
                     "title": ct.title or f"Contract #{ct.contract_number or '—'}",
@@ -1212,17 +1214,27 @@ def get_all_documents(
                     "link": None,
                 })
 
-        # 5. Insurance Estimates (Negotiations with files)
-        if not doc_type or doc_type == 'insurance_estimate':
+        # 5. Insurance Estimates (Negotiations with files). Their PDFs open
+        # from these rows, so 9. leaves those files out.
+        negotiation_pdfs = {}
+        if not doc_type or doc_type in ('insurance_estimate', 'file'):
             negotiations = session.query(ClaimNegotiation).filter(
                 ClaimNegotiation.claim_id.in_(claim_ids),
             ).order_by(ClaimNegotiation.date_received.desc()).all()
+            negotiation_pdfs = document_files.negotiation_files(session, negotiations)
+        if not doc_type or doc_type == 'insurance_estimate':
             for neg in negotiations:
                 file_id = neg.document_url
                 if not file_id and not neg.document_name:
                     continue
                 total = float(neg.rcv_amount or 0)
+                pdf = negotiation_pdfs.get(str(neg.id))
                 docs.append({
+                    "file": {
+                        "source": "file", "id": str(pdf.id),
+                        "filename": pdf.original_name or neg.document_name or "estimate.pdf",
+                        "mime_type": pdf.content_type or "application/pdf",
+                    } if pdf else None,
                     "id": str(neg.id),
                     "doc_type": "insurance_estimate",
                     "title": f"Insurance Est. Rev.{neg.revision_number}"
@@ -1303,6 +1315,13 @@ def get_all_documents(
             except Exception:
                 pass
 
+        # 9. Stored files on the claims (WM documents, PDFs filed from email,
+        # supplement PDFs, rebuild completion documents ...)
+        if not doc_type or doc_type == 'file':
+            skip = [str(f.id) for f in negotiation_pdfs.values()]
+            for entry in document_files.claim_files(session, claim_ids, skip_file_ids=skip):
+                docs.append(document_files.file_row(entry, claim_map))
+
         # Sort all docs by date descending
         docs.sort(key=lambda d: d.get("date") or "", reverse=True)
 
@@ -1319,6 +1338,64 @@ def get_all_documents(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
+
+
+@router.get("/{client_id}/document-files/{source}/{file_id}")
+def get_document_file(
+    client_id: str,
+    source: str,
+    file_id: str,
+    current_staff=Depends(get_current_staff),
+):
+    """One stored file from the Document Hub, shown in the page. Unlike the
+    older download URLs this takes a login and serves only a file on a
+    claim the person may see (see client/document_files.py)."""
+    from urllib.parse import quote
+
+    from starlette.responses import Response
+
+    from app.core.database_factory import get_database
+    from app.domains.client.models import Client, Claim
+
+    if source not in document_files.SOURCES:
+        raise HTTPException(status_code=404, detail="Document not found")
+    session = get_database().get_readonly_session()
+    try:
+        try:
+            uuid.UUID(client_id)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Client not found")
+        if not session.query(Client.id).filter(Client.id == client_id).first():
+            raise HTTPException(status_code=404, detail="Client not found")
+        claim_ids = [str(c.id) for c in company_scope.scoped(
+            session.query(Claim.id).filter(Claim.client_id == client_id),
+            company_scope.claim_condition(session, current_staff, Claim.id),
+        )]
+        entry = document_files.find_hub_file(
+            session, client_id, claim_ids,
+            company_scope.company_ids(session, current_staff), source, file_id,
+        )
+    finally:
+        # Storage can take a while; don't sit on a connection meanwhile
+        session.close()
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    try:
+        data = document_files.read_hub_file(entry)
+    except Exception as e:
+        logger.warning(f"Document {source}/{file_id} could not be read: {e}")
+        raise HTTPException(status_code=404, detail="The file could not be read from storage")
+
+    filename = entry["filename"]
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii").replace('"', "").strip() or "document"
+    disposition = f'inline; filename="{ascii_name}"'
+    if ascii_name != filename:
+        disposition += f"; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=data,
+        media_type=entry["mime_type"],
+        headers={"Content-Disposition": disposition, "Cache-Control": "private, no-store"},
+    )
 
 
 # ============================================================

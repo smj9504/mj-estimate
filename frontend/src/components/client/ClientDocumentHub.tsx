@@ -20,6 +20,7 @@ import {
   ExperimentOutlined,
   SearchOutlined,
   CheckOutlined,
+  PaperClipOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -30,6 +31,7 @@ import { Pill, humanize, type TagTone } from '../common/ui';
 import { tagTones } from '../../styles/tokens';
 import { returnHere } from '../../utils/returnTo';
 import { WM_STATUS_TONES } from '../water-mitigation/wmStatus';
+import AttachmentPreviewModal, { type AttachmentToPreview } from '../water-mitigation/AttachmentPreviewModal';
 
 dayjs.extend(relativeTime);
 
@@ -45,6 +47,8 @@ const DOC_TYPE_CONFIG: Record<ClientDocType, { label: string; tone: TagTone; ico
   cabinet_estimate:   { label: 'Cabinet Est.',       tone: 'pink',   icon: <ExperimentOutlined /> },
   plumber_report:     { label: 'Plumber Report',     tone: 'yellow', icon: <ToolOutlined /> },
   packing_estimate:   { label: 'Packing Est.',       tone: 'gray',   icon: <FileTextOutlined /> },
+  // Stored files: WM documents, PDFs filed from email, supplement and rebuild PDFs
+  file:               { label: 'File',               tone: 'gray',   icon: <PaperClipOutlined /> },
 };
 
 const STATUS_TONES: Record<string, TagTone> = {
@@ -70,7 +74,10 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { canAccessPath } = useAuth();
-  const canOpen = (record: ClientDocument) => !!record.link && canAccessPath(record.link);
+  // A row with a stored file shows it here; otherwise it opens its page
+  const canOpen = (record: ClientDocument) =>
+    !!record.file || (!!record.link && canAccessPath(record.link));
+  const [previewing, setPreviewing] = useState<AttachmentToPreview | null>(null);
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
   const [claimFilter, setClaimFilter] = useState<string | undefined>();
   const [searchText, setSearchText] = useState('');
@@ -182,7 +189,14 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
   ];
 
   const handleRowClick = (record: ClientDocument) => {
-    if (canOpen(record)) {
+    const file = record.file;
+    if (file) {
+      setPreviewing({
+        title: record.doc_type === 'file' ? record.title : `${record.title} - ${file.filename}`,
+        filename: file.filename,
+        load: () => clientService.getDocumentFileBlob(clientId, file),
+      });
+    } else if (canOpen(record)) {
       navigate(record.link!, { state: returnHere(location) });
     }
   };
@@ -276,6 +290,7 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
           style: { cursor: canOpen(record) ? 'pointer' : 'default' },
         })}
       />
+      <AttachmentPreviewModal attachment={previewing} onClose={() => setPreviewing(null)} />
     </div>
   );
 };

@@ -9,6 +9,7 @@ import type {
   ClientListItem,
   ClientSourceFilter,
   ClientAllDocumentsResponse,
+  ClientDocumentFile,
   Claim,
   ClaimCreate,
   ClaimNegotiation,
@@ -62,6 +63,15 @@ export const clientService = {
     params?: { doc_type?: string; claim_id?: string }
   ): Promise<ClientAllDocumentsResponse> {
     const { data } = await api.get(`/api/clients/${clientId}/all-documents`, { params });
+    return data;
+  },
+
+  /** One of the hub's files, with the login - the older download URLs don't check it */
+  async getDocumentFileBlob(clientId: string, file: ClientDocumentFile): Promise<Blob> {
+    const { data } = await api.get(
+      `/api/clients/${clientId}/document-files/${file.source}/${encodeURIComponent(file.id)}`,
+      { responseType: 'blob', timeout: 120000 },
+    );
     return data;
   },
 

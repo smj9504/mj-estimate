@@ -678,14 +678,23 @@ export interface ClientCreate {
 export type ClientDocType =
   | 'email' | 'invoice' | 'estimate' | 'contract'
   | 'insurance_estimate' | 'work_order' | 'wm_job'
-  | 'cabinet_estimate' | 'plumber_report' | 'packing_estimate';
+  | 'cabinet_estimate' | 'plumber_report' | 'packing_estimate'
+  | 'file';
+
+/** A stored file the Document Hub can show (backend client/document_files.py) */
+export interface ClientDocumentFile {
+  source: 'file' | 'wm_document' | 'contract' | 'rebuild_doc';
+  id: string;
+  filename: string;
+  mime_type: string;
+}
 
 export interface ClientDocument {
   id: string;
   doc_type: ClientDocType;
   title: string;
   description?: string;
-  status: string;
+  status: string | null;
   claim_id?: string;
   claim_number?: string;
   date?: string;
@@ -693,6 +702,8 @@ export interface ClientDocument {
   file_id?: string;
   link?: string | null;
   reply_received?: boolean;
+  /** The file this row opens in the page, when it has one */
+  file?: ClientDocumentFile | null;
 }
 
 export interface ClientAllDocumentsResponse {
