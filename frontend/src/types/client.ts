@@ -753,6 +753,11 @@ export interface ClientListItem {
   updated_at?: string;
   /** When the client or any of its claims last changed */
   last_activity_at?: string;
+  /**
+   * When the client's newest active WM job was made, if it has one. The list
+   * sorts by this (the WM list's order), else by last_activity_at.
+   */
+  wm_job_created_at?: string | null;
 }
 
 /** Which clients the list shows: entered in this app, or imported from AccuLynx */

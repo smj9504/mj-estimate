@@ -238,6 +238,10 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
         from app.domains.auth.company_scope import claim_condition
         return None if staff is None else claim_condition(self.db_session, staff, Claim.id)
 
+    def _wm_job_scope(self, staff: Any):
+        from app.domains.water_mitigation.job_access import job_condition
+        return None if staff is None else job_condition(self.db_session, staff)
+
     def count_by_source(self, staff: Any = None) -> Dict[str, int]:
         from app.domains.auth.company_scope import scoped
 
@@ -248,11 +252,14 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
         total = scoped(self.db_session.query(func.count(Client.id)), scope).scalar() or 0
         return {'manual': total - imported, 'acculynx': imported}
 
-    def _list_items(self, client_objs: List[Client], staff: Any = None) -> List[Dict[str, Any]]:
+    def _list_items(self, client_objs: List[Client], staff: Any = None,
+                    wm_job_created: Optional[Dict[Any, Any]] = None) -> List[Dict[str, Any]]:
         """Client list rows: each client with its claim count, the stage of the
         claim that describes it, and when the client or any of its claims last
         changed. The claim shown is the newest one still being worked, else the
-        newest one. With staff, only the claims that person may see count."""
+        newest one. With staff, only the claims that person may see count.
+        wm_job_created (client id -> when its newest active WM job was made)
+        is the date the list sorts that client by."""
         from app.domains.auth.company_scope import scoped
         from app.domains.client.claim_stage import claim_stages, is_active_stage
 
@@ -288,14 +295,21 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             item['claim_stage_source'] = shown_stage.get('stage_source')
             item['claim_construction'] = shown_stage.get('construction')
             item['last_activity_at'] = last_activity.isoformat() if last_activity else None
+            wm_created = (wm_job_created or {}).get(client_obj.id)
+            item['wm_job_created_at'] = wm_created.isoformat() if wm_created else None
             items.append(item)
         return items
 
     def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None,
                             source: Optional[str] = None, staff: Any = None) -> List[Dict[str, Any]]:
-        """Get all clients with claim counts, ordered by latest claim activity.
-        With staff, only the clients and claims that person may see."""
+        """Get all clients with claim counts, in the Water Mitigation list's order.
+
+        A client with an active WM job sorts by when its newest active WM job
+        was made, as that job sorts on the WM list (active jobs, newest first).
+        Any other client slots in by when it or one of its claims last changed.
+        With staff, only the clients, claims and WM jobs that person may see."""
         from app.domains.auth.company_scope import scoped
+        from app.domains.water_mitigation.models import WaterMitigationJob
 
         try:
             # Subquery: latest claim activity per client
@@ -309,12 +323,26 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 self._claim_scope(staff),
             ).group_by(Claim.client_id).subquery()
 
+            # Newest active WM job per client. A WM job reaches its client
+            # through its claim (its own client_id is a legacy company link).
+            latest_wm_job = scoped(
+                self.db_session.query(
+                    Claim.client_id.label('client_id'),
+                    func.max(WaterMitigationJob.created_at).label('wm_created'),
+                )
+                .select_from(WaterMitigationJob)
+                .join(Claim, Claim.id == WaterMitigationJob.claim_id)
+                .filter(WaterMitigationJob.active.is_(True)),
+                self._wm_job_scope(staff),
+            ).group_by(Claim.client_id).subquery()
+
             query = (
-                self.db_session.query(Client)
+                self.db_session.query(Client, latest_wm_job.c.wm_created)
                 .outerjoin(
                     latest_claim_activity,
                     Client.id == latest_claim_activity.c.client_id
                 )
+                .outerjoin(latest_wm_job, Client.id == latest_wm_job.c.client_id)
             )
 
             # Apply filters
@@ -325,22 +353,26 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             query = self._filter_source(query, source)
             query = scoped(query, self._client_scope(staff))
 
-            # Order by most recent activity: client's own updated_at vs. its
-            # claims' latest activity, whichever is more recent (desc)
+            # Most recent activity: client's own updated_at vs. its claims'
+            # latest activity, whichever is more recent
             client_activity = func.coalesce(Client.updated_at, Client.created_at)
             latest_overall_activity = case(
                 (latest_claim_activity.c.latest_activity > client_activity,
                  latest_claim_activity.c.latest_activity),
                 else_=client_activity
             )
-            query = query.order_by(latest_overall_activity.desc())
+            # WM job date where there is one, else that activity (desc)
+            list_date = func.coalesce(latest_wm_job.c.wm_created, latest_overall_activity)
+            query = query.order_by(list_date.desc().nullslast(), Client.created_at.desc())
 
             if offset:
                 query = query.offset(offset)
             if limit:
                 query = query.limit(limit)
 
-            return self._list_items(query.all(), staff)
+            rows = query.all()
+            wm_job_created = {client.id: wm_created for client, wm_created in rows if wm_created}
+            return self._list_items([client for client, _ in rows], staff, wm_job_created)
         except Exception as e:
             logger.error(f"Error getting clients with counts: {e}")
             raise

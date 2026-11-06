@@ -71,6 +71,15 @@ const US_STATES = [
 const formatDate = (dateStr?: string) =>
   dateStr ? dayjs(dateStr).format('MM/DD/YYYY') : '—';
 
+/**
+ * The date the list is sorted by: when the newest active WM job was made (the
+ * WM list's order), else when the client or one of its claims last changed.
+ */
+const listDate = (record: ClientListItem): { label: string; date?: string } =>
+  record.wm_job_created_at
+    ? { label: 'WM job', date: record.wm_job_created_at }
+    : { label: 'Updated', date: record.last_activity_at ?? record.updated_at ?? record.created_at };
+
 const primaryOwner = (owners: OwnerInfo[]) =>
   owners.find((o) => o.is_primary) ?? owners[0];
 
@@ -541,10 +550,19 @@ const ClientList: React.FC = () => {
       ) : '—',
     },
     {
-      title: 'Updated',
-      key: 'last_activity_at',
+      // The date the list is sorted by
+      title: 'Date',
+      key: 'list_date',
       width: 120,
-      render: (_: any, record) => formatDate(record.last_activity_at ?? record.updated_at ?? record.created_at),
+      render: (_: any, record) => {
+        const { label, date } = listDate(record);
+        return (
+          <div>
+            <div>{formatDate(date)}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>
+          </div>
+        );
+      },
       responsive: ['xl'],
     },
     {
@@ -596,6 +614,7 @@ const ClientList: React.FC = () => {
     const owner = primaryOwner(record.owners);
     const address = [record.address, record.city, record.state, record.zipcode].filter(Boolean).join(', ');
     const activeClaims = record.active_claim_count ?? 0;
+    const listed = listDate(record);
     return (
       <div className="ui-row" onClick={() => navigate(`/clients/${record.id}`)}>
         <div className="ui-row-body">
@@ -622,7 +641,7 @@ const ClientList: React.FC = () => {
               {record.claim_count} {record.claim_count === 1 ? 'claim' : 'claims'}
               {activeClaims > 1 && ` · ${activeClaims} active`}
             </span>
-            <span>Updated {formatDate(record.last_activity_at ?? record.updated_at ?? record.created_at)}</span>
+            <span>{listed.label} {formatDate(listed.date)}</span>
           </div>
         </div>
         <div onClick={(e) => e.stopPropagation()}>
