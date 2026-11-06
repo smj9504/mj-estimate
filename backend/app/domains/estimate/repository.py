@@ -114,6 +114,14 @@ class EstimateRepositoryMixin:
             'total_amount': float(rcv_amount)  # Use RCV as total
         }
     
+    def _fill_totals(self, estimate_data: Dict[str, Any]) -> None:
+        """Work out the totals only when the caller came without them.
+
+        EstimateService has already counted adjustments, O&P and the tax
+        method; this item-only sum would overwrite that with a smaller total."""
+        if estimate_data.get('total_amount') is None:
+            estimate_data.update(self.calculate_totals(estimate_data))
+
     def search_estimates(self, search_term: str) -> List[Dict[str, Any]]:
         """Search estimates by various fields"""
         # This will be implemented differently for each database type
@@ -504,10 +512,8 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
     def create_with_items(self, estimate_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create estimate with items in a transaction"""
         try:
-            # Calculate totals
-            totals = self.calculate_totals(estimate_data)
-            estimate_data.update(totals)
-            
+            self._fill_totals(estimate_data)
+
             # Extract items and room_data
             items_data = estimate_data.pop('items', [])
             room_data = estimate_data.get('room_data')
@@ -701,10 +707,8 @@ class EstimateSupabaseRepository(SupabaseRepository, EstimateRepositoryMixin):
     def create_with_items(self, estimate_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create estimate with items (Supabase doesn't support transactions)"""
         try:
-            # Calculate totals
-            totals = self.calculate_totals(estimate_data)
-            estimate_data.update(totals)
-            
+            self._fill_totals(estimate_data)
+
             # Extract items and handle room_data
             items_data = estimate_data.pop('items', [])
             room_data = estimate_data.get('room_data')

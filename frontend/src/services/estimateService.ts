@@ -46,6 +46,13 @@ interface BackendEstimateResponse {
   valid_until?: string;
   status?: string;
   subtotal?: number;
+  adjustments?: Array<{
+    name: string;
+    percentage: number;
+    type: 'add' | 'subtract';
+    order: number;
+    amount?: number;
+  }>;
   op_percent?: number;
   op_amount?: number;
   tax_method?: 'percentage' | 'specific';
@@ -435,6 +442,13 @@ class EstimateService {
       subtotal: estimate.subtotal ? Number(estimate.subtotal) : null,
       op_percent: estimate.op_percent ? Number(estimate.op_percent) : null,
       op_amount: estimate.op_amount ? Number(estimate.op_amount) : null,
+      // The server works out the saved total from these, so they must go with every save
+      adjustments: (estimate.adjustments || []).map((adj) => ({
+        name: adj.name || '',
+        percentage: Number(adj.percentage) || 0,
+        type: adj.type === 'subtract' ? 'subtract' : 'add',
+        order: Number(adj.order) || 1,
+      })),
       tax_method: estimate.tax_method || 'percentage',
       tax_rate: estimate.tax_rate ? Number(estimate.tax_rate) : null,
       tax_amount: estimate.tax_amount ? Number(estimate.tax_amount) : null,
@@ -487,6 +501,12 @@ class EstimateService {
       subtotal: backendData.subtotal,
       op_percent: backendData.op_percent, // Add missing O&P percentage
       op_amount: backendData.op_amount, // Add missing O&P amount
+      adjustments: (backendData.adjustments || []).map((adj) => ({
+        name: adj.name || '',
+        percentage: Number(adj.percentage) || 0,
+        type: adj.type === 'subtract' ? 'subtract' : 'add',
+        order: Number(adj.order) || 1,
+      })),
       tax_method: backendData.tax_method, // Add missing tax method
       tax_rate: backendData.tax_rate,
       tax_amount: backendData.tax_amount,

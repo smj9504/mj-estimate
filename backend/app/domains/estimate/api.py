@@ -58,6 +58,32 @@ def visible_estimates(db, current_staff):
     return document_condition(db, current_staff, Estimate.claim_id, Estimate.company_id)
 
 
+def _stored_adjustments(value) -> List[Dict[str, Any]]:
+    """An estimate's saved adjustments, in the order they apply.
+
+    Old rows may hold null, a JSON string, or an entry without a name; none of
+    those may stop the estimate from opening."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(value, list):
+        return []
+    adjustments = []
+    for index, adj in enumerate(value):
+        if not isinstance(adj, dict):
+            continue
+        adjustments.append({
+            **adj,
+            'name': adj.get('name') or '',
+            'percentage': adj.get('percentage') or 0,
+            'type': adj.get('type') or 'add',
+            'order': adj.get('order') or index + 1,
+        })
+    return sorted(adjustments, key=lambda adj: adj['order'])
+
+
 @router.get("/generate-number", response_model=EstimateNumberResponse)
 def generate_estimate_number(
     company_id: Optional[str] = None,
@@ -282,6 +308,11 @@ def get_estimate(estimate_id: str, db=Depends(get_db), _staff=Depends(require_es
         valid_until=estimate.get('valid_until'),
         status=estimate.get('status', 'draft'),
         subtotal=estimate.get('subtotal', 0),
+        # The edit page reloads these; left out, a re-save drops them from the total
+        adjustments=_stored_adjustments(estimate.get('adjustments')),
+        op_percent=estimate.get('op_percent') or 0,
+        op_amount=estimate.get('op_amount') or 0,
+        tax_method=estimate.get('tax_method') or 'percentage',
         tax_rate=estimate.get('tax_rate', 0),
         tax_amount=estimate.get('tax_amount', 0),
         discount_amount=estimate.get('discount_amount', 0),
@@ -415,9 +446,17 @@ def create_estimate(
         'terms': estimate_data.terms,
         'claim_number': estimate_data.claim_number,
         'policy_number': estimate_data.policy_number,
+        'insurance_company': estimate_data.insurance_company,
         'deductible': estimate_data.deductible,
+        'adjuster_name': estimate_data.adjuster_name,
+        'adjuster_phone': estimate_data.adjuster_phone,
+        'adjuster_email': estimate_data.adjuster_email,
         'room_data': estimate_data.room_data,
         'sections_data': estimate_data.sections_data,
+        'payment_schedule': (
+            [p.dict() if hasattr(p, 'dict') else p for p in estimate_data.payment_schedule]
+            if estimate_data.payment_schedule else None
+        ),
         'is_lump_sum_document': estimate_data.is_lump_sum_document or False,
         'lump_sum_document_amount': estimate_data.lump_sum_document_amount if estimate_data.is_lump_sum_document else None,
         'adjustments': (
@@ -1032,14 +1071,19 @@ def generate_estimate_pdf(estimate_id: str, db=Depends(get_db), _staff=Depends(r
         "is_lump_sum_document": estimate.get('is_lump_sum_document', False),
         "lump_sum_document_amount": estimate.get('lump_sum_document_amount', 0),
         "subtotal": estimate.get('subtotal', 0),
+        # The PDF works its totals out again from these, as the preview does
+        "adjustments": _stored_adjustments(estimate.get('adjustments')),
         "op_percent": estimate.get('op_percent', 0),
         "op_amount": estimate.get('op_amount', 0),
+        "tax_method": estimate.get('tax_method') or 'percentage',
         "tax_rate": estimate.get('tax_rate', 0),
         "tax_amount": estimate.get('tax_amount', 0),
         "discount_amount": estimate.get('discount_amount', 0),
         "total": estimate.get('total_amount', 0),
+        "payment_schedule": estimate.get('payment_schedule'),
         "claim_number": estimate.get('claim_number'),
         "policy_number": estimate.get('policy_number'),
+        "insurance_company": estimate.get('insurance_company'),
         "deductible": estimate.get('deductible'),
         "notes": estimate.get('notes'),
         "terms": estimate.get('terms')
