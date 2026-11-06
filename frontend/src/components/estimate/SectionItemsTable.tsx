@@ -111,7 +111,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
           render: (value: number) => formatCurrency(value || 0),
         } as any,
         {
-          title: 'Total',
+          title: 'Amount',
           dataIndex: 'total',
           key: 'total',
           width: 90,

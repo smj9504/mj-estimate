@@ -15,11 +15,11 @@ import {
   Divider,
   Typography,
   Tooltip,
-  Collapse,
   Switch,
   Checkbox,
   Spin,
   Grid,
+  Badge,
 } from 'antd';
 import {
   PlusOutlined,
@@ -29,9 +29,8 @@ import {
   EditOutlined,
   HolderOutlined,
 } from '@ant-design/icons';
-import { PageHeader } from '../components/common/ui';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
-import SortableSection from '../components/common/SortableSection';
+import DocumentSectionPanel, { SortableSectionItem } from '../components/common/DocumentSectionPanel';
 import SectionItemsTable from '../components/estimate/SectionItemsTable';
 import MultiSelectActionBar from '../components/common/MultiSelectActionBar';
 import {
@@ -51,7 +50,9 @@ import {
   SortableContext,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
+  useSortable,
 } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import dayjs from 'dayjs';
@@ -82,6 +83,65 @@ interface Adjustment {
   order: number;
   amount?: number; // Calculated
 }
+
+// One adjustment in the Payment Summary, laid out like the invoice page's.
+// Its place in the list is the order it is applied in (drag to reorder).
+const SortableAdjustmentRow: React.FC<{
+  adj: Adjustment;
+  amount?: number;
+  onChange: (id: string, field: keyof Adjustment, value: any) => void;
+  onRemove: (id: string) => void;
+}> = ({ adj, amount = 0, onChange, onRemove }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: adj.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    marginBottom: 12, padding: 12,
+    border: isDragging ? '1px dashed #1890ff' : '1px solid #f0f0f0',
+    borderRadius: 4, background: '#fafafa',
+  };
+  const effective = adj.type === 'subtract' ? -amount : amount;
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <Row gutter={[8, 8]} align="middle">
+        <Col flex="20px">
+          <span {...listeners} style={{ cursor: 'grab', color: '#8c8c8c', touchAction: 'none' }}><HolderOutlined /></span>
+        </Col>
+        <Col flex="auto" xs={16} sm={6}>
+          <Input placeholder="Name (e.g., O&P)" value={adj.name} onChange={(e) => onChange(adj.id, 'name', e.target.value)} size="small" />
+        </Col>
+        <Col xs={7} sm={3}>
+          <Select value={adj.type} onChange={(value) => onChange(adj.id, 'type', value)} size="small" style={{ width: '100%' }}>
+            <Select.Option value="add">+ Add</Select.Option>
+            <Select.Option value="subtract">− Sub</Select.Option>
+          </Select>
+        </Col>
+        <Col xs={24} sm={7}>
+          <InputNumber
+            placeholder="Percentage"
+            value={adj.percentage}
+            onChange={(value) => onChange(adj.id, 'percentage', value || 0)}
+            min={-100}
+            max={100}
+            step={0.1}
+            size="small"
+            style={{ width: '100%' }}
+            addonAfter="%"
+          />
+        </Col>
+        <Col xs={17} sm={5}>
+          <span style={{ fontSize: '13px', color: effective < 0 ? '#cf1322' : '#389e0d', fontWeight: '600' }}>
+            {effective < 0 ? '−' : '+'} {formatCurrency(Math.abs(effective))}
+          </span>
+        </Col>
+        <Col xs={7} sm={2} style={{ textAlign: 'right' }}>
+          <Button danger size="small" icon={<DeleteOutlined />} onClick={() => onRemove(adj.id)} />
+        </Col>
+      </Row>
+    </div>
+  );
+};
 
 interface EstimateCreationProps {
   initialEstimate?: EstimateResponse;
@@ -250,7 +310,12 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           type: adj.type || 'add',
           order: adj.order || index + 1,
         }));
-        setAdjustments(loadedAdjustments);
+        // The list shows adjustments in the order they apply
+        setAdjustments(
+          [...loadedAdjustments]
+            .sort((a, b) => a.order - b.order)
+            .map((adj, index) => ({ ...adj, order: index + 1 }))
+        );
       } else {
         setAdjustments([]);
       }
@@ -918,7 +983,24 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   };
 
   const handleRemoveAdjustment = (id: string) => {
-    setAdjustments(adjustments.filter(adj => adj.id !== id));
+    setAdjustments(
+      adjustments
+        .filter(adj => adj.id !== id)
+        .map((adj, index) => ({ ...adj, order: index + 1 }))
+    );
+  };
+
+  // Dragging an adjustment changes the order it applies in
+  const handleAdjustmentDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = adjustments.findIndex(a => a.id === active.id);
+    const newIdx = adjustments.findIndex(a => a.id === over.id);
+    if (oldIdx !== -1 && newIdx !== -1) {
+      setAdjustments(
+        arrayMove(adjustments, oldIdx, newIdx).map((adj, index) => ({ ...adj, order: index + 1 }))
+      );
+    }
   };
 
   const handleAdjustmentChange = (id: string, field: keyof Adjustment, value: any) => {
@@ -1461,103 +1543,18 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   }
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', paddingBottom: isMobile ? 84 : undefined }}>
-      <PageHeader
-        title={isEditMode ? 'Edit Estimate' : 'Create New Estimate'}
-        actions={
-          <>
-            <Select
-              value={pdfTemplateType}
-              onChange={setPdfTemplateType}
-              style={{ width: 132 }}
-              aria-label="PDF template"
-              options={[
-                { value: 'invoice', label: 'Standard' },
-                { value: 'estimate', label: 'Enhanced' }
-              ]}
-            />
-            <Checkbox
-              checked={includeSignature}
-              onChange={(e) => setIncludeSignature(e.target.checked)}
-              style={{ whiteSpace: 'nowrap' }}
-            >
-              Include Signature Area
-            </Checkbox>
-            <Button onClick={() => navigate('/documents/estimate')}>
-              Cancel
-            </Button>
-            {!isMobile && (
-              <>
-                <Button
-                  icon={<EyeOutlined />}
-                  onClick={handlePreviewPDF}
-                  loading={isPreviewing}
-                  disabled={isSaving || isDataLoading}
-                >
-                  Preview PDF
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<SaveOutlined />}
-                  onClick={handleSave}
-                  loading={isSaving}
-                  disabled={isPreviewing || isDataLoading}
-                >
-                  {isEditMode ? 'Update' : 'Save'} Estimate
-                </Button>
-              </>
-            )}
-          </>
-        }
-      />
-
-      {isMobile && (
-        <div
-          style={{
-            position: 'fixed',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: zIndexScale.actionBar,
-            display: 'flex',
-            gap: 8,
-            padding: '10px 12px',
-            paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
-            background: 'rgba(255, 255, 255, 0.94)',
-            backdropFilter: 'saturate(180%) blur(8px)',
-            WebkitBackdropFilter: 'saturate(180%) blur(8px)',
-            borderTop: '1px solid #e9e9e7',
-          }}
-        >
-          <Button
-            icon={<EyeOutlined />}
-            onClick={handlePreviewPDF}
-            loading={isPreviewing}
-            disabled={isSaving || isDataLoading}
-            style={{ flex: 1 }}
-          >
-            Preview
-          </Button>
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            onClick={handleSave}
-            loading={isSaving}
-            disabled={isPreviewing || isDataLoading}
-            style={{ flex: 1 }}
-          >
-            {isEditMode ? 'Update' : 'Save'}
-          </Button>
-        </div>
-      )}
+    <div style={{ padding: isMobile ? '12px' : '24px', paddingBottom: isMobile ? 84 : undefined }}>
+      <Title level={isMobile ? 3 : 2} style={{ marginTop: 0, marginBottom: 16 }}>
+        {isEditMode ? 'Edit Estimate' : 'Create Estimate'}
+      </Title>
 
       <Form form={form} layout="vertical" initialValues={{ estimate_date: dayjs(), status: 'draft' }}>
-        <Row gutter={[0, 0]}>
+        <Row gutter={24}>
           {/* Estimate Details */}
           <Col xs={24}>
-            <Card title="Estimate Details" className="ui-sheet-card" style={{ marginBottom: 36 }}>
-              <Form.Item 
-                label="Select Company" 
+            <Card title="Estimate Details" style={{ marginBottom: 24 }}>
+              <Form.Item
+                label="Select Company"
                 style={{ marginBottom: 16 }}
                 name="company_selection"
                 rules={[{ required: true, message: 'Please select a company or choose custom company' }]}
@@ -1566,10 +1563,14 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                   value={useCustomCompany ? 'custom' : selectedCompany?.id || undefined}
                   onChange={handleCompanyChange}
                   placeholder="Select company"
+                  showSearch
+                  filterOption={(input, option) =>
+                    typeof option?.label === 'string' && option.label.toLowerCase().includes(input.toLowerCase())
+                  }
                   options={companySelectOptions}
                 />
               </Form.Item>
-              
+
               <Row gutter={16}>
                 <Col xs={24} md={8}>
                   <Form.Item
@@ -1580,7 +1581,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                     <Input
                       prefix="#"
                       placeholder={isEditMode ? "Estimate number" : "Select company to generate number"}
-                      disabled={!isEditMode && !selectedCompany}
+                      readOnly={!isEditMode && !selectedCompany}
                     />
                   </Form.Item>
                 </Col>
@@ -1604,33 +1605,29 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
           {/* Client Information */}
           <Col xs={24}>
-            <Card title="Client Information" className="ui-sheet-card" style={{ marginBottom: 36 }}>
+            <Card title="Client Information" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
                 {/* Client Name, Email, Phone in one row */}
                 <Col xs={24} md={8}>
-                  <Form.Item
-                    name="client_name"
-                    label="Client Name"
-                  >
-                    <Input placeholder="Enter client name (optional)" />
+                  <Form.Item name="client_name" label="Client Name">
+                    <Input />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
-                  <Form.Item name="client_email" label="Client Email">
-                    <Input placeholder="Enter email address" />
+                  <Form.Item name="client_email" label="Email">
+                    <Input type="email" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
-                  <Form.Item name="client_phone" label="Client Phone">
-                    <Input placeholder="Enter phone number" />
+                  <Form.Item name="client_phone" label="Phone">
+                    <Input />
                   </Form.Item>
                 </Col>
 
                 {/* Address, City, State, Zip in one row */}
                 <Col xs={24} md={12}>
-                  <Form.Item name="client_address" label="Street Address">
+                  <Form.Item name="client_address" label="Address">
                     <AddressAutocomplete
-                      placeholder="Enter street address"
                       onSelect={(addr) => form.setFieldsValue({
                         client_city: addr.city,
                         client_state: addr.state,
@@ -1641,17 +1638,17 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                 </Col>
                 <Col xs={24} md={6}>
                   <Form.Item name="client_city" label="City">
-                    <Input placeholder="Enter city" />
+                    <Input />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={3}>
                   <Form.Item name="client_state" label="State">
-                    <Input placeholder="Enter state" />
+                    <Input />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={3}>
-                  <Form.Item name="client_zipcode" label="ZIP Code">
-                    <Input placeholder="Enter ZIP code" />
+                  <Form.Item name="client_zipcode" label="ZIP">
+                    <Input />
                   </Form.Item>
                 </Col>
               </Row>
@@ -1660,43 +1657,42 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
           {/* Insurance Information */}
           <Col xs={24}>
-            {showInsuranceInfo ? (
-              <Card
-                title={
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Insurance Information (Optional)</span>
-                    <Switch
-                      checked={showInsuranceInfo}
-                      onChange={setShowInsuranceInfo}
-                      checkedChildren="Show"
-                      unCheckedChildren="Hide"
-                    />
-                  </div>
-                }
-                className="ui-sheet-card"
-                style={{ marginBottom: 36 }}
-              >
+            <Card
+              title={
+                <Space>
+                  <span>Insurance Information</span>
+                  <Switch
+                    size="small"
+                    checked={showInsuranceInfo}
+                    onChange={setShowInsuranceInfo}
+                    checkedChildren="Yes"
+                    unCheckedChildren="No"
+                  />
+                </Space>
+              }
+              style={{ marginBottom: 24 }}
+            >
+              {showInsuranceInfo && (
                 <Row gutter={16}>
                   <Col xs={24} md={6}>
                     <Form.Item name="insurance_company" label="Insurance Company">
-                      <Input placeholder="Enter insurance company name" />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={6}>
-                    <Form.Item name="claim_number" label="Claim Number">
-                      <Input placeholder="Enter claim number" />
+                      <Input />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={6}>
                     <Form.Item name="policy_number" label="Policy Number">
-                      <Input placeholder="Enter policy number" />
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={6}>
+                    <Form.Item name="claim_number" label="Claim Number">
+                      <Input />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={6}>
                     <Form.Item name="deductible" label="Deductible">
                       <InputNumber
                         style={{ width: '100%' }}
-                        placeholder="Enter deductible amount"
                         min={0}
                         step={100}
                         formatter={(value?: string | number) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
@@ -1705,209 +1701,201 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                     </Form.Item>
                   </Col>
                 </Row>
-              </Card>
-            ) : (
-              <div style={{ marginBottom: 36 }}>
-                <div
-                  style={{
-                    paddingBottom: 6,
-                    borderBottom: '1px solid #e9e9e7',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontWeight: 600,
-                    fontSize: '16px',
-                  }}
-                >
-                  <span>Insurance Information (Optional)</span>
-                  <Switch
-                    checked={showInsuranceInfo}
-                    onChange={setShowInsuranceInfo}
-                    checkedChildren="Show"
-                    unCheckedChildren="Hide"
-                  />
-                </div>
-              </div>
-            )}
-          </Col>
-
-          {/* Section Management */}
-          <Col xs={24}>
-            <Card title="Estimate Sections" className="ui-sheet-card" style={{ marginBottom: 36 }}>
-              {/* Add New Section */}
-              <Row gutter={16} style={{ marginBottom: 16 }}>
-                <Col flex="auto">
-                  <Input
-                    placeholder="Enter section name (e.g., Kitchen, Living Room, Bathroom)"
-                    value={newSectionTitle}
-                    onChange={(e) => setNewSectionTitle(e.target.value)}
-                    onPressEnter={addSection}
-                  />
-                </Col>
-                <Col>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={addSection}>
-                    Add Section
-                  </Button>
-                </Col>
-              </Row>
-
-              {/* Sections List */}
-              {sections.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#73726e' }}>
-                  <Title level={4} type="secondary">No sections added yet</Title>
-                  <p>Add sections to organize your estimate items by room or category</p>
-                </div>
-              ) : (
-                <DndContext
-                  sensors={unifiedSensors}
-                  collisionDetection={closestCenter}
-                  onDragStart={handleUnifiedDragStart}
-                  onDragEnd={handleUnifiedDragEnd}
-                  onDragCancel={resetDragState}
-                  modifiers={[restrictToVerticalAxis]}
-                >
-                  <SortableContext items={sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                    <Collapse
-                      activeKey={activeKeys}
-                      onChange={(keys) => setActiveKeys(keys as string[])}
-                      items={sections.map((section, sectionIndex) => ({
-                        key: section.id,
-                        label: (
-                          <SortableSection
-                            section={section}
-                            sectionIndex={sectionIndex}
-                            onAddItem={addItemToSection}
-                            onEditSection={(sectionId, title) => {
-                              setEditingSectionName(title);
-                              setEditingSectionId(sectionId);
-                              setSectionModalVisible(true);
-                            }}
-                            onDeleteSection={deleteSection}
-                            renderHeaderOnly={true}
-                            onToggleLumpSum={toggleSectionLumpSum}
-                            onLumpSumAmountChange={updateSectionLumpSumAmount}
-                            hideAmounts={isLumpSumDocument}
-                          />
-                        ),
-                        children: (
-                          <div>
-                            {/* Section Items */}
-                            {section.items.length === 0 ? (
-                              <div style={{ textAlign: 'center', padding: '20px', color: '#73726e' }}>
-                                <p>No items in this section yet</p>
-                                <Button type="dashed" icon={<PlusOutlined />} onClick={() => addItemToSection(sectionIndex)}>
-                                  Add First Item
-                                </Button>
-                              </div>
-                            ) : (
-                              <div
-                                tabIndex={0}
-                                onKeyDown={(e) => handleDeleteKeyPress(e, sectionIndex)}
-                                style={{ outline: 'none' }}
-                              >
-                                <div style={{ marginBottom: '8px', fontSize: '12px', color: '#73726e' }}>
-                                  <Space>
-                                    <span>Double-click row or use Edit button to edit</span>
-                                    <Divider type="vertical" />
-                                    <span>Use Actions buttons or select items and press Delete key to remove</span>
-                                  </Space>
-                                </div>
-                                <SectionItemsTable
-                                  sectionIndex={sectionIndex}
-                                  items={section.items}
-                                  activeId={activeId}
-                                  taxMethod={taxMethod}
-                                  selectedRowKeys={selectedItemKeys[sectionIndex] || []}
-                                  onRowSelection={(keys) => handleItemRowSelection(sectionIndex, keys)}
-                                  onEditItem={(index) => editItemInSection(sectionIndex, index)}
-                                  onDeleteItem={(index) => deleteSingleItem(sectionIndex, index)}
-                                  onTaxableChange={(index, checked) => handleTaxableChange(sectionIndex, index, checked)}
-                                  onToggleAllTaxable={(checked) => handleToggleAllTaxable(sectionIndex, checked)}
-                                  formatCurrency={formatCurrency}
-                                  hidePricing={isLumpSumDocument}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        ),
-                      }))}
-                    />
-                  </SortableContext>
-
-                  <DragOverlay>
-                    {activeId && activeDragType === 'section' ? (
-                      <div
-                        style={{
-                          backgroundColor: 'white',
-                          border: '1px solid #dfdfdc',
-                          borderRadius: '6px',
-                          padding: '12px 16px',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                          fontSize: '14px',
-                          minWidth: '300px',
-                          opacity: 0.9,
-                        }}
-                      >
-                        <HolderOutlined style={{ marginRight: 8, color: '#73726e' }} />
-                        <strong>
-                          {sections.find(s => s.id === activeId)?.title || 'Section'}
-                        </strong>
-                      </div>
-                    ) : activeId && activeDragType === 'item' && activeSectionIndex !== null ? (
-                      (() => {
-                        // Parse ID format: item-{sectionIndex}-{itemId} where itemId may contain dashes (UUID)
-                        const firstDash = activeId.indexOf('-');
-                        const secondDash = activeId.indexOf('-', firstDash + 1);
-                        if (firstDash !== -1 && secondDash !== -1) {
-                          const sectionIdx = parseInt(activeId.substring(firstDash + 1, secondDash));
-                          const itemId = activeId.substring(secondDash + 1);
-                          const section = sections[sectionIdx];
-                          const item = section?.items.find(i => i.id === itemId);
-
-                          if (item) {
-                            return (
-                              <div
-                                style={{
-                                  backgroundColor: 'white',
-                                  border: '1px solid #dfdfdc',
-                                  borderRadius: '6px',
-                                  padding: '8px 12px',
-                                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                                  fontSize: '13px',
-                                  minWidth: '200px',
-                                  opacity: 0.95,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                }}
-                              >
-                                <HolderOutlined style={{ color: '#73726e', fontSize: '12px' }} />
-                                <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
-                                <span style={{ color: '#73726e' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
-                                <span style={{ color: '#37352f', fontWeight: 500, marginLeft: 'auto' }}>{formatCurrency(lineAmount(item.quantity, item.unit_price))}</span>
-                              </div>
-                            );
-                          }
-                        }
-                        return null;
-                      })()
-                    ) : null}
-                  </DragOverlay>
-                </DndContext>
               )}
             </Card>
           </Col>
+        </Row>
 
-          {/* O&P, Tax and Totals */}
-          <Col xs={24}>
+        {/* Estimate Items - Section Based */}
+        <Card title="Estimate Items" style={{ marginBottom: 24 }}>
+          {/* Section Creation */}
+          <div className="add-section-row" style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Input
+              placeholder="Enter section title..."
+              value={newSectionTitle}
+              onChange={(e) => setNewSectionTitle(e.target.value)}
+              onPressEnter={addSection}
+              style={{ flex: '1 1 200px', maxWidth: 300 }}
+            />
+            <Button type="primary" icon={<PlusOutlined />} onClick={addSection}>
+              Add Section
+            </Button>
+          </div>
+
+          {/* Sections */}
+          <DndContext
+            sensors={unifiedSensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleUnifiedDragStart}
+            onDragEnd={handleUnifiedDragEnd}
+            onDragCancel={resetDragState}
+            modifiers={[restrictToVerticalAxis]}
+          >
+            <SortableContext items={sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
+              <div className="sections-container">
+                {sections.map((section, sectionIndex) => (
+                  <SortableSectionItem key={section.id} id={section.id}>
+                    <DocumentSectionPanel
+                      section={section}
+                      sectionIndex={sectionIndex}
+                      isOpen={activeKeys.includes(section.id)}
+                      onToggle={() => {
+                        if (activeKeys.includes(section.id)) {
+                          setActiveKeys(activeKeys.filter(k => k !== section.id));
+                        } else {
+                          setActiveKeys([...activeKeys, section.id]);
+                        }
+                      }}
+                      formatAmount={formatCurrency}
+                      onAddItem={() => addItemToSection(sectionIndex)}
+                      onEditSection={() => {
+                        setEditingSectionName(section.title);
+                        setEditingSectionId(section.id);
+                        setSectionModalVisible(true);
+                      }}
+                      onDeleteSection={() => deleteSection(sectionIndex)}
+                      onToggleLumpSum={toggleSectionLumpSum}
+                      onLumpSumAmountChange={updateSectionLumpSumAmount}
+                      hidePricing={isLumpSumDocument}
+                    >
+                      {section.items.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '20px', color: '#8c8c8c' }}>
+                          No items in this section. Click "Add Item" to add items.
+                        </div>
+                      ) : (
+                        <div
+                          tabIndex={0}
+                          onKeyDown={(e) => handleDeleteKeyPress(e, sectionIndex)}
+                          style={{ outline: 'none' }}
+                        >
+                          <SectionItemsTable
+                            sectionIndex={sectionIndex}
+                            items={section.items}
+                            activeId={activeId}
+                            taxMethod={taxMethod}
+                            selectedRowKeys={selectedItemKeys[sectionIndex] || []}
+                            onRowSelection={(keys) => handleItemRowSelection(sectionIndex, keys)}
+                            onEditItem={(index) => editItemInSection(sectionIndex, index)}
+                            onDeleteItem={(index) => deleteSingleItem(sectionIndex, index)}
+                            onTaxableChange={(index, checked) => handleTaxableChange(sectionIndex, index, checked)}
+                            onToggleAllTaxable={(checked) => handleToggleAllTaxable(sectionIndex, checked)}
+                            formatCurrency={formatCurrency}
+                            hidePricing={isLumpSumDocument}
+                          />
+                        </div>
+                      )}
+                    </DocumentSectionPanel>
+                  </SortableSectionItem>
+                ))}
+              </div>
+            </SortableContext>
+
+            {/* Drag Overlay for unified drag and drop */}
+            <DragOverlay>
+              {activeId ? (
+                (() => {
+                  if (activeDragType === 'section') {
+                    const section = sections.find(s => s.id === activeId);
+                    if (section) {
+                      return (
+                        <div
+                          style={{
+                            backgroundColor: 'white',
+                            border: '1px solid #d9d9d9',
+                            borderRadius: '6px',
+                            padding: '12px 16px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                            fontSize: '14px',
+                            minWidth: '300px',
+                            opacity: 0.95,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
+                          <span style={{ fontWeight: '600' }}>{section.title}</span>
+                          <Badge count={section.items.length} showZero color="#108ee9" />
+                          <span style={{ color: '#1890ff', marginLeft: 'auto' }}>{formatCurrency(section.subtotal)}</span>
+                        </div>
+                      );
+                    }
+                  } else if (activeDragType === 'item' && activeSectionIndex !== null) {
+                    // Parse ID format: item-{sectionIndex}-{itemId} where itemId may contain dashes (UUID)
+                    const firstDash = activeId.indexOf('-');
+                    const secondDash = activeId.indexOf('-', firstDash + 1);
+                    if (firstDash !== -1 && secondDash !== -1) {
+                      const itemId = activeId.substring(secondDash + 1);
+                      const item = sections[activeSectionIndex]?.items.find(i => i.id === itemId);
+
+                      if (item) {
+                        return (
+                          <div
+                            style={{
+                              backgroundColor: 'white',
+                              border: '1px solid #d9d9d9',
+                              borderRadius: '6px',
+                              padding: '8px 12px',
+                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                              fontSize: '13px',
+                              minWidth: '200px',
+                              opacity: 0.95,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                            }}
+                          >
+                            <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
+                            <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
+                            <span style={{ color: '#8c8c8c' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
+                            <span style={{ color: '#1890ff', marginLeft: 'auto' }}>{formatCurrency(lineAmount(item.quantity, item.unit_price))}</span>
+                          </div>
+                        );
+                      }
+                    }
+                  }
+                  return null;
+                })()
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+
+          {/* Grand Total Summary */}
+          <div style={{ marginTop: 16, padding: 16, background: '#f5f5f5', borderRadius: 4 }}>
+            <Row justify="space-between" style={{ fontWeight: 'bold', fontSize: '16px' }}>
+              <Col>Grand Total:</Col>
+              <Col>{formatCurrency(calculateGrandTotal.subtotal)}</Col>
+            </Row>
+          </div>
+        </Card>
+
+        {/* Notes and Payment Summary */}
+        <Row gutter={24}>
+          <Col xs={24} lg={12}>
+            <Card title="Additional Information" style={{ marginBottom: 24 }}>
+              <Form.Item name="notes" label="Notes">
+                <RichTextEditor
+                  placeholder="Additional notes for the estimate..."
+                  minHeight={150}
+                />
+              </Form.Item>
+              <Form.Item name="terms" label="Terms & Conditions">
+                <RichTextEditor
+                  placeholder="Terms and conditions..."
+                  minHeight={120}
+                />
+              </Form.Item>
+            </Card>
+          </Col>
+
+          <Col xs={24} lg={12}>
             <Card
-              title="O&P, Tax & Totals"
-              className="ui-sheet-card"
-              style={{ marginBottom: 36 }}
+              title="Payment Summary"
+              style={{ marginBottom: 24 }}
               extra={
                 <Tooltip title="Lump sum document: hides qty/unit/rate/amount for all items and shows a single total you enter directly, instead of the calculated total">
                   <Space onClick={(e) => e.stopPropagation()}>
-                    <span style={{ fontSize: 12, color: '#73726e' }}>Lump Sum Document</span>
+                    <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum Document</span>
                     <Switch
                       checked={isLumpSumDocument}
                       onChange={setIsLumpSumDocument}
@@ -1917,165 +1905,88 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
               }
             >
               {isLumpSumDocument ? (
-                <Row gutter={16} justify="end">
-                  <Col xs={24} md={12}>
-                    <Form.Item label="Total Amount">
-                      <InputNumber
-                        style={{ width: '100%' }}
-                        min={0}
-                        size="large"
-                        value={lumpSumDocumentAmount}
-                        onChange={(value) => setLumpSumDocumentAmount(value || 0)}
-                        formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                        parser={value => value!.replace(/\$\s?|(,*)/g, '') as any}
-                      />
-                    </Form.Item>
-                    <div style={{ textAlign: 'right', fontSize: '18px', fontWeight: 600, color: '#37352f' }}>
-                      Total: {formatCurrency(calculateGrandTotal.total)}
-                    </div>
-                  </Col>
-                </Row>
+                <Form.Item label="Total Amount">
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    size="large"
+                    value={lumpSumDocumentAmount}
+                    onChange={(value) => setLumpSumDocumentAmount(value || 0)}
+                    formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={value => value!.replace(/\$\s?|(,*)/g, '') as any}
+                  />
+                </Form.Item>
               ) : (
-              <Row gutter={16}>
-                <Col xs={24} md={12}>
+                <>
                   {/* Adjustments Section */}
-                  <Row gutter={16}>
-                    <Col span={24}>
-                      <div style={{ marginBottom: 16 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <div>
-                            <span style={{ fontWeight: 'bold' }}>Adjustments</span>
-                            <Tooltip title="Add custom adjustments (e.g., Holiday Premium, Discount, O&P) that are applied in order to the subtotal">
-                              <span style={{ marginLeft: '8px', color: '#73726e', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
-                            </Tooltip>
-                          </div>
-                          <Button
-                            type="dashed"
-                            size="small"
-                            icon={<PlusOutlined />}
-                            onClick={handleAddAdjustment}
-                          >
-                            Add Adjustment
-                          </Button>
-                        </div>
-                        {adjustments.length > 0 && (
-                          <div style={{ 
-                            padding: '8px 12px', 
-                            marginBottom: '8px',
-                            background: '#f0f7ff', 
-                            borderRadius: '4px',
-                            fontSize: '12px',
-                            color: '#666'
-                          }}>
-                            <strong>Fields:</strong> Name | <strong>%</strong> (percentage) | <strong>+/-</strong> (add/subtract) | <strong>Order</strong> (application order, lower = first) | <strong>Amount</strong> (calculated)
-                          </div>
-                        )}
-                        {adjustments.length === 0 && (
-                          <div style={{ padding: '8px 0', color: '#73726e', fontSize: '12px' }}>
-                            No adjustments. Use legacy O&P field below, or add custom adjustments above.
-                          </div>
-                        )}
-                        {adjustments.map((adj) => {
-                          const calculatedAdj = calculateGrandTotal.adjustments?.find(a => a.adjustment.id === adj.id);
-                          return (
-                            <div key={adj.id} style={{
-                              marginBottom: 12,
-                              padding: 12,
-                              border: '1px solid #e9e9e7',
-                              borderRadius: 4,
-                              background: '#f7f7f5'
-                            }}>
-                              <Row gutter={[8, 8]} align="middle">
-                                <Col xs={18} sm={6}>
-                                  <Input
-                                    placeholder="Name (e.g., Holiday Premium)"
-                                    value={adj.name}
-                                    onChange={(e) => handleAdjustmentChange(adj.id, 'name', e.target.value)}
-                                    size="small"
-                                  />
-                                </Col>
-                                <Col xs={6} sm={2} style={{ textAlign: 'right' }}>
-                                  <Button
-                                    danger
-                                    size="small"
-                                    icon={<DeleteOutlined />}
-                                    onClick={() => handleRemoveAdjustment(adj.id)}
-                                  />
-                                </Col>
-                                <Col xs={12} sm={4}>
-                                  <Tooltip title="Percentage value (e.g., 10 for 10%, -5 for -5%)">
-                                    <InputNumber
-                                      placeholder="%"
-                                      value={adj.percentage}
-                                      onChange={(value) => handleAdjustmentChange(adj.id, 'percentage', value || 0)}
-                                      min={-100}
-                                      max={100}
-                                      step={0.1}
-                                      size="small"
-                                      style={{ width: '100%' }}
-                                      formatter={(value?: string | number) => `${value}%`}
-                                      parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
-                                    />
-                                  </Tooltip>
-                                </Col>
-                                <Col xs={12} sm={4}>
-                                  <Tooltip title="Add (+) or Subtract (-) from subtotal">
-                                    <Select
-                                      value={adj.type}
-                                      onChange={(value) => handleAdjustmentChange(adj.id, 'type', value)}
-                                      size="small"
-                                      style={{ width: '100%' }}
-                                    >
-                                      <Select.Option value="add">+</Select.Option>
-                                      <Select.Option value="subtract">-</Select.Option>
-                                    </Select>
-                                  </Tooltip>
-                                </Col>
-                                <Col xs={12} sm={4}>
-                                  <Tooltip title="Application order (lower number = applied first)">
-                                    <InputNumber
-                                      placeholder="Order"
-                                      value={adj.order}
-                                      onChange={(value) => handleAdjustmentChange(adj.id, 'order', value || 1)}
-                                      min={1}
-                                      size="small"
-                                      style={{ width: '100%' }}
-                                    />
-                                  </Tooltip>
-                                </Col>
-                                <Col xs={12} sm={4}>
-                                  <Tooltip title="Calculated adjustment amount">
-                                    <span style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>
-                                      {formatCurrency(calculatedAdj?.amount || 0)}
-                                    </span>
-                                  </Tooltip>
-                                </Col>
-                              </Row>
-                            </div>
-                          );
-                        })}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <div>
+                        <span style={{ fontWeight: 'bold' }}>Adjustments</span>
+                        <Tooltip title="Add custom adjustments (e.g., Holiday Premium, Discount, O&P) that are applied in order to the subtotal. Drag to change the order.">
+                          <span style={{ marginLeft: '8px', color: '#8c8c8c', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
+                        </Tooltip>
                       </div>
-                    </Col>
-                  </Row>
+                      <Button
+                        type="dashed"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddAdjustment}
+                      >
+                        Add Adjustment
+                      </Button>
+                    </div>
+                    {adjustments.length > 0 && (
+                      <div style={{
+                        padding: '8px 12px',
+                        marginBottom: '8px',
+                        background: '#f0f7ff',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        color: '#666'
+                      }}>
+                        <strong>Name</strong> | <strong>+/−</strong> (add or subtract) | <strong>%</strong> (of the running subtotal) | <strong>Result</strong> (auto-calculated)
+                      </div>
+                    )}
+                    {adjustments.length === 0 && (
+                      <div style={{ padding: '8px 0', color: '#8c8c8c', fontSize: '12px' }}>
+                        No adjustments. Use legacy O&P field below, or add custom adjustments above.
+                      </div>
+                    )}
+                    <DndContext
+                      sensors={unifiedSensors}
+                      collisionDetection={closestCenter}
+                      modifiers={[restrictToVerticalAxis]}
+                      onDragEnd={handleAdjustmentDragEnd}
+                    >
+                      <SortableContext items={adjustments.map(a => a.id)} strategy={verticalListSortingStrategy}>
+                        {adjustments.map((adj) => (
+                          <SortableAdjustmentRow
+                            key={adj.id}
+                            adj={adj}
+                            amount={calculateGrandTotal.adjustments?.find(a => a.adjustment.id === adj.id)?.amount}
+                            onChange={handleAdjustmentChange}
+                            onRemove={handleRemoveAdjustment}
+                          />
+                        ))}
+                      </SortableContext>
+                    </DndContext>
+                  </div>
 
                   {/* Legacy O&P (shown only if no adjustments) */}
                   {adjustments.length === 0 && (
-                    <Row gutter={16}>
-                      <Col span={24}>
-                        <Form.Item label="O&P Percentage (%) (Legacy)">
-                          <InputNumber
-                            style={{ width: '100%' }}
-                            min={0}
-                            max={100}
-                            step={0.1}
-                            value={opPercent}
-                            onChange={(value) => setOpPercent(typeof value === 'number' ? value : 0)}
-                            formatter={(value?: string | number) => `${value}%`}
-                            parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
-                          />
-                        </Form.Item>
-                      </Col>
-                    </Row>
+                    <Form.Item label="O&P Percentage (%) (Legacy)">
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        value={opPercent}
+                        onChange={(value) => setOpPercent(typeof value === 'number' ? value : 0)}
+                        formatter={(value?: string | number) => `${value}%`}
+                        parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
+                      />
+                    </Form.Item>
                   )}
 
                   <Row gutter={16}>
@@ -2124,175 +2035,71 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                   </Row>
 
                   {taxMethod === 'percentage' && (
-                    <Row gutter={16}>
-                      <Col span={24}>
-                        <Form.Item label="All Items Taxable">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Switch
-                              checked={sections.every(section =>
-                                section.items.every(item => item.taxable !== false)
-                              )}
-                              onChange={(checked) => {
-                                const newSections = sections.map(section => ({
-                                  ...section,
-                                  items: section.items.map(item => ({
-                                    ...item,
-                                    taxable: checked
-                                  }))
-                                }));
-                                setSections(newSections);
-                              }}
-                              checkedChildren="All Taxable"
-                              unCheckedChildren="Mixed"
-                            />
-                            <span style={{ color: '#666', fontSize: '12px' }}>
-                              Toggle taxable status for all items across all sections
-                            </span>
-                          </div>
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  )}
-                </Col>
-
-                <Col xs={24} md={12}>
-                  <div style={{ textAlign: 'right', fontSize: '16px' }}>
-                    <div>Subtotal: <strong>{formatCurrency(calculateGrandTotal.subtotal)}</strong></div>
-                    {calculateGrandTotal.adjustments && calculateGrandTotal.adjustments.length > 0 && (
-                      <>
-                        {calculateGrandTotal.adjustments.map((adjData, idx) => (
-                          <div key={idx}>
-                            {adjData.adjustment.name} ({adjData.adjustment.percentage}%{adjData.adjustment.type === 'add' ? '+' : '-'}): 
-                            <strong> {formatCurrency(adjData.amount)}</strong>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                    {adjustments.length === 0 && opPercent > 0 && (
-                      <div>O&P ({opPercent}%): <strong>{formatCurrency(calculateGrandTotal.opAmount)}</strong></div>
-                    )}
-                    {calculateGrandTotal.taxAmount > 0 && (
-                      <div>
-                        Tax {taxMethod === 'percentage' ? `(${taxRate}%)` : ''}:
-                        <strong> {formatCurrency(calculateGrandTotal.taxAmount)}</strong>
+                    <Form.Item label="All Items Taxable">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Switch
+                          checked={sections.every(section =>
+                            section.items.every(item => item.taxable !== false)
+                          )}
+                          onChange={(checked) => {
+                            const newSections = sections.map(section => ({
+                              ...section,
+                              items: section.items.map(item => ({
+                                ...item,
+                                taxable: checked
+                              }))
+                            }));
+                            setSections(newSections);
+                          }}
+                          checkedChildren="All Taxable"
+                          unCheckedChildren="Mixed"
+                        />
+                        <span style={{ color: '#666', fontSize: '12px' }}>
+                          Toggle taxable status for all items across all sections
+                        </span>
                       </div>
-                    )}
-                    <Divider style={{ margin: '8px 0' }} />
-                    <div style={{ fontSize: '18px', fontWeight: 600, color: '#37352f' }}>
-                      Total: {formatCurrency(calculateGrandTotal.total)}
-                    </div>
-                  </div>
-                </Col>
-              </Row>
+                    </Form.Item>
+                  )}
+                </>
               )}
-            </Card>
-          </Col>
 
-          {/* Payment Schedule */}
-          <Col xs={24}>
-            <Card
-              title="Payment Schedule"
-              className="ui-sheet-card"
-              style={{ marginBottom: 36 }}
-              extra={
-                <Button
-                  type="dashed"
-                  size="small"
-                  icon={<PlusOutlined />}
-                  onClick={() => {
-                    setPaymentSchedule(prev => [
-                      ...prev,
-                      {
-                        label: '',
-                        type: 'percentage',
-                        value: 0,
-                        due_label: '',
-                        sort_order: prev.length,
-                      },
-                    ]);
-                  }}
-                >
-                  Add Payment
-                </Button>
-              }
-            >
-              {paymentSchedule.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '16px 0', color: '#73726e' }}>
-                  No payment schedule defined. Click "Add Payment" to create milestones.
+              {/* Payment Schedule */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ marginBottom: 8 }}>
+                  <span style={{ fontWeight: 'bold' }}>Payment Schedule</span>
+                  <Tooltip title="Payment milestones shown on the estimate, as a percentage of the total or a fixed amount">
+                    <span style={{ marginLeft: '8px', color: '#8c8c8c', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
+                  </Tooltip>
                 </div>
-              ) : (
-                <>
+                <Space direction="vertical" style={{ width: '100%' }}>
                   {paymentSchedule.map((item, index) => {
                     const computedAmount = item.type === 'percentage'
                       ? (calculateGrandTotal.total * item.value / 100)
                       : item.value;
+                    const updateScheduleItem = (patch: Partial<PaymentScheduleItem>) => {
+                      setPaymentSchedule(prev => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
+                    };
                     return (
-                      <Row key={index} gutter={12} align="middle" style={{ marginBottom: 12 }}>
-                        <Col xs={24} sm={6}>
-                          <Input
-                            placeholder="Label (e.g. Deposit)"
-                            value={item.label}
-                            onChange={e => {
-                              const updated = [...paymentSchedule];
-                              updated[index] = { ...updated[index], label: e.target.value };
-                              setPaymentSchedule(updated);
-                            }}
-                            size="small"
-                          />
-                        </Col>
-                        <Col xs={10} sm={4}>
-                          <Select
-                            value={item.type}
-                            onChange={val => {
-                              const updated = [...paymentSchedule];
-                              updated[index] = { ...updated[index], type: val as 'percentage' | 'fixed' };
-                              setPaymentSchedule(updated);
-                            }}
-                            size="small"
-                            style={{ width: '100%' }}
-                            options={[
-                              { label: '%', value: 'percentage' },
-                              { label: '$', value: 'fixed' },
-                            ]}
-                          />
-                        </Col>
-                        <Col xs={14} sm={4}>
-                          <InputNumber
-                            value={item.value}
-                            onChange={val => {
-                              const updated = [...paymentSchedule];
-                              updated[index] = { ...updated[index], value: val || 0 };
-                              setPaymentSchedule(updated);
-                            }}
-                            size="small"
-                            style={{ width: '100%' }}
-                            min={0}
-                            max={item.type === 'percentage' ? 100 : undefined}
-                            precision={2}
-                            addonAfter={item.type === 'percentage' ? '%' : '$'}
-                          />
-                        </Col>
-                        <Col xs={18} sm={6}>
-                          <Input
-                            placeholder="Due (e.g. Upon signing)"
-                            value={item.due_label || ''}
-                            onChange={e => {
-                              const updated = [...paymentSchedule];
-                              updated[index] = { ...updated[index], due_label: e.target.value };
-                              setPaymentSchedule(updated);
-                            }}
-                            size="small"
-                          />
-                        </Col>
-                        <Col xs={4} sm={3} style={{ textAlign: 'right' }}>
-                          <Space size={4}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: '#37352f' }}>
-                              {formatCurrency(computedAmount)}
-                            </span>
-                            <Button
-                              type="text"
-                              danger
+                      <div
+                        key={index}
+                        style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', border: '1px solid #f0f0f0', borderRadius: '4px' }}
+                      >
+                        <Row gutter={8} align="middle" wrap={false}>
+                          <Col flex="auto">
+                            <Input
+                              placeholder="Label (e.g. Deposit)"
+                              value={item.label}
+                              onChange={e => updateScheduleItem({ label: e.target.value })}
                               size="small"
+                            />
+                          </Col>
+                          <Col>
+                            <span style={{ fontWeight: 'bold' }}>{formatCurrency(computedAmount)}</span>
+                          </Col>
+                          <Col>
+                            <Button
+                              size="small"
+                              danger
                               icon={<DeleteOutlined />}
                               onClick={() => {
                                 setPaymentSchedule(prev =>
@@ -2300,13 +2107,46 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                 );
                               }}
                             />
-                          </Space>
-                        </Col>
-                      </Row>
+                          </Col>
+                        </Row>
+                        <Row gutter={8}>
+                          <Col xs={24} sm={10}>
+                            <InputNumber
+                              value={item.value}
+                              onChange={val => updateScheduleItem({ value: val || 0 })}
+                              size="small"
+                              style={{ width: '100%' }}
+                              min={0}
+                              max={item.type === 'percentage' ? 100 : undefined}
+                              precision={2}
+                              addonAfter={
+                                <Select
+                                  value={item.type}
+                                  onChange={val => updateScheduleItem({ type: val as 'percentage' | 'fixed' })}
+                                  size="small"
+                                  style={{ width: 52 }}
+                                  popupMatchSelectWidth={false}
+                                  options={[
+                                    { label: '%', value: 'percentage' },
+                                    { label: '$', value: 'fixed' },
+                                  ]}
+                                />
+                              }
+                            />
+                          </Col>
+                          <Col xs={24} sm={14}>
+                            <Input
+                              placeholder="Due (e.g. Upon signing)"
+                              value={item.due_label || ''}
+                              onChange={e => updateScheduleItem({ due_label: e.target.value })}
+                              size="small"
+                            />
+                          </Col>
+                        </Row>
+                      </div>
                     );
                   })}
-                  {/* Summary */}
-                  {(() => {
+                  {paymentSchedule.length > 0 && (() => {
                     const scheduleTotal = paymentSchedule.reduce((sum, item) => {
                       return sum + (item.type === 'percentage'
                         ? calculateGrandTotal.total * item.value / 100
@@ -2314,7 +2154,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                     }, 0);
                     const diff = calculateGrandTotal.total - scheduleTotal;
                     return (
-                      <div style={{ marginTop: 8, padding: '8px 12px', background: '#f7f7f5', borderRadius: 6 }}>
+                      <div style={{ padding: '8px 12px', background: '#fafafa', borderRadius: 4 }}>
                         <Row justify="space-between">
                           <span>Schedule Total:</span>
                           <strong>{formatCurrency(scheduleTotal)}</strong>
@@ -2328,51 +2168,181 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                       </div>
                     );
                   })()}
-                </>
+                  <Button
+                    type="dashed"
+                    block
+                    icon={<PlusOutlined />}
+                    onClick={() => {
+                      setPaymentSchedule(prev => [
+                        ...prev,
+                        {
+                          label: '',
+                          type: 'percentage',
+                          value: 0,
+                          due_label: '',
+                          sort_order: prev.length,
+                        },
+                      ]);
+                    }}
+                  >
+                    Add Payment
+                  </Button>
+                </Space>
+              </div>
+
+              <Divider />
+
+              {isLumpSumDocument ? (
+                <Row justify="space-between" style={{ fontWeight: 'bold', fontSize: '18px' }}>
+                  <Col>Total:</Col>
+                  <Col>{formatCurrency(calculateGrandTotal.total)}</Col>
+                </Row>
+              ) : (
+                <div style={{ fontSize: '16px' }}>
+                  <Row justify="space-between" style={{ marginBottom: 8 }}>
+                    <Col>Items Subtotal:</Col>
+                    <Col>{formatCurrency(calculateGrandTotal.subtotal)}</Col>
+                  </Row>
+
+                  {calculateGrandTotal.adjustments && calculateGrandTotal.adjustments.length > 0 ? (
+                    calculateGrandTotal.adjustments.map((adjData) => {
+                      const effective = adjData.adjustment.type === 'subtract' ? -adjData.amount : adjData.amount;
+                      return (
+                        <Row key={adjData.adjustment.id} justify="space-between" style={{ marginBottom: 8 }}>
+                          <Col>
+                            {adjData.adjustment.name || 'Adjustment'}
+                            {adjData.adjustment.percentage !== 0 && ` (${Math.abs(adjData.adjustment.percentage)}%)`}
+                          </Col>
+                          <Col>
+                            {effective < 0 ? '-' : '+'}
+                            {formatCurrency(Math.abs(effective))}
+                          </Col>
+                        </Row>
+                      );
+                    })
+                  ) : (
+                    opPercent > 0 && (
+                      <Row justify="space-between" style={{ marginBottom: 8 }}>
+                        <Col>O&P ({opPercent}%):</Col>
+                        <Col>{formatCurrency(calculateGrandTotal.opAmount)}</Col>
+                      </Row>
+                    )
+                  )}
+
+                  {calculateGrandTotal.taxAmount > 0 && (
+                    <Row justify="space-between" style={{ marginBottom: 8 }}>
+                      <Col>
+                        Tax {taxMethod === 'percentage' ? `(${taxRate}%)` : ''}:
+                      </Col>
+                      <Col>{formatCurrency(calculateGrandTotal.taxAmount)}</Col>
+                    </Row>
+                  )}
+                  <Divider />
+                  <Row justify="space-between" style={{ fontWeight: 'bold', fontSize: '18px' }}>
+                    <Col>Total:</Col>
+                    <Col>{formatCurrency(calculateGrandTotal.total)}</Col>
+                  </Row>
+                </div>
               )}
             </Card>
           </Col>
-
-          {/* Notes and Terms */}
-          <Col xs={24}>
-            <Card title="Notes & Terms" className="ui-sheet-card" style={{ marginBottom: 36 }}>
-              <Row gutter={16}>
-                <Col xs={24} md={12}>
-                  <Form.Item name="notes" label="Notes">
-                    <RichTextEditor
-                      placeholder="Additional notes for the estimate"
-                      minHeight={120}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={12}>
-                  <Form.Item name="terms" label="Terms & Conditions">
-                    <RichTextEditor
-                      placeholder="Terms and conditions"
-                      minHeight={120}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </Card>
-          </Col>
         </Row>
+
+        {/* Action Buttons */}
+        <Card>
+          <Space size="middle" wrap>
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              onClick={handleSave}
+              loading={isSaving}
+              disabled={isPreviewing || isDataLoading}
+            >
+              {isEditMode ? 'Update' : 'Save'}
+            </Button>
+            <Button
+              icon={<EyeOutlined />}
+              onClick={handlePreviewPDF}
+              loading={isPreviewing}
+              disabled={isSaving || isDataLoading}
+            >
+              Preview PDF
+            </Button>
+            <Divider type="vertical" />
+            <Space size={8}>
+              <span>PDF Template</span>
+              <Select
+                value={pdfTemplateType}
+                onChange={setPdfTemplateType}
+                style={{ width: 132 }}
+                aria-label="PDF template"
+                options={[
+                  { value: 'invoice', label: 'Standard' },
+                  { value: 'estimate', label: 'Enhanced' }
+                ]}
+              />
+            </Space>
+            <Checkbox
+              checked={includeSignature}
+              onChange={(e) => setIncludeSignature(e.target.checked)}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              Include Signature Area
+            </Checkbox>
+            <Divider type="vertical" />
+            <Button onClick={() => navigate('/documents/estimate')}>
+              Cancel
+            </Button>
+          </Space>
+        </Card>
       </Form>
+
+      {isMobile && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: zIndexScale.actionBar,
+            display: 'flex',
+            gap: 8,
+            padding: '10px 12px',
+            paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
+            background: '#fff',
+            borderTop: '1px solid #d9d9d9',
+            boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.15)',
+          }}
+        >
+          <Button
+            icon={<EyeOutlined />}
+            onClick={handlePreviewPDF}
+            loading={isPreviewing}
+            disabled={isSaving || isDataLoading}
+            style={{ flex: 1 }}
+          >
+            Preview
+          </Button>
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={handleSave}
+            loading={isSaving}
+            disabled={isPreviewing || isDataLoading}
+            style={{ flex: 1 }}
+          >
+            {isEditMode ? 'Update' : 'Save'}
+          </Button>
+        </div>
+      )}
 
       {/* Item Modal */}
       <Modal
-        title={editingItem ? 'Edit Item' : 'Add New Item'}
+        title={editingItem ? 'Edit Item' : 'Add Item'}
         open={itemModalVisible}
         onOk={handleItemSave}
         onCancel={resetItemModal}
-        width="90%"
-        style={{ maxWidth: '900px' }}
-        styles={{
-          body: {
-            overflowX: 'hidden',
-            padding: '20px'
-          }
-        }}
+        width={600}
       >
         <Form form={itemForm} layout="vertical">
           <Row gutter={16}>
@@ -2456,7 +2426,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
               </Form.Item>
             </Col>
             <Col xs={24}>
-              <Form.Item label="Additional Notes">
+              <Form.Item label="Note">
                 <RichTextEditor
                   value={currentItemNote}
                   onChange={setCurrentItemNote}
