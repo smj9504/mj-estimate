@@ -410,10 +410,17 @@ class ClaimExpense(Base, BaseModel):
 
     claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
 
+    # Whose cost this is: the contractor's or the public adjuster's. Each side
+    # keeps its own books on the claim (see ClaimExpenseService).
+    party = Column(
+        String(30), nullable=False, default='contractor', server_default='contractor',
+        comment="contractor | public_adjuster"
+    )
+
     # Expense classification
     category = Column(
         String(50), nullable=False,
-        comment="material | labor | subcontractor | equipment | permit | overhead | other"
+        comment="estimator | material | labor | subcontractor | equipment | permit | overhead | other"
     )
     description = Column(String(500), nullable=False)
 

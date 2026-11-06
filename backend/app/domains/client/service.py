@@ -1026,8 +1026,27 @@ class ClaimTodoService:
             session.close()
 
 
+EXPENSE_PARTIES = ('contractor', 'public_adjuster')
+
+
+def expense_parties_for(staff: Any) -> tuple:
+    """Whose books on a claim this person keeps and sees: admins both, a
+    public adjuster login the PA's, everyone else the contractor's"""
+    role = getattr(staff, 'role', None)
+    role = getattr(role, 'value', role)
+    if role in ('admin', 'super_admin'):
+        return EXPENSE_PARTIES
+    if role == 'public_adjuster':
+        return ('public_adjuster',)
+    return ('contractor',)
+
+
 class ClaimExpenseService:
-    """Service for claim expense tracking and profitability analysis"""
+    """Service for claim expense tracking and profitability analysis.
+
+    A claim has two sets of books. The contractor's revenue is what was paid
+    and the public adjuster's fee is one of its costs; the PA's revenue is
+    that fee. Each expense belongs to one side (ClaimExpense.party)."""
 
     def __init__(self, database=None):
         from app.core.database_factory import get_database
@@ -1096,84 +1115,108 @@ class ClaimExpenseService:
         finally:
             session.close()
 
-    def get_expenses_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
+    def get_expense_party(self, expense_id: str) -> Optional[str]:
+        """The side an expense belongs to, or None when there's no such expense"""
+        session = self.database.get_readonly_session()
+        try:
+            from app.domains.client.models import ClaimExpense
+            row = session.query(ClaimExpense.party).filter(ClaimExpense.id == expense_id).first()
+            return (row[0] or 'contractor') if row else None
+        finally:
+            session.close()
+
+    def get_expenses_by_claim(self, claim_id: str, parties=EXPENSE_PARTIES) -> List[Dict[str, Any]]:
         session = self.database.get_readonly_session()
         try:
             from app.domains.client.models import ClaimExpense
             expenses = session.query(ClaimExpense).filter(
-                ClaimExpense.claim_id == claim_id
+                ClaimExpense.claim_id == claim_id,
+                ClaimExpense.party.in_(list(parties)),
             ).order_by(ClaimExpense.created_at).all()
             return [self._to_dict(e) for e in expenses]
         finally:
             session.close()
 
-    def get_profitability_summary(self, claim_id: str) -> Dict[str, Any]:
+    def get_profitability_summary(self, claim_id: str, parties=EXPENSE_PARTIES) -> Dict[str, Any]:
+        """Profitability for the given sides only; the other side's expenses
+        and profit are left out of the answer"""
         session = self.database.get_readonly_session()
         try:
             from app.domains.client.models import Claim, ClaimExpense, ClaimPayment
-            from decimal import Decimal
 
             claim = session.query(Claim).filter(Claim.id == claim_id).first()
             if not claim:
                 raise ValueError(f"Claim {claim_id} not found")
 
-            expenses = session.query(ClaimExpense).filter(
-                ClaimExpense.claim_id == claim_id
-            ).all()
-
-            # Revenue = total insurance paid
-            total_paid = float(claim.total_insurance_paid or 0)
-
-            # PA fee calculation: (RCV - deductible) * pa_pct%
+            payments = session.query(ClaimPayment).filter(ClaimPayment.claim_id == claim_id).all()
             pa_pct = float(claim.pa_fee_percentage or 0)
-            deductible = float(claim.insurance_deductible or 0)
-            # Revenue above is insurance money only, so the waived deductible is
-            # reported beside it rather than subtracted from profit
-            deductible_discount = min(float(claim.deductible_discount or 0), deductible)
-            current_rcv = float(claim.current_rcv or 0)
-            pa_fee_base = max(0, current_rcv - deductible)
-            pa_fee = pa_fee_base * (pa_pct / 100) if claim.has_public_adjuster and pa_pct > 0 else 0
+            charges_pct = bool(claim.has_public_adjuster) and pa_pct > 0
 
-            # Expense breakdown by category
-            cat_totals = {}
-            for exp in expenses:
-                cat = exp.category or 'other'
-                cat_totals[cat] = cat_totals.get(cat, 0) + float(exp.amount or 0)
+            # A check logged with the PA fee already taken off records its
+            # gross and the fee; everything else is gross as entered. The PA
+            # takes its percent of insurance money, not the homeowner's
+            # deductible.
+            revenue = 0.0
+            insurance_received = 0.0
+            pa_fee = 0.0
+            for p in payments:
+                amount = float(p.amount or 0)
+                gross = float(p.gross_amount) if p.gross_amount else amount
+                revenue += gross
+                if p.payment_type == 'deductible':
+                    continue
+                insurance_received += gross
+                if p.gross_amount and p.pa_fee_amount:
+                    pa_fee += float(p.pa_fee_amount)
+                elif charges_pct:
+                    pa_fee += gross * pa_pct / 100
 
-            total_material = cat_totals.get('material', 0)
-            total_labor = cat_totals.get('labor', 0)
-            total_subcontractor = cat_totals.get('subcontractor', 0)
-            total_equipment = cat_totals.get('equipment', 0)
-            total_other = sum(v for k, v in cat_totals.items()
-                             if k not in ('material', 'labor', 'subcontractor', 'equipment'))
-            total_expenses = sum(cat_totals.values())
+            expenses = session.query(ClaimExpense).filter(
+                ClaimExpense.claim_id == claim_id,
+                ClaimExpense.party.in_(list(parties)),
+            ).order_by(ClaimExpense.created_at).all()
 
-            # Profit calculations
-            gross_profit = total_paid - pa_fee  # Revenue after PA fee
-            net_profit = gross_profit - total_expenses
-            gross_margin_pct = (gross_profit / total_paid * 100) if total_paid > 0 else 0
-            net_margin_pct = (net_profit / total_paid * 100) if total_paid > 0 else 0
+            def side(party: str, side_revenue: float, fee_cost: float) -> Dict[str, Any]:
+                rows = [e for e in expenses if (e.party or 'contractor') == party]
+                cat_totals: Dict[str, float] = {}
+                for e in rows:
+                    cat = e.category or 'other'
+                    cat_totals[cat] = cat_totals.get(cat, 0) + float(e.amount or 0)
+                expense_total = sum(cat_totals.values())
+                total_costs = expense_total + fee_cost
+                net = side_revenue - total_costs
+                return {
+                    "revenue": round(side_revenue, 2),
+                    "pa_fee": round(pa_fee, 2),
+                    "category_totals": {k: round(v, 2) for k, v in cat_totals.items()},
+                    "expense_total": round(expense_total, 2),
+                    "total_costs": round(total_costs, 2),
+                    "net_profit": round(net, 2),
+                    "net_margin_pct": round(net / side_revenue * 100, 1) if side_revenue > 0 else 0,
+                    "expenses": [self._to_dict(e) for e in rows],
+                }
 
-            return {
-                "total_insurance_paid": total_paid,
-                "current_rcv": current_rcv,
-                "deductible": deductible,
-                "deductible_discount": round(deductible_discount, 2),
-                "homeowner_deductible_due": round(deductible - deductible_discount, 2),
+            result: Dict[str, Any] = {
+                "sides": [p for p in EXPENSE_PARTIES if p in parties],
+                "has_public_adjuster": bool(claim.has_public_adjuster),
+                "insurance_received": round(insurance_received, 2),
                 "pa_fee_percentage": pa_pct,
-                "pa_fee_base": round(pa_fee_base, 2),
                 "pa_fee_amount": round(pa_fee, 2),
-                "total_material": round(total_material, 2),
-                "total_labor": round(total_labor, 2),
-                "total_subcontractor": round(total_subcontractor, 2),
-                "total_equipment": round(total_equipment, 2),
-                "total_other_expenses": round(total_other, 2),
-                "total_expenses": round(total_expenses, 2),
-                "gross_profit": round(gross_profit, 2),
-                "gross_margin_pct": round(gross_margin_pct, 1),
-                "net_profit": round(net_profit, 2),
-                "net_margin_pct": round(net_margin_pct, 1),
-                "expenses": [self._to_dict(e) for e in expenses],
             }
+            if 'contractor' in parties:
+                contractor = side('contractor', revenue, pa_fee)
+                # Revenue is money received, so the waived deductible is
+                # reported beside it rather than subtracted from profit
+                deductible = float(claim.insurance_deductible or 0)
+                discount = min(float(claim.deductible_discount or 0), deductible)
+                contractor.update({
+                    "deductible": deductible,
+                    "deductible_discount": round(discount, 2),
+                    "homeowner_deductible_due": round(deductible - discount, 2),
+                })
+                result["contractor"] = contractor
+            if 'public_adjuster' in parties:
+                result["public_adjuster"] = side('public_adjuster', pa_fee, 0)
+            return result
         finally:
             session.close()

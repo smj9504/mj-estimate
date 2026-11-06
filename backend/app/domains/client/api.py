@@ -49,6 +49,7 @@ from app.domains.client.service import (
     ClientService, ClaimService, ClaimNegotiationService,
     ClaimPaymentService, ClaimExpenseService,
     ClaimNoteService, ClaimTodoService,
+    EXPENSE_PARTIES, expense_parties_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -969,23 +970,37 @@ def delete_payment(
 # Claim Expense & Profitability endpoints
 # ============================================================
 
+# The contractor and the public adjuster each keep their own expenses on a
+# claim; a person sees and changes only their side's (admins: both). See
+# expense_parties_for.
+
+def _require_own_expense(service: ClaimExpenseService, expense_id: str, staff) -> None:
+    party = service.get_expense_party(expense_id)
+    if party is None or party not in expense_parties_for(staff):
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+
 @router.get("/{client_id}/claims/{claim_id}/expenses", response_model=None)
 def get_expenses(
     client_id: str, claim_id: str,
     service: ClaimExpenseService = Depends(_get_expense_service),
+    current_staff=Depends(get_current_staff),
 ):
-    """Get all expenses for a claim"""
-    return service.get_expenses_by_claim(claim_id)
+    """Expenses on a claim, for the sides the person keeps books for"""
+    return service.get_expenses_by_claim(claim_id, expense_parties_for(current_staff))
 
 
 @router.get("/{client_id}/claims/{claim_id}/profitability", response_model=None)
 def get_profitability(
     client_id: str, claim_id: str,
     service: ClaimExpenseService = Depends(_get_expense_service),
+    current_staff=Depends(get_current_staff),
 ):
-    """Get profitability summary (revenue, PA fee, expenses, profit)"""
+    """Revenue, costs and profit for the sides the person keeps books for:
+    the contractor's (PA fee as a cost), the public adjuster's (PA fee as
+    revenue), or both for admins"""
     try:
-        return service.get_profitability_summary(claim_id)
+        return service.get_profitability_summary(claim_id, expense_parties_for(current_staff))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -994,10 +1009,18 @@ def get_profitability(
 def create_expense(
     client_id: str, claim_id: str, data: ClaimExpenseCreate,
     service: ClaimExpenseService = Depends(_get_expense_service),
+    current_staff=Depends(get_current_staff),
 ):
-    """Record an expense"""
+    """Record an expense on one side's books"""
+    parties = expense_parties_for(current_staff)
     expense_data = data.dict()
     expense_data['claim_id'] = claim_id
+    party = expense_data.get('party') or parties[0]
+    if party not in EXPENSE_PARTIES:
+        raise HTTPException(status_code=422, detail=f"Unknown side: {party}")
+    if party not in parties:
+        raise HTTPException(status_code=403, detail="You can't add expenses to that side")
+    expense_data['party'] = party
     try:
         return service.create_expense(expense_data)
     except Exception as e:
@@ -1008,8 +1031,10 @@ def create_expense(
 def update_expense(
     client_id: str, claim_id: str, expense_id: str, data: ClaimExpenseUpdate,
     service: ClaimExpenseService = Depends(_get_expense_service),
+    current_staff=Depends(get_current_staff),
 ):
     """Update an expense"""
+    _require_own_expense(service, expense_id, current_staff)
     result = service.update_expense(expense_id, data.dict(exclude_unset=True))
     if not result:
         raise HTTPException(status_code=404, detail="Expense not found")
@@ -1020,8 +1045,10 @@ def update_expense(
 def delete_expense(
     client_id: str, claim_id: str, expense_id: str,
     service: ClaimExpenseService = Depends(_get_expense_service),
+    current_staff=Depends(get_current_staff),
 ):
     """Delete an expense"""
+    _require_own_expense(service, expense_id, current_staff)
     if not service.delete_expense(expense_id):
         raise HTTPException(status_code=404, detail="Expense not found")
     return {"message": "Expense deleted"}

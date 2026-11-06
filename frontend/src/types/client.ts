@@ -426,9 +426,13 @@ export interface PaymentSummary {
   payments: ClaimPayment[];
 }
 
+/** Whose books an expense is on. A person sees only their own side; admins see both. */
+export type ExpenseParty = 'contractor' | 'public_adjuster';
+
 export interface ClaimExpense {
   id: string;
   claim_id: string;
+  party?: ExpenseParty;
   category: string;
   description: string;
   amount: number;
@@ -444,6 +448,8 @@ export interface ClaimExpense {
 
 export interface ClaimExpenseCreate {
   claim_id: string;
+  /** Left out = the side the person keeps books for */
+  party?: ExpenseParty;
   category: string;
   description: string;
   amount: number;
@@ -454,29 +460,39 @@ export interface ClaimExpenseCreate {
   notes?: string;
 }
 
-export interface ProfitabilitySummary {
-  total_insurance_paid: number;
-  current_rcv: number;
-  deductible: number;
-  deductible_discount: number;
-  homeowner_deductible_due: number;
-  pa_fee_percentage: number;
-  pa_fee_base: number;
-  pa_fee_amount: number;
-  total_material: number;
-  total_labor: number;
-  total_subcontractor: number;
-  total_equipment: number;
-  total_other_expenses: number;
-  total_expenses: number;
-  gross_profit: number;
-  gross_margin_pct: number;
+/** One side's books: the contractor's revenue is what was paid and the PA
+ *  fee is one of its costs; the public adjuster's revenue is that fee. */
+export interface ProfitabilitySide {
+  revenue: number;
+  pa_fee: number;
+  category_totals: Record<string, number>;
+  /** Recorded expenses only */
+  expense_total: number;
+  /** expense_total, plus the PA fee on the contractor's side */
+  total_costs: number;
   net_profit: number;
   net_margin_pct: number;
   expenses: ClaimExpense[];
+  /** Contractor's side only */
+  deductible?: number | null;
+  deductible_discount?: number | null;
+  homeowner_deductible_due?: number | null;
+}
+
+/** Only the sides the viewer keeps books for are filled in */
+export interface ProfitabilitySummary {
+  sides: ExpenseParty[];
+  has_public_adjuster: boolean;
+  /** What the PA fee is a percent of: insurance money received, before any fee came off */
+  insurance_received: number;
+  pa_fee_percentage: number;
+  pa_fee_amount: number;
+  contractor?: ProfitabilitySide;
+  public_adjuster?: ProfitabilitySide;
 }
 
 export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
+  estimator: 'Estimator',
   material: 'Material',
   labor: 'Labor',
   subcontractor: 'Subcontractor',

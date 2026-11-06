@@ -425,7 +425,7 @@ class ClaimDetailResponse(ClaimBase):
 # ============================================================
 
 class ClaimExpenseBase(BaseModel):
-    category: str = Field(..., description="material | labor | subcontractor | equipment | permit | overhead | other")
+    category: str = Field(..., description="estimator | material | labor | subcontractor | equipment | permit | overhead | other")
     description: str
     amount: float
     quantity: Optional[float] = 1
@@ -437,6 +437,8 @@ class ClaimExpenseBase(BaseModel):
 
 class ClaimExpenseCreate(ClaimExpenseBase):
     claim_id: UUID
+    # contractor | public_adjuster; left out = the side the person keeps books for
+    party: Optional[str] = None
     receipt_file_id: Optional[str] = None
     receipt_file_name: Optional[str] = None
 
@@ -457,6 +459,7 @@ class ClaimExpenseUpdate(BaseModel):
 class ClaimExpenseResponse(ClaimExpenseBase):
     id: UUID
     claim_id: UUID
+    party: str = 'contractor'
     receipt_file_id: Optional[str] = None
     receipt_file_name: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -465,32 +468,36 @@ class ClaimExpenseResponse(ClaimExpenseBase):
         from_attributes = True
 
 
-class ProfitabilitySummary(BaseModel):
-    """Full profitability breakdown for a claim"""
-    # Revenue
-    total_insurance_paid: float = 0
-    current_rcv: float = 0
-    deductible: float = 0
-    # Waived part of the deductible and what the homeowner still owes us
-    deductible_discount: float = 0
-    homeowner_deductible_due: float = 0
-    # PA Fee: (RCV - deductible) * pa_pct%
-    pa_fee_percentage: float = 0
-    pa_fee_base: float = 0
-    pa_fee_amount: float = 0
-    total_material: float = 0
-    total_labor: float = 0
-    total_subcontractor: float = 0
-    total_equipment: float = 0
-    total_other_expenses: float = 0
-    total_expenses: float = 0
-    # Profit
-    gross_profit: float = 0
-    gross_margin_pct: float = 0
+class ProfitabilitySide(BaseModel):
+    """One side's books on a claim. The contractor's revenue is what was paid
+    and the PA fee is one of its costs; the public adjuster's revenue is that
+    fee."""
+    revenue: float = 0
+    pa_fee: float = 0
+    category_totals: Dict[str, float] = {}
+    expense_total: float = 0
+    # expense_total, plus the PA fee on the contractor's side
+    total_costs: float = 0
     net_profit: float = 0
     net_margin_pct: float = 0
-    # Detail
     expenses: List[ClaimExpenseResponse] = []
+    # Contractor's side only: the homeowner's deductible
+    deductible: Optional[float] = None
+    deductible_discount: Optional[float] = None
+    homeowner_deductible_due: Optional[float] = None
+
+
+class ProfitabilitySummary(BaseModel):
+    """Profitability for the sides the viewer keeps books for (admins: both)"""
+    sides: List[str] = []
+    has_public_adjuster: bool = False
+    # PA fee = pa_fee_percentage% of insurance_received, except where a
+    # payment recorded the fee taken off it
+    insurance_received: float = 0
+    pa_fee_percentage: float = 0
+    pa_fee_amount: float = 0
+    contractor: Optional[ProfitabilitySide] = None
+    public_adjuster: Optional[ProfitabilitySide] = None
 
 
 # ============================================================

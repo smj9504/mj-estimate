@@ -14,6 +14,7 @@ import {
   Row,
   Col,
   Popconfirm,
+  Segmented,
 } from 'antd';
 import {
   PlusOutlined,
@@ -21,18 +22,22 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { expenseService } from '../../services/clientService';
-import type { ClaimExpense, ClaimExpenseCreate } from '../../types/client';
+import { EXPENSE_CATEGORY_LABELS as CAT_LABELS } from '../../types/client';
+import type { ClaimExpense, ClaimExpenseCreate, ExpenseParty } from '../../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import { useSheetModal } from '../common/ui';
 
 const { Text } = Typography;
 
-const CAT_LABELS: Record<string, string> = {
-  material: 'Material', labor: 'Labor', subcontractor: 'Subcontractor',
-  equipment: 'Equipment', permit: 'Permit', overhead: 'Overhead', other: 'Other',
+// The contractor's revenue is what was paid and the PA fee is one of its
+// costs; the public adjuster's revenue is that fee. The server sends only the
+// sides this person keeps books for (admins: both).
+const SIDE_LABELS: Record<ExpenseParty, string> = {
+  contractor: 'Contractor',
+  public_adjuster: 'Public Adjuster',
 };
 
-const formatCurrency = (val?: number) => {
+const formatCurrency = (val?: number | null) => {
   if (val == null) return '$0.00';
   return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
@@ -48,6 +53,7 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
 }) => {
   const queryClient = useQueryClient();
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
+  const [chosenSide, setChosenSide] = useState<ExpenseParty | null>(null);
   const [form] = Form.useForm();
   const { isPhone, sheetProps } = useSheetModal();
 
@@ -55,6 +61,12 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
     queryKey: ['profitability', clientId, claimId],
     queryFn: () => expenseService.getProfitability(clientId, claimId),
   });
+
+  const sides = profitability?.sides ?? [];
+  const side: ExpenseParty | undefined =
+    chosenSide && sides.includes(chosenSide) ? chosenSide : sides[0];
+  const view = side ? profitability?.[side] : undefined;
+  const isPA = side === 'public_adjuster';
 
   const createMutation = useMutation({
     mutationFn: (data: ClaimExpenseCreate) => expenseService.create(clientId, claimId, data),
@@ -78,6 +90,12 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
   });
 
   const p = profitability;
+  const paPct = p?.pa_fee_percentage || 0;
+  const paFee = p?.pa_fee_amount || 0;
+  const feeNote = paFee > 0 && paPct > 0
+    ? `${paPct}% of ${formatCurrency(p?.insurance_received)} received from insurance`
+    : null;
+  const minus = (v?: number | null) => `${(v || 0) > 0 ? '−' : ''}${formatCurrency(v || 0)}`;
 
   const columns: ColumnsType<ClaimExpense> = [
     {
@@ -125,30 +143,55 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
     },
   ];
 
-  const netProfit = p?.net_profit || 0;
-  const netMargin = p?.net_margin_pct || 0;
+  const netProfit = view?.net_profit || 0;
+  const netMargin = view?.net_margin_pct || 0;
   const isProfitable = netProfit >= 0;
+
+  // What the costs are made of, the PA fee first on the contractor's side
+  const totals = view?.category_totals ?? {};
+  const costLines = [
+    ...(!isPA && paFee > 0 ? [{ label: `PA fee${paPct > 0 ? ` (${paPct}%)` : ''}`, value: paFee }] : []),
+    ...Object.keys(CAT_LABELS).map(k => ({ label: CAT_LABELS[k], value: totals[k] })),
+    ...Object.keys(totals).filter(k => !(k in CAT_LABELS)).map(k => ({ label: k, value: totals[k] })),
+  ].filter(i => (i.value || 0) > 0);
+  const deductible = view?.deductible || 0;
 
   return (
     <div>
+      {sides.length > 1 && side && (
+        <Segmented
+          size="small"
+          value={side}
+          onChange={v => setChosenSide(v as ExpenseParty)}
+          options={sides.map(s => ({ value: s, label: SIDE_LABELS[s] }))}
+          style={{ marginBottom: 12 }}
+        />
+      )}
+
       {/* Profitability Summary: figures on the sheet, money in ink */}
       <dl className="cl-figures">
+        {isPA ? (
+          <div className="cl-figure">
+            <dt>Fee income{paPct > 0 ? ` (${paPct}%)` : ''}</dt>
+            <dd>{isLoading ? '…' : formatCurrency(view?.revenue || 0)}</dd>
+            {feeNote && <span className="cl-figure-note">{feeNote}</span>}
+          </div>
+        ) : (
+          <>
+            <div className="cl-figure">
+              <dt>Revenue (paid)</dt>
+              <dd>{isLoading ? '…' : formatCurrency(view?.revenue || 0)}</dd>
+            </div>
+            <div className="cl-figure">
+              <dt>PA fee{paPct > 0 ? ` (${paPct}%)` : ''}</dt>
+              <dd>{isLoading ? '…' : minus(paFee)}</dd>
+              {feeNote && <span className="cl-figure-note">{feeNote}</span>}
+            </div>
+          </>
+        )}
         <div className="cl-figure">
-          <dt>Revenue (paid)</dt>
-          <dd>{isLoading ? '…' : formatCurrency(p?.total_insurance_paid || 0)}</dd>
-        </div>
-        <div className="cl-figure">
-          <dt>PA fee{(p?.pa_fee_percentage || 0) > 0 ? ` (${p?.pa_fee_percentage}%)` : ''}</dt>
-          <dd>{isLoading ? '…' : `${(p?.pa_fee_amount || 0) > 0 ? '−' : ''}${formatCurrency(p?.pa_fee_amount || 0)}`}</dd>
-          {(p?.pa_fee_percentage || 0) > 0 && (
-            <span className="cl-figure-note">
-              ({formatCurrency(p?.current_rcv)} − {formatCurrency(p?.deductible)} ded.) × {p?.pa_fee_percentage}%
-            </span>
-          )}
-        </div>
-        <div className="cl-figure">
-          <dt>Total expenses</dt>
-          <dd>{isLoading ? '…' : `${(p?.total_expenses || 0) > 0 ? '−' : ''}${formatCurrency(p?.total_expenses || 0)}`}</dd>
+          <dt>{isPA ? 'Expenses' : 'Other expenses'}</dt>
+          <dd>{isLoading ? '…' : minus(view?.expense_total)}</dd>
         </div>
         <div className="cl-figure">
           <dt>Net profit</dt>
@@ -159,33 +202,35 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
         </div>
       </dl>
 
-      {/* Deductible is paid by the homeowner, outside the insurance revenue above;
-          the cost lines show what the expenses are made of */}
-      {((p?.deductible || 0) > 0 || (p?.total_expenses || 0) > 0) && (
+      {/* Deductible is paid by the homeowner, beside the revenue above (the
+          contractor's books only); the cost lines show what the costs are made of */}
+      {isPA && !p?.has_public_adjuster && paFee === 0 && (
         <div className="cl-fact-lines">
-          {(p?.deductible || 0) > 0 && (
+          <div className="cl-meta">
+            No public adjuster on this claim yet. Fee income shows once the claim has a PA and a fee %.
+          </div>
+        </div>
+      )}
+      {(deductible > 0 || costLines.length > 0) && (
+        <div className="cl-fact-lines">
+          {deductible > 0 && (
             <div>
               <span className="cl-meta">Deductible </span>
-              <span className="cl-money">{formatCurrency(p?.deductible)}</span>
-              {(p?.deductible_discount || 0) > 0 && (
+              <span className="cl-money">{formatCurrency(deductible)}</span>
+              {(view?.deductible_discount || 0) > 0 && (
                 <>
                   <span className="cl-meta"> − discount </span>
-                  <span className="cl-money">{formatCurrency(p?.deductible_discount)}</span>
+                  <span className="cl-money">{formatCurrency(view?.deductible_discount)}</span>
                 </>
               )}
               <span className="cl-meta"> · Homeowner owes </span>
-              <span className="cl-money cl-money--strong">{formatCurrency(p?.homeowner_deductible_due)}</span>
+              <span className="cl-money cl-money--strong">{formatCurrency(view?.homeowner_deductible_due)}</span>
             </div>
           )}
-          {(p?.total_expenses || 0) > 0 && (
+          {costLines.length > 0 && (
             <div>
-              {[
-                { label: 'Material', value: p?.total_material },
-                { label: 'Labor', value: p?.total_labor },
-                { label: 'Subcontractor', value: p?.total_subcontractor },
-                { label: 'Equipment', value: p?.total_equipment },
-                { label: 'Other', value: p?.total_other_expenses },
-              ].filter(i => (i.value || 0) > 0).map((item, i) => (
+              <span className="cl-meta">Costs: </span>
+              {costLines.map((item, i) => (
                 <span key={item.label}>
                   {i > 0 && <span className="cl-meta"> · </span>}
                   <span className="cl-meta">{item.label} </span>
@@ -198,14 +243,17 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
       )}
 
       <div className="cl-subhead">
-        <span className="cl-subhead-title">Expenses</span>
+        <span className="cl-subhead-title">
+          {sides.length > 1 && side ? `${SIDE_LABELS[side]} expenses` : 'Expenses'}
+        </span>
         <Button type="text" size="small" icon={<PlusOutlined />}
+          disabled={!side}
           onClick={() => setExpenseModalOpen(true)}>
           Add Expense
         </Button>
       </div>
 
-      <Table dataSource={p?.expenses || []} columns={columns} rowKey="id"
+      <Table dataSource={view?.expenses || []} columns={columns} rowKey="id"
         size="small" loading={isLoading} pagination={false}
         className="cl-table"
         locale={{ emptyText: <div className="cl-empty">No expenses recorded yet.</div> }}
@@ -226,11 +274,14 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
       />
 
       {/* Add Expense Modal */}
-      <Modal title="Add Expense" open={expenseModalOpen} width={480}
+      <Modal
+        title={sides.length > 1 && side ? `Add ${SIDE_LABELS[side]} Expense` : 'Add Expense'}
+        open={expenseModalOpen} width={480}
         onOk={() => form.validateFields().then(v => {
           createMutation.mutate({
             ...v,
             claim_id: claimId,
+            party: side,
             expense_date: v.expense_date?.toISOString(),
           });
         })}
