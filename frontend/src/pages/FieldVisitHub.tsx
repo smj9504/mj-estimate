@@ -105,7 +105,10 @@ const FieldVisitHub: React.FC = () => {
 
   const noOwner = namedAfterAddress(client);
   const place = [client.city, client.state, client.zipcode].filter(Boolean).join(', ');
-  const signing = canAccessPath('/onsite-signing');
+  // The visit stays this company's after the client goes to another; the client doesn't.
+  // A header saved before this was known has no answer, and was open then.
+  const clientOpen = header.clientOpen !== false;
+  const signing = clientOpen && canAccessPath('/onsite-signing');
   const signPath = `/onsite-signing?client=${client.id}&visit=${visitId}`;
 
   return (
@@ -117,13 +120,15 @@ const FieldVisitHub: React.FC = () => {
           meta={(
             <span className="fv-hub-place">
               {place}
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                aria-label="Edit address"
-                onClick={() => setEditing('address')}
-              />
+              {clientOpen && (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  aria-label="Edit address"
+                  onClick={() => setEditing('address')}
+                />
+              )}
             </span>
           )}
         />
@@ -154,18 +159,30 @@ const FieldVisitHub: React.FC = () => {
         )}
 
         <ul className="os-rows fv-rows">
-          <li>
-            <button type="button" className="os-row" onClick={() => setEditing('owner')}>
-              <UserOutlined className="fv-row-icon" aria-hidden="true" />
-              <span className="os-row-body">
-                <span className="os-row-title">{noOwner ? 'Add owner' : client.display_name}</span>
-                {!noOwner && (client.phone || client.email) && (
-                  <span className="os-row-meta">{[client.phone, client.email].filter(Boolean).join(' · ')}</span>
-                )}
-              </span>
-              <RightOutlined className="os-row-go" aria-hidden="true" />
-            </button>
-          </li>
+          {clientOpen ? (
+            <li>
+              <button type="button" className="os-row" onClick={() => setEditing('owner')}>
+                <UserOutlined className="fv-row-icon" aria-hidden="true" />
+                <span className="os-row-body">
+                  <span className="os-row-title">{noOwner ? 'Add owner' : client.display_name}</span>
+                  {!noOwner && (client.phone || client.email) && (
+                    <span className="os-row-meta">{[client.phone, client.email].filter(Boolean).join(' · ')}</span>
+                  )}
+                </span>
+                <RightOutlined className="os-row-go" aria-hidden="true" />
+              </button>
+            </li>
+          ) : (
+            <li>
+              <div className="os-row fv-row-static">
+                <UserOutlined className="fv-row-icon" aria-hidden="true" />
+                <span className="os-row-body">
+                  <span className="os-row-title">{noOwner ? 'No owner' : client.display_name}</span>
+                  <span className="os-row-meta">Client is with another company now</span>
+                </span>
+              </div>
+            </li>
+          )}
           {signing && (
             <li>
               <button type="button" className="os-row" onClick={() => navigate(signPath)}>
@@ -234,8 +251,12 @@ const FieldVisitHub: React.FC = () => {
           </section>
         ))}
 
-        <OwnerSheet open={editing === 'owner'} client={client} onClose={() => setEditing(null)} onSaved={refresh} />
-        <AddressSheet open={editing === 'address'} client={client} onClose={() => setEditing(null)} onSaved={refresh} />
+        {clientOpen && (
+          <>
+            <OwnerSheet open={editing === 'owner'} client={client} onClose={() => setEditing(null)} onSaved={refresh} />
+            <AddressSheet open={editing === 'address'} client={client} onClose={() => setEditing(null)} onSaved={refresh} />
+          </>
+        )}
       </div>
     </ConfigProvider>
   );

@@ -118,7 +118,7 @@ def env(tmp_path, monkeypatch):
     api = TestClient(application)
 
     yield SimpleNamespace(
-        api=api, who=who, session=session, storage=storage, queued=queued, read=read,
+        api=api, who=who, session=session, database=database, storage=storage, queued=queued, read=read,
         admin=admin, field=field, outsider=outsider, loner=loner,
         bethany_id=str(bethany.id), rival_id=str(rival.id),
     )
@@ -593,6 +593,221 @@ def test_a_visit_can_not_go_on_another_clients_claim(env):
     env.who['staff'] = env.admin
     response = env.api.put(f"/api/field-visits/{visit['id']}/claim", json={'claim_id': str(claim.id)})
     assert response.status_code == 400
+
+
+# ── Whose visit it is ───────────────────────────────────────────────────────
+
+
+def shared_client(env):
+    """A Bethany client with a claim Rival works too, so both companies see it"""
+    client = Client(display_name='Pat', owners=[], address='9 Oak', company_id=env.bethany_id, is_active=True)
+    env.session.add(client)
+    env.session.flush()
+    claim = Claim(client_id=client.id, claim_number='CL-9', status='open')
+    env.session.add(claim)
+    env.session.flush()
+    env.session.add(ClaimCompany(claim_id=claim.id, company_id=env.rival_id, role='contractor'))
+    env.session.commit()
+    return str(client.id)
+
+
+def start_for(env, client_id, **extra):
+    response = env.api.post('/api/field-visits/', json={'client_id': client_id, **extra})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_a_visit_is_its_companys(env):
+    visit = start(env)
+    assert str(env.session.query(FieldVisit).one().company_id) == env.bethany_id
+    assert detail(env, visit['id'])['id'] == visit['id']
+
+
+def test_each_company_sees_only_its_own_visits_to_a_shared_client(env):
+    client_id = shared_client(env)
+    ours = start_for(env, client_id)
+    room_id = save_room(env, ours['id'])
+    send_shot(env, ours['id'], room_id)
+
+    env.who['staff'] = env.outsider
+    # The client is theirs to see too, but not our visit: they start their own
+    theirs = start_for(env, client_id)
+    assert theirs['id'] != ours['id']
+    assert theirs['resumed'] is False
+    assert str(env.session.query(FieldVisit).filter(FieldVisit.id == theirs['id']).one().company_id) == env.rival_id
+    assert [row['id'] for row in env.api.get('/api/field-visits/', params={'client_id': client_id}).json()['visits']] == [
+        theirs['id'],
+    ]
+
+    env.who['staff'] = env.field
+    assert [row['id'] for row in env.api.get('/api/field-visits/', params={'client_id': client_id}).json()['visits']] == [
+        ours['id'],
+    ]
+    # Coming back carries on with our own visit, not theirs
+    assert start_for(env, client_id)['id'] == ours['id']
+
+
+def test_another_companys_visit_can_not_be_opened_or_changed(env):
+    client_id = shared_client(env)
+    visit = start_for(env, client_id)
+    room_id = save_room(env, visit['id'])
+    shot_id, _ = send_shot(env, visit['id'], room_id)
+
+    env.who['staff'] = env.outsider
+    base = f"/api/field-visits/{visit['id']}"
+    assert env.api.get(base).status_code == 404
+    assert env.api.put(f'{base}/rooms/{room_id}', json={'name': 'Mine', 'floor': '1'}).status_code == 404
+    assert send_shot(env, visit['id'], room_id)[1].status_code == 404
+    assert env.api.patch(f'{base}/shots/{shot_id}', json={'kind': 'demo'}).status_code == 404
+    assert env.api.delete(f'{base}/shots/{shot_id}').status_code == 404
+    assert env.api.put(f'{base}/claim', json={'claim_id': None}).status_code == 404
+
+    env.session.expire_all()
+    assert env.session.query(FieldRoom).one().name == 'Room 1'
+    assert env.session.query(FieldShot).one().kind == 'wall'
+    assert env.session.query(File).one().is_active is True
+
+
+def test_an_admin_sees_and_changes_every_companys_visits(env):
+    client_id = shared_client(env)
+    ours = start_for(env, client_id)
+    env.who['staff'] = env.outsider
+    theirs = start_for(env, client_id)
+
+    env.who['staff'] = env.admin
+    listed = {row['id'] for row in env.api.get('/api/field-visits/', params={'client_id': client_id}).json()['visits']}
+    assert listed == {ours['id'], theirs['id']}
+    for visit in (ours, theirs):
+        assert detail(env, visit['id'])['id'] == visit['id']
+        save_room(env, visit['id'], name='Kitchen')
+
+
+def test_an_admins_visit_goes_to_the_company_working_the_client(env):
+    client_id = shared_client(env)
+    env.who['staff'] = env.admin
+    visit = start_for(env, client_id)
+    assert str(env.session.query(FieldVisit).one().company_id) == env.bethany_id
+    # So that company's people carry on with it
+    env.who['staff'] = env.field
+    assert detail(env, visit['id'])['id'] == visit['id']
+    env.who['staff'] = env.outsider
+    assert env.api.get(f"/api/field-visits/{visit['id']}").status_code == 404
+
+
+def test_an_admins_new_client_visit_goes_to_the_company_picked(env):
+    env.who['staff'] = env.admin
+    visit = start(env, company_id=env.rival_id)
+    row = env.session.query(FieldVisit).one()
+    assert str(row.company_id) == env.rival_id
+    env.who['staff'] = env.outsider
+    assert detail(env, visit['id'])['id'] == visit['id']
+
+
+def test_someone_in_two_companies_works_under_the_one_on_the_client(env):
+    env.session.add(StaffCompany(staff_id=env.outsider.id, company_id=env.bethany_id))
+    env.session.commit()
+    client = Client(display_name='Pat', owners=[], address='9 Oak', company_id=env.bethany_id, is_active=True)
+    env.session.add(client)
+    env.session.commit()
+    env.who['staff'] = env.outsider
+    # Rival is picked by default on the form, but the client is Bethany's
+    visit = start_for(env, str(client.id), company_id=env.rival_id)
+    assert str(env.session.query(FieldVisit).filter(FieldVisit.id == visit['id']).one().company_id) == env.bethany_id
+    env.who['staff'] = env.field
+    assert detail(env, visit['id'])['id'] == visit['id']
+
+
+def test_a_visit_stays_its_companys_after_the_client_goes_to_another(env):
+    visit = start(env)
+    room_id = save_room(env, visit['id'])
+    shot_id, _ = send_shot(env, visit['id'], room_id)
+    assert detail(env, visit['id'])['client_open'] is True
+
+    client = env.session.query(Client).one()
+    client.company_id = env.rival_id
+    env.session.commit()
+
+    # Still ours to see and change, though the client no longer is
+    found = detail(env, visit['id'])
+    assert found['client_open'] is False
+    assert [shot['id'] for shot in found['shots']] == [shot_id]
+    assert [row['id'] for row in env.api.get('/api/field-visits/').json()['visits']] == [visit['id']]
+    save_room(env, visit['id'], room_id, name='Kitchen', name_source='user')
+    assert send_shot(env, visit['id'], room_id)[1].status_code == 200
+    assert env.api.delete(f"/api/field-visits/{visit['id']}/shots/{shot_id}").status_code == 200
+    # A new visit there needs the client, which is the other company's now
+    assert env.api.post('/api/field-visits/', json={'client_id': str(client.id)}).status_code == 404
+
+    # Its new company sees the client, not our visit
+    env.who['staff'] = env.outsider
+    assert env.api.get(f"/api/field-visits/{visit['id']}").status_code == 404
+
+
+def test_a_visit_on_a_claim_someone_is_off_stays_on_it(env):
+    visit = start(env)
+    room_id = save_room(env, visit['id'])
+    send_shot(env, visit['id'], room_id)
+    claim = Claim(client_id=visit['client_id'], claim_number='CL-3', status='open')
+    env.session.add(claim)
+    env.session.flush()
+    env.session.add(ClaimCompany(claim_id=claim.id, company_id=env.rival_id, role='contractor'))
+    env.session.commit()
+    env.who['staff'] = env.admin
+    assert env.api.put(f"/api/field-visits/{visit['id']}/claim", json={'claim_id': str(claim.id)}).status_code == 200
+
+    # Ours to see, but its photos are Rival's claim's now, and only its people take them off
+    env.who['staff'] = env.field
+    assert detail(env, visit['id'])['claim_id'] == str(claim.id)
+    assert env.api.put(f"/api/field-visits/{visit['id']}/claim", json={'claim_id': None}).status_code == 403
+    env.session.expire_all()
+    assert {f.context for f in env.session.query(File).all()} == {'claim'}
+
+
+def test_a_visit_with_no_company_is_the_admins_alone(env):
+    visit = start(env)
+    row = env.session.query(FieldVisit).one()
+    row.company_id = None
+    env.session.commit()
+    assert env.api.get(f"/api/field-visits/{visit['id']}").status_code == 404
+    assert env.api.get('/api/field-visits/').json()['visits'] == []
+    env.who['staff'] = env.admin
+    assert detail(env, visit['id'])['id'] == visit['id']
+
+
+def test_existing_visits_go_to_the_company_of_whoever_took_them(env):
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / 'alembic' / 'versions' / 'fv20261106co01_field_visit_company.py'
+    spec = importlib.util.spec_from_file_location('_fv_company_migration', path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    client_id = shared_client(env)
+    lonely = Client(display_name='Lee', owners=[], address='1 Pine', company_id=env.rival_id, is_active=True)
+    env.session.add(lonely)
+    env.session.commit()
+    rows = {
+        'field on shared': FieldVisit(client_id=client_id, created_by_id=env.field.id),
+        'outsider on shared': FieldVisit(client_id=client_id, created_by_id=env.outsider.id),
+        'admin on shared': FieldVisit(client_id=client_id, created_by_id=env.admin.id),
+        'field on lonely': FieldVisit(client_id=lonely.id, created_by_id=env.field.id),
+        'nobody on lonely': FieldVisit(client_id=lonely.id, created_by_id=None),
+    }
+    for row in rows.values():
+        env.session.add(row)
+    env.session.commit()
+
+    with env.database.engine.begin() as conn:
+        migration._backfill(conn)
+    env.session.expire_all()
+    assert {name: str(row.company_id) for name, row in rows.items()} == {
+        'field on shared': env.bethany_id,
+        'outsider on shared': env.rival_id,
+        'admin on shared': env.bethany_id,
+        # Someone not working the client keeps the visit in their own company
+        'field on lonely': env.bethany_id,
+        'nobody on lonely': env.rival_id,
+    }
 
 
 # ── The address here ────────────────────────────────────────────────────────

@@ -110,6 +110,8 @@ export interface FieldVisitDetail {
   ground_altitude: number | null;
   started_at: string | null;
   client: FieldVisitClient;
+  /** False once the client has gone to a company this person isn't in: the visit stays theirs, the client doesn't */
+  client_open?: boolean;
   rooms: ServerRoom[];
   shots: ServerShot[];
   contracts: FieldVisitContract[];

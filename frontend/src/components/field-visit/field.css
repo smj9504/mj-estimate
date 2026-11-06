@@ -41,6 +41,13 @@ a.os-row:hover {
   font-size: 18px;
   color: var(--color-neutral-600);
 }
+/* A row with nothing behind it */
+.os-row.fv-row-static,
+.os-row.fv-row-static:hover,
+.os-row.fv-row-static:active {
+  cursor: default;
+  background: none;
+}
 .fv-row-signed {
   flex: none;
   font-size: 18px;

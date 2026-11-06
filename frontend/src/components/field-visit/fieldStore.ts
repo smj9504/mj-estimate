@@ -75,6 +75,8 @@ export interface VisitHeader {
   claimId: string | null;
   groundAltitude: number | null;
   client: FieldVisitClient;
+  /** Whether this person may still change the client and sign for it */
+  clientOpen: boolean;
   contracts: FieldVisitContract[];
   claims: FieldVisitClaim[];
 }
@@ -307,6 +309,7 @@ export const mergeServerVisit = (visitId: string, detail: FieldVisitDetail, aske
     claimId: detail.claim_id,
     groundAltitude: detail.ground_altitude,
     client: detail.client,
+    clientOpen: detail.client_open !== false,
     contracts: detail.contracts,
     claims: detail.claims,
   };

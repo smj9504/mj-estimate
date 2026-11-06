@@ -6,6 +6,10 @@ Only the address is needed to start. The phone holds photos until they're sent,
 so sending one is repeatable (the shot's id is the phone's) and rooms are saved
 before the shots in them. A photo lives in the files table: under the visit until
 the office puts the visit on a claim, then under that claim.
+
+A visit is its company's: only that company's people see and change it, even when
+other companies work the same client, and still after the client is no longer
+theirs. Admins see every visit.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -16,13 +20,14 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File as FileField, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import false, func
 
 from app.common.services.media_types import as_jpeg_name, browser_video_type, is_heic, is_video, media_type_of
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth.company_scope import (
+    can_see_claim,
+    can_see_client,
     claim_condition,
-    client_condition,
     company_ids,
     document_condition,
     home_company_ids,
@@ -34,7 +39,7 @@ from app.domains.auth.dependencies import get_current_staff
 from app.domains.client.address_utils import normalize_address
 from app.domains.client.models import Claim, Client
 from app.domains.company.models import Company
-from app.domains.contract.models import ContractInstance
+from app.domains.contract.models import ClaimCompany, ContractInstance
 from app.domains.contract.onsite_signing_api import find_client_at_address
 from app.domains.file import thumbnails
 from app.domains.file.models import File
@@ -112,12 +117,28 @@ def _is_uuid(value: Any) -> bool:
         return False
 
 
+def _visit_condition(db: Any, staff: Any):
+    """Visits of this person's companies. A client can be worked by several
+    companies, and each sees only the visits its own people made, even once the
+    client has gone to another company. None for an admin, who sees them all; a
+    visit with no company is theirs alone."""
+    own = company_ids(db, staff)
+    if own is None:
+        return None
+    if not own:
+        return false()
+    return FieldVisit.company_id.in_(own)
+
+
 def _require_visit(db: Any, staff: Any, visit_id: str) -> FieldVisit:
-    """404 unless the visit exists and its client is one this person may see"""
-    visit = db.query(FieldVisit).filter(FieldVisit.id == visit_id).first() if _is_uuid(visit_id) else None
+    """404 unless the visit is one of this person's companies'"""
+    visit = None
+    if _is_uuid(visit_id):
+        visit = scoped(
+            db.query(FieldVisit).filter(FieldVisit.id == visit_id), _visit_condition(db, staff),
+        ).first()
     if visit is None:
         raise HTTPException(status_code=404, detail="Visit not found")
-    require_client(db, staff, visit.client_id, "Visit")
     return visit
 
 
@@ -219,6 +240,9 @@ def _visit_detail(db: Any, staff: Any, visit: FieldVisit) -> Dict[str, Any]:
         'ground_altitude': visit.ground_altitude,
         'started_at': visit.created_at.isoformat() if visit.created_at else None,
         'client': _client_out(client),
+        # A company keeps its visit after the client goes to another; it can't
+        # change the client or sign for it then
+        'client_open': can_see_client(db, staff, visit.client_id),
         'rooms': [_room_out(room) for room in rooms],
         'shots': [_shot_out(shot, file) for shot, file in rows],
         'contracts': [
@@ -248,6 +272,42 @@ def _company_for_new_client(db: Any, staff: Any, wanted: Optional[str]) -> Optio
     own = company_ids(db, staff)
     if own is None:
         return wanted
+    if not own:
+        raise HTTPException(status_code=400, detail="You don't belong to a company yet. Ask an admin to add you to one.")
+    if wanted and wanted in own:
+        return wanted
+    home = home_company_ids(db, staff)
+    return (home or own)[0]
+
+
+def _companies_on_client(db: Any, client: Client) -> List[str]:
+    """The companies working a client: the one managing it, then those on its claims"""
+    found = [str(client.company_id)] if client.company_id else []
+    rows = db.query(ClaimCompany.company_id).join(Claim, Claim.id == ClaimCompany.claim_id).filter(
+        Claim.client_id == client.id,
+    ).order_by(Claim.created_at.desc()).all()
+    for (company_id,) in rows:
+        if str(company_id) not in found:
+            found.append(str(company_id))
+    return found
+
+
+def _company_for_visit(db: Any, staff: Any, client: Client, wanted: Optional[str]) -> Optional[str]:
+    """The company a visit is made for, whose people alone see it. One of theirs
+    working this client, the one picked if it's among them; else the one picked,
+    else their own. An admin's goes to a company working the client, or the one
+    picked; with neither it stays the admins'."""
+    own = company_ids(db, staff)
+    working = _companies_on_client(db, client)
+    if own is not None:
+        working = [company for company in working if company in own]
+    if wanted and wanted in working:
+        return wanted
+    if working:
+        return working[0]
+    if own is None:
+        known = _is_uuid(wanted) and db.query(Company.id).filter(Company.id == wanted).first()
+        return wanted if known else None
     if not own:
         raise HTTPException(status_code=400, detail="You don't belong to a company yet. Ask an admin to add you to one.")
     if wanted and wanted in own:
@@ -326,7 +386,7 @@ def list_visits(
     """The latest visits this person may see, their own first"""
     query = scoped(
         db.query(FieldVisit, Client).join(Client, Client.id == FieldVisit.client_id),
-        client_condition(db, staff, FieldVisit.client_id),
+        _visit_condition(db, staff),
     )
     if client_id:
         if not _is_uuid(client_id):
@@ -367,19 +427,23 @@ def start_visit(
     staff: Any = Depends(get_current_staff),
     db: Any = Depends(get_db),
 ):
-    """Open a visit for a client, making the client if the address is new"""
+    """Open a visit for a client, making the client if the address is new. A recent
+    visit of the same company's carries on; another company's is never joined."""
     client, client_created = _client_for_visit(db, staff, data)
+    company_id = _company_for_visit(db, staff, client, data.company_id)
 
     visit = None
     if not client_created:
         visit = db.query(FieldVisit).filter(
             FieldVisit.client_id == client.id,
+            FieldVisit.company_id == company_id if company_id else FieldVisit.company_id.is_(None),
             FieldVisit.last_activity_at >= _utcnow() - SAME_VISIT_WITHIN,
         ).order_by(FieldVisit.last_activity_at.desc()).first()
     resumed = visit is not None
     if visit is None:
         visit = FieldVisit(
             client_id=client.id,
+            company_id=company_id,
             created_by_id=str(staff.id),
             latitude=data.latitude,
             longitude=data.longitude,
@@ -637,6 +701,10 @@ def link_claim(
     """Put the visit on one of the client's claims, or take it off. Its photos move
     with it, so they're listed once and go wherever that claim's photos go."""
     visit = _require_visit(db, staff, visit_id)
+    leaving = visit.claim_id and str(visit.claim_id) != (data.claim_id or '')
+    if leaving and not can_see_claim(db, staff, visit.claim_id):
+        # Its photos are that claim's now, and taking them off is for whoever works it
+        raise HTTPException(status_code=403, detail="Only people on that claim can take the visit off it")
     if data.claim_id:
         require_claim(db, staff, data.claim_id)
         claim = db.query(Claim).filter(Claim.id == data.claim_id).first()

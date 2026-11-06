@@ -19,6 +19,7 @@ class FieldVisit(Base, BaseModel):
     __tablename__ = "field_visits"
     __table_args__ = (
         Index('ix_field_visits_client_id', 'client_id'),
+        Index('ix_field_visits_company_id', 'company_id'),
         Index('ix_field_visits_last_activity_at', 'last_activity_at'),
         {'extend_existing': True},
     )
@@ -27,6 +28,9 @@ class FieldVisit(Base, BaseModel):
     # Set when the office puts the visit on a claim; its photos then live on that claim
     claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="SET NULL"), nullable=True)
     created_by_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
+    # Whose visit it is: only that company's people see and change it, besides admins.
+    # None leaves it to admins.
+    company_id = Column(UUIDType(), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True)
 
     latitude = Column(Float)
     longitude = Column(Float)
