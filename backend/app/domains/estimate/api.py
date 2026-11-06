@@ -938,6 +938,7 @@ def _group_items_into_sections(items: List[Dict[str, Any]], sections_data: Optio
                 'showSubtotal': True,
                 'isLumpSum': bool(lump_section),
                 'lumpSumAmount': float(lump_section.get('lump_sum_amount', 0) or 0) if lump_section else None,
+                'taxable': lump_section.get('taxable', True) if lump_section else True,
             }
 
         # Add processed item to section

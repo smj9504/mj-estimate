@@ -1391,15 +1391,20 @@ print(os.path.getsize(output_path))
         for i, section in enumerate(context.get('sections', [])):
             logger.info(f"  Section {i+1}: '{section.get('title')}' with {len(section.get('items', []))} items")
 
+        # The part of the subtotal that tax applies to: items not marked
+        # non-taxable, and lump-sum sections not marked non-taxable
+        taxable_subtotal = 0.0
+
         # Process sections and items to preserve HTML content
         if context.get('sections'):
             # Section-based structure
             processed_sections = []
             total_subtotal = 0
-            
+
             for section in context['sections']:
                 processed_items = []
                 section_subtotal = 0
+                section_taxable = 0
                 is_lump_sum = bool(section.get('isLumpSum') or section.get('is_lump_sum'))
 
                 for item in section.get('items', []):
@@ -1420,6 +1425,8 @@ print(os.path.getsize(output_path))
                     item_total = float(line_amount(quantity, unit_price))
                     processed_item['total'] = item_total
                     section_subtotal += item_total
+                    if item.get('taxable', True) is not False:
+                        section_taxable += item_total
 
                     processed_items.append(processed_item)
 
@@ -1428,6 +1435,8 @@ print(os.path.getsize(output_path))
                 if is_lump_sum:
                     lump_amount = section.get('lumpSumAmount', section.get('lump_sum_amount', 0))
                     section_subtotal = float(lump_amount or 0)
+                    section_taxable = section_subtotal if section.get('taxable', True) is not False else 0
+                taxable_subtotal += section_taxable
 
                 processed_section = {
                     'title': section.get('title', ''),
@@ -1466,9 +1475,11 @@ print(os.path.getsize(output_path))
                 item_total = float(line_amount(quantity, unit_price))
                 processed_item['total'] = item_total
                 subtotal += item_total
-                
+                if item.get('taxable', True) is not False:
+                    taxable_subtotal += item_total
+
                 processed_items.append(processed_item)
-            
+
             context['items'] = processed_items
             context['subtotal'] = subtotal
         
@@ -1524,8 +1535,16 @@ print(os.path.getsize(output_path))
         tax_method = context.get('tax_method', 'percentage')
         
         if tax_method == 'percentage':
-            # Calculate tax on adjusted subtotal
-            context['tax_amount'] = current_subtotal * (tax_rate / 100)
+            # Tax the taxable items with their share of the adjustments or
+            # O&P, as the estimate page and the saved total do; non-taxable
+            # items stay out of it
+            items_subtotal = context['subtotal']
+            if items_subtotal > 0 and taxable_subtotal > 0:
+                taxable_ratio = taxable_subtotal / items_subtotal
+                taxed = taxable_subtotal + (current_subtotal - items_subtotal) * taxable_ratio
+                context['tax_amount'] = taxed * (tax_rate / 100)
+            else:
+                context['tax_amount'] = 0
         else:
             # Specific tax amount
             context['tax_amount'] = float(context.get('tax_amount', 0))
