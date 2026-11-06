@@ -39,6 +39,12 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
       { key: 'rebuild_projects', label: 'Rebuild Projects', paths: ['/rebuild-projects'] },
       { key: 'work_orders', label: 'Work Orders', paths: ['/work-orders', '/work-order', '/create/work-order'] },
       { key: 'clients', label: 'Clients', paths: ['/clients'] },
+      {
+        key: 'acculynx_archive',
+        label: 'AccuLynx History',
+        paths: [],
+        hint: 'Archived AccuLynx jobs, documents and messages on client pages',
+      },
       { key: 'supplements', label: 'Supplements', paths: ['/supplements'] },
     ],
   },

@@ -30,6 +30,7 @@ const ROLE_LABELS: Record<string, string> = {
   accountant: 'Accountant',
   viewer: 'Viewer',
   contractor: 'Contractor',
+  public_adjuster: 'Public Adjuster',
 };
 
 interface ScreenSettings {
@@ -273,8 +274,9 @@ const UserManagement: React.FC = () => {
           technician: 'green',
           staff: 'default',
           contractor: 'orange',
+          public_adjuster: 'purple',
         };
-        return <Tag color={colors[role] || 'default'}>{role.toUpperCase()}</Tag>;
+        return <Tag color={colors[role] || 'default'}>{(ROLE_LABELS[role] ?? role).toUpperCase()}</Tag>;
       },
     },
     {
@@ -564,6 +566,7 @@ const UserManagement: React.FC = () => {
               <Option value="sales">Sales</Option>
               <Option value="customer_service">Customer Service</Option>
               <Option value="contractor">Contractor</Option>
+              <Option value="public_adjuster">Public Adjuster</Option>
             </Select>
           </Form.Item>
 

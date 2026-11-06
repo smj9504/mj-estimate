@@ -28,6 +28,7 @@ SCREEN_KEYS: tuple = (
     "rebuild_projects",
     "work_orders",
     "clients",
+    "acculynx_archive",
     "supplements",
     # Estimates
     "pack_calculator",

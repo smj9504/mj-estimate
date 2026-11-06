@@ -13,7 +13,7 @@ export interface User {
   last_name?: string;
   phone?: string;
   mobile_phone?: string;
-  role: 'super_admin' | 'admin' | 'manager' | 'supervisor' | 'technician' | 'staff' | 'sales' | 'customer_service' | 'accountant' | 'viewer' | 'contractor';
+  role: 'super_admin' | 'admin' | 'manager' | 'supervisor' | 'technician' | 'staff' | 'sales' | 'customer_service' | 'accountant' | 'viewer' | 'contractor' | 'public_adjuster';
   company_id?: string | null;
   staff_number?: string;
   is_active: boolean;
@@ -49,6 +49,8 @@ interface AuthContextType {
   isManager: () => boolean;
   hasPermission: (requiredRole: string) => boolean;
   canAccessPath: (pathname: string) => boolean;
+  /** A screen key with no page of its own, such as a tab (see constants/screens) */
+  canOpenScreen: (key: string) => boolean;
 }
 
 interface RegisterData {
@@ -199,6 +201,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return opensScreen(user.screens, screen);
   }, [user?.screens]);
 
+  const canOpenScreen = useCallback((key: string) => {
+    // A session stored before screen access existed has no list yet
+    if (!user?.screens) return true;
+    return opensScreen(user.screens, key);
+  }, [user?.screens]);
+
   // Memoize context value to prevent unnecessary re-renders of consumers
   const value = useMemo(() => ({
     user,
@@ -212,7 +220,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isManager,
     hasPermission,
     canAccessPath,
-  }), [user, token, loading, login, logout, updateSession, register, isAdmin, isManager, hasPermission, canAccessPath]);
+    canOpenScreen,
+  }), [user, token, loading, login, logout, updateSession, register, isAdmin, isManager, hasPermission, canAccessPath, canOpenScreen]);
 
   return (
     <AuthContext.Provider value={value}>

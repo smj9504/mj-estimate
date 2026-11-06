@@ -15,14 +15,15 @@ from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_database
 from app.domains.auth.company_scope import client_condition, require_client, scoped
-from app.domains.auth.dependencies import get_current_staff
+from app.domains.auth.dependencies import get_current_staff, require_screen
 from app.domains.staff.models import Staff
 
 from .models import AccuLynxArchivedDocument, AccuLynxArchivedJob, AccuLynxArchivedMessage
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Only for people given the AccuLynx History screen
+router = APIRouter(dependencies=[Depends(require_screen("acculynx_archive"))])
 
 
 def get_db():

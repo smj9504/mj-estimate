@@ -25,6 +25,7 @@ class StaffRole(str, enum.Enum):
     accountant = "accountant"
     viewer = "viewer"
     contractor = "contractor"
+    public_adjuster = "public_adjuster"
 
 
 class PermissionLevel(str, enum.Enum):

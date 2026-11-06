@@ -55,8 +55,8 @@ class MessagingService:
         of their own companies, and the office (admins and staff set to all
         companies). None for our own staff, who may reach everyone.
 
-        Outside people are contractor-role logins and logins that belong only
-        to public adjuster firms."""
+        Outside people are contractor and public adjuster role logins, and
+        logins that belong only to public adjuster firms."""
         from app.domains.auth.company_scope import sees_every_company, staff_company_ids
         from app.domains.company.models import Company
         from app.domains.staff.models import StaffCompany, StaffRole
@@ -66,7 +66,7 @@ class MessagingService:
         own = staff_company_ids(self.db, viewer.id)
         role = getattr(viewer, 'role', None)
         role = getattr(role, 'value', role)
-        outsider = role == StaffRole.contractor.value
+        outsider = role in (StaffRole.contractor.value, StaffRole.public_adjuster.value)
         if not outsider and own:
             types = {
                 t for (t,) in self.db.query(Company.company_type).filter(Company.id.in_(own)).all()

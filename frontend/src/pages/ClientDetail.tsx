@@ -3516,7 +3516,7 @@ const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
 // ─────────────────────────────────────────────
 
 const ClientDetail: React.FC = () => {
-  const { canAccessPath } = useAuth();
+  const { canAccessPath, canOpenScreen } = useAuth();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -3536,11 +3536,13 @@ const ClientDetail: React.FC = () => {
   useBreadcrumbTitle(client?.display_name || null);
   const { data: fieldVisits = [] } = useClientFieldVisits(client?.id);
 
-  // Jobs archived from AccuLynx - the tab only shows when there are some
+  // Jobs archived from AccuLynx - the tab only shows when there are some,
+  // to people given the AccuLynx History screen
+  const seesAccuLynx = canOpenScreen('acculynx_archive');
   const { data: archivedJobs = [], isLoading: archivedJobsLoading } = useQuery({
     queryKey: ['acculynx-archive-jobs', id],
     queryFn: () => acculynxArchiveService.listClientJobs(id!),
-    enabled: !!id,
+    enabled: !!id && seesAccuLynx,
   });
 
   const updateMutation = useMutation({
@@ -3590,7 +3592,7 @@ const ClientDetail: React.FC = () => {
 
   // A client created by the AccuLynx import leads with its AccuLynx history;
   // a client the import matched to an existing one keeps it at the end
-  const isAccuLynxImport = client.source === 'acculynx';
+  const isAccuLynxImport = client.source === 'acculynx' && seesAccuLynx;
   const accuLynxHistoryTab = {
     key: 'acculynx-history',
     label: (
@@ -3629,7 +3631,7 @@ const ClientDetail: React.FC = () => {
       label: 'Specialty Documents',
       children: <AllDocumentsTab client={client} />,
     },
-    ...(!isAccuLynxImport && archivedJobs.length > 0 ? [accuLynxHistoryTab] : []),
+    ...(seesAccuLynx && !isAccuLynxImport && archivedJobs.length > 0 ? [accuLynxHistoryTab] : []),
     ...(fieldVisits.length > 0 ? [{
       key: 'field-visits',
       label: (

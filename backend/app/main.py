@@ -602,10 +602,11 @@ async def lifespan(app: FastAPI):
                         with _db.engine.connect().execution_options(
                             isolation_level="AUTOCOMMIT"
                         ) as enum_conn:
-                            enum_conn.execute(text(
-                                "ALTER TYPE staffrole ADD VALUE IF NOT EXISTS 'contractor'"
-                            ))
-                            print("[MIGRATION] Ensured 'contractor' in staffrole enum")
+                            for role_value in ('contractor', 'public_adjuster'):
+                                enum_conn.execute(text(
+                                    f"ALTER TYPE staffrole ADD VALUE IF NOT EXISTS '{role_value}'"
+                                ))
+                                print(f"[MIGRATION] Ensured '{role_value}' in staffrole enum")
                     except Exception as e:
                         print(f"[MIGRATION] staffrole enum: {e}")
 
