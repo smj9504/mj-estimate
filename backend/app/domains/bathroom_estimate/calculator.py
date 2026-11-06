@@ -548,10 +548,21 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
 
     # Auto-calculate shutoff valves & supply lines from ALL plumbing fixtures
     # (both Replace and D&R). Each fixture has valves & supply lines that
-    # should be replaced when disconnected to prevent future leaks.
+    # should be replaced when disconnected to prevent future leaks. A fixture
+    # the plumber already repaired (water_damage_source) keeps the shut-off
+    # valves the plumber put in: it adds none.
     _plumb_fixtures = []
+    _plumber_valve_fixtures = []
     _auto_valve_count = 0
     _auto_supply_count = 0
+
+    def _count_valves(label, valves, plumber_fixed):
+        nonlocal _auto_valve_count
+        if plumber_fixed:
+            _plumber_valve_fixtures.append(label)
+        else:
+            _auto_valve_count += valves
+            _plumb_fixtures.append(label)
 
     # Vanity: 2 valves (hot/cold) per sink (double-sink vanity = 2x)
     if estimate.replace_vanity or getattr(estimate, 'detach_reset_vanity', False):
@@ -559,31 +570,36 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         _van_sink_count = sum(
             (v.get("sinks", 1) or 1) for v in _van_items if v and isinstance(v, dict)
         )
-        _auto_valve_count += _van_sink_count * 2
+        _count_valves(f"vanity sink x{_van_sink_count}", _van_sink_count * 2,
+                      plumber_fixed_vanity)
         _auto_supply_count += _van_sink_count * 2
-        _plumb_fixtures.append(f"vanity sink x{_van_sink_count}")
     # Bathtub: 2 valves (hot/cold)
     if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
-        _auto_valve_count += 2
+        _count_valves("bathtub", 2, plumber_fixed_tub)
         _auto_supply_count += 2
-        _plumb_fixtures.append("bathtub")
     # Standalone shower: 2 valves (hot/cold)
     if estimate.replace_shower or getattr(estimate, 'detach_reset_shower', False):
-        _auto_valve_count += 2
+        _count_valves("shower", 2, plumber_fixed_shower)
         _auto_supply_count += 2
-        _plumb_fixtures.append("shower")
     # Toilet: 1 valve (cold only)
     if estimate.replace_toilet or getattr(estimate, 'detach_reset_toilet', False):
-        _auto_valve_count += 1
+        _count_valves("toilet", 1, plumber_fixed_toilet)
         _auto_supply_count += 1
-        _plumb_fixtures.append("toilet")
 
     if _auto_valve_count > 0:
         _fix_list = ", ".join(_plumb_fixtures)
+        _valve_note = f"Quarter-turn ball valve | {_fix_list}"
+        if _plumber_valve_fixtures:
+            _valve_note += (" | Not included (plumber already replaced): "
+                            + ", ".join(_plumber_valve_fixtures))
         _add(line_items, 2, "Shut-off valve replacement",
              _auto_valve_count, "EA",
              PLUMBING_RATES["shutoff_valve_each"] * labor_mult, "plumbing",
-             notes=f"Quarter-turn ball valve | {_fix_list}")
+             notes=_valve_note)
+    if _plumber_valve_fixtures:
+        warnings.append("Shut-off valves: plumber already replaced ("
+                        + ", ".join(_plumber_valve_fixtures)
+                        + ") — excluded from estimate")
 
     if _auto_supply_count > 0:
         _add(line_items, 2, "Supply line replacement (braided SS)",
