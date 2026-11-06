@@ -178,6 +178,8 @@ export interface AccessoriesSpec {
   soap_dispensers?: number;
   finish?: string;
   grade?: string;
+  /** Mirrors by width in inches (components/bathroom-estimate/mirrorRows.ts) */
+  mirrors?: { width: number; count: number; from_sketch?: boolean }[];
 }
 
 export interface PlumbingSpec {

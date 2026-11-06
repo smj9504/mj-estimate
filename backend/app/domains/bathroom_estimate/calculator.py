@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from .cabinets import CABINET_TYPES, cabinet_groups
 from .layout_changes import layout_change_line_items
 from .lights import LIGHT_TYPES, light_groups
+from .mirrors import mirror_count, mirror_groups, price_by_width
 from .selections import Picks
 from .pricing import (
     get_permit_info,
@@ -375,9 +376,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
 
     # Mirror demo only if replacing with new mirror (not D&R, not None)
     if getattr(estimate, 'replace_mirror', False):
-        mirror_van_count = len(
-            (estimate.vanity_spec or {}).get("items", [])
-        ) or 1
+        mirror_van_count = mirror_count(estimate) or 1
         mirror_cost = round(mirror_van_count * DEMO_RATES["mirror"] * labor_mult, 2)
         demo_total += mirror_cost
         demo_parts.append(f"Mirror x{mirror_van_count} ${mirror_cost:,.2f}")
@@ -2179,13 +2178,19 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
              notes="Labor only: remove, store, reinstall w/ new wax ring")
 
     if getattr(estimate, 'detach_reset_mirror', False):
-        dr_mirror_count = len(
-            (estimate.vanity_spec or {}).get("items", [])
-        ) or 1
-        _add(line_items, 5, "Detach & Reset - Mirror",
-             dr_mirror_count, "EA",
-             DETACH_RESET_COSTS["mirror"] * labor_mult, "fixture",
-             notes="Labor only: careful removal, store, reinstall")
+        # Each mirror by its width, one line per width: a double vanity's one
+        # wide mirror and its two small ones price differently
+        for _mg in mirror_groups(estimate):
+            _mw = _mg["width"]
+            _m_rate = price_by_width(DETACH_RESET_COSTS["mirror"], _mw, unknown_width=36)
+            _m_notes = "Labor only: careful removal, store, reinstall"
+            if _mw:
+                _m_notes += f' | {_mw:.0f}" wide' + (", two people to lift and hang" if _mw > 48 else "")
+            _add(line_items, 5,
+                 f'Detach & Reset - Mirror ({_mw:.0f}" wide)' if _mw else "Detach & Reset - Mirror",
+                 _mg["count"], "EA",
+                 round(_m_rate * labor_mult, 2), "fixture",
+                 notes=_m_notes)
 
     # Mirror standalone install (when replacing mirror WITHOUT replacing vanity)
     if (getattr(estimate, 'replace_mirror', False)

@@ -25,6 +25,7 @@ import type { BESketchData, BESketchTool } from '../../../types/bathroomSketch';
 import { BATHTUB_SURROUND_DEFAULTS, MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
 import { soffitAreas } from './utils/soffit';
 import { cabinetsFromSketch, lightsFromSketch, type FixtureRow } from '../fixtureRows';
+import { mirrorsFromSketch, type MirrorRow } from '../mirrorRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { showerDoorPosition } from './utils/beGeometry';
 import { roomWallFinishTotals } from './utils/wallFinish';
@@ -136,6 +137,8 @@ export interface SketchFixtureSync {
   sketch_lights?: FixtureRow[];
   /** The cabinets drawn on the plan, by kind (merged into accessories_spec.cabinets by the page) */
   sketch_cabinets?: FixtureRow[];
+  /** The mirrors drawn on the plan, by width (merged into accessories_spec.mirrors by the page) */
+  sketch_mirrors?: MirrorRow[];
 
   // Drywall repair (from sketch drywall zones)
   hidden_costs?: Record<string, any>;
@@ -332,6 +335,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
   };
   sync.sketch_lights = lightsFromSketch(fixtures);
   sync.sketch_cabinets = cabinetsFromSketch(fixtures);
+  sync.sketch_mirrors = mirrorsFromSketch(fixtures);
   // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);
 

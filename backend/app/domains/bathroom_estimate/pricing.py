@@ -839,8 +839,21 @@ DETACH_RESET_COSTS = {
     "shower_door": 335,               # ~2.5 hrs ($200-$350)
     # Shower surround (prefab): remove panels, store, reinstall
     "shower_surround": 422,           # ~3 hrs ($275-$425)
-    # Mirror: careful removal, store, reinstall
-    "mirror": 116,                    # ~0.75 hrs ($65-$125)
+    # Mirror: careful removal, store, reinstall. Per mirror by its width
+    # (inches): the smallest size at or over it, past 72" per inch more
+    # (mirrors.price_by_width). A mirror of unknown width is priced as 36".
+    # 2026-11-06: was $116 any size. Set against carrier Xactimate lines in
+    # the AccuLynx archive: mirror D&R $7.56/SF (VAAR 2025) to $11.63/SF
+    # (MDRO 2026) with a $105-$120 mirror labor minimum; at ~36" tall that
+    # is ~$105 for 36" wide, ~$140 for 48", ~$175 for 60", ~$245 for 72"x42".
+    # Defaults, not company rates: adjust when real jobs show they're off.
+    "mirror": {
+        24: 95,                       # small, one person, ~0.5 hr
+        36: 116,                      # standard, ~0.75 hr
+        48: 145,                      # ~1 hr
+        60: 185,                      # two people to lift and hang level
+        72: 230,                      # wide plate mirror, two people
+    },
     # Vanity light: disconnect, remove, store, reinstall
     "vanity_light": 104,              # ~0.5-0.75 hrs ($65-$110)
     # Cabinets on the wall: empty, unscrew from the studs, store, rehang level.

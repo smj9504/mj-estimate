@@ -68,6 +68,8 @@ import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
 import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
 import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
 import BEFixtureRows from '../components/bathroom-estimate/BEFixtureRows';
+import BEMirrorRows from '../components/bathroom-estimate/BEMirrorRows';
+import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRows';
 import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
 import { exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
@@ -576,6 +578,12 @@ const BathroomEstimateDetail: React.FC = () => {
       updates.accessories_spec = {
         ...(current.accessories_spec || {}),
         cabinets: mergeFromSketch(current.accessories_spec?.cabinets, sync.sketch_cabinets),
+      };
+    }
+    if (sync.sketch_mirrors) {
+      updates.accessories_spec = {
+        ...(updates.accessories_spec ?? current.accessories_spec ?? {}),
+        mirrors: mergeMirrorsFromSketch(current.accessories_spec?.mirrors, sync.sketch_mirrors),
       };
     }
     if (sync.walls_spec) {
@@ -1365,6 +1373,13 @@ const BathroomEstimateDetail: React.FC = () => {
                               <Radio.Button value="replace">New</Radio.Button>
                               <Radio.Button value="detach_reset">D&R</Radio.Button>
                             </Radio.Group>
+                            {/* Each mirror by width: a double vanity has one wide mirror or a
+                                small one over each sink, and D&R is priced per mirror by width */}
+                            {getAction('mirror') !== 'none' && (
+                              <Form.Item name={['accessories_spec', 'mirrors']} noStyle>
+                                <BEMirrorRows />
+                              </Form.Item>
+                            )}
                           </div>
                         </Col>
                       </Row>
