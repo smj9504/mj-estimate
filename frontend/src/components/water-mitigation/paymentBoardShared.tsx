@@ -97,15 +97,20 @@ export const writeBoolPref = (key: string, value: boolean) => {
 };
 
 // Colour AND an arrow glyph, so contractor vs customer reads without relying on colour alone.
-export const CheckRecipientTag: React.FC<{ value?: CheckRecipient | null }> = ({ value }) => {
+// Inside a Check To select the arrow is left off (arrow={false}): the box already says what it is.
+export const CheckRecipientTag: React.FC<{ value?: CheckRecipient | null; arrow?: boolean }> = ({
+  value,
+  arrow = true,
+}) => {
+  const icon = arrow ? <ArrowRightOutlined /> : undefined;
   if (value === 'contractor') {
-    return <Pill tone="blue" icon={<ArrowRightOutlined />}>Contractor</Pill>;
+    return <Pill tone="blue" icon={icon}>Contractor</Pill>;
   }
   if (value === 'customer') {
-    return <Pill tone="orange" icon={<ArrowRightOutlined />}>Customer</Pill>;
+    return <Pill tone="orange" icon={icon}>Customer</Pill>;
   }
   if (value === 'pa') {
-    return <Pill tone="purple" icon={<ArrowRightOutlined />}>PA</Pill>;
+    return <Pill tone="purple" icon={icon}>PA</Pill>;
   }
   return <Pill tone="gray">—</Pill>;
 };

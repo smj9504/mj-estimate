@@ -1435,6 +1435,16 @@ span.wm-amount-approved {
 span.wm-amount-invoice {
   color: #a5a29a;
 }
+/* Manager link on a phone: read at arm's length, so status and check-to pills run a size up */
+.wm-pay-card .ui-pill {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 14px;
+  line-height: 24px;
+}
+.wm-pay-card .ui-pill-icon {
+  font-size: 12px;
+}
 .sup-net-line {
   display: flex;
   flex-direction: column;

@@ -152,9 +152,13 @@ const WMPaymentBoardPublic: React.FC = () => {
     />
   );
 
-  const checkRecipientSelect = (row: WMPaymentRow, width: number | string) => (
+  const checkRecipientSelect = (
+    row: WMPaymentRow,
+    width: number | string,
+    size: 'small' | 'middle' = 'small'
+  ) => (
     <Select
-      size="small"
+      size={size}
       allowClear
       placeholder="—"
       aria-label="Check to"
@@ -163,7 +167,7 @@ const WMPaymentBoardPublic: React.FC = () => {
       style={{ width }}
       options={CHECK_RECIPIENT_OPTIONS}
       onChange={(v) => handleCheckRecipient(row, (v as CheckRecipient | undefined) ?? null)}
-      labelRender={({ value: v }) => <CheckRecipientTag value={v as CheckRecipient} />}
+      labelRender={({ value: v }) => <CheckRecipientTag value={v as CheckRecipient} arrow={false} />}
     />
   );
 
@@ -236,46 +240,50 @@ const WMPaymentBoardPublic: React.FC = () => {
     },
   ];
 
+  // Check to sits beside the amount; with amounts hidden it moves to the end of the status line
   const renderMobileCard = (row: WMPaymentRow) => (
     <div
       key={row.id}
+      className="wm-pay-card"
       style={{
         background: row.payment_received ? RECEIVED_ROW_BG : '#fff',
         border: '1px solid #f0f0f0',
         borderRadius: 12,
-        padding: '12px 14px',
+        padding: '14px 14px 12px',
         marginBottom: 10,
       }}
     >
       {/* Address + Received switch on one line so the main action is always thumb-reachable */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Text strong style={{ display: 'block', fontSize: 15, lineHeight: 1.3 }}>
+          <Text strong style={{ display: 'block', fontSize: 17, lineHeight: 1.3 }}>
             {row.property_address}
           </Text>
           {(row.company || row.homeowner_name) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-              <CompanyTag company={row.company} style={{ margin: 0, fontSize: 11 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <CompanyTag company={row.company} style={{ margin: 0, fontSize: 12 }} />
               {row.homeowner_name && (
-                <Text type="secondary" style={{ fontSize: 12 }}>{row.homeowner_name}</Text>
+                <Text type="secondary" style={{ fontSize: 14 }}>{row.homeowner_name}</Text>
               )}
-            </div>
-          )}
-          {row.status && (
-            <div style={{ marginTop: 6 }}>
-              <WMStatusPill status={row.status} />
             </div>
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
           {receivedSwitch(row)}
-          <Text type="secondary" style={{ fontSize: 11 }}>
+          <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
             {row.payment_received
               ? `Received${row.payment_received_at ? ` ${dayjs(row.payment_received_at).format('MM/DD')}` : ''}`
               : 'Pending'}
           </Text>
         </div>
       </div>
+
+      {(row.status || !showAmount) && (
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          {row.status ? <WMStatusPill status={row.status} /> : <span />}
+          {!showAmount && checkRecipientSelect(row, 140, 'middle')}
+        </div>
+      )}
 
       {showAmount && (
         <div
@@ -284,17 +292,22 @@ const WMPaymentBoardPublic: React.FC = () => {
             padding: '8px 10px',
             background: 'rgba(0,0,0,0.03)',
             borderRadius: 8,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'space-between',
+            gap: 10,
           }}
         >
-          <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Amount</Text>
-          <AmountText row={row} style={{ fontSize: 13, whiteSpace: 'nowrap' }} />
+          <div style={{ minWidth: 0 }}>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Amount</Text>
+            <AmountText row={row} style={{ fontSize: 20, lineHeight: 1.3, whiteSpace: 'nowrap' }} />
+          </div>
+          <div style={{ flexShrink: 0 }}>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Check to</Text>
+            {checkRecipientSelect(row, 140, 'middle')}
+          </div>
         </div>
       )}
-
-      <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>Check to</Text>
-        {checkRecipientSelect(row, 150)}
-      </div>
 
       <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e8e8e8' }}>
         <EditableNote compact value={row.payment_note} updatedAt={row.payment_note_updated_at} onSave={(note) => handleNote(row, note)} />

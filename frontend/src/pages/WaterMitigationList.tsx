@@ -554,7 +554,7 @@ const WaterMitigationList: React.FC = () => {
           style={{ width: '100%' }}
           options={CHECK_RECIPIENT_OPTIONS}
           onChange={(v) => handleInlineUpdate(record.id, { check_recipient: v ?? null })}
-          labelRender={({ value: v }) => <CheckRecipientTag value={v as CheckRecipient} />}
+          labelRender={({ value: v }) => <CheckRecipientTag value={v as CheckRecipient} arrow={false} />}
         />
       )
     },
