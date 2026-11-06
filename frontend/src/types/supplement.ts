@@ -86,6 +86,8 @@ export interface BidItemEstimate {
   pa_response_date?: string;
   pa_response_notes?: string;
   created_at?: string;
+  /** A public adjuster login may change only items a public adjuster added */
+  added_by_public_adjuster?: boolean;
 }
 
 export interface BidItemEstimateCreate {

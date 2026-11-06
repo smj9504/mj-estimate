@@ -106,7 +106,10 @@ class BidItemEstimateRepository(SQLAlchemyRepository):
         items = self.db_session.query(BidItemEstimate).filter(
             BidItemEstimate.supplement_id == supplement_id
         ).order_by(BidItemEstimate.created_at).all()
-        return [self._convert_to_dict(i) for i in items]
+        from app.domains.supplement.pa_access import mark_added_by_public_adjuster
+        return mark_added_by_public_adjuster(
+            self.db_session, [self._convert_to_dict(i) for i in items]
+        )
 
 
 class SupplementFollowUpRepository(SQLAlchemyRepository):

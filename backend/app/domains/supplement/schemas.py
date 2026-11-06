@@ -159,6 +159,8 @@ class BidItemEstimateResponse(BidItemEstimateBase):
     pa_response_date: Optional[datetime] = None
     pa_response_notes: Optional[str] = None
     created_at: Optional[datetime] = None
+    # A public adjuster login may change only items a public adjuster added
+    added_by_public_adjuster: bool = False
 
     class Config:
         from_attributes = True

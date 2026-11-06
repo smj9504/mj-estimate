@@ -316,6 +316,8 @@ class SupplementService:
             # Auto-advance status from 'identified' to 'in_progress' when bid item is added
             self._auto_advance_status(session, str(data['supplement_id']))
             session.commit()
+            from app.domains.supplement.pa_access import mark_added_by_public_adjuster
+            mark_added_by_public_adjuster(session, [result])
             return result
         except Exception as e:
             session.rollback()
@@ -334,6 +336,9 @@ class SupplementService:
             if result:
                 self._recalculate_supplement_amount(session, str(result['supplement_id']))
             session.commit()
+            if result:
+                from app.domains.supplement.pa_access import mark_added_by_public_adjuster
+                mark_added_by_public_adjuster(session, [result])
             return result
         except Exception as e:
             session.rollback()

@@ -26,6 +26,7 @@ import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { listEstimates as listPackingEstimates } from '../services/packingEstimateService';
 import { companyService } from '../services/companyService';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
+import { useAuth } from '../contexts/AuthContext';
 import { PageHeader, Pill, PropertyList, humanize, useSheetModal, type TagTone } from '../components/common/ui';
 import SendingAccountSelect from '../components/common/SendingAccountSelect';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
@@ -150,6 +151,12 @@ const SupplementDetail: React.FC = () => {
   // Compact controls on desktop; full-size ones on phones so they can be tapped
   const controlSize = isMobile ? 'middle' : 'small';
   const { sheetProps } = useSheetModal();
+
+  // A public adjuster adds bid items but can't change or delete anyone else's;
+  // items any public adjuster added stay open to all of them. No Send to PA or WM Demo.
+  const { user } = useAuth();
+  const isPublicAdjuster = (user?.role as string) === 'public_adjuster';
+  const canChangeBid = (item: BidItemEstimate) => !isPublicAdjuster || !!item.added_by_public_adjuster;
 
   // In the URL so a phone's Back closes the photos or demo list instead of leaving the page
   const location = useLocation();
@@ -313,6 +320,8 @@ const SupplementDetail: React.FC = () => {
   const backfilledSupplementRef = React.useRef<string | null>(null);
   useEffect(() => {
     if (!supplement?.id) return;
+    // Left to the contractor's people: these would be the PA's items otherwise
+    if (isPublicAdjuster) return;
     if (backfilledSupplementRef.current === supplement.id) return;
     backfilledSupplementRef.current = supplement.id;
 
@@ -716,7 +725,16 @@ const SupplementDetail: React.FC = () => {
     },
   });
 
-  const renderBidTitle = (item: BidItemEstimate) => (
+  const renderBidTitle = (item: BidItemEstimate) => !canChangeBid(item) ? (
+    <div style={{ minWidth: 0 }}>
+      <Text className="sup-bid-title">{item.title}</Text>
+      {item.description && (
+        <div style={{ marginTop: 2 }}>
+          <Text type="secondary" className="sup-bid-notes">{item.description}</Text>
+        </div>
+      )}
+    </div>
+  ) : (
     <div style={{ minWidth: 0 }}>
       <Text
         className="sup-bid-title"
@@ -803,6 +821,26 @@ const SupplementDetail: React.FC = () => {
 
   const renderBidAmount = (item: BidItemEstimate) => {
     const v = item.custom_amount;
+    const netLine = item.estimate_type === 'xactimate' && inXactTotal > 0 && (
+      <div className="sup-net-line">
+        <span>− {formatCurrency(inXactTotal)}</span>
+        <strong>= {formatCurrency(xactNet)}</strong>
+      </div>
+    );
+    if (!canChangeBid(item)) {
+      return (
+        <div>
+          <span
+            style={item.included_in_xactimate
+              ? { textDecoration: 'line-through', color: 'var(--color-neutral-600)' }
+              : undefined}
+          >
+            {formatCurrency(v || 0)}
+          </span>
+          {netLine}
+        </div>
+      );
+    }
     return (
       <div>
         <InputNumber
@@ -829,18 +867,19 @@ const SupplementDetail: React.FC = () => {
           }}
           onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
         />
-        {item.estimate_type === 'xactimate' && inXactTotal > 0 && (
-          <div className="sup-net-line">
-            <span>− {formatCurrency(inXactTotal)}</span>
-            <strong>= {formatCurrency(xactNet)}</strong>
-          </div>
-        )}
+        {netLine}
       </div>
     );
   };
 
   const renderInXact = (item: BidItemEstimate, withLabel = false) => item.estimate_type === 'xactimate' ? (
     withLabel ? null : <span className="ui-props-empty">—</span>
+  ) : !canChangeBid(item) ? (
+    item.included_in_xactimate ? (
+      withLabel
+        ? <span className="sup-field-label">In Xactimate</span>
+        : <CheckOutlined aria-label="Included in Xactimate" />
+    ) : (withLabel ? null : <span className="ui-props-empty">—</span>)
   ) : (
     <Tooltip title="Xactimate에 이 항목 금액이 포함되어 있으면 체크">
       <Checkbox
@@ -882,7 +921,21 @@ const SupplementDetail: React.FC = () => {
             </Button>
           </Tooltip>
         )}
-        {item.custom_document_file_id ? (
+        {!canChangeBid(item) ? (
+          item.custom_document_file_id ? (
+            <Tooltip title={item.custom_document_file_name || 'View uploaded PDF'}>
+              <a
+                className="sup-pdf-link"
+                href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${item.custom_document_file_name || 'uploaded PDF'}`}
+              >
+                <FilePdfOutlined />
+              </a>
+            </Tooltip>
+          ) : (!linkedType && <span className="ui-props-empty">—</span>)
+        ) : item.custom_document_file_id ? (
           <>
             <Tooltip title={item.custom_document_file_name || 'View uploaded PDF'}>
               <a
@@ -927,7 +980,7 @@ const SupplementDetail: React.FC = () => {
     );
   };
 
-  const renderBidDelete = (item: BidItemEstimate) => (
+  const renderBidDelete = (item: BidItemEstimate) => !canChangeBid(item) ? null : (
     <Tooltip title="Delete">
       <Button
         type="text" size="small"
@@ -971,6 +1024,7 @@ const SupplementDetail: React.FC = () => {
               aria-label="Supplement status"
             />
             <Button icon={<CameraOutlined />} onClick={() => openOverlay('photos')}>Photos</Button>
+            {!isPublicAdjuster && <>
             <Tooltip title={wmJobs.length > 0 ? undefined : 'No water mitigation job on this claim'}>
               <span>
                 <Button
@@ -995,6 +1049,7 @@ const SupplementDetail: React.FC = () => {
                 </Button>
               </span>
             </Tooltip>
+            </>}
           </>
         }
       />
@@ -1378,6 +1433,8 @@ const SupplementDetail: React.FC = () => {
               <span className="sup-required-label">Required estimates</span>
               <Checkbox.Group
                 className="sup-required-options"
+                // Checking adds bid items and unchecking deletes empty ones, so not for a PA
+                disabled={isPublicAdjuster}
                 value={editedRequiredEstimates}
                 onChange={(checkedValues) => {
                   setEditedRequiredEstimates(checkedValues as string[]);
@@ -1403,7 +1460,7 @@ const SupplementDetail: React.FC = () => {
 
             {bidItems.length === 0 ? (
               <div className="sup-empty">
-                No bid items yet. Check a required estimate above or{' '}
+                No bid items yet. {isPublicAdjuster ? 'You can' : 'Check a required estimate above or'}{' '}
                 <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => setBidItemModalOpen(true)}>
                   add a bid item
                 </Button>.
@@ -2791,7 +2848,7 @@ const SupplementDetail: React.FC = () => {
         subtitle={[supplement.homeowner_name, supplement.claim_number].filter(Boolean).join(' · ')}
       />
 
-      <WMDemoDrawer open={demoOpen} onClose={closeOverlay} jobs={wmJobs} />
+      <WMDemoDrawer open={demoOpen && !isPublicAdjuster} onClose={closeOverlay} jobs={wmJobs} />
     </div>
   );
 };

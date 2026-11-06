@@ -17,6 +17,7 @@ from app.domains.auth.company_scope import (
 )
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.supplement.models import BidItemEstimate, SupplementFollowUp, SupplementRequest
+from app.domains.supplement.pa_access import refuse_public_adjuster, require_may_change_bid_item
 from app.domains.supplement.schemas import (
     BidItemEstimateCreate,
     BidItemEstimateResponse,
@@ -786,6 +787,8 @@ def create_bid_item(
     service = _get_service()
     item_data = data.dict()
     item_data['supplement_id'] = supplement_id
+    # Who added it decides whether a public adjuster may change it later
+    item_data['created_by_id'] = str(current_staff.id)
     try:
         return service.create_bid_item(item_data)
     except Exception as e:
@@ -802,6 +805,7 @@ def update_bid_item(
     current_staff=Depends(get_current_staff),
 ):
     _require_on_supplement(db, current_staff, BidItemEstimate, item_id, "Bid item")
+    require_may_change_bid_item(db, current_staff, item_id)
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     try:
@@ -821,6 +825,7 @@ def delete_bid_item(
     current_staff=Depends(get_current_staff),
 ):
     _require_on_supplement(db, current_staff, BidItemEstimate, item_id, "Bid item")
+    require_may_change_bid_item(db, current_staff, item_id)
     service = _get_service()
     if not service.delete_bid_item(item_id):
         raise HTTPException(status_code=404, detail="Bid item not found")
@@ -1017,6 +1022,7 @@ def send_to_pa(
     - email_account_id: optional sending account
     """
     _require_supplement(db, current_staff, supplement_id, "Supplement")
+    refuse_public_adjuster(current_staff, "send bid items to a public adjuster")
     service = _get_service()
     try:
         result = service.send_to_pa(supplement_id, data)
