@@ -1506,7 +1506,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Col>
                         <Col xs={24} sm={16} md={10} style={{ display: form.getFieldValue('demo_cement_board') ? undefined : 'none' }}>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            Damaged section will be removed and replaced with new Durock. Only the damaged area + overlap to nearest studs is replaced — undamaged board is reused.
+                            Damaged section will be removed and replaced with new Durock. When the wet area gets new cement board, that board replaces it (no separate line); otherwise only the damaged area + overlap to nearest studs is replaced — undamaged board is reused.
                           </Text>
                         </Col>
                       </Row>

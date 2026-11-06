@@ -765,15 +765,20 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
              notes="Level subfloor after old tile removal — "
                    "required for proper tile adhesion + prevent lippage")
 
-    # Cement board replacement — same SF as demo (partial repair)
-    if cb_repair_sf > 0:
+    # Cement board replacement for the board demoed for water damage. Where the
+    # wet-area cement board above goes in, it's the new board there already, so
+    # only what it doesn't cover is a line of its own (none when it covers it all)
+    cb_replace_sf = max(0, cb_repair_sf - durock_sf)
+    if cb_replace_sf > 0:
         _add(line_items, 3,
              "Cement board replacement - water damage repair (partial)",
-             cb_repair_sf, "SF",
+             cb_replace_sf, "SF",
              SUBSTRATE_RATES["durock_per_sf"] * labor_mult,
              "substrate",
-             notes="Separate from wet-area/floor cement board above — "
-                   "replaces water-damaged section only, not full "
+             notes=(f"Damaged board beyond the {durock_sf:.0f} SF of wet-area cement "
+                    "board above — " if durock_sf > 0 else
+                    "Separate from wet-area/floor cement board above — ")
+                   + "replaces water-damaged section only, not full "
                    "re-installation. Replace section per code-compliant "
                    "installation; overlap to nearest studs; reuse "
                    "serviceable board")
