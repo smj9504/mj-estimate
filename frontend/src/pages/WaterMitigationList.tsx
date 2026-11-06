@@ -541,7 +541,7 @@ const WaterMitigationList: React.FC = () => {
       },
     ] : []),
     {
-      title: 'Check To',
+      title: 'Payable To',
       dataIndex: 'check_recipient',
       key: 'check_recipient',
       width: 160,

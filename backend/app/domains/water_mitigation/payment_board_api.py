@@ -4,7 +4,7 @@ WM Payment Board API endpoints
 Public endpoints (no auth - manager link):
 - GET   /api/wm-payment-board/{token}                        - Board rows
 - PATCH /api/wm-payment-board/{token}/jobs/{job_id}/received         - Toggle received
-- PATCH /api/wm-payment-board/{token}/jobs/{job_id}/check-recipient  - Who the check went to
+- PATCH /api/wm-payment-board/{token}/jobs/{job_id}/check-recipient  - Who the check is payable to
 - PATCH /api/wm-payment-board/{token}/jobs/{job_id}/note             - Save manager note
 
 Admin endpoints (auth required):
@@ -116,7 +116,7 @@ def set_public_check_recipient(
     payload: PublicCheckRecipientUpdate,
     db: DatabaseSession = Depends(get_db_session),
 ):
-    """Set who the check went to (contractor / customer / PA) from the manager link."""
+    """Set who the check is payable to (contractor / customer / PA) from the manager link."""
     try:
         service = WMPaymentBoardService(db)
         job = service.set_check_recipient_by_token(token, job_id, payload.check_recipient)

@@ -50,7 +50,7 @@ class PublicReceivedUpdate(BaseModel):
 
 
 class PublicCheckRecipientUpdate(BaseModel):
-    """Who the check went to, set from the manager link. None clears it."""
+    """Who the check is payable to, set from the manager link. None clears it."""
     check_recipient: Optional[str] = None
 
     @validator('check_recipient')

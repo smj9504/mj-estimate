@@ -40,7 +40,7 @@ class JobStatus:
         ]
 
 
-# Who an insurance check was made out to (payment board)
+# Who an insurance check is made out to (payment board "Payable To")
 CHECK_RECIPIENTS = frozenset({'contractor', 'customer', 'pa'})
 
 

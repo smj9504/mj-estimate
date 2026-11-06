@@ -2,7 +2,7 @@
  * WM Payment Board — public manager page (NO auth, token in URL)
  *
  * A manager opens /wm-payments/:token, sees every active WM job with its
- * status and amount, toggles "Received", sets who the check went to and can
+ * status and amount, toggles "Received", sets who the check is payable to and can
  * leave a note per job. Those three are the only things this page can
  * change; amount and status are read-only here. Amount is the approved
  * amount in dark, or our invoice in light gray until one is approved.
@@ -161,7 +161,7 @@ const WMPaymentBoardPublic: React.FC = () => {
       size={size}
       allowClear
       placeholder="—"
-      aria-label="Check to"
+      aria-label="Payable to"
       value={row.check_recipient ?? undefined}
       loading={savingRecipientId === row.id}
       style={{ width }}
@@ -214,7 +214,7 @@ const WMPaymentBoardPublic: React.FC = () => {
       },
     ] : []),
     {
-      title: 'Check To',
+      title: 'Payable To',
       key: 'check_recipient',
       width: 160,
       render: (_, row) => checkRecipientSelect(row, '100%'),
@@ -240,7 +240,7 @@ const WMPaymentBoardPublic: React.FC = () => {
     },
   ];
 
-  // Check to sits beside the amount; with amounts hidden it moves to the end of the status line
+  // Payable to sits beside the amount; with amounts hidden it moves to the end of the status line
   const renderMobileCard = (row: WMPaymentRow) => (
     <div
       key={row.id}
@@ -303,7 +303,7 @@ const WMPaymentBoardPublic: React.FC = () => {
             <AmountText row={row} style={{ fontSize: 20, lineHeight: 1.3, whiteSpace: 'nowrap' }} />
           </div>
           <div style={{ flexShrink: 0 }}>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Check to</Text>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Payable to</Text>
             {checkRecipientSelect(row, 140, 'middle')}
           </div>
         </div>

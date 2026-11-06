@@ -72,7 +72,7 @@ class WMPaymentBoardService:
     def set_check_recipient_by_token(
         self, token: str, job_id: UUID, recipient: Optional[str]
     ) -> Optional[WaterMitigationJob]:
-        """Set who the check went to via the manager link (None clears it)."""
+        """Set who the check is payable to via the manager link (None clears it)."""
         board_token = self.resolve_token(token)
         if not board_token:
             return None

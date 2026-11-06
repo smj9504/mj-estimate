@@ -97,7 +97,7 @@ export const writeBoolPref = (key: string, value: boolean) => {
 };
 
 // Colour AND an arrow glyph, so contractor vs customer reads without relying on colour alone.
-// Inside a Check To select the arrow is left off (arrow={false}): the box already says what it is.
+// Inside a Payable To select the arrow is left off (arrow={false}): the box already says what it is.
 export const CheckRecipientTag: React.FC<{ value?: CheckRecipient | null; arrow?: boolean }> = ({
   value,
   arrow = true,
