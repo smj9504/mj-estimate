@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { ARCH_MIN_DOOR_IN, GLASS_STILE_IN, LATTICE_BAR_IN, archOutline, archRiseIn, doorDesign, facesFor } from './cabinetFronts';
-import { boxKey, cornerKind, footprintDepthIn, reconcileCabinets, type PresetCatalog, type SketchBoxSource } from './cabinetSketchLayout';
+import { ARCH_MIN_DOOR_IN, GLASS_STILE_IN, LATTICE_BAR_IN, REVEAL_IN, archOutline, archRiseIn, doorDesign, facesFor } from './cabinetFronts';
+import {
+  boxKey,
+  cornerKind,
+  footprintDepthIn,
+  reconcileCabinets,
+  wrapFront,
+  type PresetCatalog,
+  type SketchBoxSource,
+} from './cabinetSketchLayout';
 
 const doors = (faces: ReturnType<typeof facesFor>) => faces.filter((f) => f.kind === 'door');
 const drawers = (faces: ReturnType<typeof facesFor>) => faces.filter((f) => f.kind === 'drawer');
@@ -37,15 +45,20 @@ describe('facesFor', () => {
     }
   });
 
-  it('lays out a three-door corner\'s doors on its open part, mirrored for a right corner', () => {
+  it('shows a three-door corner\'s front door and its foreshortened cut door, the cut at the open end', () => {
+    const cut = 12 / (1 + Math.SQRT2);
     const left = doors(facesFor('wall', 'three_door_corner_wall', 36, 42, 'left'));
-    expect(left).toHaveLength(3);
-    expect(left[0].x).toBeGreaterThanOrEqual(12);
-    expect(left[2].x + left[2].w).toBeLessThanOrEqual(36);
+    expect(left).toHaveLength(2);
+    expect(left[0].x).toBeCloseTo(REVEAL_IN);
+    expect(left[0].x + left[0].w).toBeCloseTo(36 - cut - REVEAL_IN / 2);
+    expect(left[1].x).toBeCloseTo(36 - cut + REVEAL_IN / 2);
+    expect(left[1].x + left[1].w).toBeCloseTo(36 - REVEAL_IN);
     const right = doors(facesFor('wall', 'three_door_corner_wall', 36, 42, 'right'));
-    expect(right).toHaveLength(3);
-    expect(right.every((f) => f.x + f.w <= 24 + 1e-9)).toBe(true);
-    expect(right.every((f) => f.x >= 0)).toBe(true);
+    expect(right).toHaveLength(2);
+    // Mirrored: the narrow cut door on the left.
+    expect(Math.min(...right.map((f) => f.w))).toBeCloseTo(left[1].w);
+    expect(right.find((f) => f.w < 10)!.x).toBeCloseTo(REVEAL_IN);
+    expect(right.every((f) => f.x >= 0 && f.x + f.w <= 36 + 1e-9)).toBe(true);
   });
 
   it('makes the front one panel for a lattice over a band, but keeps the doors for a plain lattice', () => {
@@ -54,9 +67,26 @@ describe('facesFor', () => {
     expect(doors(facesFor('base', undefined, 36, 34.5, 'left', 'lattice_band'))).toHaveLength(1);
     expect(doors(facesFor('base', 'sink_base', 36, 34.5, 'left', 'lattice_band'))).toHaveLength(1);
     // A corner's doors stay as they are.
-    expect(doors(facesFor('wall', 'three_door_corner_wall', 36, 42, 'left', 'lattice_band'))).toHaveLength(3);
+    expect(doors(facesFor('wall', 'three_door_corner_wall', 36, 42, 'left', 'lattice_band'))).toHaveLength(2);
     // No door, nothing to change.
     expect(doors(facesFor('base', 'drawer_base', 24, 34.5, 'left', 'lattice_band'))).toHaveLength(0);
+  });
+
+  it('gives a tall cabinet\'s door rows a pattern, a lattice over a band making each row one panel', () => {
+    // Pantry: the same doors with a lattice as plain, the count the estimate bills.
+    expect(doors(facesFor('tall', undefined, 24, 84, 'left', 'lattice'))).toHaveLength(4);
+    expect(doors(facesFor('tall', undefined, 18, 84, 'left', 'lattice'))).toHaveLength(2);
+    const band = doors(facesFor('tall', undefined, 24, 84, 'left', 'lattice_band'));
+    expect(band).toHaveLength(2);
+    expect(band[0].y).toBeLessThan(band[1].y);
+    // Fridge and oven cabinets: only the row over the opening; the oven's drawer and both openings stay.
+    const fridge = facesFor('tall', 'refrigerator_cabinet', 36, 84, 'left', 'lattice_band');
+    expect(doors(fridge)).toHaveLength(1);
+    expect(fridge.some((f) => f.kind === 'opening')).toBe(true);
+    const oven = facesFor('tall', 'oven_cabinet', 30, 84, 'left', 'lattice_band');
+    expect(doors(oven)).toHaveLength(1);
+    expect(drawers(oven)).toHaveLength(1);
+    expect(oven.some((f) => f.kind === 'opening')).toBe(true);
   });
 });
 
@@ -151,7 +181,7 @@ describe('archOutline', () => {
     expect(area).toBeGreaterThan(0);
   });
 
-  it('has a smallest door that still leaves room for its panel, and takes a 30" corner\'s doors on the Front view', () => {
+  it('has a smallest door that still leaves room for its panel, and takes a 30" three-door corner\'s doors on the Front view', () => {
     const inner = ARCH_MIN_DOOR_IN - 2 * Math.min(GLASS_STILE_IN, ARCH_MIN_DOOR_IN / 4);
     expect(inner).toBeGreaterThan(0);
     for (const door of doors(facesFor('wall', 'three_door_corner_wall', 30, 30))) {
@@ -177,13 +207,33 @@ describe('three-door corner and patterns on the plan', () => {
     ...over,
   });
 
-  it('gives a three-door corner a square footprint, like a diagonal', () => {
-    expect(cornerKind('three_door_corner_wall')).toBe('bay');
-    expect(footprintDepthIn('wall', 'three_door_corner_wall', 36)).toBe(36);
+  it('gives a three-door corner an upper\'s 12" depth, its doors wrapping the run end', () => {
+    expect(cornerKind('three_door_corner_wall')).toBe('end_wrap');
+    expect(footprintDepthIn('wall', 'three_door_corner_wall', 36)).toBe(12);
     const [shape] = reconcileCabinets([], [box('WTD3642')], [], PRESETS, 20)!;
-    expect(shape.depth_in).toBe(36);
+    expect(shape.depth_in).toBe(12);
     expect(shape.width).toBeCloseTo(60);
-    expect(shape.height).toBeCloseTo(60);
+    expect(shape.height).toBeCloseTo(20);
+  });
+
+  it('shrinks a three-door corner saved at the old square footprint to 12" deep, where it was', () => {
+    const [placed] = reconcileCabinets([], [box('WTD3642')], [], PRESETS, 20)!;
+    const old = { ...placed, x: 140, y: 30, rotation: 0, depth_in: 36, height: 60 };
+    const [shape] = reconcileCabinets([old], [box('WTD3642')], [], PRESETS, 20)!;
+    expect(shape.depth_in).toBe(12);
+    expect(shape.height).toBeCloseTo(20);
+    expect([shape.x, shape.y, shape.rotation]).toEqual([140, 30, 0]);
+  });
+
+  it('cuts a 12"-deep three-door corner\'s open end so the cut and end doors match', () => {
+    const [front, cutStart, cutEnd, back] = wrapFront(36, 12);
+    expect(front).toEqual([0, 12]);
+    expect(back).toEqual([36, 0]);
+    const cutLen = Math.hypot(cutEnd[0] - cutStart[0], cutEnd[1] - cutStart[1]);
+    expect(cutLen).toBeCloseTo(cutEnd[1] - back[1]);
+    expect(cutLen).toBeCloseTo(7.03, 2);
+    // 45°: as far along the wall as out from it.
+    expect(cutEnd[0] - cutStart[0]).toBeCloseTo(cutStart[1] - cutEnd[1]);
   });
 
   it('treats a patterned box as a different cabinet, without changing plain keys', () => {

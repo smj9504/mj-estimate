@@ -119,13 +119,20 @@ def _plain_door_count(width_inches: float) -> int:
 
 
 def _door_count(box: BoxInput) -> int:
-    """Doors on a wall or base box's front, as the sketch draws them
+    """Doors on a wall, base or tall box's front, as the sketch draws them
     (cabinetFronts.ts)."""
-    if box.cab_type not in ("wall", "base"):
+    if box.cab_type not in ("wall", "base", "tall"):
         return 0
     sp = box.specialty_type
     if sp in _NO_DOOR_SPECIALTIES:
         return 0
+    if box.cab_type == "tall":
+        # An oven or fridge cabinet has one row of doors over its opening
+        # (an oven's drawer is no door); a pantry a tall row and a short one.
+        row = _plain_door_count(box.width_inches)
+        if sp in ("oven_cabinet", "double_oven_cabinet", "refrigerator_cabinet"):
+            return row
+        return 2 * row
     if sp == "three_door_corner_wall":
         return 3
     if sp in ("lazy_susan", "diagonal_corner_base", "diagonal_corner_wall"):

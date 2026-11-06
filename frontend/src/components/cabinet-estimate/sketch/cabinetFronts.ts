@@ -7,7 +7,7 @@
  */
 
 import type { CabType, DoorPattern, SpecialtyType } from '../../../types/cabinetEstimate';
-import { blindLengthIn, cabinetDepthIn, cornerKind } from './cabinetSketchLayout';
+import { blindLengthIn, cabinetDepthIn, cornerKind, wrapFront } from './cabinetSketchLayout';
 import type { CornerKind } from './cabinetSketchLayout';
 
 export const COUNTER_TOP_IN = 36;
@@ -68,8 +68,8 @@ function doorRow(x: number, y: number, w: number, h: number, n: number, kind: Fa
 const doorCount = (w: number) => (w < 24 ? 1 : w <= 48 ? 2 : Math.ceil(w / 24));
 
 /**
- * Front of a corner unit. Its corner end shows no front of its own — an L,
- * diagonal or bay's other leg comes toward the viewer, a blind corner's end
+ * Front of a corner unit. Its corner end shows no front of its own — an L
+ * or diagonal's other leg comes toward the viewer, a blind corner's end
  * hides behind the other run — so doors go only on the open part.
  */
 function cornerFaces(
@@ -85,6 +85,17 @@ function cornerFaces(
   const bottom = cabType === 'wall' ? r : TOE_KICK_IN + r;
   // An angle end's cut face spans its whole width: full-height doors across it (two on BEC24).
   if (kind === 'angle_end') return doorRow(0, bottom, w, h - r - bottom, doorCount(w));
+  if (kind === 'end_wrap') {
+    // Seen from in front: the front door, then the cut's door foreshortened
+    // to the width it covers. The end's door faces sideways, out of view.
+    const cutX = wrapFront(w, cabinetDepthIn(cabType, specialty))[1][0];
+    const doorH = h - r - bottom;
+    const faces: Face[] = [
+      { x: r, y: bottom, w: cutX - 1.5 * r, h: doorH, kind: 'door' },
+      { x: cutX + r / 2, y: bottom, w: w - cutX - 1.5 * r, h: doorH, kind: 'door' },
+    ];
+    return side === 'right' ? faces.map((f) => ({ ...f, x: w - f.x - f.w })) : faces;
+  }
   const cornerLen =
     kind === 'blind' ? Math.min(blindLengthIn(cabType), w * 0.75) : cabinetDepthIn(cabType, specialty);
   const openW = w - cornerLen;
@@ -95,8 +106,8 @@ function cornerFaces(
           // The open part reads like a plain box of its width.
           ...facesFor(cabType, undefined, openW, h, 'left', pattern).map((f) => ({ ...f, x: f.x + cornerLen })),
         ]
-      : // A bay's three doors, seen flat; the rest one full-height door on the open leaf.
-        doorRow(cornerLen, bottom, openW, h - r - bottom, kind === 'bay' ? 3 : 1);
+      : // One full-height door on the open leaf.
+        doorRow(cornerLen, bottom, openW, h - r - bottom, 1);
   return side === 'right' ? faces.map((f) => ({ ...f, x: w - f.x - f.w })) : faces;
 }
 
@@ -115,7 +126,7 @@ export function facesFor(
   const corner = cornerKind(specialty);
   if (corner && specialty) return cornerFaces(cabType, specialty, corner, cornerSide, w, h, pattern);
 
-  // A lattice over a band is the whole front as one panel.
+  // A lattice over a band is the whole front as one panel; on a tall, each row of doors.
   const doors = pattern === 'lattice_band' ? 1 : doorCount(w);
 
   if (cabType === 'wall') {
@@ -128,7 +139,7 @@ export function facesFor(
       const upper = Math.min(24, h * 0.3);
       return [
         { x: r, y: 0, w: inner, h: fridgeOpeningHeight(h), kind: 'opening', label: 'FRIDGE' },
-        ...doorRow(0, h - upper, w, upper - r, doorCount(w)),
+        ...doorRow(0, h - upper, w, upper - r, doors),
       ];
     }
     if (specialty === 'oven_cabinet' || specialty === 'double_oven_cabinet') {
@@ -137,14 +148,14 @@ export function facesFor(
       return [
         ...doorRow(0, bottom, w, ovenBottom - bottom - r, 1, 'drawer'),
         { x: r, y: ovenBottom, w: inner, h: ovenH, kind: 'opening', label: specialty === 'double_oven_cabinet' ? 'OVEN ×2' : 'OVEN' },
-        ...doorRow(0, upperY, w, h - upperY - r, doorCount(w)),
+        ...doorRow(0, upperY, w, h - upperY - r, doors),
       ];
     }
     // Pantry: tall lower doors, shorter upper doors.
     const split = Math.max(bottom + 30, h * 0.6);
     return [
-      ...doorRow(0, bottom, w, split - bottom - r / 2, doorCount(w)),
-      ...doorRow(0, split + r / 2, w, h - split - r * 1.5, doorCount(w)),
+      ...doorRow(0, bottom, w, split - bottom - r / 2, doors),
+      ...doorRow(0, split + r / 2, w, h - split - r * 1.5, doors),
     ];
   }
 
@@ -203,10 +214,10 @@ export const archRiseIn = (w: number, h: number) => Math.min(w * 0.22, h * 0.15)
 
 /**
  * Doors narrower than this stay flat in the arched style: no room for its
- * frame and panel. Low enough for a 30" three-door corner seen flat in the
- * Front view, where its 7½" doors draw 5" wide.
+ * frame and panel. Low enough for a three-door corner's cut door seen in
+ * the Front view, where it draws under 4" wide, so it arches there as in 3D.
  */
-export const ARCH_MIN_DOOR_IN = 5;
+export const ARCH_MIN_DOOR_IN = 3.5;
 
 /**
  * A panel with an arched top: its outline from the bottom-left corner round

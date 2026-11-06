@@ -144,44 +144,47 @@ describe('cabinetSolids', () => {
     expect(upper.glass).toBe(true);
   });
 
-  it('gives a three-door corner three equal doors on a bay from wall to wall', () => {
+  it('gives a three-door corner an upper\'s 12" depth, a door on its front, its 45° cut and its end', () => {
+    const cut = 12 / (1 + Math.SQRT2);
     const [left] = solidsOf(shapes('WTD3642'));
     const [right] = solidsOf(shapes('WTD3642').map((c) => ({ ...c, corner_side: 'right' as const })));
     for (const solid of [left, right]) {
       expect(solid.fronts).toHaveLength(3);
-      const lengths = solid.fronts.map(runLength);
-      for (const len of lengths) expect(len).toBeCloseTo(11.92, 2);
       for (const run of solid.fronts) {
         expect(run.faces).toHaveLength(1);
         expect(run.faces[0].kind).toBe('door');
-        expect(run.faces[0].w).toBeCloseTo(11.92 - 1.5, 2);
+        expect(run.faces[0].w).toBeCloseTo(runLength(run) - 1.5, 2);
         expect(run.faces[0].h).toBeCloseTo(42 - 1.5, 2);
       }
-      // One run into the next: the bay has no gaps.
+      // One run into the next: the wrap has no gaps.
       expect(solid.fronts[0].b).toEqual(solid.fronts[1].a);
       expect(solid.fronts[1].b).toEqual(solid.fronts[2].a);
-      // It stays within its 36" reach, and starts 12" off each wall.
-      expect(solid.outline).toHaveLength(7);
+      // No deeper than any other upper, and 36" along the wall.
+      expect(solid.outline).toHaveLength(5);
       for (const [x, z] of solid.outline) {
         expect(x).toBeGreaterThanOrEqual(-1e-9);
         expect(x).toBeLessThanOrEqual(36 + 1e-9);
         expect(z).toBeGreaterThanOrEqual(-1e-9);
-        expect(z).toBeLessThanOrEqual(36 + 1e-9);
+        expect(z).toBeLessThanOrEqual(12 + 1e-9);
       }
     }
-    expect(left.fronts[0].a).toEqual([12, 36]);
-    expect(left.fronts[2].b).toEqual([36, 12]);
-    expect(right.fronts[0].a).toEqual([0, 12]);
-    expect(right.fronts[2].b).toEqual([24, 36]);
-    // The middle door looks straight out of the corner.
-    const [nx, nz] = outward(left.fronts[1]);
-    expect(nx).toBeCloseTo(Math.SQRT1_2);
-    expect(nz).toBeCloseTo(Math.SQRT1_2);
-    // Each side door is turned 22.5° off it, the front bulging out past a flat diagonal.
-    const [sx] = outward(left.fronts[2]);
-    expect(sx).toBeCloseTo(Math.sin((67.5 * Math.PI) / 180));
-    const [mx, mz] = left.fronts[1].a;
-    expect(mx + mz).toBeGreaterThan(12 + 36);
+    // Left: front, cut, end, the wrap at the right end; right: mirrored.
+    const [front, cutRun, end] = left.fronts;
+    expect(front.a).toEqual([0, 12]);
+    expect(runLength(front)).toBeCloseTo(36 - cut);
+    expect(outward(front)).toEqual([-0, 1]);
+    const [cx, cz] = outward(cutRun);
+    expect(cx).toBeCloseTo(Math.SQRT1_2);
+    expect(cz).toBeCloseTo(Math.SQRT1_2);
+    expect(runLength(cutRun)).toBeCloseTo(runLength(end));
+    expect(end.b).toEqual([36, 0]);
+    expect(outward(end)[0]).toBeCloseTo(1);
+    expect(right.fronts[0].a).toEqual([0, 0]);
+    expect(outward(right.fronts[0])[0]).toBeCloseTo(-1);
+    expect(right.fronts[2].b).toEqual([36, 12]);
+    // Pulls: the front and cut doors meet at their joint, the end door's toward them.
+    expect(left.fronts.map((r) => r.faces[0].pull)).toEqual(['right', 'left', 'left']);
+    expect(right.fronts.map((r) => r.faces[0].pull)).toEqual(['right', 'right', 'left']);
   });
 
   it('carries the door pattern, and draws a wide box with its doors at a sensible width', () => {

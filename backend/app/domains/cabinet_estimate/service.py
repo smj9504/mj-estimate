@@ -826,7 +826,7 @@ class CabinetEstimateService:
                 )
                 # A supplier doesn't know this code, so it says what it is.
                 corner_label = (
-                    " - Three-Door Corner (bay front)"
+                    " - Three-Door End Corner (12\" deep, doors wrap the run end)"
                     if box.specialty_type == "three_door_corner_wall" else ""
                 )
                 pattern_label = (

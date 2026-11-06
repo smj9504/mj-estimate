@@ -168,7 +168,13 @@ def test_door_counts_follow_the_drawing():
     assert _door_count(_box("BBC42", "base", 42, 34.5, "blind_corner")) == 1
     assert _door_count(_box("DB24", "base", 24, 34.5, "drawer_base")) == 0
     assert _door_count(_box("RB30S", "base", 30, 34.5, "range_base_slide_in")) == 0
-    assert _door_count(_box("T2484", "tall", 24, 84)) == 0
+    # A tall pantry: a tall row of doors and a short one; an oven or fridge cabinet one row.
+    assert _door_count(_box("T1884", "tall", 18, 84)) == 2
+    assert _door_count(_box("T2484", "tall", 24, 84)) == 4
+    assert _door_count(_box("PRO3084", "tall", 30, 84, "pantry_rollout")) == 4
+    assert _door_count(_box("OC3084", "tall", 30, 84, "oven_cabinet")) == 2
+    assert _door_count(_box("DOC3090", "tall", 30, 90, "double_oven_cabinet")) == 2
+    assert _door_count(_box("RC3684", "tall", 36, 84, "refrigerator_cabinet")) == 2
 
 
 def test_lattice_is_billed_per_door_and_by_tier():
@@ -195,6 +201,17 @@ def test_lattice_band_costs_more_and_counts_the_doors_it_covers():
 def test_a_three_door_corner_with_lattice_pays_for_all_three_doors():
     box = _box("WTD3642", "wall", 36, 42, "three_door_corner_wall", pattern="lattice")
     assert _line(_estimate([box]), "Diamond Lattice Door").quantity == 3
+
+
+def test_a_tall_cabinet_takes_a_pattern_on_every_door():
+    pantry = _box("T2484", "tall", 24, 84, pattern="lattice", qty=2)
+    line = _line(_estimate([pantry]), "Diamond Lattice Door")
+    assert line.description == "Diamond Lattice Door - T2484"
+    assert (line.quantity, line.unit_price) == (8, 135)
+    fridge = _box("RC3684", "tall", 36, 84, "refrigerator_cabinet", pattern="lattice_band")
+    assert _line(_estimate([fridge]), "Lattice + Oval Band Door").quantity == 2
+    plain = _estimate([_box("T2484", "tall", 24, 84)])
+    assert not _lines(plain, "Door -")
 
 
 def test_no_pattern_line_without_a_door_or_a_pattern():

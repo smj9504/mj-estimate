@@ -1083,7 +1083,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               </Tooltip>
             )}
             {flipTarget && (
-              <Tooltip title="Swap which end of the corner cabinet sits in the corner (for an angle end: which end is full depth)">
+              <Tooltip title="Swap which end of the corner cabinet sits in the corner (for an angle end: which end is full depth; for a three-door corner: which end its doors wrap)">
                 <Button
                   icon={<SwapOutlined />}
                   onClick={() =>

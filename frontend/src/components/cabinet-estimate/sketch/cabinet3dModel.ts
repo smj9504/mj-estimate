@@ -17,7 +17,6 @@
 import type { DoorPattern } from '../../../types/cabinetEstimate';
 import type { CabinetSketchAppliance, CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
 import {
-  bayFront,
   cabinetDepthIn,
   cabinetSizeIn,
   cornerKind,
@@ -27,6 +26,7 @@ import {
   polygonUnion,
   pxToIn,
   signedArea2,
+  wrapFront,
 } from './cabinetSketchLayout';
 import type { PresetCatalog } from './cabinetSketchLayout';
 import { COUNTER_TOP_IN, REVEAL_IN, TOE_KICK_IN, facesFor, fridgeOpeningHeight, ovenOpening } from './cabinetFronts';
@@ -142,17 +142,19 @@ function cabinetSolid(
     outline = mirror([[0, 0], [w, 0], [w, leg], [leg, d], [0, d]]);
     const cut: Pick<FrontRun, 'a' | 'b'> = right ? { a: [0, leg], b: [w - leg, d] } : { a: [leg, d], b: [w, leg] };
     fronts = [{ ...cut, faces: fitFaces(faces, right ? 0 : leg, w - leg, runLength(cut)) }];
-  } else if (kind === 'bay') {
-    const front = bayFront(w, d, leg);
-    outline = mirror([[0, 0], [w, 0], ...[...front].reverse(), [0, d]]);
-    // Left to right as seen from in front, a door on each. With no door in
-    // line beside it, each says which edge its pull goes on: the first two
-    // meet at their joint, the third is on the edge toward them.
+  } else if (kind === 'end_wrap') {
+    const front = wrapFront(w, d);
+    outline = mirror([[0, 0], ...[...front].reverse()]);
+    // Left to right as seen from in front, a door on each: front, cut, end.
+    // With no door in line beside it, each says which edge its pull goes
+    // on: the front and cut doors meet at their joint, the end door's is
+    // on the edge toward them.
     const points = right ? [...front].reverse().map(([x, z]) => [w - x, z] as Pt2) : front;
+    const pulls: Face['pull'][] = right ? ['right', 'right', 'left'] : ['right', 'left', 'left'];
     fronts = points.slice(0, 3).map((a, i) => {
       const b = points[i + 1];
       const len = runLength({ a, b });
-      const door: Face = { ...faces[0], x: REVEAL_IN, w: len - 2 * REVEAL_IN, pull: i === 0 ? 'right' : 'left' };
+      const door: Face = { ...faces[0], x: REVEAL_IN, w: len - 2 * REVEAL_IN, pull: pulls[i] };
       return { a, b, faces: [door] };
     });
   } else if (kind === 'angle_end') {

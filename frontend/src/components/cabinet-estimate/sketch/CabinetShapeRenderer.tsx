@@ -21,7 +21,7 @@ import React, { useCallback, useRef, useEffect } from 'react';
 import { Group, Line, Rect, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { CabinetSketchCabinet } from '../../../types/cabinetSketch';
-import { bayFront } from './cabinetSketchLayout';
+import { wrapFront } from './cabinetSketchLayout';
 import type { CornerKind } from './cabinetSketchLayout';
 
 /** 15° snap angles for Shift+Rotate (0, 15, 30, …, 345) */
@@ -53,9 +53,9 @@ export interface CornerShape {
 
 /**
  * Closed outline and door faces (flat x, y lists) of a shaped unit, its
- * corner — or, for an angle end, its full-depth end — at local x = 0
- * unless it is on the right. `null` for a blind corner, which is a plain
- * box.
+ * corner — or, for an angle end or a three-door corner, the end that joins
+ * the run — at local x = 0 unless it is on the right. `null` for a blind
+ * corner, which is a plain box.
  */
 function cornerOutline(corner: CornerShape, w: number, h: number): { outline: number[]; front: number[] } | null {
   const d = corner.leg;
@@ -67,9 +67,9 @@ function cornerOutline(corner: CornerShape, w: number, h: number): { outline: nu
   } else if (corner.kind === 'diagonal') {
     pts = [[0, 0], [w, 0], [w, d], [d, h], [0, h]];
     front = [[w, d], [d, h]];
-  } else if (corner.kind === 'bay') {
-    front = bayFront(w, h, d).reverse();
-    pts = [[0, 0], [w, 0], ...front, [0, h]];
+  } else if (corner.kind === 'end_wrap') {
+    front = wrapFront(w, h);
+    pts = [[0, 0], ...[...front].reverse()];
   } else if (corner.kind === 'angle_end') {
     // Cut back at 45° from the full-depth end: a triangle once it is as wide as it is deep.
     const outer = Math.max(h - w, 0);

@@ -165,17 +165,17 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'WER2430': { cab_type: 'wall', width: 24, height: 30, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 30"H' },
   'WER2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 36"H' },
   'WER2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 42"H' },
-  // Three-door corner: a bay of three angled doors. Width is its reach along
-  // each wall; on site it is measured by its doors, so the label carries both.
-  'WTD3030': { cab_type: 'wall', width: 30, height: 30, specialty: 'three_door_corner_wall', label: '3-Door Corner 30"W x 30"H (9" doors)' },
-  'WTD3036': { cab_type: 'wall', width: 30, height: 36, specialty: 'three_door_corner_wall', label: '3-Door Corner 30"W x 36"H (9" doors)' },
-  'WTD3042': { cab_type: 'wall', width: 30, height: 42, specialty: 'three_door_corner_wall', label: '3-Door Corner 30"W x 42"H (9" doors)' },
-  'WTD3330': { cab_type: 'wall', width: 33, height: 30, specialty: 'three_door_corner_wall', label: '3-Door Corner 33"W x 30"H (10.5" doors)' },
-  'WTD3336': { cab_type: 'wall', width: 33, height: 36, specialty: 'three_door_corner_wall', label: '3-Door Corner 33"W x 36"H (10.5" doors)' },
-  'WTD3342': { cab_type: 'wall', width: 33, height: 42, specialty: 'three_door_corner_wall', label: '3-Door Corner 33"W x 42"H (10.5" doors)' },
-  'WTD3630': { cab_type: 'wall', width: 36, height: 30, specialty: 'three_door_corner_wall', label: '3-Door Corner 36"W x 30"H (12" doors)' },
-  'WTD3636': { cab_type: 'wall', width: 36, height: 36, specialty: 'three_door_corner_wall', label: '3-Door Corner 36"W x 36"H (12" doors)' },
-  'WTD3642': { cab_type: 'wall', width: 36, height: 42, specialty: 'three_door_corner_wall', label: '3-Door Corner 36"W x 42"H (12" doors)' },
+  // Three-door corner: a 12"-deep upper at the open end of a run, its doors
+  // wrapping that end (front, a 45° cut, the end). Width is along the wall.
+  'WTD3030': { cab_type: 'wall', width: 30, height: 30, specialty: 'three_door_corner_wall', label: '3-Door End Corner 30"W x 30"H' },
+  'WTD3036': { cab_type: 'wall', width: 30, height: 36, specialty: 'three_door_corner_wall', label: '3-Door End Corner 30"W x 36"H' },
+  'WTD3042': { cab_type: 'wall', width: 30, height: 42, specialty: 'three_door_corner_wall', label: '3-Door End Corner 30"W x 42"H' },
+  'WTD3330': { cab_type: 'wall', width: 33, height: 30, specialty: 'three_door_corner_wall', label: '3-Door End Corner 33"W x 30"H' },
+  'WTD3336': { cab_type: 'wall', width: 33, height: 36, specialty: 'three_door_corner_wall', label: '3-Door End Corner 33"W x 36"H' },
+  'WTD3342': { cab_type: 'wall', width: 33, height: 42, specialty: 'three_door_corner_wall', label: '3-Door End Corner 33"W x 42"H' },
+  'WTD3630': { cab_type: 'wall', width: 36, height: 30, specialty: 'three_door_corner_wall', label: '3-Door End Corner 36"W x 30"H' },
+  'WTD3636': { cab_type: 'wall', width: 36, height: 36, specialty: 'three_door_corner_wall', label: '3-Door End Corner 36"W x 36"H' },
+  'WTD3642': { cab_type: 'wall', width: 36, height: 42, specialty: 'three_door_corner_wall', label: '3-Door End Corner 36"W x 42"H' },
   'WBC24':  { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 30"H' },
   'WBC27':   { cab_type: 'wall', width: 27, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 30"H' },
   'WBC30':   { cab_type: 'wall', width: 30, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 30"H' },
@@ -611,7 +611,8 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
           </Tooltip>
         );
       },
-    }, {
+    }] : []),
+    {
       title: 'Door',
       dataIndex: 'door_pattern',
       width: 134,
@@ -621,7 +622,13 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
         }
         const gi = getGlobalIndex(cabType, record._localIdx);
         return (
-          <Tooltip title="A pattern in the door's frame, priced per door. Lattice + oval band makes the whole front one panel. Tick Glass as well for glass behind it.">
+          <Tooltip
+            title={
+              cabType === 'tall'
+                ? "A pattern in the door's frame, priced per door. Lattice + oval band makes each row of doors one panel; the drawer and the oven or fridge opening stay as they are."
+                : "A pattern in the door's frame, priced per door. Lattice + oval band makes the whole front one panel. Tick Glass as well for glass behind it."
+            }
+          >
             <Select
               size="small"
               style={{ width: 118 }}
@@ -634,7 +641,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
           </Tooltip>
         );
       },
-    }] : []),
+    },
     {
       title: 'Qty',
       dataIndex: 'qty',

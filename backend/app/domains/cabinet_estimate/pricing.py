@@ -394,14 +394,18 @@ SPECIALTY_PREMIUM = {
     # +$134.66 at 36"H. 42"H measured +$158.78; held at the 30/36" figure
     # to stay flat across heights like the diagonal corner.
     "easy_reach_corner_wall": {24: 135},
-    # Three-door corner wall: a bay front, one door on each of three angled
-    # faces, width being its reach along each wall. NOT measured: none of the
+    # Three-door corner wall, first built as a bay front in an inside corner,
+    # one door on each of three angled faces. NOT measured: none of the
     # stock lines read (KCD, Capital, Arcadia, JSI) carries one past the 27"
     # single-door diagonal, so it is a semi-custom build. Derived from
     # DCW2430 instead, 1.29x W2430 in both KCD and Capital: the 36" unit has
     # about twice its shelf and door area, so about 2 x $392 at Stock here,
     # less the 3 LF x $142 its supply line already bills. The calculator warns
-    # to confirm it (UNMEASURED_SPECIALTIES).
+    # to confirm it (UNMEASURED_SPECIALTIES). On 2026-11-06 the cabinet was
+    # reshaped to what it really is: a 12"-deep upper at the open end of a
+    # run, its doors wrapping that end (front, a 45° cut, the end). The
+    # premium above was worked out for the old inside-corner shape, about
+    # twice the box, and was left as it was: likely high, still to re-quote.
     "three_door_corner_wall": {30: 275, 33: 325, 36: 375},
     # Blind corner in the WALL run. The $45-$75 that used to sit here was
     # never measured; KCD White Shaker WBC27 comes in UNDER the two-door

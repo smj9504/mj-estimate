@@ -118,7 +118,8 @@ def test_the_purchase_order_says_what_to_order(service):
     assert ("W3618", 'Wall Cabinet W3618 (36"W x 18.0"H) - Lattice + Oval Band Doors', 1) in described
     assert (
         "WTD3642",
-        'Wall Cabinet WTD3642 (36"W x 42.0"H) - Three-Door Corner (bay front) - Diamond Lattice Doors',
+        'Wall Cabinet WTD3642 (36"W x 42.0"H) - Three-Door End Corner (12" deep, doors wrap the run end)'
+        ' - Diamond Lattice Doors',
         1,
     ) in described
     assert ("B48", 'Base Cabinet B48 (48"W x 34.5"H)', 1) in described
