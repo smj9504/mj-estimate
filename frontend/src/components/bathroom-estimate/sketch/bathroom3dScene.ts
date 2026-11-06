@@ -23,14 +23,13 @@ const COLORS = {
   water: '#cfe2e8',
   drain: '#4a4f54',
   niche: '#b9b2a6',
-  curtain: '#e8e2d6',
   light: '#fff3d6',
   cabinet: '#f3f1ec',
   selected: '#1f74c9',
   mirror: '#dfe7ea',
 };
 
-/** Where a tub's shower curtain hangs from, inches. */
+/** Height of a tub's shower curtain rod, inches. */
 const GLASS_TOP_IN = 76;
 /** A mirror's bottom edge, inches: clear of a vanity and its backsplash. */
 const MIRROR_BOTTOM_IN = 42;
@@ -541,7 +540,7 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     fixtureFaucet.add(boxAt(1, 1, 4.5, kit.metal, 0, rim + 5.5, 2));
   }
   if (kit.looks.tubShower && sub === 'standard_alcove' && edge) {
-    // A shower over the tub: head above the valve, and a curtain on a rod across the front
+    // A shower over the tub: head above the valve, and a curtain rod across the front
     fixtureFaucet.add(boxAt(1, 1, 6, kit.metal, 0, 79, 3));
     fixtureFaucet.add(plate(3.2, 1, kit.metal, 0, 78, 6.5));
   }
@@ -551,10 +550,8 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, W, 16), kit.metal);
     rod.rotation.z = Math.PI / 2;
     rod.position.set(0, GLASS_TOP_IN + 2, D / 2 - 1);
+    // Just the rod: a flat curtain panel read as a wall
     g.add(rod);
-    const curtain = facePanel({ x0: W / 2 - 0.4 * W, x1: W / 2 - 1, y0: rim + 2, y1: GLASS_TOP_IN + 1.5 }, 0, mat(COLORS.curtain, { side: THREE.DoubleSide, roughness: 0.9 }));
-    curtain.position.z = D / 2 - 1.5;
-    g.add(curtain);
   }
 }
 
@@ -622,10 +619,9 @@ function buildShower(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
   }
   for (const [a, b] of fixed) g.add(panelAlong(a, b, glassBottom, glassTop, 0.375, kit.glass));
   if (doorType === 'curtain') {
+    // Just the rod: a flat curtain panel read as a wall
     const [a, b] = front;
-    const rod = panelAlong(a, b, glassTop + 1.5, glassTop + 2.5, 1, kit.metal);
-    g.add(rod);
-    g.add(panelAlong(a, [a[0] + (b[0] - a[0]) * 0.45, a[1] + (b[1] - a[1]) * 0.45], glassBottom + 2, glassTop + 1.5, 0.2, mat(COLORS.curtain, { roughness: 0.9 })));
+    g.add(panelAlong(a, b, glassTop + 1.5, glassTop + 2.5, 1, kit.metal));
   } else if (doorType !== 'none') {
     // Across the front as the plan has it: the door where it's set, fixed
     // panels beside it, and a tiled return where a swing or bi-fold door
