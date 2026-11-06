@@ -105,7 +105,8 @@ export interface SketchFixtureSync {
   // Walls spec sync
   walls_spec?: Record<string, any>;
 
-  // Fixture replace flags
+  // Fixture on the plan or not. The form turns this into Replace or D&R,
+  // keeping the person's choice; a mirror starts as D&R, the rest as Replace
   replace_tub?: boolean;
   replace_shower?: boolean;
   replace_vanity?: boolean;

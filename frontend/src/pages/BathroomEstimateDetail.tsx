@@ -486,13 +486,17 @@ const BathroomEstimateDetail: React.FC = () => {
 
     // Replace & demo flags
     // When sketch adds/removes a fixture, sync the action flags.
-    // If user already chose D&R for a fixture, don't override to replace.
-    const syncFixtureAction = (fixture: string, hasFixture?: boolean) => {
+    // A fixture on the sketch gets its usual action only while neither
+    // Replace nor D&R is chosen, so the person's choice is never overridden.
+    const syncFixtureAction = (
+      fixture: string,
+      hasFixture?: boolean,
+      usualAction: 'replace' | 'detach_reset' = 'replace',
+    ) => {
       if (hasFixture === undefined) return;
       if (hasFixture) {
-        // Fixture exists on sketch: set replace only if D&R not already chosen
-        if (!current[`detach_reset_${fixture}`]) {
-          updates[`replace_${fixture}`] = true;
+        if (!current[`replace_${fixture}`] && !current[`detach_reset_${fixture}`]) {
+          updates[`${usualAction}_${fixture}`] = true;
         }
       } else {
         // Fixture removed from sketch: clear both flags
@@ -504,7 +508,8 @@ const BathroomEstimateDetail: React.FC = () => {
     syncFixtureAction('shower', sync.replace_shower);
     syncFixtureAction('vanity', sync.replace_vanity);
     syncFixtureAction('toilet', sync.replace_toilet);
-    syncFixtureAction('mirror', sync.replace_mirror);
+    // A vanity mirror is usually taken down and hung back, not replaced
+    syncFixtureAction('mirror', sync.replace_mirror, 'detach_reset');
     if (sync.height_ft) updates.height_ft = sync.height_ft;
     if (sync.demo_walls !== undefined) updates.demo_walls = sync.demo_walls;
 
@@ -1347,31 +1352,21 @@ const BathroomEstimateDetail: React.FC = () => {
                             </div>
                           </Col>
                         ))}
-                        {form.getFieldValue('replace_vanity') && (
-                          <>
-                            <Col xs={24} sm={12} md={6}>
-                              <div style={{ marginBottom: 8 }}>
-                                <Text strong style={{ display: 'block', marginBottom: 4 }}>Mirror</Text>
-                                <Radio.Group
-                                  value={
-                                    form.getFieldValue('replace_mirror') ? 'replace' :
-                                    form.getFieldValue('detach_reset_mirror') ? 'detach_reset' : 'none'
-                                  }
-                                  onChange={(e) => {
-                                    form.setFieldsValue({
-                                      replace_mirror: e.target.value === 'replace',
-                                      detach_reset_mirror: e.target.value === 'detach_reset',
-                                    });
-                                  }}
-                                >
-                                  <Radio.Button value="none">None</Radio.Button>
-                                  <Radio.Button value="replace">New</Radio.Button>
-                                  <Radio.Button value="detach_reset">D&R</Radio.Button>
-                                </Radio.Group>
-                              </div>
-                            </Col>
-                          </>
-                        )}
+                        {/* Shown whatever the vanity's action: a mirror is often D&R
+                            while the vanity is D&R or not touched at all */}
+                        <Col xs={24} sm={12} md={6}>
+                          <div style={{ marginBottom: 8 }}>
+                            <Text strong style={{ display: 'block', marginBottom: 4 }}>Mirror</Text>
+                            <Radio.Group
+                              value={getAction('mirror')}
+                              onChange={(e) => setAction('mirror', e.target.value)}
+                            >
+                              <Radio.Button value="none">None</Radio.Button>
+                              <Radio.Button value="replace">New</Radio.Button>
+                              <Radio.Button value="detach_reset">D&R</Radio.Button>
+                            </Radio.Group>
+                          </div>
+                        </Col>
                       </Row>
                     );
                   }}
