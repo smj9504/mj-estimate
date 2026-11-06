@@ -59,13 +59,16 @@ def _is_uuid(value) -> bool:
 
 
 def _require_account(db, staff, account_id: str) -> None:
-    """404 unless the account belongs to one of the staff member's companies"""
+    """404 unless the account is the staff member's own or belongs to one of
+    their companies"""
     ids = company_ids(db, staff)
     if ids is None:
         return
-    row = db.query(EmailAccount.company_id).filter(
+    row = db.query(EmailAccount.company_id, EmailAccount.owner_staff_id).filter(
         EmailAccount.id == account_id
     ).first() if _is_uuid(account_id) else None
+    if row is not None and row[1] and str(row[1]) == str(staff.id):
+        return
     if row is None or not row[0] or str(row[0]) not in ids:
         raise HTTPException(status_code=404, detail="Account not found")
 
@@ -120,12 +123,18 @@ def _require_mail(db, staff, model, row_id: str, label: str) -> None:
 
 @router.get("/accounts", response_model=List[EmailAccountResponse])
 def list_accounts(
+    mine: bool = Query(False, description="Only the accounts that are the caller's own mailboxes (My Profile)"),
     current_staff: Staff = Depends(get_current_staff),
     db=Depends(get_db),
 ):
     """Get all email accounts"""
     service = _get_service()
     accounts = service.get_all_accounts()
+    if mine:
+        return [
+            a for a in accounts
+            if a.get('owner_staff_id') and str(a['owner_staff_id']) == str(current_staff.id)
+        ]
     ids = company_ids(db, current_staff)
     if ids is not None:
         accounts = [
@@ -138,6 +147,7 @@ def list_accounts(
 @router.post("/accounts", response_model=EmailAccountResponse)
 def create_account(
     data: EmailAccountCreate,
+    mine: bool = Query(False, description="The caller's own mailbox (added from My Profile)"),
     current_staff: Staff = Depends(get_current_staff),
     db=Depends(get_db),
 ):
@@ -145,7 +155,10 @@ def create_account(
     _require_own_company(db, current_staff, data.company_id)
     service = _get_service()
     try:
-        account = service.create_account(data.dict())
+        payload = data.dict()
+        if mine:
+            payload['owner_staff_id'] = str(current_staff.id)
+        account = service.create_account(payload)
         return account
     except Exception as e:
         logger.error(f"Error creating email account: {e}")
@@ -235,6 +248,7 @@ def get_oauth_url(current_staff: Staff = Depends(get_current_staff)):
 @router.post("/oauth/callback", response_model=EmailAccountResponse)
 def oauth_callback(
     data: EmailAccountOAuthConnect,
+    mine: bool = Query(False, description="The caller's own mailbox (connected from My Profile)"),
     current_staff: Staff = Depends(get_current_staff),
     db=Depends(get_db),
 ):
@@ -245,6 +259,9 @@ def oauth_callback(
         extra = {}
         if data.company_id:
             extra["company_id"] = str(data.company_id)
+        if mine:
+            # Signing in to the mailbox proves it's theirs, even if it was added before
+            extra["owner_staff_id"] = str(current_staff.id)
         if data.sender_name:
             extra["sender_name"] = data.sender_name
         if data.sender_phone:

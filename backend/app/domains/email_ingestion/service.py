@@ -416,7 +416,7 @@ class EmailIngestionService:
                 account_data.update({
                     k: v for k, v in data.items()
                     if v is not None and k in (
-                        "company_id", "sender_name", "sender_phone",
+                        "company_id", "owner_staff_id", "sender_name", "sender_phone",
                     )
                 })
                 result = repo.update(str(existing["id"]), account_data)
@@ -436,6 +436,7 @@ class EmailIngestionService:
                     "use_ssl": True,
                     "username": email_address,
                     "company_id": data.get("company_id"),
+                    "owner_staff_id": data.get("owner_staff_id"),
                     "sender_name": data.get("sender_name"),
                     "sender_phone": data.get("sender_phone"),
                 })

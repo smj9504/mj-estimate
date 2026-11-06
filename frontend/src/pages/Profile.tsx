@@ -10,6 +10,7 @@ import { HOME_CHOICES, HOME_TODOS } from '../constants/screens';
 import { useAuth } from '../contexts/AuthContext';
 import authService from '../services/authService';
 import ChangePasswordModal from '../components/auth/ChangePasswordModal';
+import EmailAccountsManager from '../components/email-accounts/EmailAccountsManager';
 
 const { Title, Text } = Typography;
 
@@ -211,6 +212,9 @@ const Profile: React.FC = () => {
             </Form.Item>
           </Form>
         </Card>
+
+        {/* Everyone sets up their own sending mailbox here, whatever their role */}
+        <EmailAccountsManager variant="profile" />
 
         {/* Security Section */}
         <Card title="Security">

@@ -27,10 +27,17 @@ class EmailAccount(Base, BaseModel):
     __tablename__ = "email_accounts"
     __table_args__ = (
         Index("ix_email_accounts_company_id", "company_id"),
+        Index("ix_email_accounts_owner_staff_id", "owner_staff_id"),
         {"extend_existing": True},
     )
 
     company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)
+    # Whose mailbox it is: shown on that person's My Profile, whatever their role.
+    # Shared inboxes have none and show only on the Email Ingestion page.
+    owner_staff_id = Column(
+        UUIDType(), nullable=True,
+        comment="Staff member whose mailbox this is; shown on their My Profile",
+    )
 
     # Display
     display_name = Column(String(255), nullable=False)

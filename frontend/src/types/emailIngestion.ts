@@ -14,6 +14,8 @@ export interface EmailAccount {
   auth_method: 'password' | 'oauth';
   company_id?: string;
   company_name?: string;
+  /** Whose mailbox it is; shown on that person's My Profile */
+  owner_staff_id?: string | null;
   sender_name?: string;
   sender_phone?: string;
   can_send?: boolean;

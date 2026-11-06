@@ -76,6 +76,7 @@ class EmailAccountResponse(BaseModel):
     auth_method: str = "password"
     company_id: Optional[UUID] = None
     company_name: Optional[str] = None
+    owner_staff_id: Optional[UUID] = None
     sender_name: Optional[str] = None
     sender_phone: Optional[str] = None
     can_send: bool = True

@@ -28,8 +28,9 @@ export const emailIngestionService = {
   // Account Management
   // ============================================================
 
-  async listAccounts() {
-    const { data } = await api.get(`${BASE}/accounts`);
+  /** mine: only the caller's own mailboxes (My Profile) */
+  async listAccounts(opts?: { mine?: boolean }) {
+    const { data } = await api.get(`${BASE}/accounts`, { params: opts?.mine ? { mine: true } : undefined });
     return data as EmailAccount[];
   },
 
@@ -38,8 +39,8 @@ export const emailIngestionService = {
     return data as EmailAccount;
   },
 
-  async createAccount(payload: EmailAccountCreate) {
-    const { data } = await api.post(`${BASE}/accounts`, payload);
+  async createAccount(payload: EmailAccountCreate, opts?: { mine?: boolean }) {
+    const { data } = await api.post(`${BASE}/accounts`, payload, { params: opts?.mine ? { mine: true } : undefined });
     return data as EmailAccount;
   },
 
@@ -63,8 +64,8 @@ export const emailIngestionService = {
     return data as { authorization_url: string; state: string };
   },
 
-  async connectOAuth(payload: EmailAccountOAuthConnect) {
-    const { data } = await api.post(`${BASE}/oauth/callback`, payload);
+  async connectOAuth(payload: EmailAccountOAuthConnect, opts?: { mine?: boolean }) {
+    const { data } = await api.post(`${BASE}/oauth/callback`, payload, { params: opts?.mine ? { mine: true } : undefined });
     return data as EmailAccount;
   },
 
