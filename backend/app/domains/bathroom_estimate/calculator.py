@@ -228,7 +228,8 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     demo_ceiling = getattr(estimate, 'demo_ceiling', False)
 
     # Demo-specific SF (override or fallback to bathroom SF)
-    demo_floor_sf = getattr(estimate, 'demo_floor_sf', None) or floor_sf
+    # Floor tile comes out where there's tile: not under the tub, shower or vanity
+    demo_floor_sf = getattr(estimate, 'demo_floor_sf', None) or tile_floor_sf
     demo_ceiling_sf = getattr(estimate, 'demo_ceiling_sf', None) or floor_sf
 
     # Wall demo SF: if user provided override, use it.
@@ -276,56 +277,53 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     demo_total = 0
     demo_parts = []
 
-    # Skip surface/tile demo costs if mitigation already completed demo
-    if not demo_already_done:
-        if demo_floor and demo_floor_sf > 0:
-            cost = round(demo_floor_sf * DEMO_RATES["floor_tile_per_sf"] * labor_mult, 2)
+    # Tile comes out for the remodel whoever did the water-damage demo:
+    # mitigation tears out the wet drywall and ceiling, not the floor tile or
+    # the tub/shower wall tile, so "demo already done" drops the ceiling only
+    if demo_floor and demo_floor_sf > 0:
+        cost = round(demo_floor_sf * DEMO_RATES["floor_tile_per_sf"] * labor_mult, 2)
+        demo_total += cost
+        demo_parts.append(f"Floor tile {demo_floor_sf:.0f}SF ${cost:,.2f}")
+
+    if demo_walls and demo_wall_sf > 0:
+        if _manual_wall_demo and not (_auto_wall_shower or _auto_wall_tub):
+            # User manually checked "demo walls" → full bathroom walls
+            cost = round(demo_wall_sf * DEMO_RATES["wall_tile_per_sf"] * labor_mult, 2)
             demo_total += cost
-            demo_parts.append(f"Floor tile {demo_floor_sf:.0f}SF ${cost:,.2f}")
+            demo_parts.append(f"Wall tile {demo_wall_sf:.0f}SF ${cost:,.2f}")
+        else:
+            # Auto-derived: itemize by zone for clarity
+            # Shower wall tile cost is accumulated and merged with shower unit tear-out below
+            if _auto_wall_shower:
+                _dsw = _shower_spec_demo.get("width_in", 0) or 36
+                _dsd = _shower_spec_demo.get("depth_in", 0) or 36
+                _dsh = _shower_spec_demo.get("tile_height_in", 0) or 84
+                _shower_demo_sf = round((_dsw + 2 * _dsd) * _dsh / 144, 1)
+                _shower_tile_cost = round(_shower_demo_sf * DEMO_RATES["wall_tile_per_sf"] * labor_mult, 2)
+                demo_total += _shower_tile_cost
+                # Note: label added later when merged with shower unit tear-out
+            if _auto_wall_tub:
+                _dtl = _tub_spec_demo.get("tub_length_in", 0) or 60
+                _dtd = _tub_spec_demo.get("tub_depth_in", 0) or 32
+                _dth = _tub_spec_demo.get("surround_height_in", 0) or 60
+                _dtwc = _tub_spec_demo.get("surround_wall_count", 3) or 3
+                if _dtwc >= 3:
+                    _tub_demo_sf = round((_dtl + 2 * _dtd) * _dth / 144, 1)
+                elif _dtwc == 2:
+                    _tub_demo_sf = round((_dtl + _dtd) * _dth / 144, 1)
+                else:
+                    _tub_demo_sf = round(_dtl * _dth / 144, 1)
+                _tc = round(_tub_demo_sf * DEMO_RATES["wall_tile_per_sf"] * labor_mult, 2)
+                demo_total += _tc
+                demo_parts.append(f"Tub surround tile removal {_tub_demo_sf:.0f}SF ${_tc:,.2f}")
 
-        if demo_walls and demo_wall_sf > 0:
-            if _manual_wall_demo and not (_auto_wall_shower or _auto_wall_tub):
-                # User manually checked "demo walls" → full bathroom walls
-                cost = round(demo_wall_sf * DEMO_RATES["wall_tile_per_sf"] * labor_mult, 2)
-                demo_total += cost
-                demo_parts.append(f"Wall tile {demo_wall_sf:.0f}SF ${cost:,.2f}")
-            else:
-                # Auto-derived: itemize by zone for clarity
-                # Shower wall tile cost is accumulated and merged with shower unit tear-out below
-                if _auto_wall_shower:
-                    _dsw = _shower_spec_demo.get("width_in", 0) or 36
-                    _dsd = _shower_spec_demo.get("depth_in", 0) or 36
-                    _dsh = _shower_spec_demo.get("tile_height_in", 0) or 84
-                    _shower_demo_sf = round((_dsw + 2 * _dsd) * _dsh / 144, 1)
-                    _shower_tile_cost = round(_shower_demo_sf * DEMO_RATES["wall_tile_per_sf"] * labor_mult, 2)
-                    demo_total += _shower_tile_cost
-                    # Note: label added later when merged with shower unit tear-out
-                if _auto_wall_tub:
-                    _dtl = _tub_spec_demo.get("tub_length_in", 0) or 60
-                    _dtd = _tub_spec_demo.get("tub_depth_in", 0) or 32
-                    _dth = _tub_spec_demo.get("surround_height_in", 0) or 60
-                    _dtwc = _tub_spec_demo.get("surround_wall_count", 3) or 3
-                    if _dtwc >= 3:
-                        _tub_demo_sf = round((_dtl + 2 * _dtd) * _dth / 144, 1)
-                    elif _dtwc == 2:
-                        _tub_demo_sf = round((_dtl + _dtd) * _dth / 144, 1)
-                    else:
-                        _tub_demo_sf = round(_dtl * _dth / 144, 1)
-                    _tc = round(_tub_demo_sf * DEMO_RATES["wall_tile_per_sf"] * labor_mult, 2)
-                    demo_total += _tc
-                    demo_parts.append(f"Tub surround tile removal {_tub_demo_sf:.0f}SF ${_tc:,.2f}")
-
-        if demo_ceiling and demo_ceiling_sf > 0:
+    if demo_ceiling and demo_ceiling_sf > 0:
+        if demo_already_done:
+            demo_parts.append("Ceiling demo already completed by mitigation")
+        else:
             cost = round(demo_ceiling_sf * DEMO_RATES["ceiling_per_sf"] * labor_mult, 2)
             demo_total += cost
             demo_parts.append(f"Ceiling {demo_ceiling_sf:.0f}SF ${cost:,.2f}")
-    else:
-        if demo_floor or demo_walls or demo_ceiling:
-            areas = []
-            if demo_floor: areas.append("floor")
-            if demo_walls: areas.append("walls")
-            if demo_ceiling: areas.append("ceiling")
-            demo_parts.append(f"Demo already completed by mitigation: {', '.join(areas)}")
 
     if estimate.replace_tub:
         tub_mat = (estimate.bathtub_spec or {}).get("material", "acrylic")
@@ -481,7 +479,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             debris_cy += existing_tile_wall_sf * 0.005
         if _dr_deck_demo_sf > 0:
             debris_cy += _dr_deck_demo_sf * 0.005
-        if demo_ceiling:
+        if demo_ceiling and not demo_already_done:  # mitigation hauled its own
             debris_cy += demo_ceiling_sf * 0.003  # thinner than tile
 
         # Fixture demo volume (replace only — D&R fixtures are stored, not disposed)

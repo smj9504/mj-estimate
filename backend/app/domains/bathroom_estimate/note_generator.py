@@ -145,7 +145,8 @@ def _generate_template_note(estimate) -> str:
     if estimate.water_damage:
         if getattr(estimate, 'demo_already_done', False):
             specials.append(
-                "demolition completed by mitigation team (repair/rebuild scope)"
+                "water-damage tear-out completed by mitigation team; "
+                "tile removal remains in the rebuild scope"
             )
         else:
             specials.append(
@@ -273,7 +274,8 @@ def _build_context(estimate) -> str:
     # Special conditions
     if estimate.water_damage:
         if getattr(estimate, 'demo_already_done', False):
-            lines.append("SCOPE: Restoration — demo completed by mitigation team")
+            lines.append("SCOPE: Restoration — water-damage tear-out done by mitigation team; "
+                         "tile removal still in scope")
         else:
             lines.append("SCOPE: Restoration — conditions to be verified upon demo")
     repair_items = []

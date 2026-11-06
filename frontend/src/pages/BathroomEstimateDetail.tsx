@@ -1467,7 +1467,7 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Form.Item>
                           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
                             {form.getFieldValue('demo_already_done')
-                              ? 'Demo costs will be excluded. Check areas above that were already demolished, then select repairs needed below.'
+                              ? 'The ceiling demo is excluded (mitigation tore it out). Tile removal for the remodel — floor tile and tub/shower wall tile — is still charged. Select the repairs needed below.'
                               : 'Uncheck if demo has not been done yet — demo costs will be included in the estimate.'}
                           </Text>
                         </Col>
