@@ -25,7 +25,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Line, Shape } from 'react-konva';
 import Konva from 'konva';
-import { Button, InputNumber, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
+import { Button, InputNumber, Popover, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
 import {
   BorderOutlined,
   CameraOutlined,
@@ -96,6 +96,7 @@ import {
   placeDroppedAppliance,
   reconcileAppliances,
 } from './sketchAppliances';
+import { TRIM_FIELDS, TRIM_FIELD_LABELS, takeoffTrim, type TrimCounts } from './cabinetTrimTakeoff';
 import { lazyWithRetry } from '../../../utils/lazyWithRetry';
 
 // three.js is big; it's only fetched once the 3D view is opened.
@@ -195,6 +196,8 @@ export interface CabinetSketchEditorProps {
   islandSeatingIn?: number;
   /** "Use in estimate" on the plan's island top — set the Edit tab's island countertop SF to it. */
   onApplyIslandTopSf?: (sf: number) => void;
+  /** "Use in estimate" on the plan's trim count — set the Edit tab's Trim & Finished Panels to it. */
+  onApplyTrim?: (counts: TrimCounts) => void;
   /** The Edit tab's Appliance Detach & Reset list (empty when that is off) — the appliances the sketch shows. */
   applianceList?: { type: string; qty: number }[];
   /** Bowls of the sink drawn on each sink base: the Edit tab's sink type. */
@@ -221,6 +224,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   onApplyAngledJoints,
   islandSeatingIn = 0,
   onApplyIslandTopSf,
+  onApplyTrim,
   applianceList = NO_LIST,
   sinkBowls: scopeSinkBowls = 1,
   products = null,
@@ -573,6 +577,12 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   );
   // Floor cabinets joined at an angle in the plan — what the Edit tab's Angled Joints should count.
   const angledJoints = useMemo(() => countAngledJoints(cabinets, scalePixelsPerFoot), [cabinets, scalePixelsPerFoot]);
+  // The fillers and finished panels the plan calls for — what the Edit tab's Trim & Finished Panels should hold.
+  const trim = useMemo(
+    () => takeoffTrim(cabinets, appliances, walls, CABINET_PRESETS, scalePixelsPerFoot),
+    [cabinets, appliances, walls, scalePixelsPerFoot]
+  );
+  const trimTotal = TRIM_FIELDS.reduce((sum, f) => sum + trim.counts[f], 0);
   // The island countertop as the plan has it — any shape, angled or not — its outline and area,
   // and the fillers that close the wedges between the boxes of its angled joints.
   const islandTop = useMemo(() => {
@@ -1070,6 +1080,56 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                   )}
                 </Tag>
               </Tooltip>
+            )}
+            {cabinets.length > 0 && (
+              <Popover
+                title="Trim & Finished Panels in this plan"
+                content={
+                  <div style={{ maxWidth: 440, fontSize: 12 }}>
+                    {walls.length === 0 && (
+                      <div style={{ color: '#d46b08', marginBottom: 6 }}>
+                        No walls drawn yet — every run end reads as open. Draw the walls first.
+                      </div>
+                    )}
+                    {TRIM_FIELDS.map((f) => (
+                      <div key={f} style={{ marginBottom: 4 }}>
+                        <strong>
+                          {TRIM_FIELD_LABELS[f]}: {trim.counts[f]}
+                        </strong>
+                        {trim.items
+                          .filter((item) => item.field === f)
+                          .map((item, k) => (
+                            <div key={k} style={{ paddingLeft: 10, color: '#595959' }}>
+                              {item.where} — {item.why}
+                            </div>
+                          ))}
+                      </div>
+                    ))}
+                    <div style={{ marginTop: 6, color: '#8c8c8c' }}>
+                      Counted from where each cabinet end stands: a wall within 12&quot; beside it (filler, never a
+                      panel), at the doors of the run that turns the corner (filler), beside a cabinet or across an
+                      appliance-wide gap in the run (nothing), or open (end panel). A tall beside a base shows above the counter. A Fridge Deep Upper marks the
+                      refrigerator opening. A dishwasher counts only once the Appliance Detach &amp; Reset list puts it
+                      on the plan. Island ends are priced by the island&apos;s End Panel SF, angled joints by Angled
+                      Joints.
+                    </div>
+                  </div>
+                }
+              >
+                <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
+                  Trim &amp; panels: {trimTotal}
+                  {onApplyTrim && walls.length > 0 && (
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ paddingInline: 4, height: 'auto' }}
+                      onClick={() => onApplyTrim(trim.counts)}
+                    >
+                      Use in estimate
+                    </Button>
+                  )}
+                </Tag>
+              </Popover>
             )}
             {appliances.length > 0 && (
               <Tooltip

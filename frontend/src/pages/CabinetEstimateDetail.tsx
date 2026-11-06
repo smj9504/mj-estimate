@@ -48,6 +48,7 @@ import KitchenGroupBar from '../components/cabinet-estimate/KitchenGroupBar';
 import KitchenGroupCompareDrawer from '../components/cabinet-estimate/KitchenGroupCompareDrawer';
 import KitchenSelections from '../components/cabinet-estimate/KitchenSelections';
 import { boxKey } from '../components/cabinet-estimate/sketch/cabinetSketchLayout';
+import { TRIM_FIELDS, TRIM_FIELD_LABELS } from '../components/cabinet-estimate/sketch/cabinetTrimTakeoff';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
 import { memberName } from '../types/cabinetEstimate';
 import type { CabType } from '../types/cabinetEstimate';
@@ -1543,6 +1544,9 @@ const CabinetEstimateDetail: React.FC = () => {
                   <div style={{ borderTop: '1px solid #f0f0f0', margin: '8px 0 12px', paddingTop: 8 }}>
                     <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
                       Trim &amp; Finished Panels
+                      <span style={{ marginLeft: 8, color: '#8c8c8c' }}>
+                        — the Sketch tab counts these from the drawing: Trim &amp; panels → Use in estimate
+                      </span>
                     </Text>
                     <Row gutter={16}>
                       <Col xs={12} md={8}>
@@ -2018,6 +2022,11 @@ const CabinetEstimateDetail: React.FC = () => {
             onApplyAngledJoints={(count) => {
               form.setFieldsValue({ angled_joint_count: count });
               message.success(`Angled Joints set to ${count} on the Edit tab — Save or Save & Calculate to price it`);
+            }}
+            onApplyTrim={(counts) => {
+              form.setFieldsValue(counts);
+              const set = TRIM_FIELDS.map((f) => `${TRIM_FIELD_LABELS[f]} ${counts[f]}`).join(', ');
+              message.success(`Trim & Finished Panels set on the Edit tab (${set}) — Save or Save & Calculate to price them`, 6);
             }}
             onCabinetPlaced={(code, cabType) => {
               const preset = CABINET_PRESETS[code];
