@@ -569,3 +569,61 @@ def test_smtp_conversation_is_not_echoed_with_credentials(monkeypatch):
     assert smtp.calls == ['starttls', 'login', ('send', 'jane@example.com')]
     # smtplib prints the AUTH line, with the encoded password, at level 1+
     assert smtp.debuglevel == 0
+
+
+def test_account_emails_go_out_as_simple_works(monkeypatch):
+    # Production sets SMTP_FROM_NAME to the sending domain's name; these
+    # emails keep the app's name whatever it is
+    monkeypatch.setattr(settings, 'SMTP_FROM_NAME', 'Scopit')
+    captured = []
+    monkeypatch.setattr(
+        EmailService, 'send_email',
+        staticmethod(lambda **kwargs: captured.append(kwargs) or True),
+    )
+
+    EmailService.send_welcome_email('jane@example.com', 'jane', 'Janet')
+    EmailService.send_password_change_code('jane@example.com', '482913', 10)
+    EmailService.send_password_reset_email('jane@example.com', 'tok')
+
+    assert [c['subject'] for c in captured] == [
+        'Welcome to Simple Works',
+        'Your password change code - Simple Works',
+        'Reset your Simple Works password',
+    ]
+    for c in captured:
+        assert 'Scopit' not in c['html_content'] + c['text_content']
+        assert 'Simple Works' in c['html_content']
+        assert 'Simple Works' in c['text_content']
+
+
+def test_account_email_from_name_is_simple_works(monkeypatch):
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def starttls(self):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def send_message(self, message):
+            sent.append(message)
+
+    monkeypatch.setattr(email_module.smtplib, 'SMTP', FakeSMTP)
+    monkeypatch.setattr(settings, 'EMAIL_ENABLED', True)
+    monkeypatch.setattr(settings, 'SMTP_USER', 'mailer@example.com')
+    monkeypatch.setattr(settings, 'SMTP_PASSWORD', secrets.token_hex(8))
+    monkeypatch.setattr(settings, 'SMTP_FROM_NAME', 'Scopit')
+    monkeypatch.setattr(settings, 'SMTP_FROM_EMAIL', 'documents@scopit.work')
+
+    assert EmailService.send_email('jane@example.com', 'Hi', '<p>Hi</p>')
+    assert sent[0]['From'] == 'Simple Works <documents@scopit.work>'

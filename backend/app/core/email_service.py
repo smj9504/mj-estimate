@@ -12,6 +12,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Name these account emails go out under (sign-up, password change and reset).
+# Fixed here rather than SMTP_FROM_NAME, which production sets to the sending
+# domain's name and other senders still use.
+BRAND = "Simple Works"
+
 
 class EmailService:
     """Service for sending emails"""
@@ -48,7 +53,7 @@ class EmailService:
         try:
             # Create message
             message = MIMEMultipart('alternative')
-            message['From'] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
+            message['From'] = f"{BRAND} <{settings.SMTP_FROM_EMAIL}>"
             message['To'] = to_email
             message['Subject'] = subject
 
@@ -102,7 +107,7 @@ class EmailService:
         Returns:
             bool: True if email sent successfully
         """
-        brand = settings.SMTP_FROM_NAME
+        brand = BRAND
         reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
         subject = f"Reset your {brand} password"
 
@@ -149,7 +154,7 @@ This is an automated message; replies aren't read.
         Returns:
             bool: True if email sent successfully
         """
-        brand = settings.SMTP_FROM_NAME
+        brand = BRAND
         subject = f"Your password change code - {brand}"
 
         code_box = (
@@ -200,7 +205,7 @@ your administrator. Your password stays the same.
         Returns:
             bool: True if email sent successfully
         """
-        brand = settings.SMTP_FROM_NAME
+        brand = BRAND
         login_url = f"{settings.FRONTEND_URL}/login"
         name = first_name or username
         subject = f"Welcome to {brand}"
@@ -285,7 +290,7 @@ def _account_email(title: str, preheader: str, heading: str, body: str, footer: 
 
     heading, body and footer are html; title and preheader are plain text.
     """
-    brand = escape(settings.SMTP_FROM_NAME)
+    brand = escape(BRAND)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
