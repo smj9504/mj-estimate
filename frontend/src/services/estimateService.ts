@@ -301,11 +301,8 @@ class EstimateService {
       throw new Error('Item quantity must be greater than 0');
     }
 
-    // Ensure rate is valid - must be >= 0
+    // A negative rate is a discount or credit line
     const rate = Number(item.unit_price) || 0.0;
-    if (rate < 0) {
-      throw new Error('Item rate cannot be negative');
-    }
 
     return {
       name: name,  // Aligned with invoice_items for consistency

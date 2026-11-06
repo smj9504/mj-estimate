@@ -918,11 +918,10 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             
             for item in items:
                 # Description is optional, can be empty
-                if float(item.get('rate', 0)) < 0:
-                    raise ValueError("Item rate cannot be negative")
+                # Negative rates are allowed for discounts/credits, as on create
                 if float(item.get('quantity', 0)) <= 0:
                     raise ValueError("Item quantity must be positive")
-            
+
             # Calculate totals with adjustments, O&P and tax information
             op_percent = float(validated_data.get('op_percent', 0))
             tax_method = validated_data.get('tax_method', 'percentage')

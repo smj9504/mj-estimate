@@ -209,3 +209,21 @@ def test_the_downloaded_pdf_gets_the_adjustments_and_tax_method(api, monkeypatch
     assert [a['name'] for a in seen['adjustments']] == ['Holiday', 'Discount']
     assert seen['tax_method'] == 'percentage'
     assert [p['label'] for p in seen['payment_schedule']] == ['Deposit']
+
+
+def test_a_discount_line_with_a_negative_price_saves(api):
+    # The item window says negative prices are for discounts and credits;
+    # an update used to refuse them
+    credit = {'name': 'CREDIT', 'description': 'Returning customer credit', 'quantity': 1, 'unit': 'EA',
+              'rate': -20, 'taxable': False, 'primary_group': 'Kitchen', 'sort_order': 2}
+    created = api.post(f'{ESTIMATES}/', json={**new_estimate(), 'items': ITEMS + [credit]})
+    assert created.status_code == 200, created.text
+    assert created.json()['total_amount'] == pytest.approx(130.0, abs=0.01)
+
+    estimate_id = created.json()['id']
+    updated = api.put(f'{ESTIMATES}/{estimate_id}', json={**new_estimate(), 'items': ITEMS + [credit]})
+    assert updated.status_code == 200, updated.text
+
+    opened = api.get(f'{ESTIMATES}/{estimate_id}').json()
+    assert [item['rate'] for item in opened['items']] == [10, 50, -20]
+    assert opened['total_amount'] == pytest.approx(130.0, abs=0.01)
