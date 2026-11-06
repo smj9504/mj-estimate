@@ -194,14 +194,11 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     sync.length_ft = widthFt;
     sync.width_ft = depthFt;
 
-    // Floor SF: primary room minus fixture footprints + additional rooms
-    const primaryFloorSF = widthFt * depthFt;
-    let fixtureFootprintSF = 0;
-    for (const fix of fixtures) {
-      if (fix.type !== 'bathtub' && fix.type !== 'shower' && fix.type !== 'vanity') continue;
-      fixtureFootprintSF += (fix.dimensions.width / 12) * (fix.dimensions.height / 12);
-    }
-    let totalFloorSF = Math.max(0, primaryFloorSF - fixtureFootprintSF);
+    // Floor SF: the whole room (primary + additional rooms). The calculator
+    // takes the tub, shower and vanity footprints off for the tile and its
+    // underlayment, and uses the whole room for the ceiling and paint prep;
+    // taking them off here too took them off twice.
+    let totalFloorSF = widthFt * depthFt;
 
     // Wall SF: primary room + additional rooms, minus door/window openings
     const heightFt = (bathroom.heightInches || 96) / 12;
