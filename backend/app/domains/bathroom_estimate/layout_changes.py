@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .lights import is_wall_light
+from .plumbing_points import drain_of, faucet_of, in_room
 from .pricing import LAYOUT_CHANGE_RATES
 
 # A fixture that moved less than this hasn't moved (inches)
@@ -41,6 +42,7 @@ Point = Tuple[float, float]
 class LayoutChange:
     key: str
     # moved | added | removed | converted | sinks_added | wall_added | wall_removed
+    # | drain_moved | valve_moved (a tub's or shower's, the fixture itself staying put)
     kind: str
     # toilet | vanity | bathtub | shower | door | light | wall_light | wall | tub_to_shower | shower_to_tub
     item: str
@@ -179,6 +181,18 @@ def layout_changes(base_sketch: Optional[Dict[str, Any]], option_sketch: Optiona
                 f"{NAMES[kind]} moved {moved:.0f} in", distance_in=round(moved, 1),
                 count=_sinks(b) if kind == "vanity" else 1,
             ))
+        if kind in ("bathtub", "shower") and moved <= MOVE_IN:
+            # The fixture stayed; its drain or faucet may not have (a tub's drain end
+            # swapped, a shower's valve put on another wall)
+            name = NAMES[kind]
+            faucet = "faucet" if kind == "bathtub" else "valve"
+            for change, point_of, what in (("drain_moved", drain_of, "drain"), ("valve_moved", faucet_of, faucet)):
+                d = _dist(in_room(b, point_of(b), bppf), in_room(f, point_of(f), oppf))
+                if d > MOVE_IN:
+                    changes.append(LayoutChange(
+                        f"{change}:{f.get('id')}", change, kind,
+                        f"{name} {what} moved {d:.0f} in", distance_in=round(d, 1),
+                    ))
         if kind == "vanity" and _sinks(f) > _sinks(b):
             extra = _sinks(f) - _sinks(b)
             changes.append(LayoutChange(
@@ -261,6 +275,14 @@ def layout_change_line_items(
                 items.append(_item(2, "Relocate shower drain & valve", 1, "EA", r["shower_relocation"], "plumbing", note))
             else:
                 items.append(_item(2, "Relocate tub drain & valve", 1, "EA", r["tub_relocation"], "plumbing", note))
+        elif c.kind == "drain_moved":
+            rough = drains = True
+            what = "tub" if c.item == "bathtub" else "shower"
+            items.append(_item(2, f"Relocate {what} drain", 1, "EA", r["drain_relocation"], "plumbing", note))
+        elif c.kind == "valve_moved":
+            rough = True
+            what = "tub faucet" if c.item == "bathtub" else "shower valve"
+            items.append(_item(2, f"Relocate {what} & supply", 1, "EA", r["valve_relocation"], "plumbing", note))
         elif c.kind == "sinks_added":
             rough = drains = True
             items.append(_item(2, "Rough-in for added sink (supply & drain)", c.count, "EA", r["sink_new_rough_in"], "plumbing", note))

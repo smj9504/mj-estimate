@@ -11,6 +11,7 @@ import type { BathroomLooks, BathroomModel, FixtureSolid, Pt, TileLook, WallOpen
 import type { TileTextureCache } from './bathroom3dTextures';
 import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN, SOFFIT_BOTTOM_IN } from '../../../types/bathroomSketch';
 import { DEFAULT_BAR_BULBS, cabinetKind, lightKindOf } from '../fixtureRows';
+import { drainOf, faucetEdge, faucetOf, type Edge } from './utils/plumbingPoints';
 import { getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './utils/beGeometry';
 import { subtractRects, type FaceRect } from './utils/wallFinish';
 
@@ -452,6 +453,24 @@ function buildVanity(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
 
 const CHAMFER_FROM = 0.6;
 
+/** Turn about y so a group's +z points into the fixture from that wall. */
+const EDGE_YAW: Record<Edge, number> = { north: 0, west: Math.PI / 2, east: -Math.PI / 2, south: Math.PI };
+
+/** A group at `at`, its +z pointing into the fixture from `edge`, or toward `toward` off a deck or the floor. */
+function facing(at: Pt, edge: Edge | null, toward: Pt): THREE.Group {
+  const h = new THREE.Group();
+  h.position.set(at[0], 0, at[1]);
+  const dx = toward[0] - at[0];
+  const dz = toward[1] - at[1];
+  h.rotation.y = edge ? EDGE_YAW[edge] : (Math.hypot(dx, dz) > 0.5 ? Math.atan2(dx, dz) : 0);
+  return h;
+}
+
+/** A drain grate on a floor `y` inches up, at `at`. */
+function drainAt(at: Pt, y: number, r: number): THREE.Mesh {
+  return new THREE.Mesh(new THREE.CircleGeometry(r, 24).rotateX(-Math.PI / 2).translate(at[0], y, at[1]), mat(COLORS.drain, { metalness: 0.6, roughness: 0.4 }));
+}
+
 function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
   const W = f.widthIn;
   const D = f.depthIn;
@@ -466,9 +485,17 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     g.add(new THREE.Mesh(prism(ellipse(rx - 3, rz - 3), 0, 1.5), mat('#d9d5cd')));
     g.add(new THREE.Mesh(prism(ellipse(rx, rz), 1.5, 22, [ellipse(rx - 2.5, rz - 2.5)]), kit.prefab));
     g.add(new THREE.Mesh(prism(ellipse(rx - 2.5, rz - 2.5), 1.5, 4), floor));
-    // A floor-mounted filler at the end
-    g.add(post(0.8, 34, kit.metal, 0, 0, D / 2 + 2));
-    g.add(boxAt(1, 1, 7, kit.metal, 0, 34, D / 2 - 1.5));
+    const fp = faucetOf(f.fixture);
+    const dp = drainOf(f.fixture);
+    g.add(drainAt(local(dp.x, dp.y), 4.05, 1.2));
+    // A floor-mounted filler beside it, its spout over the rim toward the drain
+    const at = local(fp.x, fp.y);
+    const len = Math.hypot(at[0], at[1]);
+    const out: Pt = len > 0.5 ? [at[0] + (at[0] / len) * 2, at[1] + (at[1] / len) * 2] : at;
+    const filler = facing(out, null, local(dp.x, dp.y));
+    filler.add(post(0.8, 34, kit.metal, 0, 0, 0));
+    filler.add(boxAt(1, 1, 7, kit.metal, 0, 34, 3.5));
+    g.add(filler);
     return;
   }
 
@@ -476,20 +503,19 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
   const rim = p.deckHeight || (deck ? 20 : 15.5);
   let outline: Pt[];
   let basin: Pt[];
-  let spout: Pt;
   if (sub === 'corner_garden' || sub === 'corner_drop_in') {
     outline = [local(0, 0), local(1, 0), local(1, CHAMFER_FROM), local(CHAMFER_FROM, 1), local(0, 1)];
     basin = ellipse(0.34 * W, 0.34 * D, ...local(0.46, 0.46));
-    spout = local(0.74, 0.54);
   } else if (deck) {
     outline = [local(0, 0), local(1, 0), local(1, 1), local(0, 1)];
     basin = roundedRect(0.7 * W, 0.8 * D, 6, ...local(0.5, 0.5));
-    spout = local(0.5, 0.06);
   } else {
     outline = [local(0, 0), local(1, 0), local(1, 1), local(0, 1)];
     basin = roundedRect(W - 7, D - 6.5, 5, 0, 0.5);
-    spout = local(0.5, 0.03);
   }
+  const fp = faucetOf(f.fixture);
+  const dp = drainOf(f.fixture);
+  const edge = faucetEdge(f.fixture, fp);
 
   if (deck) {
     // A tiled platform (or a plain one) with the tub dropped into it
@@ -503,13 +529,25 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     g.add(new THREE.Mesh(prism(outline, 0, rim, [basin]), kit.prefab));
     g.add(new THREE.Mesh(prism(shrink(basin, 0.5), 0, 2.5), floor));
   }
-  g.add(boxAt(1.2, 1.2, 4.5, kit.metal, spout[0], rim + 4, spout[1] + 2));
-  if (!deck) g.add(plate(3, 0.6, kit.metal, spout[0], rim + 18, -D / 2 + 0.3));
+  g.add(drainAt(local(dp.x, dp.y), 2.55, 1.2));
+  // The faucet: on its wall a spout with the valve's trim above it (and a shower
+  // head over a shower-tub); on a deck, a spout standing on it toward the drain
+  const fixtureFaucet = facing(local(fp.x, fp.y), edge, local(dp.x, dp.y));
+  if (edge) {
+    fixtureFaucet.add(boxAt(1.2, 1.2, 4.5, kit.metal, 0, rim + 4, 3));
+    fixtureFaucet.add(plate(3, 0.6, kit.metal, 0, rim + 18, 0.3));
+  } else {
+    fixtureFaucet.add(post(0.7, 6, kit.metal, 0, rim, 0, 16));
+    fixtureFaucet.add(boxAt(1, 1, 4.5, kit.metal, 0, rim + 5.5, 2));
+  }
+  if (kit.looks.tubShower && sub === 'standard_alcove' && edge) {
+    // A shower over the tub: head above the valve, and a curtain on a rod across the front
+    fixtureFaucet.add(boxAt(1, 1, 6, kit.metal, 0, 79, 3));
+    fixtureFaucet.add(plate(3.2, 1, kit.metal, 0, 78, 6.5));
+  }
+  g.add(fixtureFaucet);
 
   if (kit.looks.tubShower && sub === 'standard_alcove') {
-    // A shower over the tub: head, and a curtain on a rod across the front
-    g.add(boxAt(1, 1, 6, kit.metal, spout[0], 79, -D / 2 + 3));
-    g.add(plate(3.2, 1, kit.metal, spout[0], 78, -D / 2 + 6.5));
     const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, W, 16), kit.metal);
     rod.rotation.z = Math.PI / 2;
     rod.position.set(0, GLASS_TOP_IN + 2, D / 2 - 1);
@@ -623,13 +661,17 @@ function buildShower(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     g.add(post(0.4, 10, kit.metal, hx, 36, hz));
   }
 
-  // Head and valve on the back wall, niches, bench
+  // Head and valve on the valve's wall, the drain in the floor; niches and bench on the back wall
   const backZ = -D / 2;
-  const valveX = layout === 'neo_angle' ? -0.05 * W : layout === 'neo_angle_right' ? 0.05 * W : 0;
-  g.add(boxAt(1, 1, 7, kit.metal, 0, 80, backZ + 3.5));
-  g.add(plate(3.5, 1, kit.metal, 0, 78.5, backZ + 7));
-  g.add(plate(3.5, 0.6, kit.metal, valveX, 48, backZ + 0.3));
-  g.add(boxAt(0.6, 0.6, 3, kit.metal, valveX, 48, backZ + 1.8));
+  const fp = faucetOf(f.fixture);
+  const dp = drainOf(f.fixture);
+  const valve = facing(local(fp.x, fp.y), faucetEdge(f.fixture, fp) ?? 'north', [0, 0]);
+  valve.add(boxAt(1, 1, 7, kit.metal, 0, 80, 3.5));
+  valve.add(plate(3.5, 1, kit.metal, 0, 78.5, 7));
+  valve.add(plate(3.5, 0.6, kit.metal, 0, 48, 0.3));
+  valve.add(boxAt(0.6, 0.6, 3, kit.metal, 0, 48, 1.8));
+  g.add(valve);
+  g.add(drainAt(local(dp.x, dp.y), baseTop + 0.05, 2));
   const niches = p.nicheCount ?? 0;
   const nicheMat = mat(COLORS.niche, { roughness: 0.6 });
   for (let i = 0; i < niches; i++) {

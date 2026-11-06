@@ -26,6 +26,8 @@ import type {
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
 import { isWallLight } from '../fixtureRows';
+import BEPlumbingMarks from './BEPlumbingMarks';
+import { hasPlumbing } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
 import { wallTileRegions } from './utils/wallFinish';
@@ -2156,6 +2158,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               onDragEnd={(pos) => api.updateFixture(fix.id, { position: pos })}
               onResize={(w, h) => api.updateFixture(fix.id, { dimensions: { width: w, height: h } })}
               onRotate={(deg) => api.updateFixture(fix.id, { rotation: deg })}
+              onPropsChange={(props) => api.updateFixtureProperties(fix.id, props)}
             />
           ))}
         </Layer>
@@ -2322,6 +2325,8 @@ interface FixtureNodeProps {
   onDragEnd: (pos: BEPoint) => void;
   onResize: (widthInches: number, heightInches: number) => void;
   onRotate: (degrees: number) => void;
+  /** A tub's or shower's faucet or drain dragged */
+  onPropsChange: (props: Partial<BEFixture['properties']>) => void;
 }
 
 const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
@@ -2338,6 +2343,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   onDragEnd,
   onResize,
   onRotate,
+  onPropsChange,
 }) => {
   const trTargetRef = useRef<Konva.Rect>(null);
   const trRef = useRef<Konva.Transformer>(null);
@@ -2401,6 +2407,8 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       onClick={onSelect}
       onTap={onSelect}
       onDragEnd={(e) => {
+        // A faucet or drain dragged inside it isn't the fixture moving
+        if (e.target !== e.currentTarget) return;
         onDragEnd({ x: e.target.x(), y: e.target.y() });
       }}
     >
@@ -2431,6 +2439,17 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
           listening={false}
         />
       ))}
+
+      {hasPlumbing(fix) && (
+        <BEPlumbingMarks
+          fixture={fix}
+          wPx={wPx}
+          hPx={hPx}
+          ppf={ppf}
+          editable={isSelected && isDraggable}
+          onChange={onPropsChange}
+        />
+      )}
 
       {/* Label: below it; a cabinet's inside its box, clear of what's under it on the
           plan; none on a wall light, whose lights say what it is and which shares

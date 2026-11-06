@@ -19,6 +19,8 @@ const WHAT_IT_PRICES: Record<BathroomLayoutChange['kind'], string> = {
   removed: 'cap / infill',
   converted: 'conversion',
   sinks_added: 'new rough-in',
+  drain_moved: 'drain relocation',
+  valve_moved: 'valve relocation',
   wall_added: 'framing',
   wall_removed: 'wall removal',
 };

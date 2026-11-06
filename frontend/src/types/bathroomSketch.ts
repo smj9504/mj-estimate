@@ -308,6 +308,16 @@ export interface BEFixtureProperties {
   swingDirection?: 'in' | 'out';
   handleSide?: 'left' | 'right';
 
+  // --- Faucet and drain (bathtub, shower) ---
+  /**
+   * Where the faucet (a shower's valve) is, x and y from 0 to 1 across the
+   * fixture's width and depth from its back-left corner; on a wall for an
+   * alcove tub or a shower. Unset: where it always was. See utils/plumbingPoints.
+   */
+  faucetPos?: { x: number; y: number };
+  /** Where the drain is, the same way; unset, a tub's is under its faucet and a shower's in the middle */
+  drainPos?: { x: number; y: number };
+
   /** The pick (its taken_at) an option's product last sized this fixture to; see utils/productFit. */
   productTakenAt?: string;
 

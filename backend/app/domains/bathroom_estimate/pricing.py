@@ -123,6 +123,11 @@ LAYOUT_CHANGE_RATES = {
     # Shower or tub drain ($300-$1,000 on wood) plus valve and supply ($700-$1,200)
     "shower_relocation": 1400,
     "tub_relocation": 1400,
+    # Only the drain, or only the valve, moved where the tub or shower stays (a
+    # tub's drain end swapped, a valve put on another wall): the two halves of
+    # the relocation above, so both together cost what moving the fixture does
+    "drain_relocation": 600,
+    "valve_relocation": 800,
     # Tub out, shower in at the same spot: drain rework and the valve swap
     "tub_to_shower": 1250,
     # Shower out, tub in: tub drain with overflow, spout supply

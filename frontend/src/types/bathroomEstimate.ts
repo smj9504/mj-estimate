@@ -430,7 +430,9 @@ export interface BathroomSelectionSlot {
 /** One way an option's sketch differs from the bathroom as it is (layout_changes.py). */
 export interface BathroomLayoutChange {
   key: string;
-  kind: 'moved' | 'added' | 'removed' | 'converted' | 'sinks_added' | 'wall_added' | 'wall_removed';
+  kind: 'moved' | 'added' | 'removed' | 'converted' | 'sinks_added' | 'wall_added' | 'wall_removed'
+    /** A tub's or shower's drain, or its faucet / valve, moved where the fixture stays */
+    | 'drain_moved' | 'valve_moved';
   item: string;
   label: string;
   distance_in: number;

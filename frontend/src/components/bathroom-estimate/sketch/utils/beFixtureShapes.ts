@@ -107,8 +107,7 @@ const bathtubAlcove: FixtureShape = {
   paths: [
     { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 2 },
     { d: 'M0.06,0.06 L0.94,0.06 L0.94,0.94 L0.06,0.94 Z', fill: FL, stroke: S, strokeWidth: 1 },
-    // Faucet
-    { d: 'M0.46,0.03 L0.54,0.03 L0.54,0.1 L0.46,0.1 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
+    // Faucet and drain: drawn where they're set (BESketchCanvas, utils/plumbingPoints)
   ],
 };
 
@@ -122,8 +121,6 @@ function buildBathtubDropIn(wallSides: WallSides | null): FixtureShape {
       { d: buildExposedRimPath(wallSides, 0.05, 0.08), fill: FL, stroke: SL, strokeWidth: 0.6 },
       // Tub basin (rounded rectangle)
       { d: 'M0.15,0.12 Q0.15,0.08 0.2,0.08 L0.8,0.08 Q0.85,0.08 0.85,0.12 L0.85,0.88 Q0.85,0.92 0.8,0.92 L0.2,0.92 Q0.15,0.92 0.15,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
-      // Faucet
-      { d: 'M0.46,0.03 L0.54,0.03 L0.54,0.07 L0.46,0.07 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
     ],
   };
 }
@@ -139,8 +136,6 @@ const bathtubCorner: FixtureShape = {
     { d: 'M0.96,0.04 L0.96,0.51 Q0.96,0.56 0.925,0.595 L0.595,0.925 Q0.56,0.96 0.51,0.96 L0.04,0.96', fill: FL, stroke: SL, strokeWidth: 0.6 },
     // Tub basin (curved pentagon - chamfered corner with rounded edges)
     { d: 'M0.1,0.1 Q0.5,0.08 0.85,0.1 Q0.87,0.35 0.85,0.48 L0.48,0.85 Q0.35,0.87 0.1,0.85 Q0.08,0.5 0.1,0.1 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
-    // Faucet on diagonal deck
-    { d: 'M0.7,0.52 m-0.025,0 a0.025,0.025 0 1,0 0.05,0 a0.025,0.025 0 1,0 -0.05,0', fill: SL, stroke: S, strokeWidth: 0.8 },
     // Deck tile hatching - right side
     { d: 'M0.88,0.15 L0.96,0.15', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.88,0.3 L0.96,0.3', fill: N, stroke: SL, strokeWidth: 0.3 },
@@ -165,8 +160,6 @@ const bathtubCornerDropIn: FixtureShape = {
     { d: 'M0.96,0.04 L0.96,0.51 Q0.96,0.56 0.925,0.595 L0.595,0.925 Q0.56,0.96 0.51,0.96 L0.04,0.96', fill: FL, stroke: SL, strokeWidth: 0.6 },
     // Tub basin (pentagon - chamfered bottom-right corner)
     { d: 'M0.08,0.08 L0.88,0.08 L0.88,0.48 L0.48,0.88 L0.08,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
-    // Faucet (on the diagonal deck edge)
-    { d: 'M0.72,0.52 m-0.025,0 a0.025,0.025 0 1,0 0.05,0 a0.025,0.025 0 1,0 -0.05,0', fill: SL, stroke: S, strokeWidth: 0.8 },
     // Deck tile hatching - right side
     { d: 'M0.9,0.15 L0.96,0.15', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.9,0.3 L0.96,0.3', fill: N, stroke: SL, strokeWidth: 0.3 },
@@ -186,8 +179,6 @@ const bathtubFreestanding: FixtureShape = {
   paths: [
     { d: 'M0.1,0.5 Q0.1,0.05 0.5,0.05 Q0.9,0.05 0.9,0.5 Q0.9,0.95 0.5,0.95 Q0.1,0.95 0.1,0.5 Z', fill: F, stroke: S, strokeWidth: 2 },
     { d: 'M0.18,0.5 Q0.18,0.12 0.5,0.12 Q0.82,0.12 0.82,0.5 Q0.82,0.88 0.5,0.88 Q0.18,0.88 0.18,0.5 Z', fill: FL, stroke: S, strokeWidth: 1 },
-    // Freestanding floor-mounted faucet (at one end, just outside the basin)
-    { d: 'M0.5,0.95 m-0.045,0 a0.045,0.045 0 1,0 0.09,0 a0.045,0.045 0 1,0 -0.09,0', fill: SL, stroke: S, strokeWidth: 0.8 },
   ],
 };
 
@@ -220,10 +211,7 @@ function buildShowerShape(
     { d: 'M0.66,0.05 L0.66,0.95', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.05,0.33 L0.95,0.33', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.05,0.66 L0.95,0.66', fill: N, stroke: SL, strokeWidth: 0.3 },
-    // Showerhead (centered on back wall)
-    { d: 'M0.44,0.03 L0.56,0.03 L0.56,0.08 L0.44,0.08 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
-    // Valve/faucet handle (below showerhead, back wall, realistic control height)
-    { d: 'M0.5,0.22 m-0.045,0 a0.045,0.045 0 1,0 0.09,0 a0.045,0.045 0 1,0 -0.09,0', fill: SL, stroke: S, strokeWidth: 0.8 },
+    // The head, valve and drain are drawn where they're set (BESketchCanvas, utils/plumbingPoints)
   );
 
   // ── Walls ──
@@ -335,15 +323,8 @@ function buildNeoAngleShowerShape(
   // But to keep it symmetric we use a cleaner geometry:
   // The "cut corner" is at bottom-right for neo_angle, bottom-left for neo_angle_right.
 
-  // ── Interior details ──
-  // Valve handle position, offset from center toward the corner (realistic control placement)
-  const valveX = isRight ? 0.55 : 0.45;
-  const valveY = 0.22;
+  // ── Interior details ── (the head, valve and drain are drawn where they're set)
   paths.push(
-    // Showerhead (centered on back wall)
-    { d: 'M0.44,0.03 L0.56,0.03 L0.56,0.08 L0.44,0.08 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
-    // Valve/faucet handle (below showerhead, back wall)
-    { d: `M${valveX},${valveY} m-0.045,0 a0.045,0.045 0 1,0 0.09,0 a0.045,0.045 0 1,0 -0.09,0`, fill: SL, stroke: S, strokeWidth: 0.8 },
     // Tile grid lines (adapted for pentagon)
     { d: 'M0.33,0.05 L0.33,0.85', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.66,0.05 L0.66,0.85', fill: N, stroke: SL, strokeWidth: 0.3 },

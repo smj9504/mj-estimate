@@ -10,6 +10,7 @@
  */
 
 import type { BEFixture, BEPoint, BERoom, BETileZone, TileZoneType } from '../../../../types/bathroomSketch';
+import { drainOf, faucetOf, hasPlumbing, onPlan } from './plumbingPoints';
 
 export interface LabelLine {
   text: string;
@@ -162,6 +163,26 @@ export function findClearSpot(
   return candidates.find((c) => fits(c.p))?.p ?? start;
 }
 
+/**
+ * Where a fixture's label goes: on it, moved off its faucet and drain (a
+ * tub's or shower's) so they can be seen and grabbed.
+ */
+export function fixtureLabelSpot(f: BEFixture, w: number, h: number, ppf: number): BEPoint {
+  const start = { x: f.position.x, y: f.position.y };
+  if (!hasPlumbing(f)) return start;
+  const marks = [onPlan(f, drainOf(f), ppf), onPlan(f, faucetOf(f), ppf)];
+  const pad = (4 * ppf) / 12;
+  const clear = (c: BEPoint) => marks.every((m) => Math.abs(m.x - c.x) >= w / 2 + pad || Math.abs(m.y - c.y) >= h / 2 + pad);
+  if (clear(start)) return start;
+  for (let step = 4; step <= 240; step += 4) {
+    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const c = { x: start.x + dx * step, y: start.y + dy * step };
+      if (clear(c)) return c;
+    }
+  }
+  return start;
+}
+
 export interface PlanLabels {
   labels: PlanLabel[];
   /** Fixtures whose name is in a label here, so the fixture doesn't draw its own */
@@ -194,7 +215,8 @@ export function buildPlanLabels(
         { text: f.label ?? FIXTURE_NAMES[f.type], strong: true },
         ...zones.map((z) => ({ text: `${zoneName(z)} ${sf(z.areaSF)}` })),
       ];
-      labels.push({ key: `f-${f.id}`, kind: 'fixture', x: f.position.x, y: f.position.y, lines, ...labelSize(lines, measure) });
+      const size = labelSize(lines, measure);
+      labels.push({ key: `f-${f.id}`, kind: 'fixture', ...fixtureLabelSpot(f, size.w, size.h, ppf), lines, ...size });
       labelledFixtureIds.add(f.id);
     }
   }

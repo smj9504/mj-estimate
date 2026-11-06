@@ -37,6 +37,13 @@ import type { BECabinetType, BELightType } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { CABINET_KINDS, DEFAULT_BAR_BULBS, cabinetKind, isWallLight, lightKindOf, lightPlanSize } from '../fixtureRows';
 import { placeFor } from './utils/hangOnWall';
+import {
+  drainOf,
+  drainPresets,
+  faucetOf,
+  faucetPresets,
+  presetOf,
+} from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
 import BEWallFinishEditor from './BEWallFinishEditor';
@@ -256,6 +263,44 @@ const LIGHT_TYPE_OPTIONS: { value: BELightType; label: string }[] = [
   { value: 'recessed_multi', label: 'Recessed, several cans' },
 ];
 
+// ── Faucet and drain (tub, shower): a click away here, anywhere by dragging them on the plan ──
+
+const PlumbingFields: React.FC<{ fixture: BEFixture; setProps: (p: Partial<BEFixture['properties']>) => void }> = ({ fixture, setProps }) => {
+  const p = fixture.properties;
+  const fPresets = faucetPresets(fixture);
+  const dPresets = drainPresets(fixture);
+  const fValue = presetOf(fPresets, faucetOf(fixture), false);
+  const dValue = presetOf(dPresets, drainOf(fixture), !p.drainPos);
+  const custom = { value: 'custom', label: 'Moved on the plan', disabled: true };
+  const isTub = fixture.type === 'bathtub';
+  return (
+    <Group title="Faucet & drain">
+      <Field label={isTub ? 'Faucet' : 'Valve & head'}>
+        <Select
+          aria-label={isTub ? 'Faucet position' : 'Valve position'}
+          value={fValue}
+          onChange={(v: string) => {
+            const preset = fPresets.find((q) => q.value === v);
+            if (preset?.pt) setProps({ faucetPos: preset.pt });
+          }}
+          options={[...fPresets.map(({ value, label }) => ({ value, label })), ...(fValue === 'custom' ? [custom] : [])]}
+        />
+      </Field>
+      <Field label="Drain" hint="Or drag either one on the plan.">
+        <Select
+          aria-label="Drain position"
+          value={dValue}
+          onChange={(v: string) => {
+            const preset = dPresets.find((q) => q.value === v);
+            if (preset) setProps({ drainPos: preset.pt ?? undefined });
+          }}
+          options={[...dPresets.map(({ value, label }) => ({ value, label })), ...(dValue === 'custom' ? [custom] : [])]}
+        />
+      </Field>
+    </Group>
+  );
+};
+
 // ── Fixture ──
 
 const TUB_TYPES: { value: BathtubSubType; label: string }[] = [
@@ -367,6 +412,8 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         {size}
         {rotation}
 
+        <PlumbingFields fixture={fixture} setProps={setProps} />
+
         <Group title="Surround">
           <Field label="Tile">
             <Switch aria-label="Tile surround" checked={p.hasSurround ?? false} onChange={(v) => setProps({ hasSurround: v })} />
@@ -465,6 +512,8 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         </Field>
         {size}
         {rotation}
+
+        <PlumbingFields fixture={fixture} setProps={setProps} />
 
         <Group title="Floor">
           <Field label="Pan">
