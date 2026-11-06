@@ -794,9 +794,11 @@ class AdjusterEmailService:
 
             suggested_by = None
             if template not in self.FOLLOWUP_TEMPLATES:
-                template = (
-                    "review_status" if job.status == "Paperwork received" else "receipt"
-                )
+                template = {
+                    "Paperwork received": "review_status",
+                    # The carrier is already reviewing: ask for an update
+                    "Insurance reviewing": "review_update",
+                }.get(job.status, "receipt")
                 # The adjuster's latest word moves it on: "it's under review"
                 # asks for an update, not for the status of a review
                 from .adjuster_inbox import further_template

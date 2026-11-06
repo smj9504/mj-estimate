@@ -3,8 +3,9 @@ WM Payment Board API endpoints
 
 Public endpoints (no auth - manager link):
 - GET   /api/wm-payment-board/{token}                        - Board rows
-- PATCH /api/wm-payment-board/{token}/jobs/{job_id}/received - Toggle received
-- PATCH /api/wm-payment-board/{token}/jobs/{job_id}/note     - Save manager note
+- PATCH /api/wm-payment-board/{token}/jobs/{job_id}/received         - Toggle received
+- PATCH /api/wm-payment-board/{token}/jobs/{job_id}/check-recipient  - Who the check went to
+- PATCH /api/wm-payment-board/{token}/jobs/{job_id}/note             - Save manager note
 
 Admin endpoints (auth required):
 - GET  /api/wm-payment-board/admin/token            - Current active link
@@ -27,6 +28,7 @@ from .payment_board_schemas import (
     BoardTokenResponse,
     PaymentRowResponse,
     PublicBoardResponse,
+    PublicCheckRecipientUpdate,
     PublicNoteUpdate,
     PublicReceivedUpdate,
 )
@@ -104,6 +106,28 @@ def set_public_received(
         raise
     except Exception as e:
         logger.error(f"Failed to set payment_received via public link: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@public_router.patch("/{token}/jobs/{job_id}/check-recipient", response_model=PaymentRowResponse)
+def set_public_check_recipient(
+    token: str,
+    job_id: UUID,
+    payload: PublicCheckRecipientUpdate,
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Set who the check went to (contractor / customer / PA) from the manager link."""
+    try:
+        service = WMPaymentBoardService(db)
+        job = service.set_check_recipient_by_token(token, job_id, payload.check_recipient)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Invalid link or job not found")
+        db.commit()
+        return _rows(db, [job])[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set check_recipient via public link: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -11,6 +11,7 @@ export const WM_STATUS_TONES: Record<string, TagTone> = {
   'Lead': 'gray',
   'Doc prepping': 'brown',
   'Sent to adjuster': 'blue',
+  'Insurance reviewing': 'yellow',
   'Follow up': 'orange',
   'Paperwork received': 'purple',
   'Estimate requested': 'pink',

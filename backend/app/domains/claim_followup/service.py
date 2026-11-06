@@ -1009,7 +1009,7 @@ class ClaimFollowUpService:
             wm_jobs = session.query(WaterMitigationJob).filter(
                 WaterMitigationJob.claim_id == claim_id,
                 WaterMitigationJob.active == True,
-                WaterMitigationJob.status.in_(['Sent to adjuster', 'Follow up']),
+                WaterMitigationJob.status.in_(['Sent to adjuster', 'Insurance reviewing', 'Follow up']),
             ).all()
 
             for job in wm_jobs:

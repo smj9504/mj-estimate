@@ -6,9 +6,9 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
-from .schemas import CompanyBrief
+from .schemas import CHECK_RECIPIENTS, CompanyBrief
 
 
 class PaymentRowResponse(BaseModel):
@@ -41,12 +41,23 @@ class PublicBoardResponse(BaseModel):
 
 
 class PublicReceivedUpdate(BaseModel):
-    """The only write the public link is allowed to make.
+    """Received toggle from the manager link.
 
-    Deliberately a single field: extra keys in the request body are ignored,
-    so a manager link can never reach the amounts or the check recipient.
+    Each public write takes a single field: extra keys in the request body
+    are ignored, so a manager link can never reach the amounts.
     """
     payment_received: bool
+
+
+class PublicCheckRecipientUpdate(BaseModel):
+    """Who the check went to, set from the manager link. None clears it."""
+    check_recipient: Optional[str] = None
+
+    @validator('check_recipient')
+    def validate_check_recipient(cls, v):
+        if v is not None and v not in CHECK_RECIPIENTS:
+            raise ValueError(f'check_recipient must be one of: {sorted(CHECK_RECIPIENTS)}')
+        return v
 
 
 class PublicNoteUpdate(BaseModel):

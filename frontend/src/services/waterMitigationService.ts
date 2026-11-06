@@ -9,6 +9,7 @@ import { saveAs } from 'file-saver';
 import { compressIfNeeded } from '../utils/imageCompressor';
 import { VIDEO_UPLOAD_TIMEOUT_MS, isVideoUpload } from '../components/common/FileGallery/videoFiles';
 import type {
+  CheckRecipient,
   WMPaymentBoardToken,
   WMPaymentRow,
   WMPublicBoardResponse,
@@ -2126,6 +2127,18 @@ export const wmPaymentBoardService = {
     const response = await publicApi.patch(
       `${PAYMENT_BOARD_URL}/${token}/jobs/${jobId}/received`,
       { payment_received: received }
+    );
+    return response.data;
+  },
+
+  setPublicCheckRecipient: async (
+    token: string,
+    jobId: string,
+    checkRecipient: CheckRecipient | null
+  ): Promise<WMPaymentRow> => {
+    const response = await publicApi.patch(
+      `${PAYMENT_BOARD_URL}/${token}/jobs/${jobId}/check-recipient`,
+      { check_recipient: checkRecipient }
     );
     return response.data;
   },

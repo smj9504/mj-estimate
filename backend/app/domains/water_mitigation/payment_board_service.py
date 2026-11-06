@@ -1,7 +1,8 @@
 """
 WM Payment Board service
 
-Public side: resolve a manager token, list the board, flip payment_received.
+Public side: resolve a manager token, list the board, flip payment_received,
+set the check recipient and the note.
 Admin side: issue / regenerate the single active token.
 
 Like the rest of the domain, this service never commits - the API route does.
@@ -65,6 +66,20 @@ class WMPaymentBoardService:
             setattr(job, key, value)
         if 'payment_received' in update_data:
             self.token_repo.touch_access(board_token, is_confirm=True)
+        self.session.flush()
+        return job
+
+    def set_check_recipient_by_token(
+        self, token: str, job_id: UUID, recipient: Optional[str]
+    ) -> Optional[WaterMitigationJob]:
+        """Set who the check went to via the manager link (None clears it)."""
+        board_token = self.resolve_token(token)
+        if not board_token:
+            return None
+        job = self.token_repo.get_active_job(job_id)
+        if not job:
+            return None
+        job.check_recipient = recipient
         self.session.flush()
         return job
 

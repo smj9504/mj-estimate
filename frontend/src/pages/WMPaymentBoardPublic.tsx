@@ -2,11 +2,11 @@
  * WM Payment Board — public manager page (NO auth, token in URL)
  *
  * A manager opens /wm-payments/:token, sees every active WM job with its
- * amount, toggles "Received" and can leave a note per job. Those two are
- * the only things this page can change; amount and check recipient are
- * read-only here. Amount is the approved amount in dark, or our invoice in
- * light gray until one is approved. Mobile-first: phones get a card list
- * with a sticky header.
+ * status and amount, toggles "Received", sets who the check went to and can
+ * leave a note per job. Those three are the only things this page can
+ * change; amount and status are read-only here. Amount is the approved
+ * amount in dark, or our invoice in light gray until one is approved.
+ * Mobile-first: phones get a card list with a sticky header.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -14,6 +14,7 @@ import { useParams } from 'react-router-dom';
 import {
   Grid,
   Result,
+  Select,
   Space,
   Spin,
   Switch,
@@ -25,11 +26,12 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { wmPaymentBoardService } from '../services/waterMitigationService';
-import type { WMPaymentRow } from '../types/waterMitigation';
+import type { CheckRecipient, WMPaymentRow } from '../types/waterMitigation';
 import {
   AMOUNT_HINT,
   AMOUNT_PREF_KEY,
   AmountText,
+  CHECK_RECIPIENT_OPTIONS,
   CheckRecipientTag,
   CompanyTag,
   EditableNote,
@@ -38,6 +40,7 @@ import {
   readBoolPref,
   writeBoolPref,
 } from '../components/water-mitigation/paymentBoardShared';
+import { WMStatusPill } from '../components/water-mitigation/wmStatus';
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -54,6 +57,7 @@ const WMPaymentBoardPublic: React.FC = () => {
   // Amount can be hidden so the board can be shown without the numbers.
   const [showAmount, setShowAmount] = useState(() => readBoolPref(AMOUNT_PREF_KEY, true));
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingRecipientId, setSavingRecipientId] = useState<string | null>(null);
 
   const toggleAmount = (show: boolean) => {
     setShowAmount(show);
@@ -108,6 +112,23 @@ const WMPaymentBoardPublic: React.FC = () => {
     }
   };
 
+  const handleCheckRecipient = async (row: WMPaymentRow, recipient: CheckRecipient | null) => {
+    if (!token) return;
+    const previous = row;
+    patchRow(row.id, { check_recipient: recipient }); // optimistic
+    setSavingRecipientId(row.id);
+    try {
+      const updated = await wmPaymentBoardService.setPublicCheckRecipient(token, row.id, recipient);
+      patchRow(row.id, updated);
+    } catch (error) {
+      patchRow(row.id, previous);
+      message.error('Could not save. Please try again.');
+      console.error('Public check recipient error:', error);
+    } finally {
+      setSavingRecipientId(null);
+    }
+  };
+
   const handleNote = async (row: WMPaymentRow, note: string | null) => {
     if (!token) return;
     try {
@@ -131,6 +152,21 @@ const WMPaymentBoardPublic: React.FC = () => {
     />
   );
 
+  const checkRecipientSelect = (row: WMPaymentRow, width: number | string) => (
+    <Select
+      size="small"
+      allowClear
+      placeholder="—"
+      aria-label="Check to"
+      value={row.check_recipient ?? undefined}
+      loading={savingRecipientId === row.id}
+      style={{ width }}
+      options={CHECK_RECIPIENT_OPTIONS}
+      onChange={(v) => handleCheckRecipient(row, (v as CheckRecipient | undefined) ?? null)}
+      labelRender={({ value: v }) => <CheckRecipientTag value={v as CheckRecipient} />}
+    />
+  );
+
   const columns: ColumnsType<WMPaymentRow> = [
     {
       title: 'Address',
@@ -145,6 +181,13 @@ const WMPaymentBoardPublic: React.FC = () => {
           )}
         </div>
       ),
+    },
+    {
+      title: 'Status',
+      key: 'status',
+      width: 170,
+      render: (_, row) =>
+        row.status ? <WMStatusPill status={row.status} /> : <Text type="secondary">—</Text>,
     },
     {
       title: 'Company',
@@ -169,8 +212,8 @@ const WMPaymentBoardPublic: React.FC = () => {
     {
       title: 'Check To',
       key: 'check_recipient',
-      width: 130,
-      render: (_, row) => <CheckRecipientTag value={row.check_recipient} />,
+      width: 160,
+      render: (_, row) => checkRecipientSelect(row, '100%'),
     },
     {
       title: 'Received',
@@ -218,6 +261,11 @@ const WMPaymentBoardPublic: React.FC = () => {
               )}
             </div>
           )}
+          {row.status && (
+            <div style={{ marginTop: 6 }}>
+              <WMStatusPill status={row.status} />
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
           {receivedSwitch(row)}
@@ -245,7 +293,7 @@ const WMPaymentBoardPublic: React.FC = () => {
 
       <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
         <Text type="secondary" style={{ fontSize: 12 }}>Check to</Text>
-        <CheckRecipientTag value={row.check_recipient} />
+        {checkRecipientSelect(row, 150)}
       </div>
 
       <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e8e8e8' }}>
@@ -327,7 +375,7 @@ const WMPaymentBoardPublic: React.FC = () => {
             rowKey="id"
             pagination={false}
             size="middle"
-            scroll={{ x: 1000 }}
+            scroll={{ x: 1200 }}
             onRow={(row) => ({
               style: row.payment_received ? { background: RECEIVED_ROW_BG } : undefined,
             })}

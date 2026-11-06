@@ -76,8 +76,8 @@ const WMPaymentLinkButton: React.FC<{ size?: 'small' | 'middle' }> = ({ size = '
           <Alert
             type="info"
             showIcon
-            message="Anyone with this link can see the payment board and mark payments received — no login needed."
-            description="Amounts and check recipient can only be edited here, not from the link."
+            message="Anyone with this link can see the payment board, mark payments received and set who the check went to — no login needed."
+            description="Amounts and status can only be edited here, not from the link."
           />
           <Space.Compact style={{ width: '100%' }}>
             <Input

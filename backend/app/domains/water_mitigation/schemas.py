@@ -16,6 +16,7 @@ class JobStatus:
     LEAD = "Lead"
     DOC_PREPPING = "Doc prepping"
     SENT_TO_ADJUSTER = "Sent to adjuster"
+    INSURANCE_REVIEWING = "Insurance reviewing"  # the carrier is reviewing our docs; used in place of Follow up
     FOLLOW_UP = "Follow up"
     PAPERWORK_RECEIVED = "Paperwork received"
     ESTIMATE_REQUESTED = "Estimate requested"
@@ -29,6 +30,7 @@ class JobStatus:
             cls.LEAD,
             cls.DOC_PREPPING,
             cls.SENT_TO_ADJUSTER,
+            cls.INSURANCE_REVIEWING,
             cls.FOLLOW_UP,
             cls.PAPERWORK_RECEIVED,
             cls.ESTIMATE_REQUESTED,
