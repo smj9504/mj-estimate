@@ -9,7 +9,7 @@
  * material-type fields), so only the type import changes.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Group, Line, Circle, Text } from 'react-konva';
 import type { CabinetSketchWall } from '../../../types/cabinetSketch';
 import { DEFAULT_WALL_COLOR } from '../../../types/cabinetSketch';
@@ -34,7 +34,7 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
   zoom = 1,
 }) => {
   const px = 1 / zoom;
-  const { id, start_x, start_y, end_x, end_y, thickness, color } = wall;
+  const { id, thickness, color } = wall;
 
   const handleClick = useCallback(
     (e: any) => {
@@ -44,8 +44,14 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
     [id, onSelect]
   );
 
+  // The end handles sit inside this Group, which is draggable while the wall
+  // is selected. A handle's drag events would bubble up to it, and the
+  // Group would take the handle's position for its own move: the wall jumped
+  // by the handle's coordinates on top of the end being moved. So the
+  // handles keep their events, and the Group only acts on its own drag.
   const handleGroupDragEnd = useCallback(
     (e: any) => {
+      if (e.target !== e.currentTarget) return;
       const dx = e.target.x();
       const dy = e.target.y();
       e.target.position({ x: 0, y: 0 });
@@ -54,15 +60,37 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
     [id, onWallDragEnd]
   );
 
-  const handleStartDragEnd = useCallback(
-    (e: any) => onDragEndpoint(id, 'start', e.target.x(), e.target.y()),
-    [id, onDragEndpoint]
+  // Where the end being dragged is now, so the wall and its length follow the
+  // handle instead of jumping only when it is let go.
+  const [dragging, setDragging] = useState<{ end: 'start' | 'end'; x: number; y: number } | null>(null);
+
+  const handleEndpointDragMove = useCallback((end: 'start' | 'end', e: any) => {
+    e.cancelBubble = true;
+    setDragging({ end, x: e.target.x(), y: e.target.y() });
+  }, []);
+
+  const handleEndpointDragEnd = useCallback(
+    (end: 'start' | 'end', e: any) => {
+      e.cancelBubble = true;
+      const x = e.target.x();
+      const y = e.target.y();
+      setDragging(null);
+      // Back on the wall's end: the drop may snap elsewhere or change nothing,
+      // and an unchanged prop would leave the handle where it was let go.
+      e.target.position(end === 'start' ? { x: wall.start_x, y: wall.start_y } : { x: wall.end_x, y: wall.end_y });
+      onDragEndpoint(id, end, x, y);
+    },
+    [id, onDragEndpoint, wall.start_x, wall.start_y, wall.end_x, wall.end_y]
   );
 
-  const handleEndDragEnd = useCallback(
-    (e: any) => onDragEndpoint(id, 'end', e.target.x(), e.target.y()),
-    [id, onDragEndpoint]
-  );
+  const stopBubble = useCallback((e: any) => {
+    e.cancelBubble = true;
+  }, []);
+
+  const start_x = dragging?.end === 'start' ? dragging.x : wall.start_x;
+  const start_y = dragging?.end === 'start' ? dragging.y : wall.start_y;
+  const end_x = dragging?.end === 'end' ? dragging.x : wall.end_x;
+  const end_y = dragging?.end === 'end' ? dragging.y : wall.end_y;
 
   const strokeWidth = thickness || 4;
 
@@ -79,7 +107,10 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
   const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
   const labelRotation = angleDeg > 90 || angleDeg < -90 ? angleDeg + 180 : angleDeg;
 
-  const lengthLabel = wall.length_ft > 0 ? `${wall.length_ft.toFixed(1)}'` : '';
+  // While an end is dragged the length scales with the line (feet per pixel from the saved wall).
+  const savedLen = Math.hypot(wall.end_x - wall.start_x, wall.end_y - wall.start_y);
+  const lengthFt = dragging && savedLen > 0 ? (wall.length_ft * wallLen) / savedLen : wall.length_ft;
+  const lengthLabel = lengthFt > 0 ? `${lengthFt.toFixed(1)}'` : '';
 
   return (
     <Group id={id} name="sketch-item" draggable={isSelected} onDragEnd={handleGroupDragEnd}>
@@ -122,7 +153,9 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
             strokeWidth={2}
             strokeScaleEnabled={false}
             draggable
-            onDragEnd={handleStartDragEnd}
+            onDragStart={stopBubble}
+            onDragMove={(e) => handleEndpointDragMove('start', e)}
+            onDragEnd={(e) => handleEndpointDragEnd('start', e)}
           />
           <Circle
             x={end_x}
@@ -133,7 +166,9 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
             strokeWidth={2}
             strokeScaleEnabled={false}
             draggable
-            onDragEnd={handleEndDragEnd}
+            onDragStart={stopBubble}
+            onDragMove={(e) => handleEndpointDragMove('end', e)}
+            onDragEnd={(e) => handleEndpointDragEnd('end', e)}
           />
         </>
       )}

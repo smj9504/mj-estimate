@@ -1132,6 +1132,20 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       onTransformEnd={handleApplianceTransformEnd}
     />
   );
+  // Walls draw under the cabinets, except a selected one: it comes up over
+  // them and the other walls, so its end handles can be grabbed where a
+  // cabinet or a joined wall would cover them (a corner, a run's end).
+  const wallShape = (wall: CabinetSketchWall) => (
+    <CabinetWallRenderer
+      key={wall.id}
+      wall={wall}
+      isSelected={selectedIds.has(wall.id)}
+      onSelect={handleSelect('wall')}
+      onDragEndpoint={handleWallEndpointDrag}
+      onWallDragEnd={handleWallDragEnd}
+      zoom={viewport.zoom}
+    />
+  );
 
   // The Edit tab's row a cabinet belongs to.
   const rowOf = (cabinet: CabinetSketchCabinet) =>
@@ -1599,17 +1613,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             {/* While drawing walls, a click on a wall or a cabinet places the next wall point there
                 instead of picking it — that is how a new wall joins one already drawn. */}
             <Layer listening={state.activeTool !== 'wall'}>
-              {walls.map((wall) => (
-                <CabinetWallRenderer
-                  key={wall.id}
-                  wall={wall}
-                  isSelected={selectedIds.has(wall.id)}
-                  onSelect={handleSelect('wall')}
-                  onDragEndpoint={handleWallEndpointDrag}
-                  onWallDragEnd={handleWallDragEnd}
-                  zoom={viewport.zoom}
-                />
-              ))}
+              {walls.filter((wall) => !selectedIds.has(wall.id)).map(wallShape)}
 
               {wallDrawStart && wallDrawCursor && (
                 <CabinetWallPreview
@@ -1699,6 +1703,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                   />
                 ))}
               {appliances.filter(isHung).map(applianceShape)}
+              {walls.filter((wall) => selectedIds.has(wall.id)).map(wallShape)}
               {/* Several selected turn together by one handle round them all. */}
               <Transformer
                 ref={groupTrRef}
