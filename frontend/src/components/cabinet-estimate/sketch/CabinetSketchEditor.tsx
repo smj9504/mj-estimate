@@ -64,6 +64,7 @@ import CabinetEditPanel, { EDIT_PANEL_WIDTH } from './CabinetEditPanel';
 import { changedBox, type BoxChange, type BoxFields } from '../cabinetBoxChoices';
 import { pickInBox, turnGroup, withIslandGroup, type Box } from './sketchGroupEdit';
 import { keepWallsJoined, moveWallEndJoined, moveWallsJoined, wallsMeetingEnd } from './sketchWallJoints';
+import { BEHIND_REACH_FT, nearerWallPoint, snapBehindCabinets, wallLinesBehind } from './wallBehindCabinets';
 import { ApplianceShape, DR_TAG_COLOR, SinkShape } from './CabinetApplianceRenderer';
 import CabinetElevationView from './CabinetElevationView';
 import KitchenFinishPicker from './KitchenFinishPicker';
@@ -417,15 +418,38 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     return { x: ptr.x, y: ptr.y };
   }, []);
 
+  // The lines a new wall runs along to stand behind the cabinets, its face on their backs.
+  const wallBacks = useMemo(
+    () =>
+      cabinets.flatMap((c) =>
+        wallLinesBehind(c, cornerFootprint(c, CABINET_PRESETS, scalePixelsPerFoot), DEFAULT_WALL_THICKNESS)
+      ),
+    [cabinets, scalePixelsPerFoot]
+  );
+
   // Where the next wall point lands: on a wall end or anywhere along a wall
-  // it comes near, so a new wall can join a wall partway along it. Once a wall
-  // is started, Shift locks it level or plumb and it runs on to the wall it meets.
+  // it comes near, so a new wall can join a wall partway along it; near a
+  // cabinet's back (or on the cabinet), behind it, so the wall doesn't cover
+  // the cabinet. Once a wall is started, Shift locks it level or plumb and it
+  // runs on to the wall it meets.
   const wallDrawPoint = useCallback(
     (pos: { x: number; y: number }, start: { x: number; y: number } | null, shift: boolean) => {
-      if (!start || !shift) return snapToWall(pos, walls, WALL_SNAP_THRESHOLD);
-      return snapToWall(constrainToAxis(start, pos), walls, WALL_SNAP_THRESHOLD, { along: start });
+      const locked = !!start && shift;
+      const p = locked ? constrainToAxis(start!, pos) : pos;
+      const opts = locked ? { along: start! } : {};
+      const onWall = snapToWall(p, walls, WALL_SNAP_THRESHOLD, opts);
+      const atWallEnd = walls.some(
+        (w) =>
+          (w.start_x === onWall.point.x && w.start_y === onWall.point.y) ||
+          (w.end_x === onWall.point.x && w.end_y === onWall.point.y)
+      );
+      const behind = snapBehindCabinets(p, wallBacks, WALL_SNAP_THRESHOLD, {
+        ...opts,
+        reach: BEHIND_REACH_FT * scalePixelsPerFoot,
+      });
+      return nearerWallPoint(p, { ...onWall, end: onWall.snapped && atWallEnd }, behind);
     },
-    [walls]
+    [walls, wallBacks, scalePixelsPerFoot]
   );
 
   // ------------------------------------------------------------------
@@ -1782,7 +1806,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Drag across empty canvas to select everything the box touches, or Ctrl+click to add one; several selected move together and turn together by the handle round them, R or the angle box. The island moves as one piece: a click on any of its cabinets picks it all, a double-click or Alt+click just that cabinet, and Ctrl+Alt+click adds one more. Space + drag or the middle mouse button pans. Right-click a cabinet to change it there — cabinet, specialty, width, height, door and glass, a slide-in range\'s end panels — which changes its row on the Edit tab. Walls that meet stay joined: moving a wall or a wall end brings the walls joined to it along. For an angled island, pick the cabinets of one side that way, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it); the dark edge is its front.'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Drag across empty canvas to select everything the box touches, or Ctrl+click to add one; several selected move together and turn together by the handle round them, R or the angle box. The island moves as one piece: a click on any of its cabinets picks it all, a double-click or Alt+click just that cabinet, and Ctrl+Alt+click adds one more. Space + drag or the middle mouse button pans. Right-click a cabinet to change it there — cabinet, specialty, width, height, door and glass, a slide-in range\'s end panels — which changes its row on the Edit tab. Walls that meet stay joined: moving a wall or a wall end brings the walls joined to it along, keeping their angle (they turn only in 15° steps when they have to). A wall drawn against cabinets goes behind them, its face on their backs. For an angled island, pick the cabinets of one side that way, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it); the dark edge is its front.'
             : view === '3d'
               ? 'The plan in 3D, at real sizes, with the detach & reset appliances in place. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top. Realistic draws the kitchen in the finishes picked beside it (saved with the sketch, not priced; None under Hardware for fronts with no knobs or pulls); walls between you and the room are left out. Crown molding tops the uppers and talls when Crown Molding is ticked in the Edit tab. With Ray-traced light on, the picture sharpens toward a photo a few seconds after the view stops moving (it needs about a minute to get ready when the 3D view first opens).'
               : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
