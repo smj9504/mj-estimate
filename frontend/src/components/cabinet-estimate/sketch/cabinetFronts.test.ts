@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ARCH_MIN_DOOR_IN, GLASS_STILE_IN, LATTICE_BAR_IN, REVEAL_IN, archOutline, archRiseIn, doorDesign, facesFor } from './cabinetFronts';
 import {
+  bayFront,
   boxKey,
   cornerKind,
   footprintDepthIn,
@@ -233,6 +234,60 @@ describe('three-door corner and patterns on the plan', () => {
     specialty_type: PRESETS[code].specialty ?? null,
     qty: 1,
     ...over,
+  });
+
+  it('draws a three-door angle end like the three-door corner at 12" wide: front and cut doors on the Front view', () => {
+    expect(cornerKind('three_door_angle_end_wall')).toBe('end_wrap');
+    expect(footprintDepthIn('wall', 'three_door_angle_end_wall', 12)).toBe(12);
+    const front = doors(facesFor('wall', 'three_door_angle_end_wall', 12, 30, 'left'));
+    expect(front).toHaveLength(2);
+    // The front door and the cut seen edge-on; the end's door faces sideways, out of view.
+    expect(front[0].x + front[0].w).toBeCloseTo(12 - 12 / (1 + Math.SQRT2) - REVEAL_IN / 2);
+    for (const door of front) expect(door.w).toBeGreaterThanOrEqual(ARCH_MIN_DOOR_IN);
+  });
+
+  it('bends a two-door angle end\'s front once, as Wolf\'s WEC1230D: two faces at 135°, 67.5° off the sides', () => {
+    expect(cornerKind('two_door_angle_end_wall')).toBe('bay_end');
+    expect(footprintDepthIn('wall', 'two_door_angle_end_wall', 12)).toBe(12);
+    const [a, bend, b] = bayFront(12, 12);
+    expect(a).toEqual([0, 12]);
+    expect(b).toEqual([12, 0]);
+    const deg = (u: number[], v: number[]) =>
+      (Math.acos((u[0] * v[0] + u[1] * v[1]) / (Math.hypot(u[0], u[1]) * Math.hypot(v[0], v[1]))) * 180) / Math.PI;
+    const toA = [a[0] - bend[0], a[1] - bend[1]];
+    const toB = [b[0] - bend[0], b[1] - bend[1]];
+    expect(deg(toA, toB)).toBeCloseTo(135, 6);
+    // Off the end that joins the run (running back up x = 0) and off the wall.
+    expect(deg([0, -1], [bend[0] - a[0], bend[1] - a[1]])).toBeCloseTo(67.5, 6);
+    expect(deg([-1, 0], [bend[0] - b[0], bend[1] - b[1]])).toBeCloseTo(67.5, 6);
+    // Two equal faces, a little over Wolf's 9 5/32" doors (theirs net of the frame).
+    expect(Math.hypot(toA[0], toA[1])).toBeCloseTo(Math.hypot(toB[0], toB[1]), 9);
+    expect(Math.hypot(toA[0], toA[1])).toBeCloseTo(9.18, 2);
+  });
+
+  it('shows a two-door angle end\'s two doors on the Front view, foreshortened', () => {
+    const bendX = 12 * Math.SQRT1_2;
+    const left = doors(facesFor('wall', 'two_door_angle_end_wall', 12, 30, 'left'));
+    expect(left).toHaveLength(2);
+    expect(left[0].x + left[0].w).toBeCloseTo(bendX - REVEAL_IN / 2);
+    expect(left[1].x).toBeCloseTo(bendX + REVEAL_IN / 2);
+    expect(left[1].x + left[1].w).toBeCloseTo(12 - REVEAL_IN);
+    // Flipped, the narrow one is on the left.
+    const right = doors(facesFor('wall', 'two_door_angle_end_wall', 12, 30, 'right')).sort((p, q) => p.x - q.x);
+    expect(right[0].x).toBeCloseTo(REVEAL_IN);
+    expect(right[0].w).toBeCloseTo(left[1].w);
+    expect(right[1].w).toBeCloseTo(left[0].w);
+    expect(right[1].x + right[1].w).toBeCloseTo(12 - REVEAL_IN);
+  });
+
+  it('gives a wider three-door angle end its extra width in the front door, the cut door unchanged', () => {
+    const cut = 12 / (1 + Math.SQRT2);
+    for (const w of [15, 18, 21, 24, 27]) {
+      const front = doors(facesFor('wall', 'three_door_angle_end_wall', w, 30, 'left'));
+      expect(front).toHaveLength(2);
+      expect(front[0].x + front[0].w).toBeCloseTo(w - cut - REVEAL_IN / 2);
+      expect(front[1].w).toBeCloseTo(cut - 1.5 * REVEAL_IN);
+    }
   });
 
   it('gives a three-door corner an upper\'s 12" depth, its doors wrapping the run end', () => {

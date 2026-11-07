@@ -110,6 +110,27 @@ def test_the_calculation_bills_each_pattern_and_the_corner(service):
     assert "Specialty Premium - WTD3642 (Three Door Corner Wall)" in names
 
 
+def test_the_purchase_order_spells_out_the_two_and_three_door_angle_ends(service):
+    boxes = [
+        CabinetBoxCreate(code="WEA3D1236", cab_type="wall", width_inches=12, height_inches=36,
+                         is_specialty=True, specialty_type="three_door_angle_end_wall"),
+        CabinetBoxCreate(code="WEA2D1236", cab_type="wall", width_inches=12, height_inches=36,
+                         is_specialty=True, specialty_type="two_door_angle_end_wall"),
+    ]
+    order = service.get_purchase_order(new_job(service, boxes=boxes)["id"])
+    described = {(i["code"], i["description"]) for i in order["items"]}
+    assert (
+        "WEA3D1236",
+        'Wall Cabinet WEA3D1236 (12"W x 36.0"H) - Three-Door Angle End (12" deep, a door on the front,'
+        ' the 45° cut and the end)',
+    ) in described
+    assert (
+        "WEA2D1236",
+        'Wall Cabinet WEA2D1236 (12"W x 36.0"H) - Two-Door Angle End (12" x 12", the front bent once,'
+        ' a door on each face; as Wolf WEC1230D)',
+    ) in described
+
+
 def test_the_purchase_order_says_what_to_order(service):
     order = service.get_purchase_order(new_job(service)["id"])
     described = {(i["code"], i["description"], i["qty"]) for i in order["items"]}

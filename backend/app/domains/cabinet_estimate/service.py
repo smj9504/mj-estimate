@@ -828,10 +828,19 @@ class CabinetEstimateService:
                     if loc == "island" else ""
                 )
                 # A supplier doesn't know this code, so it says what it is.
-                corner_label = (
-                    " - Three-Door End Corner (12\" deep, doors wrap the run end)"
-                    if box.specialty_type == "three_door_corner_wall" else ""
-                )
+                corner_label = {
+                    "three_door_corner_wall": (
+                        " - Three-Door End Corner (12\" deep, doors wrap the run end)"
+                    ),
+                    "two_door_angle_end_wall": (
+                        " - Two-Door Angle End (12\" x 12\", the front bent once,"
+                        " a door on each face; as Wolf WEC1230D)"
+                    ),
+                    "three_door_angle_end_wall": (
+                        " - Three-Door Angle End (12\" deep, a door on the front,"
+                        " the 45° cut and the end)"
+                    ),
+                }.get(box.specialty_type, "")
                 pattern_label = (
                     f" - {DOOR_PATTERN_LABELS[pattern]} Doors"
                     if pattern in DOOR_PATTERN_LABELS else ""

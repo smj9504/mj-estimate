@@ -24,6 +24,8 @@ const PRESETS: PresetCatalog = {
   WDC24: { width: 24, height: 30, specialty: 'diagonal_corner_wall' },
   BEC24: { width: 24, height: 34.5, specialty: 'angle_end_base' },
   WEA1230: { width: 12, height: 30, specialty: 'angle_end_wall' },
+  WEA3D1230: { width: 12, height: 30, specialty: 'three_door_angle_end_wall' },
+  WEA2D1230: { width: 12, height: 30, specialty: 'two_door_angle_end_wall' },
   BBC42: { width: 42, height: 34.5, specialty: 'blind_corner' },
   WTD3642: { width: 36, height: 42, specialty: 'three_door_corner_wall' },
   W4830: { width: 48, height: 30 },
@@ -172,6 +174,50 @@ describe('cabinetSolids', () => {
     // Flipped, the full-depth end is on the right.
     const [right] = solidsOf(shapes('WEA1230').map((c) => ({ ...c, corner_side: 'right' as const })));
     expect(right.outline).toEqual([[12, 0], [0, 0], [12, 12]]);
+  });
+
+  it('gives a three-door angle end the same 12" x 12" run end, a door on its front, its 45° cut and its end', () => {
+    const [left] = solidsOf(shapes('WEA3D1230'));
+    const [right] = solidsOf(shapes('WEA3D1230').map((c) => ({ ...c, corner_side: 'right' as const })));
+    // The cut sized so all three faces come out the same, about 7".
+    const face = 12 - 12 / (1 + Math.SQRT2);
+    for (const solid of [left, right]) {
+      expect(solid).toMatchObject({ bottom: 54, height: 30, toeKick: 0, counter: null });
+      expect(solid.fronts).toHaveLength(3);
+      for (const run of solid.fronts) {
+        expect(runLength(run)).toBeCloseTo(face, 6);
+        expect(run.faces.map((f) => f.kind)).toEqual(['door']);
+      }
+      expect(solid.fronts[0].b).toEqual(solid.fronts[1].a);
+      expect(solid.fronts[1].b).toEqual(solid.fronts[2].a);
+      for (const [x, z] of solid.outline) {
+        expect(x).toBeGreaterThanOrEqual(-1e-9);
+        expect(x).toBeLessThanOrEqual(12 + 1e-9);
+        expect(z).toBeGreaterThanOrEqual(-1e-9);
+        expect(z).toBeLessThanOrEqual(12 + 1e-9);
+      }
+    }
+    // The one-door angle end beside it keeps its single door on the cut.
+    expect(solidsOf(shapes('WEA1230'))[0].fronts).toHaveLength(1);
+  });
+
+  it('hangs a two-door angle end with its front bent once, a door on each face, their pulls at the bend', () => {
+    const [left] = solidsOf(shapes('WEA2D1230'));
+    const [right] = solidsOf(shapes('WEA2D1230').map((c) => ({ ...c, corner_side: 'right' as const })));
+    const s = 12 * Math.SQRT1_2;
+    expect(left.outline).toEqual([[0, 0], [12, 0], [s, s], [0, 12]]);
+    expect(right.outline).toEqual([[12, 0], [0, 0], [12 - s, s], [12, 12]]);
+    for (const solid of [left, right]) {
+      expect(solid).toMatchObject({ bottom: 54, height: 30, toeKick: 0, counter: null });
+      expect(solid.backs).toEqual([true, false, false, false]);
+      expect(solid.fronts).toHaveLength(2);
+      expect(solid.fronts[0].b).toEqual(solid.fronts[1].a);
+      expect(solid.fronts.map((r) => r.faces.map((f) => [f.kind, f.pull]))).toEqual([
+        [['door', 'right']],
+        [['door', 'left']],
+      ]);
+      for (const run of solid.fronts) expect(runLength(run)).toBeCloseTo(12 / (Math.sin((67.5 * Math.PI) / 180) + Math.cos((67.5 * Math.PI) / 180)), 6);
+    }
   });
 
   it('marks a glass-door cabinet', () => {

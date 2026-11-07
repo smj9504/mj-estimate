@@ -187,6 +187,33 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'WEA1230': { cab_type: 'wall', width: 12, height: 30, specialty: 'angle_end_wall', label: 'Angle End Wall 12"W x 30"H' },
   'WEA1236': { cab_type: 'wall', width: 12, height: 36, specialty: 'angle_end_wall', label: 'Angle End Wall 12"W x 36"H' },
   'WEA1242': { cab_type: 'wall', width: 12, height: 42, specialty: 'angle_end_wall', label: 'Angle End Wall 12"W x 42"H' },
+  // Two-door angle end: the same 12" x 12" with its front bent once, a door
+  // on each of the two faces (Wolf WEC1230D).
+  'WEA2D1230': { cab_type: 'wall', width: 12, height: 30, specialty: 'two_door_angle_end_wall', label: 'Angle End Wall 2-Door 12"W x 30"H' },
+  'WEA2D1236': { cab_type: 'wall', width: 12, height: 36, specialty: 'two_door_angle_end_wall', label: 'Angle End Wall 2-Door 12"W x 36"H' },
+  'WEA2D1242': { cab_type: 'wall', width: 12, height: 42, specialty: 'two_door_angle_end_wall', label: 'Angle End Wall 2-Door 12"W x 42"H' },
+  // An angle end with a door on each face it shows — the front, the 45° cut
+  // and the end: the three-door corner's wrap (WTD, 30-36") in the widths
+  // below it. At 12" the three doors come out the same, about 7"; wider, the
+  // front door takes the extra. No stock line carries it (see pricing.py).
+  'WEA3D1230': { cab_type: 'wall', width: 12, height: 30, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 12"W x 30"H' },
+  'WEA3D1236': { cab_type: 'wall', width: 12, height: 36, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 12"W x 36"H' },
+  'WEA3D1242': { cab_type: 'wall', width: 12, height: 42, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 12"W x 42"H' },
+  'WEA3D1530': { cab_type: 'wall', width: 15, height: 30, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 15"W x 30"H' },
+  'WEA3D1536': { cab_type: 'wall', width: 15, height: 36, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 15"W x 36"H' },
+  'WEA3D1542': { cab_type: 'wall', width: 15, height: 42, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 15"W x 42"H' },
+  'WEA3D1830': { cab_type: 'wall', width: 18, height: 30, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 18"W x 30"H' },
+  'WEA3D1836': { cab_type: 'wall', width: 18, height: 36, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 18"W x 36"H' },
+  'WEA3D1842': { cab_type: 'wall', width: 18, height: 42, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 18"W x 42"H' },
+  'WEA3D2130': { cab_type: 'wall', width: 21, height: 30, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 21"W x 30"H' },
+  'WEA3D2136': { cab_type: 'wall', width: 21, height: 36, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 21"W x 36"H' },
+  'WEA3D2142': { cab_type: 'wall', width: 21, height: 42, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 21"W x 42"H' },
+  'WEA3D2430': { cab_type: 'wall', width: 24, height: 30, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 24"W x 30"H' },
+  'WEA3D2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 24"W x 36"H' },
+  'WEA3D2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 24"W x 42"H' },
+  'WEA3D2730': { cab_type: 'wall', width: 27, height: 30, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 27"W x 30"H' },
+  'WEA3D2736': { cab_type: 'wall', width: 27, height: 36, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 27"W x 36"H' },
+  'WEA3D2742': { cab_type: 'wall', width: 27, height: 42, specialty: 'three_door_angle_end_wall', label: 'Angle End Wall 3-Door 27"W x 42"H' },
   'WBC24':  { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 30"H' },
   'WBC27':   { cab_type: 'wall', width: 27, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 30"H' },
   'WBC30':   { cab_type: 'wall', width: 30, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 30"H' },

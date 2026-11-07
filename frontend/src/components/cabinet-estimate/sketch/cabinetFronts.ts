@@ -7,7 +7,7 @@
  */
 
 import type { CabType, DoorPattern, SpecialtyType } from '../../../types/cabinetEstimate';
-import { blindLengthIn, cabinetDepthIn, cornerKind, wrapFront } from './cabinetSketchLayout';
+import { bayFront, blindLengthIn, cabinetDepthIn, cornerKind, wrapFront } from './cabinetSketchLayout';
 import type { CornerKind } from './cabinetSketchLayout';
 
 export const COUNTER_TOP_IN = 36;
@@ -93,6 +93,17 @@ function cornerFaces(
     const faces: Face[] = [
       { x: r, y: bottom, w: cutX - 1.5 * r, h: doorH, kind: 'door' },
       { x: cutX + r / 2, y: bottom, w: w - cutX - 1.5 * r, h: doorH, kind: 'door' },
+    ];
+    return side === 'right' ? faces.map((f) => ({ ...f, x: w - f.x - f.w })) : faces;
+  }
+  if (kind === 'bay_end') {
+    // Seen from in front: both faces foreshortened to the widths they cover,
+    // the one off the run's end wide, the one turning back to the wall narrow.
+    const bendX = bayFront(w, cabinetDepthIn(cabType, specialty))[1][0];
+    const doorH = h - r - bottom;
+    const faces: Face[] = [
+      { x: r, y: bottom, w: bendX - 1.5 * r, h: doorH, kind: 'door' },
+      { x: bendX + r / 2, y: bottom, w: w - bendX - 1.5 * r, h: doorH, kind: 'door' },
     ];
     return side === 'right' ? faces.map((f) => ({ ...f, x: w - f.x - f.w })) : faces;
   }

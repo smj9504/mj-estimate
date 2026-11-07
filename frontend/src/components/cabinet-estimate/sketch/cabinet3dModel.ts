@@ -26,6 +26,7 @@ import {
   polygonUnion,
   pxToIn,
   signedArea2,
+  bayFront,
   wrapFront,
 } from './cabinetSketchLayout';
 import type { PresetCatalog } from './cabinetSketchLayout';
@@ -159,6 +160,18 @@ function cabinetSolid(
     const points = right ? [...front].reverse().map(([x, z]) => [w - x, z] as Pt2) : front;
     const pulls: Face['pull'][] = right ? ['right', 'right', 'left'] : ['right', 'left', 'left'];
     fronts = points.slice(0, 3).map((a, i) => {
+      const b = points[i + 1];
+      const len = runLength({ a, b });
+      const door: Face = { ...faces[0], x: REVEAL_IN, w: len - 2 * REVEAL_IN, pull: pulls[i] };
+      return { a, b, faces: [door] };
+    });
+  } else if (kind === 'bay_end') {
+    const front = bayFront(w, d);
+    outline = mirror([[0, 0], ...[...front].reverse()]);
+    // Left to right as seen from in front, a door on each face, their pulls where they meet at the bend.
+    const points = right ? [...front].reverse().map(([x, z]) => [w - x, z] as Pt2) : front;
+    const pulls: Face['pull'][] = ['right', 'left'];
+    fronts = points.slice(0, 2).map((a, i) => {
       const b = points[i + 1];
       const len = runLength({ a, b });
       const door: Face = { ...faces[0], x: REVEAL_IN, w: len - 2 * REVEAL_IN, pull: pulls[i] };

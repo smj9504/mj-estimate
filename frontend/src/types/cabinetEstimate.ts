@@ -16,7 +16,7 @@ export type SpecialtyType =
   | 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base'
   | 'angle_end_base' | 'diagonal_corner_base'
   | 'diagonal_corner_wall' | 'blind_corner_wall' | 'easy_reach_corner_wall'
-  | 'three_door_corner_wall' | 'angle_end_wall'
+  | 'three_door_corner_wall' | 'angle_end_wall' | 'two_door_angle_end_wall' | 'three_door_angle_end_wall'
   | 'trash_pullout' | 'farmhouse_sink_base' | 'microwave_drawer_base'
   | 'refrigerator_wall_deep' | 'otr_microwave_wall'
   | 'oven_cabinet' | 'refrigerator_cabinet'

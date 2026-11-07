@@ -37,7 +37,7 @@
  */
 
 import type { CabinetSketchAppliance, CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
-import { buildElevations, cornerFootprint, inToPx, pxToIn, type PresetCatalog } from './cabinetSketchLayout';
+import { bayFront, buildElevations, cornerFootprint, inToPx, pxToIn, type PresetCatalog } from './cabinetSketchLayout';
 import { applianceSpec } from './sketchAppliances';
 
 /** The Edit tab's Trim & Finished Panels fields this fills. */
@@ -198,6 +198,13 @@ function localOutline(c: CabinetSketchCabinet, presets: PresetCatalog, scalePx: 
       const cut = Math.min(h / (1 + Math.SQRT2), w / 2);
       pts = [[0, 0], [w, 0], [w, h - cut], [w - cut, h], [0, h]];
       kinds = ['back', 'front', 'front', 'front', 'end'];
+      break;
+    }
+    case 'bay_end': {
+      // As bayFront: two door faces from the wall round to the end that joins the run.
+      const [, bend] = bayFront(w, h);
+      pts = [[0, 0], [w, 0], bend, [0, h]];
+      kinds = ['back', 'front', 'front', 'end'];
       break;
     }
     default:
@@ -363,8 +370,8 @@ const endFace = (end: EndSide, x: number, depth: number): LocalFace => ({
 
 /**
  * The ends that can show. An L or diagonal corner's are the ends of its two
- * legs; an angle end's and a three-door corner's only the end that joins
- * the run — their open end is a door.
+ * legs; an angle end's (one, two or three doors) and a three-door corner's
+ * only the end that joins the run — their open end is a door.
  */
 function localFaces(c: Pose & Partial<CabinetSketchCabinet>, presets: PresetCatalog, scalePx: number): LocalFace[] {
   const [w, h] = [c.width, c.height];
@@ -377,6 +384,7 @@ function localFaces(c: Pose & Partial<CabinetSketchCabinet>, presets: PresetCata
       break;
     case 'angle_end':
     case 'end_wrap':
+    case 'bay_end':
       faces = [endFace('left', 0, h)];
       break;
     default:

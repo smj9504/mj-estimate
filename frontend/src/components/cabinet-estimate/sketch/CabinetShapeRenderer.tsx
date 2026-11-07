@@ -21,7 +21,7 @@ import React, { useCallback, useRef, useEffect } from 'react';
 import { Group, Line, Rect, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { CabinetSketchCabinet } from '../../../types/cabinetSketch';
-import { wrapFront } from './cabinetSketchLayout';
+import { bayFront, wrapFront } from './cabinetSketchLayout';
 import type { CornerKind } from './cabinetSketchLayout';
 
 /** 15° snap angles for Shift+Rotate (0, 15, 30, …, 345) */
@@ -69,6 +69,9 @@ function cornerOutline(corner: CornerShape, w: number, h: number): { outline: nu
     front = [[w, d], [d, h]];
   } else if (corner.kind === 'end_wrap') {
     front = wrapFront(w, h);
+    pts = [[0, 0], ...[...front].reverse()];
+  } else if (corner.kind === 'bay_end') {
+    front = bayFront(w, h);
     pts = [[0, 0], ...[...front].reverse()];
   } else if (corner.kind === 'angle_end') {
     // Cut back at 45° from the full-depth end: a triangle once it is as wide as it is deep.
@@ -283,7 +286,8 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
         : [0, height, width - blind.blind, height]
       : [0, height, width, height];
   // Where the label fits: the strip along the back wall of an L, the deep half of an angle end.
-  const labelBand = !shaped || !corner ? height : corner.kind === 'angle_end' ? height / 2 : corner.leg;
+  const labelBand =
+    !shaped || !corner ? height : corner.kind === 'angle_end' || corner.kind === 'bay_end' ? height / 2 : corner.leg;
   const turned = ((cabinet.rotation % 360) + 360) % 360;
   const labelUpsideDown = turned > 90 && turned < 270;
   const outlineStyle = {

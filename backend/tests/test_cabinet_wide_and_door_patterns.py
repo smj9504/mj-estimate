@@ -119,12 +119,13 @@ def test_wide_boxes_count_their_hardware():
 
 # ── Three-door corner ──
 
-@pytest.mark.parametrize("width,premium", [(30, 275), (33, 325), (36, 375)])
-def test_three_door_corner_bills_lf_plus_its_premium(width, premium):
+@pytest.mark.parametrize("width", [30, 33, 36])
+def test_three_door_corner_bills_lf_plus_its_flat_premium(width):
     code = f"WTD{width}30"
     result = _estimate([_box(code, "wall", width, 30, "three_door_corner_wall")])
     line = _line(result, "Specialty Premium")
-    assert line.unit_price == premium
+    # The three-door angle end's $200: the same wrap, the same two extra doors.
+    assert line.unit_price == 200 == SPECIALTY_PREMIUM["three_door_angle_end_wall"]
     assert line.description == f"Specialty Premium - {code} (Three Door Corner Wall)"
     supply = _line(result, "Wall Cabinets")
     assert supply.quantity == pytest.approx(width / 12, abs=0.01)
@@ -133,7 +134,13 @@ def test_three_door_corner_bills_lf_plus_its_premium(width, premium):
 
 def test_three_door_corner_premium_scales_with_tier():
     box = _box("WTD3642", "wall", 36, 42, "three_door_corner_wall")
-    assert _line(_estimate([box], tier="Custom"), "Specialty Premium").unit_price == 375 * 2.4
+    assert _line(_estimate([box], tier="Custom"), "Specialty Premium").unit_price == 200 * 2.4
+
+
+def test_no_price_jump_from_the_widest_three_door_angle_end_to_the_narrowest_three_door_corner():
+    ends = _estimate([_box("WEA3D2730", "wall", 27, 30, "three_door_angle_end_wall")]).total
+    corner = _estimate([_box("WTD3030", "wall", 30, 30, "three_door_corner_wall")]).total
+    assert ends < corner < ends * 1.15
 
 
 def test_three_door_corner_takes_three_pulls():
@@ -150,6 +157,71 @@ def test_three_door_corner_says_its_premium_is_an_allowance():
 
 def test_three_door_corner_is_listed():
     assert "three_door_corner_wall" in SPECIALTY_PREMIUM
+
+
+# ── Three-door angle end ──
+
+@pytest.mark.parametrize("width", [12, 15, 18, 21, 24, 27])
+@pytest.mark.parametrize("height", [30, 36, 42])
+def test_three_door_angle_end_bills_its_width_and_a_flat_premium(width, height):
+    code = f"WEA3D{width}{height}"
+    result = _estimate([_box(code, "wall", width, height, "three_door_angle_end_wall")])
+    line = _line(result, "Specialty Premium")
+    assert (line.description, line.unit_price) == (f"Specialty Premium - {code} (Three Door Angle End Wall)", 200)
+    assert _line(result, "Wall Cabinets").quantity == pytest.approx(width / 12, abs=0.01)
+    # Derived from a price list, not a catalog box: the estimate says to confirm it.
+    assert any(code in w and "confirm" in w for w in result.warning_flags)
+    # A flat premium, so no "nearest listed size" note.
+    assert not any("nearest listed size" in w for w in result.warning_flags)
+
+
+def test_a_wider_three_door_angle_end_never_costs_less():
+    totals = [
+        _estimate([_box(f"WEA3D{w}30", "wall", w, 30, "three_door_angle_end_wall")]).total
+        for w in (12, 15, 18, 21, 24, 27)
+    ]
+    assert totals == sorted(totals)
+
+
+@pytest.mark.parametrize("height", [30, 36, 42])
+def test_two_door_angle_end_bills_a_12_inch_upper_and_its_second_door(height):
+    code = f"WEA2D12{height}"
+    box = _box(code, "wall", 12, height, "two_door_angle_end_wall", qty=2)
+    result = _estimate([box], include_hardware=True)
+    line = _line(result, "Specialty Premium")
+    assert (line.description, line.unit_price) == (f"Specialty Premium - {code} (Two Door Angle End Wall)", 90)
+    assert _line(result, "Wall Cabinets").quantity == pytest.approx(2, abs=0.01)
+    assert _line(result, "Cabinet Hardware").quantity == 4
+    assert _door_count(box) == 2
+    # A catalog box (Wolf WEC1230D), so nothing to confirm.
+    assert not any("confirm" in w for w in result.warning_flags)
+
+
+def test_angle_end_doors_one_two_three_cost_more_each_step():
+    totals = [
+        _estimate([_box(code, "wall", 12, 30, sp)]).total
+        for code, sp in (
+            ("WEA1230", "angle_end_wall"),
+            ("WEA2D1230", "two_door_angle_end_wall"),
+            ("WEA3D1230", "three_door_angle_end_wall"),
+        )
+    ]
+    assert totals[0] < totals[1] < totals[2]
+
+
+def test_three_door_angle_end_premium_scales_with_tier():
+    box = _box("WEA3D2436", "wall", 24, 36, "three_door_angle_end_wall")
+    assert _line(_estimate([box], tier="Custom"), "Specialty Premium").unit_price == 200 * 2.4
+
+
+def test_three_door_angle_end_has_three_doors_where_the_angle_end_has_one():
+    three = _box("WEA3D1236", "wall", 12, 36, "three_door_angle_end_wall", qty=2)
+    assert _door_count(three) == 3
+    assert _door_count(_box("WEA1236", "wall", 12, 36, "angle_end_wall")) == 1
+    assert _line(_estimate([three], include_hardware=True), "Cabinet Hardware").quantity == 6
+    # A door pattern is billed on all three doors.
+    lattice = _box("WEA3D1236", "wall", 12, 36, "three_door_angle_end_wall", pattern="lattice")
+    assert _line(_estimate([lattice]), "Diamond Lattice Door").quantity == 3
 
 
 # ── Door patterns ──

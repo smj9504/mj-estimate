@@ -133,11 +133,11 @@ def _door_count(box: BoxInput) -> int:
         if sp in ("oven_cabinet", "double_oven_cabinet", "refrigerator_cabinet"):
             return row
         return 2 * row
-    if sp == "three_door_corner_wall":
+    if sp in ("three_door_corner_wall", "three_door_angle_end_wall"):
         return 3
     if sp in ("lazy_susan", "diagonal_corner_base", "diagonal_corner_wall"):
         return 1
-    if sp == "easy_reach_corner_wall":
+    if sp in ("easy_reach_corner_wall", "two_door_angle_end_wall"):
         return 2
     if sp in ("blind_corner", "blind_corner_wall"):
         # Only the part the other run doesn't cover opens.
@@ -721,8 +721,10 @@ def _calc_location_cabinets(
             elif b.specialty_type in ("lazy_susan", "diagonal_corner_base"):
                 # Single door
                 openings = 1
-            elif b.specialty_type == "three_door_corner_wall":
+            elif b.specialty_type in ("three_door_corner_wall", "three_door_angle_end_wall"):
                 openings = 3
+            elif b.specialty_type == "two_door_angle_end_wall":
+                openings = 2
             elif b.specialty_type == "angle_end_base":
                 # Two full-height doors, no drawer (KCD BEC24)
                 openings = 2

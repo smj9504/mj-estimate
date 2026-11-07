@@ -112,9 +112,12 @@ export function cabinetDepthIn(cabType: CabType, specialty?: SpecialtyType | nul
  *   that joins the run;
  * - 'end_wrap': a plain box at the open end of a run, its outer front
  *   corner cut at 45°, with doors that wrap round it: one on the front,
- *   one on the cut, one on the end.
+ *   one on the cut, one on the end (the three-door corner, and the
+ *   three-door angle end, which is the same wrap 12" wide);
+ * - 'bay_end': an angle end whose front bends once, two doors on two
+ *   faces meeting at 135° (see bayFront).
  */
-export type CornerKind = 'l' | 'diagonal' | 'blind' | 'angle_end' | 'end_wrap';
+export type CornerKind = 'l' | 'diagonal' | 'blind' | 'angle_end' | 'end_wrap' | 'bay_end';
 
 export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null {
   switch (specialty) {
@@ -125,7 +128,10 @@ export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null 
     case 'diagonal_corner_base':
       return 'diagonal';
     case 'three_door_corner_wall':
+    case 'three_door_angle_end_wall':
       return 'end_wrap';
+    case 'two_door_angle_end_wall':
+      return 'bay_end';
     case 'angle_end_base':
     case 'angle_end_wall':
       return 'angle_end';
@@ -157,6 +163,22 @@ export function wrapFront(w: number, d: number): [number, number][] {
     [0, d],
     [w - cut, d],
     [w, d - cut],
+    [w, 0],
+  ];
+}
+
+/**
+ * The door side of a two-door angle end, `w` along the wall and `d` deep:
+ * the three points from the front corner at the end that joins the run
+ * (x = 0) round to the wall at x = w, a door on each of the two faces. The
+ * bend sits on the 45° line from the back corner, as far out as the box
+ * is deep, so on a 12" x 12" the faces meet at 135° and leave the box's
+ * sides at 67.5° — Wolf's WEC1230D, two 9 5/32" doors.
+ */
+export function bayFront(w: number, d: number): [number, number][] {
+  return [
+    [0, d],
+    [w * Math.SQRT1_2, d * Math.SQRT1_2],
     [w, 0],
   ];
 }

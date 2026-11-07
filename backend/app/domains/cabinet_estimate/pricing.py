@@ -403,10 +403,13 @@ SPECIALTY_PREMIUM = {
     # less the 3 LF x $142 its supply line already bills. The calculator warns
     # to confirm it (UNMEASURED_SPECIALTIES). On 2026-11-06 the cabinet was
     # reshaped to what it really is: a 12"-deep upper at the open end of a
-    # run, its doors wrapping that end (front, a 45° cut, the end). The
-    # premium above was worked out for the old inside-corner shape, about
-    # twice the box, and was left as it was: likely high, still to re-quote.
-    "three_door_corner_wall": {30: 275, 33: 325, 36: 375},
+    # run, its doors wrapping that end (front, a 45° cut, the end). Its old
+    # $275 / $325 / $375 (30 / 33 / 36") was worked out for the inside-corner
+    # shape. On 2026-11-06 the user had it set to the three-door angle end's
+    # flat $200 (see three_door_angle_end_wall, Wolf's same-line steps): the
+    # same wrap, so the same two extra doors, and the price no longer jumps
+    # from a 27" WEA3D to a 30" WTD.
+    "three_door_corner_wall": 200,
     # Blind corner in the WALL run. The $45-$75 that used to sit here was
     # never measured; KCD White Shaker WBC27 comes in UNDER the two-door
     # W27 at every height (-$49 / -$65 / -$67 at 30/36/42"H), so it is a
@@ -428,6 +431,35 @@ SPECIALTY_PREMIUM = {
     # about 6% cheaper, too little (and one line only) to give it its own
     # cheaper supply line the way angle_end_base has.
     "angle_end_wall": 0,
+    # Two-door angle end upper (WEA2D1230/36/42), added 2026-11-06 at the
+    # user's ask: Wolf's WEC1230D, the 12" x 12" angle end with its front
+    # bent once into two faces at 135°, a door on each. Measured on Wolf's
+    # Designer price list (March 2025): WEC1230D $753 vs the one-door WEC1230
+    # $480 vs W1230 $429 in column 1 ($1205 / $846 / $775 in column 12). The
+    # second door is +$273 / +$359, 0.64 / 0.46 of a W1230: $66-$90 at our
+    # Stock $142 for a 12" box, which already pays for the first door (the
+    # one-door angle end bills as a plain 12" box). $90, the column-1 end,
+    # as for the three-door angle end below.
+    "two_door_angle_end_wall": 90,
+    # Three-door angle end upper (WEA3D, 12"-27" wide), added 2026-11-06 at
+    # the user's ask: a 12"-deep run end with a door on each face it shows -
+    # the front, the 45° cut and the end (the three-door corner's wrap below
+    # its 30" sizes). No stock line carries it (Home Depot, Kitchen Cabinet
+    # Kings, RTA and custom makers searched: angle ends come with one door,
+    # Wolf's WEC1230D with two), so it is priced from Wolf's same-line steps
+    # (Designer price list, March 2025, 12" x 30"H, column 1 / column 12):
+    #     W1230 plain                      $429 / $775
+    #     WEC1230 angle end, one door      $480 / $846
+    #     WEC1230D angle end, two doors    $753 / $1205  -> a facet door +$273 / +$359
+    #     FFDL/FFDR door on the end, wall  +$390 flat
+    # The LF line bills the box with its front door, so the premium is the cut
+    # door and the end door: ($273 + $390) / $429 to ($359 + $390) / $775 of a
+    # W1230, which at our Stock $142 a 12" box is $137-$219. $200 sits near
+    # the top (Stock is the cheaper door-style columns) and is flat: the two
+    # doors cost the same on a wider box, and a flat premium keeps the price
+    # rising with the width. Still a derived figure, so the calculator warns
+    # to confirm it (UNMEASURED_SPECIALTIES).
+    "three_door_angle_end_wall": 200,
     # Diagonal corner base (diagonal lazy susan): KCD has none in the line,
     # so measured at Fourless ATL White Shaker CBD36 $581.04 vs B36 $470.88
     # = +$110.16. Shape-wise the base twin of diagonal_corner_wall.
@@ -476,7 +508,7 @@ SPECIALTY_SUPPLY_MULTIPLIER = {
 
 # Specialties whose premium is derived rather than read off a price list. The
 # calculator tells the estimator to confirm the figure with the supplier.
-UNMEASURED_SPECIALTIES = {"three_door_corner_wall"}
+UNMEASURED_SPECIALTIES = {"three_door_corner_wall", "three_door_angle_end_wall"}
 
 # Specialty premiums above are quoted at Stock tier. The same feature
 # costs more in a better box: the hardware is upgraded (a Custom lazy

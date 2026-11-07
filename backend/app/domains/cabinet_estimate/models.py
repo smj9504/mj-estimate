@@ -270,7 +270,9 @@ class CabinetBox(Base, BaseModel):
     is_specialty = Column(Boolean, default=False)
     specialty_type = Column(String(50), nullable=True)
     # sink_base / lazy_susan / blind_corner / drawer_base / diagonal_corner_wall
-    # / three_door_corner_wall / oven_cabinet / refrigerator_cabinet
+    # / three_door_corner_wall / angle_end_wall / two_door_angle_end_wall
+    # / three_door_angle_end_wall
+    # / oven_cabinet / refrigerator_cabinet
     # / range_base_slide_in / range_base_drop_in
     has_glass_door = Column(Boolean, default=False)
     # Finished end panels flanking a slide-in range opening (0-2).
