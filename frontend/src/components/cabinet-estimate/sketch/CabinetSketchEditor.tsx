@@ -182,8 +182,11 @@ const CabinetGridLayer: React.FC<{
 
 export interface CabinetSketchEditorProps {
   estimateId: string;
-  /** The Edit tab's boxes (perimeter + island) — the cabinets the sketch shows. */
-  boxes: SketchBoxSource[];
+  /**
+   * The Edit tab's boxes (perimeter + island) — the cabinets the sketch shows.
+   * A slide-in range's panel count is only read by the right-click panel.
+   */
+  boxes: (SketchBoxSource & { range_panel_count?: number | null })[];
   /** The Edit tab's Upper height: the Wall picker lists only that height. */
   wallHeight?: WallHeightFilter;
   /** False while another tab is showing, so canvas shortcuts (Delete!) stay off. */
@@ -1106,7 +1109,12 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     />
   );
 
-  // The Edit-tab box a cabinet stands for, as the sketch knows it.
+  // The Edit tab's row a cabinet belongs to.
+  const rowOf = (cabinet: CabinetSketchCabinet) =>
+    boxes.find((b) => boxKey(b) === cabinetKey(cabinet, CABINET_PRESETS, scalePixelsPerFoot));
+
+  // The Edit-tab box a cabinet stands for, as the sketch knows it — and the
+  // range panels, which only its row has.
   const boxOf = (cabinet: CabinetSketchCabinet): BoxFields => {
     const preset = CABINET_PRESETS[cabinet.preset_code];
     const { width, height } = cabinetSizeIn(cabinet, CABINET_PRESETS, scalePixelsPerFoot);
@@ -1119,12 +1127,13 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       specialty_type: preset?.specialty ?? null,
       has_glass_door: !!cabinet.has_glass_door,
       door_pattern: cabinet.door_pattern ?? null,
+      range_panel_count: rowOf(cabinet)?.range_panel_count ?? null,
     };
   };
 
-  // Change a cabinet — another code, a custom size, glass, a door pattern —
-  // from its picker or its right-click panel. It keeps its place (back-left
-  // corner, rotation, corner side) and takes the new size.
+  // Change a cabinet — another code, a custom size, glass, a door pattern,
+  // a slide-in range's panels — from its picker or its right-click panel. It
+  // keeps its place (back-left corner, rotation, corner side) and takes the new size.
   const editCabinet = (cabinet: CabinetSketchCabinet, change: BoxChange) => {
     const before = boxOf(cabinet);
     const box = changedBox(before, change, CABINET_PRESETS);
@@ -1133,7 +1142,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       box.width_inches === before.width_inches &&
       box.height_inches === before.height_inches &&
       box.has_glass_door === before.has_glass_door &&
-      box.door_pattern === before.door_pattern
+      box.door_pattern === before.door_pattern &&
+      box.range_panel_count === before.range_panel_count
     ) {
       return;
     }
@@ -1702,9 +1712,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               }`}
               catalog={CABINET_PRESETS}
               cabinetOptions={presetOptions[sectionOf(editedCabinet)]}
-              rowQty={
-                boxes.find((b) => boxKey(b) === cabinetKey(editedCabinet, CABINET_PRESETS, scalePixelsPerFoot))?.qty ?? 1
-              }
+              rowQty={rowOf(editedCabinet)?.qty ?? 1}
               onChange={(change) => editCabinet(editedCabinet, change)}
               onClose={closeEditPanel}
               style={{ left: editPanel.left, top: editPanel.top }}
@@ -1774,7 +1782,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Drag across empty canvas to select everything the box touches, or Ctrl+click to add one; several selected move together and turn together by the handle round them, R or the angle box. The island moves as one piece: a click on any of its cabinets picks it all, a double-click or Alt+click just that cabinet, and Ctrl+Alt+click adds one more. Space + drag or the middle mouse button pans. Right-click a cabinet to change it there — cabinet, specialty, width, height, door and glass — which changes its row on the Edit tab. Walls that meet stay joined: moving a wall or a wall end brings the walls joined to it along. For an angled island, pick the cabinets of one side that way, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it); the dark edge is its front.'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Drag across empty canvas to select everything the box touches, or Ctrl+click to add one; several selected move together and turn together by the handle round them, R or the angle box. The island moves as one piece: a click on any of its cabinets picks it all, a double-click or Alt+click just that cabinet, and Ctrl+Alt+click adds one more. Space + drag or the middle mouse button pans. Right-click a cabinet to change it there — cabinet, specialty, width, height, door and glass, a slide-in range\'s end panels — which changes its row on the Edit tab. Walls that meet stay joined: moving a wall or a wall end brings the walls joined to it along. For an angled island, pick the cabinets of one side that way, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it); the dark edge is its front.'
             : view === '3d'
               ? 'The plan in 3D, at real sizes, with the detach & reset appliances in place. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top. Realistic draws the kitchen in the finishes picked beside it (saved with the sketch, not priced; None under Hardware for fronts with no knobs or pulls); walls between you and the room are left out. Crown molding tops the uppers and talls when Crown Molding is ticked in the Edit tab. With Ray-traced light on, the picture sharpens toward a photo a few seconds after the view stops moving (it needs about a minute to get ready when the 3D view first opens).'
               : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}

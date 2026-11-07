@@ -1,13 +1,14 @@
 /**
  * The panel a right-click on a plan cabinet opens: the Edit tab's columns
  * for that one cabinet — which cabinet it is, its specialty, width and
- * height, glass and door pattern. Each pick changes the Edit tab's box at
+ * height, glass and door pattern, and a slide-in range's finished end
+ * panels. Each pick changes the Edit tab's box at
  * once (a row of several splits this one off), so the panel only shows the
  * box and reports the change.
  */
 
 import React from 'react';
-import { Button, Checkbox, InputNumber, Select, Space, Typography } from 'antd';
+import { Button, Checkbox, InputNumber, Select, Space, Tooltip, Typography } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import type { DoorPattern, SpecialtyType } from '../../../types/cabinetEstimate';
 import {
@@ -189,6 +190,25 @@ const CabinetEditPanel: React.FC<CabinetEditPanelProps> = ({
               Glass
             </Checkbox>
           )}
+        </div>
+      )}
+
+      {box.specialty_type === 'range_base_slide_in' && (
+        <div style={row}>
+          <span style={name}>Panels</span>
+          <Tooltip title="Finished end panels flanking the range opening">
+            <Select<number>
+              size="small"
+              style={{ width: 64 }}
+              aria-label="Panels"
+              value={box.range_panel_count ?? 2}
+              options={[0, 1, 2].map((n) => ({ label: String(n), value: n }))}
+              onChange={(n) => onChange({ range_panel_count: n })}
+            />
+          </Tooltip>
+          <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+            beside the range
+          </Text>
         </div>
       )}
 

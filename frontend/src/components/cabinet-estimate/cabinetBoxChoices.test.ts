@@ -89,4 +89,10 @@ describe('changedBox', () => {
     const next = changedBox(box('B30'), { code: 'RB30S' }, CABINET_PRESETS);
     expect(next.range_panel_count).toBe(2);
   });
+
+  it('changes a slide-in range\'s panels, and gives no other box any', () => {
+    expect(changedBox(box('RB30S', { range_panel_count: 2 }), { range_panel_count: 1 }, CABINET_PRESETS).range_panel_count).toBe(1);
+    expect(changedBox(box('RB30S', { range_panel_count: 2 }), { range_panel_count: 0 }, CABINET_PRESETS).range_panel_count).toBe(0);
+    expect(changedBox(box('B30', { range_panel_count: null }), { range_panel_count: 1 }, CABINET_PRESETS).range_panel_count).toBeNull();
+  });
 });

@@ -114,13 +114,15 @@ export interface BoxFields {
   range_panel_count?: number | null;
 }
 
-/** One change to a box: another catalog code, a custom size, glass, or a door pattern. */
+/** One change to a box: another catalog code, a custom size, glass, a door pattern, or a slide-in range's panels. */
 export interface BoxChange {
   code?: string;
   width?: number;
   height?: number;
   has_glass_door?: boolean;
   door_pattern?: DoorPattern | null;
+  /** Finished end panels beside a slide-in range's opening, 0–2. */
+  range_panel_count?: number;
 }
 
 /**
@@ -156,6 +158,10 @@ export function changedBox(box: BoxFields, change: BoxChange, catalog: Catalog):
       specialty_type: null,
       range_panel_count: null,
     };
+  }
+  // Only a slide-in range has panels.
+  if (change.range_panel_count !== undefined && next.specialty_type === 'range_base_slide_in') {
+    next.range_panel_count = change.range_panel_count;
   }
   if (change.has_glass_door !== undefined) {
     next.has_glass_door = change.has_glass_door;
