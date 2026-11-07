@@ -122,6 +122,8 @@ async function start(page: Page, { sketch = SKETCH as unknown, estimate = ESTIMA
   await page.addInitScript(() => {
     localStorage.setItem('auth_token', 'test-token');
     localStorage.setItem('auth_user', JSON.stringify({ id: 'u1', username: 'admin', role: 'admin' }));
+    // Edit and Sketch on tabs of their own, as these tests open the Sketch tab (wide screens default to side by side).
+    localStorage.setItem('cabinet-estimate.view', 'tabs');
   });
   await page.route('**/api/**', (route) => {
     const request = route.request();

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Alert,
@@ -14,13 +14,16 @@ import {
   Modal,
   Radio,
   Row,
+  Segmented,
   Select,
   Space,
   Spin,
   Statistic,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
+  theme,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -29,6 +32,7 @@ import {
   CopyOutlined,
   FileExcelOutlined,
   FilePdfOutlined,
+  RightOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -163,6 +167,98 @@ const ISLAND_PANEL_HEIGHTS: { label: string; value: number }[] = [
   { label: '84" (Full Height)', value: 7 },
 ];
 
+// ── Side by side ──
+// On a wide screen the Edit form and the Sketch share one screen: the sketch
+// pinned on the left at the window's height, the form scrolling on the right.
+// Narrower, or by choice, they are two tabs as before.
+const SIDE_BY_SIDE_MIN_WIDTH = 1400;
+const VIEW_KEY = 'cabinet-estimate.view';
+const SPLIT_RATIO_KEY = 'cabinet-estimate.split-ratio';
+const DEFAULT_SPLIT_RATIO = 0.55;
+const clampSplitRatio = (r: number) => Math.min(0.72, Math.max(0.35, r));
+const readStored = (key: string): string | null => {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const writeStored = (key: string, value: string) => {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Storage blocked (a private window): the choice just isn't remembered.
+  }
+};
+
+function useMinWidth(px: number): boolean {
+  const query = `(min-width: ${px}px)`;
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const update = () => setMatches(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
+
+// The form's sections, for the jump links over it side by side. The first
+// two and the drywall and backsplash ones are seldom changed once set, so
+// they start folded to a one-line summary there.
+const FORM_SECTIONS: { key: string; label: string }[] = [
+  { key: 'client', label: 'Client' },
+  { key: 'project', label: 'Project' },
+  { key: 'specs', label: 'Specs' },
+  { key: 'perimeter', label: 'Cabinets' },
+  { key: 'island', label: 'Island' },
+  { key: 'scope', label: 'Scope' },
+  { key: 'countertop', label: 'Countertop' },
+  { key: 'drywall', label: 'Drywall' },
+  { key: 'backsplash', label: 'Backsplash' },
+  { key: 'price', label: 'Price' },
+  { key: 'notes', label: 'Notes' },
+];
+const FOLDABLE_SECTIONS = ['client', 'project', 'drywall', 'backsplash'];
+const sectionId = (key: string) => `cabinet-section-${key}`;
+
+/** A section title that folds its card, showing a one-line summary while folded. */
+const FoldTitle: React.FC<{ title: string; summary?: string; folded: boolean; onToggle: () => void }> = ({
+  title,
+  summary,
+  folded,
+  onToggle,
+}) => (
+  <button
+    type="button"
+    onClick={onToggle}
+    aria-expanded={!folded}
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      width: '100%',
+      minWidth: 0,
+      padding: 0,
+      border: 0,
+      background: 'none',
+      font: 'inherit',
+      color: 'inherit',
+      cursor: 'pointer',
+      textAlign: 'left',
+    }}
+  >
+    <RightOutlined rotate={folded ? 0 : 90} style={{ fontSize: 10, color: '#8c8c8c' }} />
+    <span>{title}</span>
+    {folded && summary && (
+      <Text type="secondary" ellipsis style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 400 }}>
+        {summary}
+      </Text>
+    )}
+  </button>
+);
+
 const CabinetEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -228,6 +324,50 @@ const CabinetEstimateDetail: React.FC = () => {
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
+
+  // ── Side by side (see SIDE_BY_SIDE_MIN_WIDTH) ──
+  const { token } = theme.useToken();
+  const wideScreen = useMinWidth(SIDE_BY_SIDE_MIN_WIDTH);
+  const [viewChoice, setViewChoice] = useState<'split' | 'tabs'>(() => (readStored(VIEW_KEY) === 'tabs' ? 'tabs' : 'split'));
+  const split = wideScreen && viewChoice === 'split';
+  // The Sketch tab folds into Edit side by side.
+  const shownTab = split && activeTab === 'sketch' ? 'edit' : activeTab;
+  // The sketch mounts once it is first on screen, and stays.
+  const [sketchMounted, setSketchMounted] = useState(false);
+  if (!sketchMounted && (split || activeTab === 'sketch')) setSketchMounted(true);
+  const [splitRatio, setSplitRatio] = useState(() => clampSplitRatio(Number(readStored(SPLIT_RATIO_KEY)) || DEFAULT_SPLIT_RATIO));
+  const [draggingDivider, setDraggingDivider] = useState(false);
+  const [hoverDivider, setHoverDivider] = useState(false);
+  useEffect(() => {
+    if (!draggingDivider) writeStored(SPLIT_RATIO_KEY, String(splitRatio));
+  }, [splitRatio, draggingDivider]);
+  // The split's height: from where it starts down to the window's bottom, so only the form scrolls.
+  const splitRef = useRef<HTMLDivElement>(null);
+  const formPaneRef = useRef<HTMLDivElement>(null);
+  const [splitHeight, setSplitHeight] = useState(640);
+  // The page's Save saves the sketch too.
+  const [sketchSaveSignal, setSketchSaveSignal] = useState(0);
+  // Rows and cabinets linked side by side: the box keys picked on the sketch,
+  // a row's cabinets to pick there, and the row under the pointer.
+  const [linkedKeys, setLinkedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [pickKeys, setPickKeys] = useState<{ keys: string[]; seq: number } | null>(null);
+  const [hintKey, setHintKey] = useState<string | null>(null);
+  const rowPickRef = useRef<string | null>(null);
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set(FOLDABLE_SECTIONS));
+  const [activeSection, setActiveSection] = useState(FORM_SECTIONS[0].key);
+
+  // What a folded section says about itself.
+  const watchedCompanyId: string | undefined = Form.useWatch('company_id', { form, preserve: true });
+  const watchedAddress: string | undefined = Form.useWatch('property_address', { form, preserve: true });
+  const watchedLayout: string | undefined = Form.useWatch('layout_type', { form, preserve: true });
+  const watchedSize: number | undefined = Form.useWatch('kitchen_size_sqft', { form, preserve: true });
+  const watchedCeiling: number | undefined = Form.useWatch('ceiling_height', { form, preserve: true });
+  const includeDrywall: boolean = Form.useWatch('include_drywall_repair', { form, preserve: true }) ?? false;
+  const drywallSf: number | undefined = Form.useWatch('drywall_repair_sqft', { form, preserve: true });
+  const includePainting: boolean = Form.useWatch('include_painting', { form, preserve: true }) ?? false;
+  const paintingSf: number | undefined = Form.useWatch('painting_sqft', { form, preserve: true });
+  const backsplashType: string | undefined = Form.useWatch('backsplash_type', { form, preserve: true });
+  const backsplashSf: number | undefined = Form.useWatch('backsplash_sqft', { form, preserve: true });
 
   // Watch island panel SF values for reactive LF display
   const endPanelSf = Form.useWatch('island_end_panel_sqft', form) || 0;
@@ -654,7 +794,9 @@ const CabinetEstimateDetail: React.FC = () => {
   }, [form, allBoxes]);
 
   // ── Save handler ──
+  // The sketch saves itself a moment after each change; Save sends what it hasn't yet.
   const handleSave = useCallback(async () => {
+    setSketchSaveSignal((n) => n + 1);
     try {
       await form.validateFields();
       saveMutation.mutate(buildPayload());
@@ -665,6 +807,7 @@ const CabinetEstimateDetail: React.FC = () => {
 
   // ── Save & Calculate (single API call) ──
   const handleCalculate = useCallback(async () => {
+    setSketchSaveSignal((n) => n + 1);
     try {
       await form.validateFields();
       calculateMutation.mutate(buildPayload());
@@ -726,6 +869,109 @@ const CabinetEstimateDetail: React.FC = () => {
     queryClient.invalidateQueries({ queryKey: ['cabinet-estimates'] });
   }, [id, queryClient]);
 
+  // ── Side by side ──
+  const chooseView = useCallback((choice: 'split' | 'tabs') => {
+    setViewChoice(choice);
+    writeStored(VIEW_KEY, choice);
+  }, []);
+
+  // The split runs from where it starts to the window's bottom (less the page's bottom gutter), so the page
+  // itself doesn't scroll; measured again when the window or anything above it changes size.
+  const hasEstimate = !!estimate;
+  useLayoutEffect(() => {
+    const el = splitRef.current;
+    if (!split || !el) return;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const main = document.getElementById('main-content');
+      const gutter = (main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0) + 12;
+      setSplitHeight(Math.max(520, Math.floor(window.innerHeight - top - gutter)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (el.parentElement) observer.observe(el.parentElement);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [split, hasEstimate]);
+
+  const dividerRatioAt = useCallback((clientX: number) => {
+    const r = splitRef.current?.getBoundingClientRect();
+    return r ? clampSplitRatio((clientX - r.left - 6) / (r.width - 12)) : DEFAULT_SPLIT_RATIO;
+  }, []);
+
+  // A cabinet picked on the sketch: its row is marked, and brought into view
+  // unless the pick came from clicking that row.
+  const handleSketchSelection = useCallback(
+    (keys: string[]) => {
+      setLinkedKeys(new Set(keys));
+      const fromRow = rowPickRef.current;
+      rowPickRef.current = null;
+      if (!split || keys.length === 0 || (fromRow !== null && keys.includes(fromRow))) return;
+      window.requestAnimationFrame(() => {
+        const row = formPaneRef.current?.querySelector(`[data-link-key="${CSS.escape(keys[0])}"]`);
+        row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    },
+    [split]
+  );
+  const rowLink = useMemo(
+    () =>
+      split
+        ? {
+            keyOf: boxKey,
+            linked: linkedKeys,
+            onPick: (key: string) => {
+              rowPickRef.current = key;
+              setPickKeys((prev) => ({ keys: [key], seq: (prev?.seq ?? 0) + 1 }));
+            },
+            onHover: setHintKey,
+          }
+        : undefined,
+    [split, linkedKeys]
+  );
+
+  const unfold = useCallback((key: string) => {
+    setFolded((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+  const toggleFold = useCallback((key: string) => {
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  const goToSection = useCallback(
+    (key: string) => {
+      unfold(key);
+      window.requestAnimationFrame(() =>
+        document.getElementById(sectionId(key))?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      );
+    },
+    [unfold]
+  );
+  // The jump link of the section at the top of the form.
+  const handleFormScroll = useCallback(() => {
+    const pane = formPaneRef.current;
+    if (!pane) return;
+    const line = pane.getBoundingClientRect().top + 64;
+    let current = FORM_SECTIONS[0].key;
+    for (const s of FORM_SECTIONS) {
+      const el = document.getElementById(sectionId(s.key));
+      if (el && el.getBoundingClientRect().top <= line) current = s.key;
+    }
+    if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 4) current = FORM_SECTIONS[FORM_SECTIONS.length - 1].key;
+    setActiveSection(current);
+  }, []);
+
   if (isLoading) {
     return (
       <div style={{ textAlign: 'center', padding: 100 }}>
@@ -737,6 +983,111 @@ const CabinetEstimateDetail: React.FC = () => {
   if (!estimate) {
     return <Alert type="error" message="Estimate not found" />;
   }
+
+  // A form section: found by its jump link; side by side, the seldom-changed ones fold to a summary.
+  const section = (key: string, title: string, summary?: string) => {
+    const foldable = split && FOLDABLE_SECTIONS.includes(key);
+    const isFolded = foldable && folded.has(key);
+    return {
+      id: sectionId(key),
+      title: foldable ? <FoldTitle title={title} summary={summary} folded={isFolded} onToggle={() => toggleFold(key)} /> : title,
+      styles: isFolded ? { body: { display: 'none' } } : undefined,
+      style: { marginBottom: 16, scrollMarginTop: split ? 48 : undefined },
+    };
+  };
+  const companyName = companies?.find((c) => c.id === watchedCompanyId)?.name;
+  const clientSummary =
+    [companyName, estimate.client_name, estimate.claim_number && `Claim ${estimate.claim_number}`].filter(Boolean).join(' · ') ||
+    'Not set';
+  const projectSummary =
+    [
+      watchedAddress,
+      watchedLayout,
+      watchedSize ? `${watchedSize} sqft` : null,
+      watchedCeiling ? `${watchedCeiling} ft ceiling` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'Not set';
+  const drywallSummary =
+    [includeDrywall && `Drywall ${drywallSf ?? 0} SF`, includePainting && `Painting ${paintingSf ?? 0} SF`]
+      .filter(Boolean)
+      .join(' · ') || 'Not included';
+  const backsplashSummary = includeBacksplash
+    ? [backsplashType, backsplashSf ? `${backsplashSf} SF` : null].filter(Boolean).join(' · ') || 'Included'
+    : 'Not included';
+
+  // Side by side the form is right there, so the sketch's messages don't send you to the Edit tab.
+  const onEditTab = split ? '' : ' on the Edit tab';
+  const sketchEditor = (
+      <CabinetSketchEditor
+        estimateId={id!}
+        boxes={sketchBoxes}
+        wallHeight={wallHeight}
+        active={split ? shownTab === 'edit' : shownTab === 'sketch'}
+    layout={split ? 'pane' : 'page'}
+    keysWhenPointerOver={split}
+    saveSignal={sketchSaveSignal}
+    onSelectionChange={handleSketchSelection}
+    pickKeys={split ? pickKeys : null}
+    hintKey={split ? hintKey : null}
+        onCabinetsRemoved={handleSketchCabinetsRemoved}
+        onCabinetEdited={handleSketchCabinetEdited}
+        islandSeatingIn={islandSeatingIn}
+        islandTwoSided={islandTwoSided}
+        applianceList={sketchAppliances}
+        sinkBowls={sinkType === 'double' ? 2 : 1}
+        products={estimate.kind === 'option' ? estimate.selections : null}
+        crownMolding={crownMolding}
+        archedDoors={doorStyle === 'Arched Raised Panel'}
+        onApplyIslandTopSf={(sf) => {
+          form.setFieldsValue({ island_countertop_sqft: sf });
+          message.success(`Island countertop set to ${sf} SF${onEditTab} — Save or Save & Calculate to price it`);
+        }}
+        onApplyAngledJoints={(count) => {
+          form.setFieldsValue({ angled_joint_count: count });
+          message.success(`Angled Joints set to ${count}${onEditTab} — Save or Save & Calculate to price it`);
+        }}
+        onApplyTrim={(counts) => {
+          form.setFieldsValue(counts);
+          const set = TRIM_FIELDS.map((f) => `${TRIM_FIELD_LABELS[f]} ${counts[f]}`).join(', ');
+          message.success(`Trim & Finished Panels set${onEditTab} (${set}) — Save or Save & Calculate to price them`, 6);
+        }}
+        backsplash={sketchBacksplash}
+        onApplyBacksplash={({ tile, counter }) => {
+          const sf = Math.round(((tile * backsplashHeightIn) / 12) * 10) / 10;
+          form.setFieldsValue({ backsplash_sqft: sf, countertop_backsplash_lf: counter });
+          const unticked = [
+            !includeBacksplash && 'Backsplash',
+            !(includeCountertop && includeCtBacksplash) && '4" Countertop Backsplash',
+          ].filter(Boolean);
+          message.success(
+            `Backsplash ${sf} SF (${tile} LF × ${backsplashHeightIn}") and 4" Countertop Backsplash ${counter} LF set${onEditTab} — ${
+              unticked.length ? `tick ${unticked.join(' and ')} there, then ` : ''
+            }Save or Save & Calculate to price them`,
+            6
+          );
+        }}
+        onCabinetPlaced={(code, cabType) => {
+          const preset = CABINET_PRESETS[code];
+          if (!preset) return;
+          const newBox: CabinetBoxCreate = {
+            code,
+            cab_type: cabType,
+            location: 'perimeter',
+            width_inches: preset.width,
+            height_inches: preset.height,
+            is_specialty: !!preset.specialty,
+            specialty_type: preset.specialty || null,
+            has_glass_door: false,
+            range_panel_count: preset.specialty === 'range_base_slide_in' ? 2 : null,
+            qty: 1,
+            display_order: perimeterBoxes.length,
+          };
+          setPerimeterBoxes((prev) => [...prev, newBox]);
+          setSketchBoxEdits((n) => n + 1);
+        }}
+      />
+  );
 
   // Sits in the app header beside Search; inline above the actions on phones
   const titleBar = (
@@ -856,9 +1207,166 @@ const CabinetEstimateDetail: React.FC = () => {
         }}
       />
 
-      {/* Tabs */}
-      <Tabs activeKey={activeTab} onChange={setActiveTab}>
-        <Tabs.TabPane tab="Edit" key="edit">
+      {/* Edit and Sketch: side by side on a wide screen, else a tab each. Result and Purchase Order are tabs. */}
+      <Tabs
+        activeKey={shownTab}
+        onChange={setActiveTab}
+        tabBarExtraContent={
+          wideScreen ? (
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                View
+              </Text>
+              <Segmented<'split' | 'tabs'>
+                size="small"
+                value={viewChoice}
+                onChange={chooseView}
+                options={[
+                  { label: <Tooltip title="The sketch beside the form, on one screen">Side by side</Tooltip>, value: 'split' },
+                  { label: <Tooltip title="Edit and Sketch on tabs of their own">Tabs</Tooltip>, value: 'tabs' },
+                ]}
+              />
+            </Space>
+          ) : null
+        }
+        items={[
+          { key: 'edit', label: 'Edit' },
+          ...(split ? [] : [{ key: 'sketch', label: 'Sketch' }]),
+          {
+            key: 'result',
+            label: 'Estimate Result',
+            disabled: estimate.status === 'draft',
+            children: <CabinetEstimateResult estimate={estimate} />,
+          },
+          {
+            key: 'purchase-order',
+            label: 'Purchase Order',
+            disabled: !estimate.boxes?.length,
+            children: <CabinetPurchaseOrder estimateId={id!} />,
+          },
+        ]}
+      />
+      {/* The same three children either way, so switching never remounts the sketch or the form. */}
+      <div
+        ref={splitRef}
+        style={
+          shownTab !== 'edit' && shownTab !== 'sketch'
+            ? { display: 'none' }
+            : split
+              ? {
+                  display: 'grid',
+                  gridTemplateColumns: `minmax(0, ${splitRatio}fr) 12px minmax(0, ${1 - splitRatio}fr)`,
+                  height: splitHeight,
+                }
+              : undefined
+        }
+      >
+        <div
+          key="sketch"
+          style={
+            split
+              ? { minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }
+              : { display: shownTab === 'sketch' ? 'block' : 'none' }
+          }
+        >
+          {sketchMounted && sketchEditor}
+        </div>
+        {split && (
+          <div
+            key="divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Widths of the sketch and the form"
+            aria-valuemin={35}
+            aria-valuemax={72}
+            aria-valuenow={Math.round(splitRatio * 100)}
+            tabIndex={0}
+            title="Drag to change the widths; double-click for the usual ones"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setDraggingDivider(true);
+            }}
+            onPointerMove={(e) => {
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) setSplitRatio(dividerRatioAt(e.clientX));
+            }}
+            onPointerUp={() => setDraggingDivider(false)}
+            onPointerCancel={() => setDraggingDivider(false)}
+            onPointerEnter={() => setHoverDivider(true)}
+            onPointerLeave={() => setHoverDivider(false)}
+            onDoubleClick={() => setSplitRatio(DEFAULT_SPLIT_RATIO)}
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+              e.preventDefault();
+              setSplitRatio((r) => clampSplitRatio(r + (e.key === 'ArrowLeft' ? -0.02 : 0.02)));
+            }}
+            style={{ position: 'relative', cursor: 'col-resize', touchAction: 'none' }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: 5,
+                width: 2,
+                borderRadius: 1,
+                background: draggingDivider || hoverDivider ? token.colorPrimary : token.colorBorderSecondary,
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                top: '50%',
+                left: 1,
+                width: 10,
+                height: 36,
+                marginTop: -18,
+                borderRadius: 5,
+                background: token.colorBgContainer,
+                border: `1px solid ${draggingDivider || hoverDivider ? token.colorPrimary : token.colorBorder}`,
+              }}
+            />
+          </div>
+        )}
+        <div
+          key="form"
+          ref={formPaneRef}
+          onScroll={split ? handleFormScroll : undefined}
+          style={
+            split
+              ? { minWidth: 0, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', paddingRight: 4 }
+              : { display: shownTab === 'edit' ? 'block' : 'none' }
+          }
+        >
+          {split && (
+            <nav
+              aria-label="Form sections"
+              style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 3,
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 6,
+                paddingBottom: 10,
+                background: token.colorBgContainer,
+              }}
+            >
+              {FORM_SECTIONS.map((s) => (
+                <Button
+                  key={s.key}
+                  size="small"
+                  shape="round"
+                  type={activeSection === s.key ? 'primary' : 'default'}
+                  ghost={activeSection === s.key}
+                  onClick={() => goToSection(s.key)}
+                >
+                  {s.label}
+                </Button>
+              ))}
+            </nav>
+          )}
           <KitchenSelections
             estimate={estimate}
             slots={pricingInfo?.selection_slots}
@@ -868,9 +1376,9 @@ const CabinetEstimateDetail: React.FC = () => {
           <Form form={form} layout="vertical" size="middle" onValuesChange={() => { unsavedRef.current = true; }}>
             <Row gutter={24}>
               {/* Left column: Project Info + Kitchen + Scope */}
-              <Col xs={24} lg={16}>
+              <Col xs={24} lg={split ? 24 : 16}>
                 {/* Company & Client */}
-                <Card size="small" title="Company & Client" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('client', 'Company & Client', clientSummary)}>
                   <Row gutter={16}>
                     <Col xs={24} md={8}>
                       <Form.Item name="company_id" label="Company (for PDF)">
@@ -942,7 +1450,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Project Info */}
-                <Card size="small" title="Project Information" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('project', 'Project Information', projectSummary)}>
                   <Row gutter={16}>
                     <Col xs={24} md={12}>
                       <Form.Item name="property_address" label="Property Address">
@@ -996,7 +1504,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Specifications — each of these scales cabinet supply cost */}
-                <Card size="small" title="Cabinet Specifications" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('specs', 'Cabinet Specifications')}>
                   {/* The basis decides which price list the whole estimate
                       is quoted from. It is first because changing it later
                       moves every basis-sensitive line. */}
@@ -1097,7 +1605,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Perimeter Cabinets */}
-                <Card size="small" title="Perimeter Cabinets" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('perimeter', 'Perimeter Cabinets')}>
                   <CabinetBoxEditor
                     boxes={perimeterBoxes}
                     onChange={editPerimeterBoxes}
@@ -1105,11 +1613,12 @@ const CabinetEstimateDetail: React.FC = () => {
                     wallHeight={wallHeight}
                     onWallHeightChange={handleWallHeightChange}
                     tier={tier}
+                    link={rowLink}
                   />
                 </Card>
 
                 {/* Island Cabinets + Panels + Countertop */}
-                <Card size="small" title="Island" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('island', 'Island')}>
                   <Form.Item name="island_type" label="Island Type" style={{ marginBottom: 12 }}>
                     <Radio.Group
                       onChange={(e) => {
@@ -1193,7 +1702,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       return (
                         <>
                           <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Cabinets</Text>
-                          <CabinetBoxEditor boxes={islandBoxes} onChange={editIslandBoxes} location="island" />
+                          <CabinetBoxEditor boxes={islandBoxes} onChange={editIslandBoxes} location="island" link={rowLink} />
                           {islandBoxes.length > 0 && (
                             <Form.Item
                               name="island_two_sided"
@@ -1503,7 +2012,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Scope of Work */}
-                <Card size="small" title="Scope of Work" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('scope', 'Scope of Work')}>
                   <Row gutter={[16, 8]}>
                     <Col xs={12} md={8}>
                       <Form.Item name="include_demo" valuePropName="checked">
@@ -1765,7 +2274,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Countertop (Perimeter) */}
-                <Card size="small" title="Countertop" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('countertop', 'Countertop')}>
                   <Form.Item name="include_countertop" valuePropName="checked">
                     <Checkbox>Include Countertop</Checkbox>
                   </Form.Item>
@@ -1864,7 +2373,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Drywall & Painting */}
-                <Card size="small" title="Drywall & Painting" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('drywall', 'Drywall & Painting', drywallSummary)}>
                   <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
                     Cabinet 제거 후 벽면 수리 및 도장. 면적은 wall cabinet 뒤쪽 벽 기준.
                   </Text>
@@ -1944,7 +2453,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Backsplash */}
-                <Card size="small" title="Backsplash" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('backsplash', 'Backsplash', backsplashSummary)}>
                   <Form.Item name="include_backsplash" valuePropName="checked">
                     <Checkbox>Include Backsplash</Checkbox>
                   </Form.Item>
@@ -2023,8 +2532,8 @@ const CabinetEstimateDetail: React.FC = () => {
               </Col>
 
               {/* Right column: O&P + Notes */}
-              <Col xs={24} lg={8}>
-                <Card size="small" title="Overhead & Profit" style={{ marginBottom: 16 }}>
+              <Col xs={24} lg={split ? 24 : 8}>
+                <Card size="small" {...section('price', 'Overhead & Profit')}>
                   <Form.Item name="overhead_pct" label="Overhead (%)">
                     <InputNumber min={0} max={50} style={{ width: '100%' }} addonAfter="%" />
                   </Form.Item>
@@ -2093,7 +2602,7 @@ const CabinetEstimateDetail: React.FC = () => {
                   </Text>
                 </Card>
 
-                <Card size="small" title="Notes" style={{ marginBottom: 16 }}>
+                <Card size="small" {...section('notes', 'Notes')}>
                   <Form.Item name="notes">
                     <Input.TextArea rows={3} placeholder="Internal notes (not shown on PDF)..." />
                   </Form.Item>
@@ -2117,81 +2626,8 @@ const CabinetEstimateDetail: React.FC = () => {
               </Col>
             </Row>
           </Form>
-        </Tabs.TabPane>
-
-        <Tabs.TabPane tab="Sketch" key="sketch">
-          <CabinetSketchEditor
-            estimateId={id!}
-            boxes={sketchBoxes}
-            wallHeight={wallHeight}
-            active={activeTab === 'sketch'}
-            onCabinetsRemoved={handleSketchCabinetsRemoved}
-            onCabinetEdited={handleSketchCabinetEdited}
-            islandSeatingIn={islandSeatingIn}
-            islandTwoSided={islandTwoSided}
-            applianceList={sketchAppliances}
-            sinkBowls={sinkType === 'double' ? 2 : 1}
-            products={estimate.kind === 'option' ? estimate.selections : null}
-            crownMolding={crownMolding}
-            archedDoors={doorStyle === 'Arched Raised Panel'}
-            onApplyIslandTopSf={(sf) => {
-              form.setFieldsValue({ island_countertop_sqft: sf });
-              message.success(`Island countertop set to ${sf} SF on the Edit tab — Save or Save & Calculate to price it`);
-            }}
-            onApplyAngledJoints={(count) => {
-              form.setFieldsValue({ angled_joint_count: count });
-              message.success(`Angled Joints set to ${count} on the Edit tab — Save or Save & Calculate to price it`);
-            }}
-            onApplyTrim={(counts) => {
-              form.setFieldsValue(counts);
-              const set = TRIM_FIELDS.map((f) => `${TRIM_FIELD_LABELS[f]} ${counts[f]}`).join(', ');
-              message.success(`Trim & Finished Panels set on the Edit tab (${set}) — Save or Save & Calculate to price them`, 6);
-            }}
-            backsplash={sketchBacksplash}
-            onApplyBacksplash={({ tile, counter }) => {
-              const sf = Math.round(((tile * backsplashHeightIn) / 12) * 10) / 10;
-              form.setFieldsValue({ backsplash_sqft: sf, countertop_backsplash_lf: counter });
-              const unticked = [
-                !includeBacksplash && 'Backsplash',
-                !(includeCountertop && includeCtBacksplash) && '4" Countertop Backsplash',
-              ].filter(Boolean);
-              message.success(
-                `Backsplash ${sf} SF (${tile} LF × ${backsplashHeightIn}") and 4" Countertop Backsplash ${counter} LF set on the Edit tab — ${
-                  unticked.length ? `tick ${unticked.join(' and ')} there, then ` : ''
-                }Save or Save & Calculate to price them`,
-                6
-              );
-            }}
-            onCabinetPlaced={(code, cabType) => {
-              const preset = CABINET_PRESETS[code];
-              if (!preset) return;
-              const newBox: CabinetBoxCreate = {
-                code,
-                cab_type: cabType,
-                location: 'perimeter',
-                width_inches: preset.width,
-                height_inches: preset.height,
-                is_specialty: !!preset.specialty,
-                specialty_type: preset.specialty || null,
-                has_glass_door: false,
-                range_panel_count: preset.specialty === 'range_base_slide_in' ? 2 : null,
-                qty: 1,
-                display_order: perimeterBoxes.length,
-              };
-              setPerimeterBoxes((prev) => [...prev, newBox]);
-              setSketchBoxEdits((n) => n + 1);
-            }}
-          />
-        </Tabs.TabPane>
-
-        <Tabs.TabPane tab="Estimate Result" key="result" disabled={estimate.status === 'draft'}>
-          <CabinetEstimateResult estimate={estimate} />
-        </Tabs.TabPane>
-
-        <Tabs.TabPane tab="Purchase Order" key="purchase-order" disabled={!estimate.boxes?.length}>
-          <CabinetPurchaseOrder estimateId={id!} />
-        </Tabs.TabPane>
-      </Tabs>
+        </div>
+      </div>
 
       {registerBidItemOpen && (
         <React.Suspense fallback={null}>

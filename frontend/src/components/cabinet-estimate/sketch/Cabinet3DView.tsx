@@ -324,6 +324,10 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
   // Latest callbacks, so the pointer handlers set up once still call the current ones.
   const pickRef = useRef({ onSelect, onDeselect });
   pickRef.current = { onSelect, onDeselect };
+  // The height the view opens at. A new height only resizes it (see the ResizeObserver
+  // below): building it again would start the ray tracer's minute-long setup over.
+  const heightRef = useRef(height);
+  heightRef.current = height;
 
   const solids = useMemo(
     () => cabinetSolids(cabinets, presets, scalePixelsPerFoot, sinkBowls),
@@ -366,6 +370,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       return;
     }
     const width = container.clientWidth || 900;
+    const height = heightRef.current;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = true;
@@ -468,11 +473,13 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       const measured = Math.floor(entries[0]?.contentRect.width ?? 0);
       if (!measured) return;
       const w = Math.max(320, measured);
-      renderer.setSize(w, height);
-      composer.setSize(w, height);
-      labels.setSize(w, height);
-      stage.tracer?.renderer.setSize(w, height);
-      camera.aspect = w / height;
+      // The container takes the height prop, so a new height arrives here too.
+      const h = Math.max(200, Math.floor(entries[0]?.contentRect.height ?? 0) || heightRef.current);
+      renderer.setSize(w, h);
+      composer.setSize(w, h);
+      labels.setSize(w, h);
+      stage.tracer?.renderer.setSize(w, h);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
       stage.render();
     });
@@ -521,7 +528,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       labels.domElement.remove();
       stageRef.current = null;
     };
-  }, [height]);
+  }, []);
 
   // The model: rebuilt whenever the sketch, the selection or the look changes.
   useEffect(() => {

@@ -77,6 +77,8 @@ async function start(page: Page): Promise<Server> {
   await page.addInitScript(() => {
     localStorage.setItem('auth_token', 'test-token');
     localStorage.setItem('auth_user', JSON.stringify({ id: 'u1', username: 'admin', role: 'admin' }));
+    // Edit and Sketch on tabs of their own, as these tests open the Sketch tab (wide screens default to side by side).
+    localStorage.setItem('cabinet-estimate.view', 'tabs');
     // The query devtools button sits over the bottom right of the page.
     document.addEventListener('DOMContentLoaded', () => {
       const style = document.createElement('style');

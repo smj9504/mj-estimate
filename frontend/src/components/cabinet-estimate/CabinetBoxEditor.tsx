@@ -468,7 +468,21 @@ interface CabinetBoxEditorProps {
   onWallHeightChange?: (height: WallHeightFilter) => void;
   /** The estimate's Tier, whose usual upper height is named when another is picked. */
   tier?: string | null;
+  /**
+   * Linking rows to the sketch beside the form: `keyOf` names a row's
+   * cabinets on the sketch (boxKey), `linked` holds the keys selected there,
+   * and a row reports a click (`onPick`) and the pointer coming and going (`onHover`).
+   */
+  link?: {
+    keyOf: (box: CabinetBoxCreate) => string;
+    linked: ReadonlySet<string>;
+    onPick: (key: string) => void;
+    onHover: (key: string | null) => void;
+  };
 }
+
+// A click on these inside a row edits the row; anywhere else it picks the row's cabinets on the sketch.
+const ROW_CONTROLS = 'input, button, a, textarea, .ant-select, .ant-input-number, .ant-checkbox-wrapper, .ant-segmented';
 
 const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
   boxes,
@@ -477,6 +491,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
   wallHeight = 'all',
   onWallHeightChange,
   tier,
+  link,
 }) => {
   const tierWallHeight = wallHeightForTier(tier);
   const addBox = (cabType: SectionType, codeOrCustom: string) => {
@@ -829,6 +844,26 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
             size="small"
             // Its own columns' width: a set width smaller than theirs squeezed W" and H" till they wrapped.
             scroll={{ x: 'max-content' }}
+            rowClassName={(record) =>
+              link && link.linked.has(link.keyOf(record)) ? 'ant-table-row-selected' : ''
+            }
+            onRow={
+              link
+                ? (record) => {
+                    const key = link.keyOf(record);
+                    return {
+                      // Found by the page, to bring the row into view when its cabinet is picked on the sketch.
+                      'data-link-key': key,
+                      style: { cursor: 'pointer' },
+                      onClick: (e: React.MouseEvent) => {
+                        if (!(e.target as HTMLElement).closest(ROW_CONTROLS)) link.onPick(key);
+                      },
+                      onMouseEnter: () => link.onHover(key),
+                      onMouseLeave: () => link.onHover(null),
+                    } as React.HTMLAttributes<HTMLElement>;
+                  }
+                : undefined
+            }
           />
         )}
 

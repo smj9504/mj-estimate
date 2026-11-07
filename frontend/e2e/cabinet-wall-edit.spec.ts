@@ -77,6 +77,8 @@ async function openSketch(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem('auth_token', 'test-token');
     localStorage.setItem('auth_user', JSON.stringify({ id: 'u1', username: 'admin', role: 'admin' }));
+    // Edit and Sketch on tabs of their own, as these tests open the Sketch tab (wide screens default to side by side).
+    localStorage.setItem('cabinet-estimate.view', 'tabs');
   });
   const sketch = { id: 'sketch-1', estimate_id: ID, canvas_width: 1200, canvas_height: 900, scale_pixels_per_foot: SCALE, overlay_data: OVERLAY };
   await page.route('**/api/**', (route) => {
