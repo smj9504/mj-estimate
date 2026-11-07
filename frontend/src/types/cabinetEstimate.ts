@@ -169,6 +169,8 @@ export interface CabinetEstimate {
   island_prefab_price?: number;
   island_end_panel_sqft: number;
   island_back_panel_sqft: number;
+  /** Cabinets on both long sides, back to back: no back panel, no seating side; the Sketch lays the island in two rows. */
+  island_two_sided?: boolean | null;
   countertop_material?: string;
   countertop_sqft?: number;
   include_countertop_backsplash?: boolean;
@@ -303,6 +305,7 @@ export interface CabinetEstimateCreate {
   island_prefab_price?: number;
   island_end_panel_sqft?: number;
   island_back_panel_sqft?: number;
+  island_two_sided?: boolean;
   countertop_material?: string;
   countertop_sqft?: number;
   include_countertop_backsplash?: boolean;
@@ -377,6 +380,7 @@ export interface CabinetEstimateUpdate {
   island_prefab_price?: number;
   island_end_panel_sqft?: number;
   island_back_panel_sqft?: number;
+  island_two_sided?: boolean;
   countertop_material?: string;
   countertop_sqft?: number;
   include_countertop_backsplash?: boolean;

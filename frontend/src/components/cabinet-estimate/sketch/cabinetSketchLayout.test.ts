@@ -15,6 +15,7 @@ import {
   islandJointFillers,
   islandTopAreaSf,
   islandTopPieces,
+  layoutIslandSides,
   polygonUnion,
   signedArea2,
   type PresetCatalog,
@@ -557,6 +558,105 @@ describe('buildElevations', () => {
     expect(run.label).toBe('North wall');
     expect(run.length_in).toBeCloseTo(120); // the 10 ft wall
     expect(run.wall).toBeDefined();
+  });
+});
+
+describe('island with cabinets on both sides', () => {
+  // A B30 of the island (50 x 40 px at 20 px/ft), backed north unless turned.
+  const isle = (id: string, x: number, y: number, rotation = 0, over: Partial<CabinetSketchCabinet> = {}): CabinetSketchCabinet => ({
+    id,
+    preset_code: 'B30',
+    cab_type: 'base',
+    location: 'island',
+    x,
+    y,
+    width: 50,
+    height: 40,
+    rotation,
+    label: 'B30',
+    ...over,
+  });
+  const poses = (cabs: CabinetSketchCabinet[]) =>
+    Object.fromEntries(cabs.map((c) => [c.id, [Math.round(c.x * 100) / 100, Math.round(c.y * 100) / 100, c.rotation]]));
+  // One row on the usual island line (66" = 110 px in front of the default run at y = 40), x 40 to 240.
+  const row = [isle('a', 40, 150), isle('b', 90, 150), isle('c', 140, 150), isle('d', 190, 150)];
+
+  it('places new island cabinets on the shorter of two back-to-back sides', () => {
+    const out = reconcileCabinets(
+      [],
+      [box('B30'), box('B30', { location: 'island', qty: 4 })],
+      [],
+      PRESETS,
+      SCALE,
+      { islandTwoSided: true }
+    )!;
+    const island = out.filter((c) => c.location === 'island');
+    // The first goes a depth (24" = 40 px) out from the usual line; the one behind it takes that line,
+    // turned half round, its back on the first's; then they alternate, both sides started at x = 40.
+    expect(island.map((c) => [c.x, c.y, c.rotation])).toEqual([
+      [40, 190, 0],
+      [90, 190, 180],
+      [90, 190, 0],
+      [140, 190, 180],
+    ]);
+    // Without the setting, the island is still one row on the usual line.
+    const oneRow = reconcileCabinets([], [box('B30', { location: 'island', qty: 2 })], [], PRESETS, SCALE)!;
+    expect(oneRow.map((c) => [c.x, c.y, c.rotation])).toEqual([
+      [40, 150, 0],
+      [90, 150, 0],
+    ]);
+  });
+
+  it('cuts a one-row island into two back-to-back rows and puts it back', () => {
+    const perimeter = { ...isle('p', 40, 40), location: 'perimeter' as const };
+    const two = layoutIslandSides([perimeter, ...row], [], true, SCALE);
+    expect(two.straight).toBe(true);
+    // Halves of 60": the first two move a depth forward, facing as before; the last two turn into
+    // the row's old place (y 150 to 190), backs on one line, both centred where the row was (x 90 to 190).
+    expect(poses(two.cabinets)).toEqual({
+      p: [40, 40, 0],
+      a: [90, 190, 0],
+      b: [140, 190, 0],
+      c: [140, 190, 180],
+      d: [190, 190, 180],
+    });
+    const back = layoutIslandSides(two.cabinets, [], false, SCALE);
+    expect(poses(back.cabinets)).toEqual(poses([perimeter, ...row]));
+  });
+
+  it('cuts an odd row as near halves as its boxes allow', () => {
+    const wide = isle('w', 40, 150, 0, { width: 100 });
+    const two = layoutIslandSides([wide, isle('x', 140, 150), isle('y', 190, 150)], [], true, SCALE);
+    // 100 | 50 + 50: the wide one on its own side.
+    expect(two.cabinets.map((c) => c.rotation)).toEqual([0, 180, 180]);
+  });
+
+  it('merges two rows facing the way a new island faces', () => {
+    // The turned row listed first: the merged row still faces the perimeter run's way (rotation 0).
+    const two = [isle('c', 140, 190, 180), isle('d', 190, 190, 180), isle('a', 90, 190), isle('b', 140, 190)];
+    const one = layoutIslandSides(two, [], false, SCALE);
+    expect(one.cabinets.every((c) => c.rotation === 0 && c.y === 150)).toBe(true);
+    // In one row again the way it was cut: the facing half, then the turned one.
+    expect([...one.cabinets].sort((p, q) => p.x - q.x).map((c) => c.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('leaves an island of another shape, or one already laid that way, as it is', () => {
+    // An L: the end cabinet backed east.
+    const ell = [...row, isle('e', 0, 150, 90)];
+    const out = layoutIslandSides(ell, [], true, SCALE);
+    expect(out.straight).toBe(false);
+    expect(out.cabinets).toBe(ell);
+    // Two rows set apart (not back to back) are another shape too.
+    const apart = [isle('a', 40, 150), isle('c', 90, 250, 180)];
+    expect(layoutIslandSides(apart, [], false, SCALE).straight).toBe(false);
+    // Already one row, or a single cabinet: nothing moves.
+    expect(layoutIslandSides(row, [], false, SCALE).cabinets).toBe(row);
+    const single = [isle('a', 40, 150)];
+    expect(layoutIslandSides(single, [], true, SCALE).cabinets).toBe(single);
+    // Uppers over the island stay where they hang.
+    const upper = { ...isle('u', 40, 150), cab_type: 'wall' as const, preset_code: 'W3030' };
+    const withUpper = layoutIslandSides([...row, upper], [], true, SCALE);
+    expect(withUpper.cabinets.find((c) => c.id === 'u')).toBe(upper);
   });
 });
 

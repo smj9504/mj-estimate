@@ -438,6 +438,9 @@ class CabinetEstimateService:
             island_back_panel_sqft=getattr(
                 estimate, 'island_back_panel_sqft', 0
             ) or 0,
+            island_two_sided=bool(
+                getattr(estimate, 'island_two_sided', False)
+            ),
             overhead_pct=(
                 estimate.overhead_pct
                 if estimate.overhead_pct is not None

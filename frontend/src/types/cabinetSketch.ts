@@ -100,6 +100,8 @@ export interface CabinetSketchOverlayData {
   appliances: CabinetSketchAppliance[];
   element_order: string[];
   finish?: CabinetSketchFinish | null;
+  /** The estimate's "cabinets on both sides" the island was last laid out for (see layoutIslandSides). */
+  island_two_sided?: boolean | null;
 }
 
 export interface CabinetSketch {

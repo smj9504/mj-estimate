@@ -89,6 +89,7 @@ import {
   islandJointFillers,
   islandTopAreaSf,
   islandTopPieces,
+  layoutIslandSides,
   polygonUnion,
   TOP_EDGE_OVERHANG_IN,
   cabinetSizeIn,
@@ -206,6 +207,12 @@ export interface CabinetSketchEditorProps {
   onApplyAngledJoints?: (count: number) => void;
   /** The Edit tab's island seating overhang, inches (0 = edge overhang only), for the island top. */
   islandSeatingIn?: number;
+  /**
+   * The Edit tab's "Cabinets on both sides": a straight island is laid out
+   * in two back-to-back rows (and back to one when it is turned off), and
+   * new island cabinets go on its shorter side.
+   */
+  islandTwoSided?: boolean;
   /** "Use in estimate" on the plan's island top — set the Edit tab's island countertop SF to it. */
   onApplyIslandTopSf?: (sf: number) => void;
   /** "Use in estimate" on the plan's trim count — set the Edit tab's Trim & Finished Panels to it. */
@@ -235,6 +242,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   onCabinetEdited,
   onApplyAngledJoints,
   islandSeatingIn = 0,
+  islandTwoSided = false,
   onApplyIslandTopSf,
   onApplyTrim,
   applianceList = NO_LIST,
@@ -291,6 +299,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     removeCabinet,
     updateElements,
     syncCabinets,
+    setIslandSides,
     updateAppliances,
     syncAppliances,
     setFinish,
@@ -338,16 +347,46 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   // which can bring back a shape whose box is gone (or drop one that has a box).
   // The appliances follow once the cabinets have settled, so a new range finds
   // the range base that came with it, and those in a cabinet move with it.
+  // First, when the Edit tab's "Cabinets on both sides" has changed since
+  // the island was last laid out, the island goes to two rows or back to one
+  // (before new boxes are placed, so they join the new layout).
+  const islandLaidTwoSided = state.overlayData.island_two_sided ?? false;
   useEffect(() => {
     if (!loaded) return;
-    const next = reconcileCabinets(cabinets, boxes, walls, CABINET_PRESETS, scalePixelsPerFoot);
+    if (islandTwoSided !== islandLaidTwoSided) {
+      const laid = layoutIslandSides(cabinets, walls, islandTwoSided, scalePixelsPerFoot);
+      setIslandSides(islandTwoSided, laid.cabinets);
+      if (!laid.straight) {
+        message.info(
+          `The island on the Sketch isn't one straight run, so it was left as drawn — set its cabinets ${
+            islandTwoSided ? 'back to back' : 'in one row'
+          } on the plan.`,
+          6
+        );
+      }
+      return;
+    }
+    const next = reconcileCabinets(cabinets, boxes, walls, CABINET_PRESETS, scalePixelsPerFoot, { islandTwoSided });
     if (next) {
       syncCabinets(next);
       return;
     }
     const nextAppliances = reconcileAppliances(appliances, applianceList, cabinets, walls, CABINET_PRESETS, scalePixelsPerFoot);
     if (nextAppliances) syncAppliances(nextAppliances);
-  }, [loaded, boxes, cabinets, walls, appliances, applianceList, scalePixelsPerFoot, syncCabinets, syncAppliances]);
+  }, [
+    loaded,
+    boxes,
+    cabinets,
+    walls,
+    appliances,
+    applianceList,
+    scalePixelsPerFoot,
+    islandTwoSided,
+    islandLaidTwoSided,
+    syncCabinets,
+    setIslandSides,
+    syncAppliances,
+  ]);
 
   // What a dropped cabinet lines up with: the other cabinets, and free-standing appliances.
   const neighbors = useMemo(() => [...cabinets, ...applianceNeighbors(appliances)], [cabinets, appliances]);

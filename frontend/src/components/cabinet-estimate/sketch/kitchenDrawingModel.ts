@@ -15,7 +15,7 @@ import type {
   CabinetSketchWall,
 } from '../../../types/cabinetSketch';
 import type { PresetCatalog } from './cabinetSketchLayout';
-import { reconcileCabinets } from './cabinetSketchLayout';
+import { layoutIslandSides, reconcileCabinets } from './cabinetSketchLayout';
 import { finishOf } from './kitchenFinish';
 import { productLook } from './productLook';
 import type { ProductSurfaces } from './productLook';
@@ -61,7 +61,8 @@ export const hasDrawing = (overlay?: CabinetSketchOverlayData | null): boolean =
 
 /**
  * Line the sketch up with the estimate the way opening the Sketch tab does,
- * so a box added since it was last open is drawn too, and pick the look as
+ * so a box added since it was last open is drawn too (and the island in
+ * two rows or one, when its "Cabinets on both sides" has changed since), and pick the look as
  * the tab does: arched doors go by the estimate's door style unless an
  * option's cabinet product says otherwise.
  */
@@ -78,13 +79,19 @@ export function drawingInput(
     | 'include_appliance_rr'
     | 'appliance_list'
     | 'island_seating_overhang_in'
+    | 'island_two_sided'
   >,
   presets: PresetCatalog
 ): KitchenDrawingInput {
   const overlay = sketch.overlay_data;
   const scale = sketch.scale_pixels_per_foot ?? 20;
   const walls = overlay.walls;
-  const cabinets = reconcileCabinets(overlay.cabinets, estimate.boxes, walls, presets, scale) ?? overlay.cabinets;
+  const twoSided = !!estimate.island_two_sided;
+  const laid =
+    twoSided !== (overlay.island_two_sided ?? false)
+      ? layoutIslandSides(overlay.cabinets, walls, twoSided, scale).cabinets
+      : overlay.cabinets;
+  const cabinets = reconcileCabinets(laid, estimate.boxes, walls, presets, scale, { islandTwoSided: twoSided }) ?? laid;
   const list = estimate.include_appliance_rr ? estimate.appliance_list ?? [] : [];
   const appliances =
     reconcileAppliances(overlay.appliances ?? [], list, cabinets, walls, presets, scale) ?? overlay.appliances ?? [];
@@ -101,7 +108,8 @@ export function drawingInput(
     sinkBowls: look.sinkBowls ?? (estimate.sink_type === 'double' ? 2 : 1),
     crownMolding: !!estimate.include_crown_molding,
     archedDoors: finish.door_style === 'arched',
-    islandSeatingIn: estimate.island_seating_overhang_in ?? 0,
+    // Back to back, neither side of the island is free for seating.
+    islandSeatingIn: twoSided ? 0 : estimate.island_seating_overhang_in ?? 0,
     finish,
     surfaces: look.surfaces,
   };

@@ -1020,6 +1020,8 @@ def calculate_estimate(
     island_prefab_price: Optional[float] = None,
     island_end_panel_sqft: float = 0,
     island_back_panel_sqft: float = 0,
+    # Cabinets on both long sides of the island, back to back.
+    island_two_sided: bool = False,
     overhead_pct: float = DEFAULT_OVERHEAD_PCT,
     profit_pct: float = DEFAULT_PROFIT_PCT,
     target_total: Optional[float] = None,
@@ -1152,6 +1154,16 @@ def calculate_estimate(
     i_base_lf = i_wall_lf = 0.0
     i_tall = 0
     is_prefab = island_type == "prefab"
+
+    # Cabinets on both long sides stand back to back: their backs face each
+    # other, so no back panel shows, and neither side is free for a seating
+    # overhang or the brackets under one. What those fields still hold from
+    # before the island turned two-sided is left out, not billed.
+    two_sided = island_two_sided and not is_prefab
+    if two_sided:
+        island_back_panel_sqft = 0
+        island_seating_overhang_in = None
+        countertop_support_count = 0
 
     if is_prefab and island_prefab_size:
         # Prefab island: EA-based pricing
@@ -2429,6 +2441,11 @@ def calculate_estimate(
             f"Island: Base {i_base_lf:.1f} LF, "
             f"Wall {i_wall_lf:.1f} LF, "
             f"Tall {i_tall} EA"
+            + (
+                " — cabinets on both sides, back to back"
+                " (no back panel or seating overhang)"
+                if two_sided else ""
+            )
         )
     methodology_lines.extend([
         (

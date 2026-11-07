@@ -54,6 +54,7 @@ type CabinetSketchAction =
   | { type: 'BRING_FORWARD'; payload: string }
   | { type: 'SEND_BACKWARD'; payload: string }
   | { type: 'SYNC_CABINETS'; payload: CabinetSketchCabinet[] }
+  | { type: 'SET_ISLAND_SIDES'; payload: { twoSided: boolean; cabinets: CabinetSketchCabinet[] } }
   | { type: 'UPDATE_APPLIANCES'; payload: (Partial<CabinetSketchAppliance> & { id: string })[] }
   | { type: 'SYNC_APPLIANCES'; payload: CabinetSketchAppliance[] }
   | { type: 'SET_FINISH'; payload: CabinetSketchFinish }
@@ -350,6 +351,20 @@ function cabinetSketchReducer(
       };
     }
 
+    // The island laid out for the Edit tab's "Cabinets on both sides" (see
+    // layoutIslandSides), and that setting noted: follows the Edit tab like
+    // SYNC_CABINETS, so not an undo step either.
+    case 'SET_ISLAND_SIDES':
+      return {
+        ...state,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          cabinets: action.payload.cabinets,
+          island_two_sided: action.payload.twoSided,
+        },
+      };
+
     // Appliances dragged or turned on the canvas, as one undo step.
     case 'UPDATE_APPLIANCES': {
       const { undoStack, redoStack } = pushUndo(state);
@@ -479,6 +494,8 @@ export interface CabinetSketchStateReturn {
   sendBackward: (id: string) => void;
 
   syncCabinets: (cabinets: CabinetSketchCabinet[]) => void;
+  /** The island re-laid for "Cabinets on both sides" (or left as drawn), with that setting noted in the sketch. */
+  setIslandSides: (twoSided: boolean, cabinets: CabinetSketchCabinet[]) => void;
   updateAppliances: (patches: (Partial<CabinetSketchAppliance> & { id: string })[]) => void;
   syncAppliances: (appliances: CabinetSketchAppliance[]) => void;
   setFinish: (finish: CabinetSketchFinish) => void;
@@ -557,6 +574,11 @@ export function useCabinetSketchState(
     (cabinets: CabinetSketchCabinet[]) => dispatch({ type: 'SYNC_CABINETS', payload: cabinets }),
     []
   );
+  const setIslandSides = useCallback(
+    (twoSided: boolean, cabinets: CabinetSketchCabinet[]) =>
+      dispatch({ type: 'SET_ISLAND_SIDES', payload: { twoSided, cabinets } }),
+    []
+  );
   const updateAppliances = useCallback(
     (patches: (Partial<CabinetSketchAppliance> & { id: string })[]) =>
       dispatch({ type: 'UPDATE_APPLIANCES', payload: patches }),
@@ -604,6 +626,7 @@ export function useCabinetSketchState(
     bringForward,
     sendBackward,
     syncCabinets,
+    setIslandSides,
     updateAppliances,
     syncAppliances,
     setFinish,

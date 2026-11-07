@@ -217,6 +217,8 @@ class CabinetEstimateBase(BaseModel):
     )
     island_end_panel_sqft: float = 0
     island_back_panel_sqft: float = 0
+    # Cabinets on both long sides, back to back: no back panel, no seating side
+    island_two_sided: bool = False
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
     include_countertop_backsplash: Optional[bool] = False
@@ -295,6 +297,7 @@ class CabinetEstimateUpdate(BaseModel):
     island_prefab_price: Optional[float] = None
     island_end_panel_sqft: Optional[float] = None
     island_back_panel_sqft: Optional[float] = None
+    island_two_sided: Optional[bool] = None
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
     include_countertop_backsplash: Optional[bool] = False
@@ -407,6 +410,7 @@ class CabinetEstimateResponse(BaseModel):
     island_prefab_price: Optional[float] = None
     island_end_panel_sqft: float = 0
     island_back_panel_sqft: float = 0
+    island_two_sided: Optional[bool] = False
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
     include_countertop_backsplash: Optional[bool] = False

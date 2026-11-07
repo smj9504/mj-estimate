@@ -83,6 +83,9 @@ class CabinetSketchOverlayData(BaseModel):
     appliances: List[CabinetSketchAppliance] = Field(default_factory=list)
     element_order: List[str] = Field(default_factory=list)
     finish: Optional[CabinetSketchFinish] = None
+    # The estimate's "cabinets on both sides" the island was last laid out
+    # for, so the Sketch re-lays it (two rows / one) only when that changes.
+    island_two_sided: Optional[bool] = None
 
 
 class CabinetSketchResponse(BaseModel):

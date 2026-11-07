@@ -171,6 +171,9 @@ class CabinetEstimate(Base, BaseModel):
     # Island panels (SF = square feet) — custom build only
     island_end_panel_sqft = Column(Float, default=0)
     island_back_panel_sqft = Column(Float, default=0)
+    # Cabinets on both long sides of the island, back to back: no back
+    # panel, no seating side, and the Sketch lays the island out in two rows.
+    island_two_sided = Column(Boolean, default=False)
 
     # Countertop (perimeter)
     countertop_material = Column(String(100), nullable=True)

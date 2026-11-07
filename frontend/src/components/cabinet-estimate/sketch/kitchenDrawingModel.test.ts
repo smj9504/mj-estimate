@@ -124,6 +124,20 @@ describe('drawingInput', () => {
     expect(drawingInput(sketch, estimate({ selections: sink }), PRESETS).sinkBowls).toBe(1);
     expect(drawingInput(sketch, estimate({ selections: sink, kind: 'option' }), PRESETS).sinkBowls).toBe(2);
   });
+
+  it('draws an island two-sided as the Sketch tab would lay it out, with no seating overhang', () => {
+    const isle = (id: string, x: number): CabinetSketchCabinet => ({ ...cabinet(id, 'B30', x, 30), y: 150, location: 'island' });
+    const boxes = [{ ...box('B30', 30, 2), location: 'island' as const }];
+    const sketch = { overlay_data: overlay({ cabinets: [isle('a', 40), isle('b', 90)] }), scale_pixels_per_foot: SCALE };
+    const twoSided = drawingInput(sketch, estimate({ boxes, island_two_sided: true, island_seating_overhang_in: 12 }), PRESETS);
+    expect(twoSided.cabinets.map((c) => c.rotation)).toEqual([0, 180]);
+    expect(twoSided.islandSeatingIn).toBe(0);
+    // Laid out for it already (the Sketch tab noted so): drawn as it is.
+    const laid = { ...sketch, overlay_data: { ...sketch.overlay_data, island_two_sided: true } };
+    expect(drawingInput(laid, estimate({ boxes, island_two_sided: true }), PRESETS).cabinets.map((c) => c.rotation)).toEqual([0, 0]);
+    // One-sided, the seating overhang counts.
+    expect(drawingInput(sketch, estimate({ boxes, island_seating_overhang_in: 12 }), PRESETS).islandSeatingIn).toBe(12);
+  });
 });
 
 describe('wallLengthPlace', () => {

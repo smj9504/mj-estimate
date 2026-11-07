@@ -340,7 +340,8 @@ const rowOf = (location: CabinetLocation, cabType: CabType) =>
  * - Shapes with no box left are dropped.
  * - Boxes with no shape yet get one, appended to the end of their row
  *   (bases then talls along the floor, uppers along the same back line,
- *   island as a parallel run).
+ *   island as a parallel run — or, with `islandTwoSided`, on the shorter
+ *   of its two back-to-back sides; see placeOnIslandSide).
  *
  * Returns `null` when nothing needs to change, so callers can skip a
  * dispatch and avoid a render loop.
@@ -350,7 +351,8 @@ export function reconcileCabinets(
   boxes: SketchBoxSource[],
   walls: CabinetSketchWall[],
   presets: PresetCatalog,
-  scalePixelsPerFoot: number
+  scalePixelsPerFoot: number,
+  { islandTwoSided = false }: { islandTwoSided?: boolean } = {}
 ): CabinetSketchCabinet[] | null {
   // How many shapes each key needs, and the box to build missing ones from.
   const needed = new Map<string, { count: number; box: SketchBoxSource }>();
@@ -489,6 +491,14 @@ export function reconcileCabinets(
       },
       box
     );
+    const onSide =
+      islandTwoSided && box.location === 'island' && box.cab_type !== 'wall'
+        ? placeOnIslandSide(next, shape, anchor, anchorRotation, scalePixelsPerFoot)
+        : null;
+    if (onSide) {
+      next.push(onSide);
+      continue;
+    }
     next.push(shape);
     rowEnd.set(row, t + shape.width);
   }
@@ -991,6 +1001,153 @@ export function islandTopAreaSf(pieces: Pt[][], scalePixelsPerFoot: number): num
   }
   const sf = (inside * step * step) / (scalePixelsPerFoot * scalePixelsPerFoot);
   return Math.round(sf * 10) / 10;
+}
+
+// ---------------------------------------------------------------------------
+// Island with cabinets on both sides
+// ---------------------------------------------------------------------------
+
+/**
+ * A straight island's floor cabinets, in the run coordinates of the side
+ * that faces `rotation`: t along that side's ux, s along its back. `facing`
+ * face that way; `opposite` are turned half round, back to back with them.
+ * Every back is on the line s = `backLine`.
+ */
+interface IslandRows {
+  rotation: number;
+  ux: Pt;
+  back: Pt;
+  backLine: number;
+  facing: CabinetSketchCabinet[];
+  opposite: CabinetSketchCabinet[];
+}
+
+/**
+ * The island as one row or two back-to-back rows, `facing` being the side
+ * that faces `preferRotation` (the way a new island faces) when it has
+ * cabinets. Null for no island, or one of another shape: an L, angled
+ * sides, rows set apart.
+ */
+function islandRows(cabinets: CabinetSketchCabinet[], scalePixelsPerFoot: number, preferRotation: number): IslandRows | null {
+  const island = islandFloor(cabinets);
+  if (island.length === 0) return null;
+  const facingWay = (c: CabinetSketchCabinet, r: number) => angleDiffDeg(c.rotation, r) <= ANGLE_TOLERANCE_DEG;
+  const rotation = (island.find((c) => facingWay(c, preferRotation)) ?? island[0]).rotation;
+  const facing = island.filter((c) => facingWay(c, rotation));
+  const opposite = island.filter((c) => facingWay(c, rotation + 180));
+  if (facing.length + opposite.length !== island.length) return null;
+  const { ux, back } = axes(rotation);
+  // A cabinet's back edge runs through its back-left corner, whichever way it faces.
+  const lines = island.map((c) => dot({ x: c.x, y: c.y }, back));
+  if (Math.max(...lines) - Math.min(...lines) > inToPx(1, scalePixelsPerFoot)) return null;
+  return { rotation, ux, back, backLine: lines.reduce((a, b) => a + b, 0) / lines.length, facing, opposite };
+}
+
+/** Where an island cabinet starts and ends along the facing side's run. */
+function spanOnIsland(rows: IslandRows, c: CabinetSketchCabinet): [number, number] {
+  const t = dot({ x: c.x, y: c.y }, rows.ux);
+  return rows.facing.includes(c) ? [t, t + c.width] : [t - c.width, t];
+}
+
+/** `c` across [t, t + its width] of the island's run, its back on the line s: facing the island's way, or turned half round. */
+function setOnIsland(rows: IslandRows, c: CabinetSketchCabinet, t: number, s: number, turned: boolean): CabinetSketchCabinet {
+  const p = add(scale(rows.ux, turned ? t + c.width : t), scale(rows.back, s));
+  const rotation = turned ? Math.round(((((rows.rotation + 180) % 360) + 360) % 360) * 100) / 100 : rows.rotation;
+  return { ...c, x: p.x, y: p.y, rotation };
+}
+
+const runLength = (list: CabinetSketchCabinet[]) => list.reduce((sum, c) => sum + c.width, 0);
+
+/**
+ * The island laid out for the Edit tab's "Cabinets on both sides", or back
+ * for one side.
+ *
+ * Both sides: a single row is cut in two, the halves as near equal in
+ * length as its boxes allow. The first half (along its run) moves forward
+ * by the row's depth, still facing its way; the second turns half round
+ * into the row's old place, backs on one line, so the aisle behind the
+ * island stays as wide as it was. One side: two back-to-back rows go back
+ * to one in the turned row's place (the reverse of the cut), facing the
+ * way the other did. The rows are butted and centred on where the island
+ * was.
+ *
+ * `straight` is false when the island is another shape (an L, angled
+ * sides, rows set apart), which is left as drawn. The input array comes
+ * back when nothing moves.
+ */
+export function layoutIslandSides(
+  cabinets: CabinetSketchCabinet[],
+  walls: CabinetSketchWall[],
+  twoSided: boolean,
+  scalePixelsPerFoot: number
+): { cabinets: CabinetSketchCabinet[]; straight: boolean } {
+  if (islandFloor(cabinets).length === 0) return { cabinets, straight: true };
+  const rows = islandRows(cabinets, scalePixelsPerFoot, rotationForBack(perimeterAnchor(walls, scalePixelsPerFoot).back));
+  if (!rows) return { cabinets, straight: false };
+  const { facing, opposite, backLine } = rows;
+  if (twoSided ? opposite.length > 0 || facing.length < 2 : opposite.length === 0) return { cabinets, straight: true };
+
+  const byRun = (list: CabinetSketchCabinet[]) =>
+    [...list].sort((a, b) => spanOnIsland(rows, a)[0] - spanOnIsland(rows, b)[0]);
+  const spans = [...facing, ...opposite].map((c) => spanOnIsland(rows, c));
+  const middle = (Math.min(...spans.map(([t0]) => t0)) + Math.max(...spans.map(([, t1]) => t1))) / 2;
+  const moved = new Map<string, CabinetSketchCabinet>();
+  // `list` end to end, centred on the island's middle, its backs on the line s.
+  const lay = (list: CabinetSketchCabinet[], s: number, turned: boolean) => {
+    let t = middle - runLength(list) / 2;
+    for (const c of list) {
+      moved.set(c.id, setOnIsland(rows, c, t, s, turned));
+      t += c.width;
+    }
+  };
+
+  if (twoSided) {
+    const row = byRun(facing);
+    const total = runLength(row);
+    let cut = 1;
+    let best = Infinity;
+    for (let k = 1, before = 0; k < row.length; k++) {
+      before += row[k - 1].width;
+      if (Math.abs(total - 2 * before) < best) [best, cut] = [Math.abs(total - 2 * before), k];
+    }
+    const depth = Math.max(...row.map((c) => c.height));
+    lay(row.slice(0, cut), backLine - depth, false);
+    lay(row.slice(cut), backLine - depth, true);
+  } else {
+    const depth = Math.max(...opposite.map((c) => c.height));
+    lay([...byRun(facing), ...byRun(opposite)], backLine + depth, false);
+  }
+  return { cabinets: cabinets.map((c) => moved.get(c.id) ?? c), straight: true };
+}
+
+/**
+ * Where a new island floor cabinet goes while the island has cabinets on
+ * both sides: on the end of the shorter side, both sides started from the
+ * same end. The island's first cabinet goes one depth out from the usual
+ * island line, so the side that comes in behind it takes that line and the
+ * aisle stays as wide as a one-sided island leaves it. Null when the island
+ * is another shape: the cabinet goes where a one-sided island's would.
+ */
+function placeOnIslandSide(
+  cabinets: CabinetSketchCabinet[],
+  shape: CabinetSketchCabinet,
+  anchor: RunAnchor,
+  anchorRotation: number,
+  scalePixelsPerFoot: number
+): CabinetSketchCabinet | null {
+  if (islandFloor(cabinets).length === 0) {
+    const p = sub(anchor.origin, scale(anchor.back, shape.height));
+    return { ...shape, x: p.x, y: p.y, rotation: anchorRotation };
+  }
+  const rows = islandRows(cabinets, scalePixelsPerFoot, anchorRotation);
+  if (!rows) return null;
+  const turned = runLength(rows.opposite) < runLength(rows.facing);
+  const [side, other] = turned ? [rows.opposite, rows.facing] : [rows.facing, rows.opposite];
+  const t =
+    side.length > 0
+      ? Math.max(...side.map((c) => spanOnIsland(rows, c)[1]))
+      : Math.min(...other.map((c) => spanOnIsland(rows, c)[0]));
+  return setOnIsland(rows, shape, t, rows.backLine, turned);
 }
 
 /**

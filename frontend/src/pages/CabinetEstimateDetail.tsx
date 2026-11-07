@@ -175,11 +175,15 @@ const CabinetEstimateDetail: React.FC = () => {
   const selfSavedEstimateRef = useRef<CabinetEstimate | undefined>(undefined);
   // Narrows the wall-cabinet pickers in both the Edit and Sketch tabs.
   const [wallHeight, setWallHeight] = useState<WallHeightFilter>('all');
-  // Island top: seating overhang (inches, 0 = 1.5" edge only; saved with the estimate) and
-  // back-to-back rows. They shape the suggested island countertop SF and supports here,
-  // and the Sketch's island top.
-  const islandSeatingIn: number = Form.useWatch('island_seating_overhang_in', form) ?? 0;
-  const [islandTwoSided, setIslandTwoSided] = useState(false);
+  // Cabinets on both sides of the island, back to back (saved with the estimate): no back
+  // panel, ends twice as deep, a top half as long and twice as deep, and the Sketch lays
+  // the island out in two rows. preserve: its checkbox only shows with island cabinets.
+  const islandTwoSided: boolean = Form.useWatch('island_two_sided', { form, preserve: true }) ?? false;
+  // Island top: seating overhang (inches, 0 = 1.5" edge only; saved with the estimate). It
+  // shapes the suggested island countertop SF and supports here, and the Sketch's island
+  // top. Back to back, neither long side is free for seating, so it counts as none.
+  const islandSeatingSet: number = Form.useWatch('island_seating_overhang_in', form) ?? 0;
+  const islandSeatingIn = islandTwoSided ? 0 : islandSeatingSet;
   // What the Sketch draws besides the cabinets: the detach & reset appliances and the sink's bowls.
   // preserve: the appliance list's field is only mounted while Appliance Detach & Reset is ticked.
   const includeApplianceRr: boolean = Form.useWatch('include_appliance_rr', form) ?? false;
@@ -389,6 +393,7 @@ const CabinetEstimateDetail: React.FC = () => {
         island_prefab_price: estimate.island_prefab_price,
         island_end_panel_sqft: estimate.island_end_panel_sqft || 0,
         island_back_panel_sqft: estimate.island_back_panel_sqft || 0,
+        island_two_sided: estimate.island_two_sided ?? false,
         countertop_material: estimate.countertop_material,
         countertop_sqft: estimate.countertop_sqft,
         island_countertop_material: estimate.island_countertop_material,
@@ -1123,6 +1128,17 @@ const CabinetEstimateDetail: React.FC = () => {
                         <>
                           <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Cabinets</Text>
                           <CabinetBoxEditor boxes={islandBoxes} onChange={editIslandBoxes} location="island" />
+                          {islandBoxes.length > 0 && (
+                            <Form.Item
+                              name="island_two_sided"
+                              valuePropName="checked"
+                              preserve
+                              style={{ margin: '8px 0 0' }}
+                              extra="Back to back: no back panel or seating side, ends twice as deep. The Sketch sets a straight island in two rows."
+                            >
+                              <Checkbox>Cabinets on both sides</Checkbox>
+                            </Form.Item>
+                          )}
                         </>
                       );
                     }}
@@ -1180,10 +1196,36 @@ const CabinetEstimateDetail: React.FC = () => {
                             </Form.Item>
                           </Col>
                         </Row>
+                        {(() => {
+                          // A straight island's two ends, as deep as its cabinets: one row, or two back to back.
+                          const depthIn = islandTwoSided ? 48 : 24;
+                          const lf = (2 * depthIn) / 12;
+                          const sf = Math.round(lf * endPanelHeight * 10) / 10;
+                          return (
+                            <Space size={4} wrap>
+                              <Text type="secondary" style={{ fontSize: 11 }}>
+                                2 ends × {depthIn}" deep = {lf} LF
+                              </Text>
+                              <Button
+                                type="link"
+                                size="small"
+                                style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                onClick={() => form.setFieldsValue({ island_end_panel_sqft: sf })}
+                              >
+                                {sf} SF 적용
+                              </Button>
+                            </Space>
+                          );
+                        })()}
                       </Col>
                       {/* Back Panel */}
                       <Col xs={24} md={12}>
                         <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>Back Panel</Text>
+                        {islandTwoSided ? (
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            None — with cabinets on both sides, the backs face each other.
+                          </Text>
+                        ) : (
                         <Row gutter={8}>
                           <Col xs={10} sm={10}>
                             <Form.Item label="LF" style={{ marginBottom: 4 }}>
@@ -1226,14 +1268,19 @@ const CabinetEstimateDetail: React.FC = () => {
                             </Form.Item>
                           </Col>
                         </Row>
+                        )}
                       </Col>
                     </Row>
                     {pricingInfo && form.getFieldValue('tier') && (
                       <div style={{ marginTop: 4 }}>
                         <Text type="secondary" style={{ fontSize: 11 }}>
                           End: ${pricingInfo.island_panel_pricing?.end_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
-                          {' | '}
-                          Back: ${pricingInfo.island_panel_pricing?.back_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
+                          {!islandTwoSided && (
+                            <>
+                              {' | '}
+                              Back: ${pricingInfo.island_panel_pricing?.back_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
+                            </>
+                          )}
                           {' + $'}
                           {pricingInfo.island_panel_pricing?.install_per_sf || '—'}/SF install
                         </Text>
@@ -1264,7 +1311,8 @@ const CabinetEstimateDetail: React.FC = () => {
                       // A straight island's top: unlike a perimeter run it overhangs both
                       // ends and the back too (1.5"), the back by the seating overhang when
                       // there is one; cabinets on both sides make it one row half as long,
-                      // twice as deep. The Sketch's "Island top" measures any other shape.
+                      // twice as deep, with no side free for seating (islandSeatingIn is 0).
+                      // The Sketch's "Island top" measures any other shape.
                       const rows = islandTwoSided ? 2 : 1;
                       const topLengthIn = (islandBaseLf * 12) / rows + 2 * 1.5;
                       const topDepthIn = 24 * rows + 1.5 + Math.max(1.5, islandSeatingIn);
@@ -1309,25 +1357,26 @@ const CabinetEstimateDetail: React.FC = () => {
                               <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                                 Seating overhang
                               </Text>
-                              <Form.Item name="island_seating_overhang_in" preserve noStyle>
-                                <Select
-                                  size="small"
-                                  style={{ width: '100%' }}
-                                  options={[
-                                    { label: 'None (1.5" edge)', value: 0 },
-                                    { label: '10"', value: 10 },
-                                    { label: '12" (counter stools)', value: 12 },
-                                    { label: '15" (bar height)', value: 15 },
-                                  ]}
-                                />
-                              </Form.Item>
+                              {islandTwoSided ? (
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  None — with cabinets on both sides, no side is free for seating.
+                                </Text>
+                              ) : (
+                                <Form.Item name="island_seating_overhang_in" preserve noStyle>
+                                  <Select
+                                    size="small"
+                                    style={{ width: '100%' }}
+                                    options={[
+                                      { label: 'None (1.5" edge)', value: 0 },
+                                      { label: '10"', value: 10 },
+                                      { label: '12" (counter stools)', value: 12 },
+                                      { label: '15" (bar height)', value: 15 },
+                                    ]}
+                                  />
+                                </Form.Item>
+                              )}
                             </Col>
-                            <Col xs={12} style={{ display: 'flex', alignItems: 'flex-end' }}>
-                              <Checkbox checked={islandTwoSided} onChange={(e) => setIslandTwoSided(e.target.checked)}>
-                                <Text style={{ fontSize: 12 }}>Cabinets on both sides</Text>
-                              </Checkbox>
-                            </Col>
-                            <Col xs={24}>
+                            <Col xs={24} style={{ marginTop: 4 }}>
                               <Text type="secondary" style={{ fontSize: 11 }}>
                                 L-shaped, three-sided or angled island? The Sketch tab's Island top measures the drawn shape.
                               </Text>
@@ -1999,6 +2048,7 @@ const CabinetEstimateDetail: React.FC = () => {
             onCabinetsRemoved={handleSketchCabinetsRemoved}
             onCabinetEdited={handleSketchCabinetEdited}
             islandSeatingIn={islandSeatingIn}
+            islandTwoSided={islandTwoSided}
             applianceList={sketchAppliances}
             sinkBowls={sinkType === 'double' ? 2 : 1}
             products={estimate.kind === 'option' ? estimate.selections : null}
