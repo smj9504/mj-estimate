@@ -127,6 +127,7 @@ export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null 
     case 'three_door_corner_wall':
       return 'end_wrap';
     case 'angle_end_base':
+    case 'angle_end_wall':
       return 'angle_end';
     case 'blind_corner':
     case 'blind_corner_wall':

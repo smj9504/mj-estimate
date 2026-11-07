@@ -422,6 +422,12 @@ SPECIALTY_PREMIUM = {
     # Shaker BEC24 $414.00 vs B24 $462.22 = -$48.22: a cheaper box, see
     # SPECIALTY_SUPPLY_MULTIPLIER.
     "angle_end_base": 0,
+    # Angle end upper (WEA1230/36/42): 12" along the wall, cut back at 45°
+    # with one door on the cut. Billed as a plain 12" wall box: Kunal
+    # Westport White at Home Depot lists WEA1230 $146.99 vs W1230 $156.01,
+    # about 6% cheaper, too little (and one line only) to give it its own
+    # cheaper supply line the way angle_end_base has.
+    "angle_end_wall": 0,
     # Diagonal corner base (diagonal lazy susan): KCD has none in the line,
     # so measured at Fourless ATL White Shaker CBD36 $581.04 vs B36 $470.88
     # = +$110.16. Shape-wise the base twin of diagonal_corner_wall.

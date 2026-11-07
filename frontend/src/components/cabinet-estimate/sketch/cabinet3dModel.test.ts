@@ -23,6 +23,7 @@ const PRESETS: PresetCatalog = {
   DCB36: { width: 36, height: 34.5, specialty: 'diagonal_corner_base' },
   WDC24: { width: 24, height: 30, specialty: 'diagonal_corner_wall' },
   BEC24: { width: 24, height: 34.5, specialty: 'angle_end_base' },
+  WEA1230: { width: 12, height: 30, specialty: 'angle_end_wall' },
   BBC42: { width: 42, height: 34.5, specialty: 'blind_corner' },
   WTD3642: { width: 36, height: 42, specialty: 'three_door_corner_wall' },
   W4830: { width: 48, height: 30 },
@@ -111,7 +112,7 @@ describe('cabinetSolids', () => {
   });
 
   it('puts every front on the outside of its cabinet, on either corner side', () => {
-    const cabinets = shapes('B30', 'BBC42', 'LS36', 'DCB36', 'WDC24', 'BEC24', 'WTD3642');
+    const cabinets = shapes('B30', 'BBC42', 'LS36', 'DCB36', 'WDC24', 'BEC24', 'WEA1230', 'WTD3642');
     const both = [...cabinets, ...cabinets.map((c) => ({ ...c, id: `${c.id}-r`, corner_side: 'right' as const }))];
     for (const solid of solidsOf(both)) {
       const [cx, cz] = centroid(solid);
@@ -137,6 +138,20 @@ describe('cabinetSolids', () => {
     expect(len).toBeCloseTo(12 * Math.SQRT2);
     const door = run.faces.find((f) => f.kind === 'door')!;
     expect(door.w).toBeGreaterThan(12); // wider than the 12" it covers on the Front view
+  });
+
+  it('hangs a 12" angle end upper as a triangle with one door across its 45° cut', () => {
+    const [left] = solidsOf(shapes('WEA1230'));
+    expect(left).toMatchObject({ bottom: 54, height: 30, toeKick: 0, counter: null });
+    // Full 12" deep at the end that joins the run, cut back to a point at the open end.
+    expect(left.outline).toEqual([[0, 0], [12, 0], [0, 12]]);
+    expect(left.fronts).toHaveLength(1);
+    expect(left.fronts[0]).toMatchObject({ a: [0, 12], b: [12, 0] });
+    expect(runLength(left.fronts[0])).toBeCloseTo(12 * Math.SQRT2); // a 17" face
+    expect(left.fronts[0].faces.filter((f) => f.kind === 'door')).toHaveLength(1);
+    // Flipped, the full-depth end is on the right.
+    const [right] = solidsOf(shapes('WEA1230').map((c) => ({ ...c, corner_side: 'right' as const })));
+    expect(right.outline).toEqual([[12, 0], [0, 0], [12, 12]]);
   });
 
   it('marks a glass-door cabinet', () => {

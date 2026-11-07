@@ -76,3 +76,15 @@ def test_plain_boxes_stay_on_the_plain_line_beside_a_sink_base():
     ]))
     assert r["Base Cabinets - Stock"].quantity == 5.0  # 2 x 30"
     assert r["Base Cabinets - Sink Base - Stock"].quantity == 3.0
+
+
+@pytest.mark.parametrize("height", [30, 36, 42])
+def test_angle_end_upper_bills_as_a_plain_12_inch_upper(height):
+    # About 6% under W1230 in the one line read (Kunal Westport), too little
+    # for a cheaper line of its own: same supply, one door, one pull, no premium.
+    plain = _estimate([_box("W12", "wall", 12, height)])
+    angle = _estimate([_box(f"WEA12{height}", "wall", 12, height, "angle_end_wall")])
+    assert [(li.description, li.quantity, li.unit_price) for li in angle.line_items] == [
+        (li.description, li.quantity, li.unit_price) for li in plain.line_items
+    ]
+    assert angle.total == plain.total

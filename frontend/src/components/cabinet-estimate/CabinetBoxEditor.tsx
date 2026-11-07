@@ -182,6 +182,11 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'WTD3630': { cab_type: 'wall', width: 36, height: 30, specialty: 'three_door_corner_wall', label: '3-Door End Corner 36"W x 30"H' },
   'WTD3636': { cab_type: 'wall', width: 36, height: 36, specialty: 'three_door_corner_wall', label: '3-Door End Corner 36"W x 36"H' },
   'WTD3642': { cab_type: 'wall', width: 36, height: 42, specialty: 'three_door_corner_wall', label: '3-Door End Corner 36"W x 42"H' },
+  // Angle end upper: 12" along the wall at the open end of a run, cut back
+  // at 45° to a point, one door on the cut. The wall twin of BEC24.
+  'WEA1230': { cab_type: 'wall', width: 12, height: 30, specialty: 'angle_end_wall', label: 'Angle End Wall 12"W x 30"H' },
+  'WEA1236': { cab_type: 'wall', width: 12, height: 36, specialty: 'angle_end_wall', label: 'Angle End Wall 12"W x 36"H' },
+  'WEA1242': { cab_type: 'wall', width: 12, height: 42, specialty: 'angle_end_wall', label: 'Angle End Wall 12"W x 42"H' },
   'WBC24':  { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 30"H' },
   'WBC27':   { cab_type: 'wall', width: 27, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 30"H' },
   'WBC30':   { cab_type: 'wall', width: 30, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 30"H' },
