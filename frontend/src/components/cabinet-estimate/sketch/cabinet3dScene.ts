@@ -621,18 +621,11 @@ const middle = (pts: Pt2[]): Pt2 => [pts.reduce((sum, [x]) => sum + x, 0) / pts.
  */
 function backsplashes(solid: CabinetSolid, material: THREE.Material, walls: WallSolid[]): THREE.Mesh[] {
   const pts = solid.outline;
-  const xs = pts.map(([x]) => x);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const legX = solid.cabinet.corner_side === 'right' ? maxX : minX;
-  const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
   const inside = middle(pts);
   const out: THREE.Mesh[] = [];
   pts.forEach((a, i) => {
     const b = pts[(i + 1) % pts.length];
-    const back = near(a[1], 0) && near(b[1], 0);
-    const leg = pts.length > 4 && near(a[0], legX) && near(b[0], legX);
-    if (!back && !leg && !againstWall(toPlan(solid, a), toPlan(solid, b), walls)) return;
+    if (!solid.backs[i] && !againstWall(toPlan(solid, a), toPlan(solid, b), walls)) return;
     const panel = splashPanel(a, b, inside, (p) => toPlan(solid, p), solid.bottom, material);
     if (panel) out.push(panel);
   });
@@ -673,11 +666,18 @@ function grownOutline(pts: Pt2[], grow: number[]): Pt2[] {
 }
 
 /**
- * Which sides of each upper and tall show crown molding: all but its back,
- * a side against a wall, and a side butted to the next cabinet's (the crown
- * runs on across the joint there).
+ * How crown molding meets a side of a cabinet's top: standing out past it,
+ * running on across a joint into the next cabinet's crown, or stopping
+ * flush at a back or a wall.
  */
-function crownSides(solids: CabinetSolid[], walls: WallSolid[]): Map<string, boolean[]> {
+export type CrownSide = 'out' | 'joint' | 'flush';
+
+/**
+ * Each upper's and tall's crown, side by side: flush at its backs (a
+ * corner's side leg too) and at a side against a wall, a joint where it is
+ * butted to the next cabinet, out everywhere else.
+ */
+function crownSides(solids: CabinetSolid[], walls: WallSolid[]): Map<string, CrownSide[]> {
   const tops = solids.filter((s) => s.bottom + s.height >= CROWN_MIN_TOP_IN);
   const planSides = tops.map((s) => s.outline.map((a, i) => [toPlan(s, a), toPlan(s, s.outline[(i + 1) % s.outline.length])] as [Pt2, Pt2]));
   const butted = (pa: Pt2, pb: Pt2, self: number) => {
@@ -698,25 +698,64 @@ function crownSides(solids: CabinetSolid[], walls: WallSolid[]): Map<string, boo
       )
     );
   };
-  const out = new Map<string, boolean[]>();
+  const out = new Map<string, CrownSide[]>();
   tops.forEach((s, si) => {
     out.set(
       s.cabinet.id,
-      s.outline.map((a, i) => {
-        const b = s.outline[(i + 1) % s.outline.length];
-        if (Math.abs(a[1]) < 0.01 && Math.abs(b[1]) < 0.01) return false;
+      s.outline.map((_, i): CrownSide => {
+        if (s.backs[i]) return 'flush';
         const [pa, pb] = planSides[si][i];
-        return !againstWall(pa, pb, walls) && !butted(pa, pb, si);
+        if (againstWall(pa, pb, walls)) return 'flush';
+        return butted(pa, pb, si) ? 'joint' : 'out';
       })
     );
   });
   return out;
 }
 
-/** Crown molding over a cabinet's top, standing out past its `shown` sides (local frame). */
-function crownMolding(solid: CabinetSolid, shown: boolean[], edge: string, paint: Paint): THREE.Mesh[] {
+/**
+ * Outline of one band of a cabinet's crown (local frame): its top grown
+ * `out` past its 'out' sides. Where an angled side meets a joint — a
+ * diagonal corner's face or an angle end's cut beside the next cabinet —
+ * the band carries on to the miter with that cabinet's crown, which stands
+ * `out` in front of its face, square to the joint; cut off at the joint it
+ * would leave a notch.
+ */
+export function crownBand(pts: Pt2[], sides: CrownSide[], out: number): Pt2[] {
+  const n = pts.length;
+  const grown = grownOutline(pts, sides.map((side) => (side === 'out' ? out : 0)));
+  const dir = (i: number): Pt2 => {
+    const [a, b] = [pts[i], pts[(i + 1) % n]];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+  };
+  // Where the line through g along u crosses the line through q square to `normal`.
+  const meet = (g: Pt2, u: Pt2, q: Pt2, normal: Pt2): Pt2 => {
+    const t = ((q[0] - g[0]) * normal[0] + (q[1] - g[1]) * normal[1]) / (u[0] * normal[0] + u[1] * normal[1]);
+    return [g[0] + u[0] * t, g[1] + u[1] * t];
+  };
+  return pts.flatMap((corner, i): Pt2[] => {
+    const prev = (i - 1 + n) % n;
+    const [uPrev, uNext] = [dir(prev), dir(i)];
+    if (Math.abs(uPrev[0] * uNext[0] + uPrev[1] * uNext[1]) < 1e-3) return [grown[i]];
+    if (sides[prev] === 'joint' && sides[i] === 'out') {
+      // The joint runs into this corner; the next cabinet's crown front is `out` past it.
+      const q: Pt2 = [corner[0] + uPrev[0] * out, corner[1] + uPrev[1] * out];
+      return [q, meet(grown[i], uNext, q, uPrev)];
+    }
+    if (sides[prev] === 'out' && sides[i] === 'joint') {
+      // The joint runs out of this corner.
+      const q: Pt2 = [corner[0] - uNext[0] * out, corner[1] - uNext[1] * out];
+      return [meet(grown[i], uPrev, q, uNext), q];
+    }
+    return [grown[i]];
+  });
+}
+
+/** Crown molding over a cabinet's top, standing out past its 'out' sides (local frame). */
+function crownMolding(solid: CabinetSolid, sides: CrownSide[], edge: string, paint: Paint): THREE.Mesh[] {
   return CROWN_BANDS.map(([from, to, outBy]) => {
-    const band = grownOutline(solid.outline, shown.map((show) => (show ? outBy : 0)));
+    const band = crownBand(solid.outline, sides, outBy);
     return paint.outline(new THREE.Mesh(prism(band, solid.height + from, solid.height + to), paint.mat('box')), edge);
   });
 }
@@ -737,7 +776,7 @@ function cabinetObject(
   selected: boolean,
   paint: Paint,
   walls: WallSolid[],
-  crown: boolean[] | undefined
+  crown: CrownSide[] | undefined
 ): THREE.Group {
   const group = new THREE.Group();
   group.userData.cabinetId = solid.cabinet.id;
@@ -961,7 +1000,7 @@ export function buildCabinetScene(
   for (const wall of walls) root.add(wallObject(wall, center, paint));
   // A range in its range base is drawn in place of the base's own appliance box.
   const replaced = new Set(appliances.filter((a) => a.replacesHost).map((a) => a.hostId));
-  const crowns = crown ? crownSides(solids, walls) : new Map<string, boolean[]>();
+  const crowns = crown ? crownSides(solids, walls) : new Map<string, CrownSide[]>();
   for (const solid of solids) {
     if (!replaced.has(solid.cabinet.id)) {
       root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id), paint, walls, crowns.get(solid.cabinet.id)));

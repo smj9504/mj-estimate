@@ -140,6 +140,26 @@ describe('cabinetSolids', () => {
     expect(door.w).toBeGreaterThan(12); // wider than the 12" it covers on the Front view
   });
 
+  it('marks a corner unit\'s side leg as a back, like its own back, on either corner side', () => {
+    const [plain] = solidsOf(shapes('W3030'));
+    expect(plain.backs).toEqual([true, false, false, false]);
+    const [wdc] = solidsOf(shapes('WDC24'));
+    // back, run end, angled face, leg end, leg back
+    expect(wdc.backs).toEqual([true, false, false, false, true]);
+    const [wdcRight] = solidsOf(shapes('WDC24').map((c) => ({ ...c, corner_side: 'right' as const })));
+    const legBack = wdcRight.outline.findIndex((a, i) => {
+      const b = wdcRight.outline[(i + 1) % wdcRight.outline.length];
+      return a[0] === 24 && b[0] === 24;
+    });
+    expect(wdcRight.backs.filter(Boolean)).toHaveLength(2);
+    expect(wdcRight.backs[legBack]).toBe(true);
+    const [ls] = solidsOf(shapes('LS36'));
+    expect(ls.backs).toEqual([true, false, false, false, false, true]);
+    // An angle end's full-depth end joins the run; it is no back.
+    const [wea] = solidsOf(shapes('WEA1230'));
+    expect(wea.backs).toEqual([true, false, false]);
+  });
+
   it('hangs a 12" angle end upper as a triangle with one door across its 45° cut', () => {
     const [left] = solidsOf(shapes('WEA1230'));
     expect(left).toMatchObject({ bottom: 54, height: 30, toeKick: 0, counter: null });

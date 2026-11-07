@@ -64,6 +64,13 @@ export interface CabinetSolid {
   height: number;
   /** Plan outline, local inches. */
   outline: Pt2[];
+  /**
+   * Per outline side (point i to the next), whether it is a back, against
+   * the wall the cabinet stands or hangs on: its own back, and an L or
+   * diagonal corner's side leg, which backs onto the other wall — whether
+   * or not that wall is drawn.
+   */
+  backs: boolean[];
   /** Recessed toe kick under a floor cabinet: its height (0 for none) and outline. */
   toeKick: number;
   toeOutline: Pt2[];
@@ -169,6 +176,14 @@ function cabinetSolid(
     fronts = [{ a: [0, d], b: [w, d], faces }];
   }
 
+  const legX = right ? w : 0;
+  const on = (v: number, at: number) => Math.abs(v - at) < 0.01;
+  const backs = outline.map((a, i) => {
+    const b = outline[(i + 1) % outline.length];
+    if (on(a[1], 0) && on(b[1], 0)) return true;
+    return (kind === 'l' || kind === 'diagonal') && on(a[0], legX) && on(b[0], legX);
+  });
+
   const straight = !kind || kind === 'blind';
   const onFloor = cabinet.cab_type !== 'wall' && !appliance;
   // An island's cabinets share one top (islandTopSlabs).
@@ -182,6 +197,7 @@ function cabinetSolid(
     // A range's top sits flush with the counters around it.
     height: appliance ? Math.max(height, COUNTER_TOP_IN) : height,
     outline,
+    backs,
     toeKick: onFloor ? TOE_KICK_IN : 0,
     toeOutline: straight ? [[0, 0], [w, 0], [w, d - TOE_SETBACK_IN], [0, d - TOE_SETBACK_IN]] : outline,
     fronts,
