@@ -14,7 +14,7 @@ import {
   Typography,
 } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
-import type { CabinetBoxCreate, CabinetLocation, CabType, DoorPattern, SpecialtyType } from '../../types/cabinetEstimate';
+import type { CabinetBoxCreate, CabinetLocation, CabinetTier, CabType, DoorPattern, SpecialtyType } from '../../types/cabinetEstimate';
 import {
   DOOR_PATTERN_OPTIONS,
   NO_DOOR_SPECIALTIES,
@@ -289,22 +289,91 @@ const SECTION_CONFIG: { type: SectionType; label: string; color: string; unit: s
 ];
 
 /**
- * Upper height the Wall pickers are narrowed to, so they list one height's
- * worth of cabinets instead of the whole catalog. 'short' is everything
- * under 30" (over a fridge, range or OTR microwave).
+ * Full height of a kitchen's uppers, which the Wall pickers are narrowed to.
+ * The short uppers over a fridge, range or OTR microwave (under 30") are
+ * listed whatever it is. 'all' while there's no Tier and no upper to go by.
  */
-export type WallHeightFilter = 'all' | 30 | 36 | 42 | 'short';
+export type WallHeightFilter = 'all' | 30 | 36 | 42;
 
 export const WALL_HEIGHT_OPTIONS: { label: string; value: WallHeightFilter }[] = [
-  { label: 'All', value: 'all' },
   { label: '30"', value: 30 },
   { label: '36"', value: 36 },
   { label: '42"', value: 42 },
-  { label: 'Short', value: 'short' },
 ];
 
+/**
+ * The upper height a Tier starts at: older and builder-grade kitchens hang
+ * 30" uppers, most kitchens 36", newer and high-end ones 42". It can be
+ * changed by hand on the Edit tab.
+ */
+export const TIER_WALL_HEIGHT: Record<CabinetTier, 30 | 36 | 42> = {
+  Stock: 30,
+  'Semi-Custom': 36,
+  Custom: 42,
+};
+
+export const wallHeightForTier = (tier?: string | null): WallHeightFilter =>
+  (tier && TIER_WALL_HEIGHT[tier as CabinetTier]) || 'all';
+
 export const matchesWallHeight = (height: number, filter: WallHeightFilter) =>
-  filter === 'all' || (filter === 'short' ? height < 30 : height === filter);
+  filter === 'all' || height < 30 || height === filter;
+
+const FULL_WALL_HEIGHTS = [30, 36, 42] as const;
+type FullWallHeight = (typeof FULL_WALL_HEIGHTS)[number];
+const isFullWallHeight = (height: number): height is FullWallHeight =>
+  (FULL_WALL_HEIGHTS as readonly number[]).includes(height);
+
+/**
+ * The full height most of `boxes`' uppers are (counted by qty, custom sizes
+ * too), or null when none is 30", 36" or 42". A tie goes to the shorter.
+ */
+export function mainWallHeight(boxes: CabinetBoxCreate[]): FullWallHeight | null {
+  const count = new Map<FullWallHeight, number>();
+  for (const box of boxes) {
+    if (box.cab_type !== 'wall' || !isFullWallHeight(box.height_inches)) continue;
+    count.set(box.height_inches, (count.get(box.height_inches) ?? 0) + box.qty);
+  }
+  let best: FullWallHeight | null = null;
+  for (const height of FULL_WALL_HEIGHTS) {
+    if ((count.get(height) ?? 0) > (best === null ? 0 : count.get(best)!)) best = height;
+  }
+  return best;
+}
+
+/**
+ * The same full-height upper (width and kind) at `height`; null for a
+ * short upper, a custom size, one already that tall, or a size the catalog
+ * doesn't make at that height.
+ */
+export function wallPresetAtHeight(code: string, height: number): string | null {
+  const preset = CABINET_PRESETS[code];
+  if (!preset || preset.cab_type !== 'wall' || !isFullWallHeight(preset.height) || preset.height === height) {
+    return null;
+  }
+  const twin = Object.entries(CABINET_PRESETS).find(
+    ([, v]) =>
+      v.cab_type === 'wall' &&
+      v.width === preset.width &&
+      v.height === height &&
+      (v.specialty ?? null) === (preset.specialty ?? null)
+  );
+  return twin ? twin[0] : null;
+}
+
+/**
+ * `boxes` with every full-height upper switched to `height` (see
+ * wallPresetAtHeight); `moved` counts the cabinets switched (qty).
+ */
+export function boxesAtWallHeight(boxes: CabinetBoxCreate[], height: number) {
+  let moved = 0;
+  const next = boxes.map((box) => {
+    const code = box.cab_type === 'wall' ? wallPresetAtHeight(box.code, height) : null;
+    if (!code) return box;
+    moved += box.qty;
+    return { ...box, code, height_inches: CABINET_PRESETS[code].height };
+  });
+  return { boxes: next, moved };
+}
 
 export function getOptionsForType(cabType: SectionType, wallHeight: WallHeightFilter = 'all') {
   const entries = Object.entries(CABINET_PRESETS).filter(
@@ -397,6 +466,8 @@ interface CabinetBoxEditorProps {
   wallHeight?: WallHeightFilter;
   /** Shows the Upper height control on the Wall section when given. */
   onWallHeightChange?: (height: WallHeightFilter) => void;
+  /** The estimate's Tier, whose usual upper height is named when another is picked. */
+  tier?: string | null;
 }
 
 const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
@@ -405,7 +476,9 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
   location,
   wallHeight = 'all',
   onWallHeightChange,
+  tier,
 }) => {
+  const tierWallHeight = wallHeightForTier(tier);
   const addBox = (cabType: SectionType, codeOrCustom: string) => {
     if (codeOrCustom === CUSTOM_VALUE) {
       const defaults: Record<SectionType, { width: number; height: number }> = {
@@ -730,7 +803,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
           <Text type="secondary" style={{ fontSize: 12 }}>{summary}</Text>
           {type === 'wall' && onWallHeightChange && (
             <Space size={6} style={{ marginLeft: 8 }}>
-              <Tooltip title='List only wall cabinets of this height. Short = under 30" (over a fridge, range or microwave).'>
+              <Tooltip title={`Starts at the Tier's height (Stock 30", Semi-Custom 36", Custom 42") and can be changed here. The Wall pickers list this height and the short uppers over a fridge, range or microwave.`}>
                 <Text type="secondary" style={{ fontSize: 12 }}>Upper height</Text>
               </Tooltip>
               <Segmented<WallHeightFilter>
@@ -739,6 +812,11 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
                 onChange={onWallHeightChange}
                 options={WALL_HEIGHT_OPTIONS}
               />
+              {tierWallHeight !== 'all' && wallHeight !== tierWallHeight && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {tier} is usually {tierWallHeight}"
+                </Text>
+              )}
             </Space>
           )}
         </div>

@@ -30,6 +30,9 @@ const PRESETS: PresetCatalog = {
   SB36: { width: 36, height: 34.5, specialty: 'sink_base' },
   W3030: { width: 30, height: 30 },
   W3015: { width: 30, height: 15 },
+  W3036: { width: 30, height: 36 },
+  W2430: { width: 24, height: 30 },
+  W2436: { width: 24, height: 36 },
   T2484: { width: 24, height: 84 },
   LS36: { width: 36, height: 34.5, specialty: 'lazy_susan' },
   BBC42: { width: 42, height: 34.5, specialty: 'blind_corner' },
@@ -223,6 +226,16 @@ describe('reconcileCabinets', () => {
     const off = reconcileCabinets(on, [box('W3030'), box('W3015'), box('B30')], [], PRESETS, SCALE)!;
     expect(off.find((c) => c.preset_code === 'W3030')).toMatchObject({ id: idOf('W3030'), x: 300, y: 300 });
     expect(off.every((c) => !c.has_glass_door)).toBe(true);
+  });
+
+  it('keeps every upper in place when a new Tier switches their height', () => {
+    const first = reconcileCabinets([], [box('W2430'), box('W3030')], [], PRESETS, SCALE)!;
+    const idOf = (code: string) => first.find((c) => c.preset_code === code)!.id;
+    const moved = first.map((c) => (c.preset_code === 'W3030' ? { ...c, x: 300, y: 300 } : c));
+    // Listed in the other order, so a first-come match would swap their places.
+    const out = reconcileCabinets(moved, [box('W3036'), box('W2436')], [], PRESETS, SCALE)!;
+    expect(out.find((c) => c.preset_code === 'W3036')).toMatchObject({ id: idOf('W3030'), x: 300, y: 300, height_in: 36 });
+    expect(out.find((c) => c.preset_code === 'W2436')).toMatchObject({ id: idOf('W2430'), height_in: 36 });
   });
 });
 

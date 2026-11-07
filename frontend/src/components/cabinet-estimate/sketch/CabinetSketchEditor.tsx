@@ -55,7 +55,6 @@ import type {
 } from '../../../types/cabinetSketch';
 import { WALL_SNAP_THRESHOLD, DEFAULT_WALL_THICKNESS, DEFAULT_WALL_COLOR } from '../../../types/cabinetSketch';
 import { CABINET_PRESETS, getOptionsForType } from '../CabinetBoxEditor';
-import { WALL_HEIGHT_OPTIONS } from '../CabinetBoxEditor';
 import type { SectionType, WallHeightFilter } from '../CabinetBoxEditor';
 import type { CabType } from '../../../types/cabinetEstimate';
 import CabinetWallRenderer, { CabinetWallPreview, CabinetWallSnapMark } from './CabinetWallRenderer';
@@ -192,7 +191,7 @@ export interface CabinetSketchEditorProps {
    * A slide-in range's panel count is only read by the right-click panel.
    */
   boxes: (SketchBoxSource & { range_panel_count?: number | null })[];
-  /** The Edit tab's Upper height: the Wall picker lists only that height. */
+  /** The Edit tab's Upper height (the Tier's unless changed): the Wall picker lists only that height and the short ones. */
   wallHeight?: WallHeightFilter;
   /** False while another tab is showing, so canvas shortcuts (Delete!) stay off. */
   active?: boolean;
@@ -1070,7 +1069,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     }
     return out;
   }, [wallHeight]);
-  const wallHeightLabel = WALL_HEIGHT_OPTIONS.find((o) => o.value === wallHeight)?.label;
+  const wallHeightLabel = wallHeight === 'all' ? undefined : `${wallHeight}"`;
 
   // ------------------------------------------------------------------
   // Plan zoom / pan (view only)

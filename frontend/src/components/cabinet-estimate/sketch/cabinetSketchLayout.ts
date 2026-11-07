@@ -447,12 +447,19 @@ export function reconcileCabinets(
   }
 
   // A changed box takes over the leftover shape it most likely was: one of
-  // the same code (only its glass or pattern changed), else any at the same height.
+  // the same code (only its glass or pattern changed), then one as wide
+  // (only its height changed, as when a new Tier switches every upper),
+  // else any at the same height.
   const missing: SketchBoxSource[] = [];
   for (const box of unplaced) {
     const sameSpot = (c: CabinetSketchCabinet) =>
       (c.location ?? 'perimeter') === box.location && (c.cab_type === 'wall') === (box.cab_type === 'wall');
     let at = leftover.findIndex((i) => sameSpot(cabinets[i]) && cabinets[i].preset_code === box.code);
+    if (at < 0) {
+      at = leftover.findIndex(
+        (i) => sameSpot(cabinets[i]) && cabinetSizeIn(cabinets[i], presets, scalePixelsPerFoot).width === box.width_inches
+      );
+    }
     if (at < 0) at = leftover.findIndex((i) => sameSpot(cabinets[i]));
     if (at < 0) {
       missing.push(box);

@@ -38,7 +38,14 @@ import { useHeaderSlot } from '../contexts/HeaderSlotContext';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
-import CabinetBoxEditor, { CABINET_PRESETS, type WallHeightFilter } from '../components/cabinet-estimate/CabinetBoxEditor';
+import CabinetBoxEditor, {
+  CABINET_PRESETS,
+  TIER_WALL_HEIGHT,
+  boxesAtWallHeight,
+  mainWallHeight,
+  wallHeightForTier,
+  type WallHeightFilter,
+} from '../components/cabinet-estimate/CabinetBoxEditor';
 import CabinetEstimateResult from '../components/cabinet-estimate/CabinetEstimateResult';
 import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchaseOrder';
 import CabinetEstimateHistory from '../components/cabinet-estimate/CabinetEstimateHistory';
@@ -52,7 +59,7 @@ import type { BoxFields } from '../components/cabinet-estimate/cabinetBoxChoices
 import { TRIM_FIELDS, TRIM_FIELD_LABELS } from '../components/cabinet-estimate/sketch/cabinetTrimTakeoff';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
 import { memberName } from '../types/cabinetEstimate';
-import type { CabType } from '../types/cabinetEstimate';
+import type { CabinetTier, CabType } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { returnToOf } from '../utils/returnTo';
@@ -173,8 +180,13 @@ const CabinetEstimateDetail: React.FC = () => {
   // The cached estimate as the sketch's box save left it: the form and box
   // list already hold that (or newer), so it isn't loaded back into them.
   const selfSavedEstimateRef = useRef<CabinetEstimate | undefined>(undefined);
-  // Narrows the wall-cabinet pickers in both the Edit and Sketch tabs.
+  // Height of the uppers the wall-cabinet pickers list, in both the Edit and Sketch tabs. It opens at
+  // the height this estimate's uppers already are (else the Tier's), goes to the Tier's when that
+  // changes, and can be set by hand.
+  const tier: string | undefined = Form.useWatch('tier', { form, preserve: true });
   const [wallHeight, setWallHeight] = useState<WallHeightFilter>('all');
+  // The estimate the height was last opened at, so a save's reload doesn't undo a height set by hand.
+  const wallHeightOpenedFor = useRef<string | undefined>(undefined);
   // Cabinets on both sides of the island, back to back (saved with the estimate): no back
   // panel, ends twice as deep, a top half as long and twice as deep, and the Sketch lays
   // the island out in two rows. preserve: its checkbox only shows with island cabinets.
@@ -429,6 +441,10 @@ const CabinetEstimateDetail: React.FC = () => {
       }));
       setPerimeterBoxes(allBoxes.filter((b) => b.location !== 'island'));
       setIslandBoxes(allBoxes.filter((b) => b.location === 'island'));
+      if (wallHeightOpenedFor.current !== estimate.id) {
+        wallHeightOpenedFor.current = estimate.id;
+        setWallHeight(mainWallHeight(allBoxes) ?? wallHeightForTier(estimate.tier));
+      }
     }
   }, [estimate, form]);
 
@@ -487,6 +503,44 @@ const CabinetEstimateDetail: React.FC = () => {
     unsavedRef.current = true;
     setIslandBoxes(boxes);
   }, []);
+
+  // A new upper height: offer to switch the full-height uppers already listed to it.
+  // `lead` starts the question's sentence; `onKeep` runs when they're kept as they are.
+  const offerUpperHeight = useCallback((height: 30 | 36 | 42, lead: string, onKeep?: () => void) => {
+    const perimeter = boxesAtWallHeight(perimeterBoxes, height);
+    const island = boxesAtWallHeight(islandBoxes, height);
+    const moved = perimeter.moved + island.moved;
+    if (moved === 0) return;
+    Modal.confirm({
+      title: `Change the uppers to ${height}"?`,
+      content:
+        `${lead}${moved} wall cabinet${moved === 1 ? ' here is' : 's here are'} another height. ` +
+        'Short uppers over a fridge, range or microwave and custom sizes stay as they are.',
+      okText: `Change to ${height}"`,
+      cancelText: 'Keep their sizes',
+      onOk: () => {
+        if (perimeter.moved) editPerimeterBoxes(perimeter.boxes);
+        if (island.moved) editIslandBoxes(island.boxes);
+      },
+      onCancel: onKeep,
+    });
+  }, [perimeterBoxes, islandBoxes, editPerimeterBoxes, editIslandBoxes]);
+
+  // A new Tier starts the uppers at its height. Kept at their own height, they keep the control there too.
+  const handleTierChange = useCallback((next: string) => {
+    const height = TIER_WALL_HEIGHT[next as CabinetTier];
+    if (!height) return;
+    setWallHeight(height);
+    offerUpperHeight(height, `${next} uppers are usually ${height}" tall, and `, () =>
+      setWallHeight(mainWallHeight([...perimeterBoxes, ...islandBoxes]) ?? height)
+    );
+  }, [offerUpperHeight, perimeterBoxes, islandBoxes]);
+
+  // A height picked by hand: the pickers list it, and the uppers listed may follow.
+  const handleWallHeightChange = useCallback((height: WallHeightFilter) => {
+    setWallHeight(height);
+    if (height !== 'all') offerUpperHeight(height, '');
+  }, [offerUpperHeight]);
 
   // What the Sketch tab draws: every box, perimeter then island.
   const sketchBoxes = useMemo(() => [...perimeterBoxes, ...islandBoxes], [perimeterBoxes, islandBoxes]);
@@ -978,10 +1032,12 @@ const CabinetEstimateDetail: React.FC = () => {
                         name="tier"
                         label="Tier"
                         rules={[{ required: true, message: 'Required' }]}
+                        tooltip='Also starts the upper cabinets at a height, changeable under Wall Cabinets: Stock 30" (older and builder-grade kitchens), Semi-Custom 36" (most kitchens), Custom 42" (newer and high-end ones).'
                       >
                         <Select
                           placeholder="Select tier"
                           options={pricingInfo?.tiers?.map((t) => ({ label: t, value: t })) || []}
+                          onChange={handleTierChange}
                         />
                       </Form.Item>
                     </Col>
@@ -1047,7 +1103,8 @@ const CabinetEstimateDetail: React.FC = () => {
                     onChange={editPerimeterBoxes}
                     location="perimeter"
                     wallHeight={wallHeight}
-                    onWallHeightChange={setWallHeight}
+                    onWallHeightChange={handleWallHeightChange}
+                    tier={tier}
                   />
                 </Card>
 
