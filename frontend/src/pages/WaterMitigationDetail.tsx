@@ -188,7 +188,9 @@ const WaterMitigationDetail: React.FC = () => {
     claim_number: '',
     date_of_loss: null as string | null,
     mitigation_start_date: null as string | null,
-    mitigation_end_date: null as string | null
+    mitigation_end_date: null as string | null,
+    inspection_date: null as string | null,
+    inspection_time: ''
   });
 
   const [financialForm, setFinancialForm] = useState({
@@ -264,7 +266,9 @@ const WaterMitigationDetail: React.FC = () => {
         claim_number: job.claim_number || '',
         date_of_loss: job.date_of_loss || null,
         mitigation_start_date: job.mitigation_start_date || null,
-        mitigation_end_date: job.mitigation_end_date || null
+        mitigation_end_date: job.mitigation_end_date || null,
+        inspection_date: job.inspection_date || null,
+        inspection_time: job.inspection_time || ''
       });
       setFinancialForm({
         documents_sent_date: job.documents_sent_date || null,
@@ -353,7 +357,9 @@ const WaterMitigationDetail: React.FC = () => {
       claim_number: insuranceForm.claim_number || undefined,
       date_of_loss: formatDateForApi(insuranceForm.date_of_loss),
       mitigation_start_date: formatDateForApi(insuranceForm.mitigation_start_date),
-      mitigation_end_date: formatDateForApi(insuranceForm.mitigation_end_date)
+      mitigation_end_date: formatDateForApi(insuranceForm.mitigation_end_date),
+      inspection_date: formatDateForApi(insuranceForm.inspection_date),
+      inspection_time: insuranceForm.inspection_time.trim() || undefined
     };
     try {
       await waterMitigationService.updateJob(id, updateData);
@@ -750,6 +756,35 @@ const WaterMitigationDetail: React.FC = () => {
                           </Descriptions.Item>
                           <Descriptions.Item label="Mitigation Period" span={descColumn}>
                             {formatMitigationPeriod()}
+                          </Descriptions.Item>
+                          {/* The sheet's Inspection Date and Inspection Time columns, on one line.
+                              The time is whatever was typed there ("10:30", "12-2"), so it stays text. */}
+                          <Descriptions.Item label="Inspection" span={descColumn}>
+                            {isEditing ? (
+                              <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+                                <DatePicker
+                                  value={insuranceForm.inspection_date ? dayjs(insuranceForm.inspection_date) : undefined}
+                                  onChange={(date) => setInsuranceForm({ ...insuranceForm, inspection_date: date ? date.format('YYYY-MM-DD') : null })}
+                                  format="YYYY-MM-DD"
+                                  style={{ flex: 3, minWidth: 0 }}
+                                  placeholder="Inspection date"
+                                />
+                                <Input
+                                  value={insuranceForm.inspection_time}
+                                  onChange={(e) => setInsuranceForm({ ...insuranceForm, inspection_time: e.target.value })}
+                                  placeholder="Time, e.g. 10:30"
+                                  maxLength={20}
+                                  style={{ flex: 2, minWidth: 0 }}
+                                />
+                              </div>
+                            ) : (
+                              job.inspection_date || job.inspection_time ? (
+                                [
+                                  job.inspection_date ? dayjs(job.inspection_date).format('MMM D, YYYY') : null,
+                                  job.inspection_time || null,
+                                ].filter(Boolean).join(' · ')
+                              ) : EMPTY
+                            )}
                           </Descriptions.Item>
                         </Descriptions>
                       )}
