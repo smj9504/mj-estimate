@@ -8,11 +8,11 @@
  * estimate keeps a copy of each product as it was when chosen.
  *
  * A restoration takes no products: the carrier's estimate is priced from
- * the rate tables alone, so it only gets a pointer to adding an option.
+ * the rate tables alone, so it shows nothing here.
  */
 
 import React, { useState } from 'react';
-import { Alert, Button, Card, Popconfirm, Space, Spin, Tooltip, Typography, message } from 'antd';
+import { Button, Card, Popconfirm, Space, Spin, Tooltip, Typography, message } from 'antd';
 import { DeleteOutlined, LinkOutlined, PictureOutlined, ShoppingOutlined, SwapOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import ProductPicker from '../product-library/ProductPicker';
@@ -93,18 +93,7 @@ const KitchenSelections: React.FC<KitchenSelectionsProps> = ({ estimate, slots, 
     onSettled: () => setBusySlot(null),
   });
 
-  if (estimate.kind !== 'option') {
-    return (
-      <Alert
-        type="info"
-        showIcon
-        icon={<ShoppingOutlined />}
-        style={{ marginBottom: 16 }}
-        message="The restoration is priced from the rate tables"
-        description="To quote cabinets, a countertop, tile or fixtures the customer picks from a store, add an upgrade option above and choose its products there."
-      />
-    );
-  }
+  if (estimate.kind !== 'option') return null;
 
   const pick = (slot: SelectionSlot, productId: string | null) =>
     guardUnsaved(() => change.mutate({ slot: slot.key, productId }));
