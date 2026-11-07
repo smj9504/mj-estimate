@@ -3,8 +3,8 @@
  *
  * Layout drawing for a cabinet estimate, in two views of the same data:
  *
- * - Plan (top): draw walls (click-click, snap-to-endpoint, Shift = axis
- *   lock) and arrange cabinets. Dropped near a wall, a cabinet turns to
+ * - Plan (top): draw walls (click-click, snapping to a wall's end or
+ *   partway along it, Shift = axis lock) and arrange cabinets. Dropped near a wall, a cabinet turns to
  *   back onto it; brought up to another cabinet, it lines its back up with
  *   that one and butts against its side — or, an upper over a base, lines
  *   its end up with the base's (see snapDroppedCabinet).
@@ -58,7 +58,7 @@ import { CABINET_PRESETS, getOptionsForType } from '../CabinetBoxEditor';
 import { WALL_HEIGHT_OPTIONS } from '../CabinetBoxEditor';
 import type { SectionType, WallHeightFilter } from '../CabinetBoxEditor';
 import type { CabType } from '../../../types/cabinetEstimate';
-import CabinetWallRenderer, { CabinetWallPreview } from './CabinetWallRenderer';
+import CabinetWallRenderer, { CabinetWallPreview, CabinetWallSnapMark } from './CabinetWallRenderer';
 import CabinetShapeRenderer from './CabinetShapeRenderer';
 import { ApplianceShape, DR_TAG_COLOR, SinkShape } from './CabinetApplianceRenderer';
 import CabinetElevationView from './CabinetElevationView';
@@ -69,7 +69,7 @@ import { productWords } from './productLook';
 import { useProductLook } from './useProductLook';
 import type { ProductSnapshot } from '../../../types/productLibrary';
 import type { Cabinet3DViewHandle } from './Cabinet3DView';
-import { pixelsToFeet, generateOverlayId, snapToWallEndpoint, constrainToAxis } from './cabinetSketchUtils';
+import { pixelsToFeet, generateOverlayId, snapToWall, constrainToAxis } from './cabinetSketchUtils';
 import {
   buildElevations,
   cabinetKey,
@@ -407,18 +407,27 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     return { x: ptr.x, y: ptr.y };
   }, []);
 
+  // Where the next wall point lands: on a wall end or anywhere along a wall
+  // it comes near, so a new wall can join a wall partway along it. Once a wall
+  // is started, Shift locks it level or plumb and it runs on to the wall it meets.
+  const wallDrawPoint = useCallback(
+    (pos: { x: number; y: number }, start: { x: number; y: number } | null, shift: boolean) => {
+      if (!start || !shift) return snapToWall(pos, walls, WALL_SNAP_THRESHOLD);
+      return snapToWall(constrainToAxis(start, pos), walls, WALL_SNAP_THRESHOLD, { along: start });
+    },
+    [walls]
+  );
+
   const handleStageMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (state.activeTool !== 'wall') return;
       const wds = wallDrawStartRef.current;
-      if (state.activeTool !== 'wall' || !wds) return;
-      const pos = getCanvasPos();
-      let endPos = pos;
-      if (e.evt.shiftKey) endPos = constrainToAxis(wds, pos);
-      const snap = snapToWallEndpoint(endPos, walls, WALL_SNAP_THRESHOLD);
-      setWallDrawCursor(snap.snapped ? snap.point : endPos);
+      const snap = wallDrawPoint(getCanvasPos(), wds, e.evt.shiftKey);
+      // Before the first click, the mark shows where the wall will start.
+      if (wds) setWallDrawCursor(snap.point);
       setWallSnapEnd(snap.snapped ? snap.point : null);
     },
-    [state.activeTool, walls, getCanvasPos]
+    [state.activeTool, wallDrawPoint, getCanvasPos]
   );
 
   const handleStageClick = useCallback(
@@ -428,14 +437,13 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       const pos = getCanvasPos();
 
       if (state.activeTool === 'wall') {
-        const snapped = snapToWallEndpoint(pos, walls, WALL_SNAP_THRESHOLD);
         const wds = wallDrawStartRef.current;
+        const snapped = wallDrawPoint(pos, wds, e.evt.shiftKey);
         if (!wds) {
           setWallDrawStart(snapped.point);
           setWallDrawCursor(snapped.point);
         } else {
-          let endPoint = snapped.point;
-          if (e.evt.shiftKey) endPoint = constrainToAxis(wds, endPoint);
+          const endPoint = snapped.point;
 
           const dx = endPoint.x - wds.x;
           const dy = endPoint.y - wds.y;
@@ -512,6 +520,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       walls,
       scalePixelsPerFoot,
       getCanvasPos,
+      wallDrawPoint,
       addWall,
       addCabinet,
       onCabinetPlaced,
@@ -687,8 +696,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
 
   const handleWallEndpointDrag = useCallback(
     (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => {
-      const snap = snapToWallEndpoint({ x, y }, walls, WALL_SNAP_THRESHOLD);
-      const pt = snap.point;
+      const pt = snapToWall({ x, y }, walls, WALL_SNAP_THRESHOLD, { excludeId: wallId }).point;
       const wall = walls.find((w) => w.id === wallId);
       if (!wall) return;
       const otherX = endpoint === 'start' ? wall.end_x : wall.start_x;
@@ -1239,7 +1247,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               />
             )}
 
-            <Layer>
+            {/* While drawing walls, a click on a wall or a cabinet places the next wall point there
+                instead of picking it — that is how a new wall joins one already drawn. */}
+            <Layer listening={state.activeTool !== 'wall'}>
               {walls.map((wall) => (
                 <CabinetWallRenderer
                   key={wall.id}
@@ -1260,6 +1270,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                   endY={wallDrawCursor.y}
                   snappedEnd={wallSnapEnd}
                 />
+              )}
+              {state.activeTool === 'wall' && !wallDrawStart && wallSnapEnd && (
+                <CabinetWallSnapMark x={wallSnapEnd.x} y={wallSnapEnd.y} />
               )}
 
               {/* The island top, under its cabinets, as one outlined piece: shows the overhang and closes the wedges of angled joints. */}

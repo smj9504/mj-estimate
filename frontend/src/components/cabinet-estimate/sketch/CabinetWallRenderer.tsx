@@ -174,19 +174,14 @@ export const CabinetWallPreview: React.FC<CabinetWallPreviewProps> = ({
       />
       <Circle x={startX} y={startY} radius={5} fill="#1890ff" opacity={0.8} />
       <Circle x={endX} y={endY} radius={4} fill="#1890ff" opacity={0.6} />
-      {snappedEnd && (
-        <Circle
-          x={snappedEnd.x}
-          y={snappedEnd.y}
-          radius={8}
-          fill="transparent"
-          stroke="#52c41a"
-          strokeWidth={2}
-          opacity={0.9}
-        />
-      )}
+      {snappedEnd && <CabinetWallSnapMark x={snappedEnd.x} y={snappedEnd.y} />}
     </Group>
   );
 };
+
+/** The green ring where a wall point will join a wall already drawn — at its end or partway along it. */
+export const CabinetWallSnapMark: React.FC<{ x: number; y: number }> = ({ x, y }) => (
+  <Circle x={x} y={y} radius={8} fill="transparent" stroke="#52c41a" strokeWidth={2} opacity={0.9} listening={false} />
+);
 
 export default CabinetWallRenderer;

@@ -2,7 +2,8 @@
  * BESketchCanvas - Bathroom Estimate Sketch Konva canvas (Phase 2)
  *
  * Renders walls, rooms, fixtures (with SVG shapes), tile zones, damage zones.
- * Supports: wall endpoint snap, drag fixtures, keyboard shortcuts, grid snapping.
+ * Supports: wall snap (to a wall's end, or partway along it when drawing walls),
+ * drag fixtures, keyboard shortcuts, grid snapping.
  */
 
 import React, {
@@ -31,6 +32,7 @@ import { hasPlumbing } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
 import { wallTileRegions } from './utils/wallFinish';
+import { snapToWalls } from './utils/wallSnap';
 import {
   buildPlanLabels,
   dimensionAnchor,
@@ -280,22 +282,12 @@ function dist(a: BEPoint, b: BEPoint): number {
 const WALL_SNAP_RADIUS = 12; // px
 
 /**
- * Snap a point to the nearest existing wall endpoint within WALL_SNAP_RADIUS.
+ * Snap a point to the nearest existing wall endpoint within WALL_SNAP_RADIUS —
+ * or, with alongWalls (drawing a wall, dragging its end), anywhere along a wall,
+ * so a new wall can join one partway along it. Returns `p` itself when nothing is near.
  */
-function snapToWallEndpoints(p: BEPoint, walls: BEWall[], excludeId?: string): BEPoint {
-  let closest = p;
-  let minDist = WALL_SNAP_RADIUS;
-  for (const w of walls) {
-    if (w.id === excludeId) continue;
-    for (const ep of [w.start, w.end]) {
-      const d = dist(p, ep);
-      if (d < minDist) {
-        minDist = d;
-        closest = ep;
-      }
-    }
-  }
-  return closest;
+function snapToWallEndpoints(p: BEPoint, walls: BEWall[], excludeId?: string, alongWalls = false): BEPoint {
+  return snapToWalls(p, walls, WALL_SNAP_RADIUS, { excludeId, alongWalls });
 }
 
 /**
@@ -432,7 +424,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
 
   // ── Mouse pos → stage coords with snap ──
   const getStagePoint = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>, applyWallSnap = false): BEPoint => {
+    (e: Konva.KonvaEventObject<MouseEvent>, applyWallSnap = false, alongWalls = false): BEPoint => {
       const stage = e.target.getStage();
       const pos = stage?.getPointerPosition();
       if (!pos || !stage) return { x: 0, y: 0 };
@@ -443,7 +435,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         y: (pos.y - stage.y()) / scale,
       };
       if (settings.snapToGrid) p = snapToGrid(p, snapPx);
-      if (applyWallSnap) p = snapToWallEndpoints(p, walls);
+      if (applyWallSnap) p = snapToWallEndpoints(p, walls, undefined, alongWalls);
       return p;
     },
     [settings.snapToGrid, gridPx, walls],
@@ -452,7 +444,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   // ── Mouse handlers ──
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      const pos = getStagePoint(e, activeTool === 'wall');
+      // A wall starts on a wall's end or anywhere along one, so it joins it there
+      const pos = getStagePoint(e, activeTool === 'wall', activeTool === 'wall');
 
       if (activeTool === 'damage_zone') {
         setDrawingDamageZone({ start: pos, current: pos });
@@ -503,24 +496,25 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
 
   const handleMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (drawingWall) {
-        let pos = getStagePoint(e, true);
-        if (shiftHeld) pos = constrainAxis(drawingWall.start, pos);
-        setDrawingWall((prev) => prev ? { ...prev, current: pos } : null);
-
-        // Show snap indicator (use content coords, not viewport coords)
+      // Show where a wall will join one already drawn: its end, or partway along it
+      // (content coords, not viewport coords) — before the press too, for where it starts
+      const showWallSnap = () => {
         const stage = e.target.getStage();
         const rawPos = stage?.getPointerPosition();
-        if (rawPos && stage) {
-          const sc = stage.scaleX();
-          const contentPos = { x: (rawPos.x - stage.x()) / sc, y: (rawPos.y - stage.y()) / sc };
-          const snapped = snapToWallEndpoints(contentPos, walls);
-          if (snapped !== contentPos && dist(snapped, contentPos) < WALL_SNAP_RADIUS) {
-            setSnapIndicator(snapped);
-          } else {
-            setSnapIndicator(null);
-          }
-        }
+        if (!rawPos || !stage) return;
+        const sc = stage.scaleX();
+        const contentPos = { x: (rawPos.x - stage.x()) / sc, y: (rawPos.y - stage.y()) / sc };
+        const snapped = snapToWallEndpoints(contentPos, walls, undefined, true);
+        setSnapIndicator(snapped !== contentPos ? snapped : null);
+      };
+
+      if (drawingWall) {
+        let pos = getStagePoint(e, true, true);
+        if (shiftHeld) pos = constrainAxis(drawingWall.start, pos);
+        setDrawingWall((prev) => prev ? { ...prev, current: pos } : null);
+        showWallSnap();
+      } else if (activeTool === 'wall') {
+        showWallSnap();
       } else if (drawingRoom) {
         const pos = getStagePoint(e);
         setDrawingRoom((prev) => prev ? { ...prev, current: pos } : null);
@@ -556,13 +550,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setSnapIndicator(null);
       }
     },
-    [drawingWall, drawingRoom, drawingDamageZone, polyRoom, marquee, bulkMoving, getStagePoint, walls, shiftHeld, api],
+    [drawingWall, activeTool, drawingRoom, drawingDamageZone, polyRoom, marquee, bulkMoving, getStagePoint, walls, shiftHeld, api],
   );
 
   const handleMouseUp = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (activeTool === 'wall' && drawingWall) {
-        let pos = getStagePoint(e, true);
+        let pos = getStagePoint(e, true, true);
         // Always snap to axis if close (within 5°), Shift forces strict axis lock
         pos = constrainAxis(drawingWall.start, pos);
         const lenPx = dist(drawingWall.start, pos);
@@ -1907,7 +1901,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             // Tile shows as spans along the wall (WallTileSpans), since only part of it may be tiled
             const wallColor = isWallSelected ? '#1890ff' : '#555';
             return (
-              <Group key={wall.id}>
+              // Drawing walls, a press on this one starts the new wall on it (joined) instead of picking it,
+              // as room walls already do
+              <Group key={wall.id} listening={activeTool !== 'wall'}>
                 <Line
                   points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
                   stroke={wallColor}
@@ -2003,7 +1999,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         let pos = settings.snapToGrid
                           ? snapToGrid({ x: e.target.x(), y: e.target.y() }, snapPx)
                           : { x: e.target.x(), y: e.target.y() };
-                        pos = snapToWallEndpoints(pos, walls, wall.id);
+                        pos = snapToWallEndpoints(pos, walls, wall.id, true);
                         e.target.position(pos);
                         api.updateWall(wall.id, { start: pos });
                         // Sync room vertices
@@ -2024,7 +2020,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         let pos = settings.snapToGrid
                           ? snapToGrid({ x: e.target.x(), y: e.target.y() }, snapPx)
                           : { x: e.target.x(), y: e.target.y() };
-                        pos = snapToWallEndpoints(pos, walls, wall.id);
+                        pos = snapToWallEndpoints(pos, walls, wall.id, true);
                         e.target.position(pos);
                         api.updateWall(wall.id, { end: pos });
                         // Sync room vertices
