@@ -85,8 +85,16 @@ function cornerOutline(corner: CornerShape, w: number, h: number): { outline: nu
 export interface CabinetShapeRendererProps {
   cabinet: CabinetSketchCabinet;
   isSelected: boolean;
-  onSelect: (id: string, ctrlKey?: boolean) => void;
+  /**
+   * Picked: `ctrlKey` adds it to the selection or takes it out; `single`
+   * (double-click or Alt+click) picks just this one, not the island it is in.
+   */
+  onSelect: (id: string, ctrlKey?: boolean, single?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
+  /** Right-clicked: the page position, for the edit panel. */
+  onContextMenu?: (id: string, clientX: number, clientY: number) => void;
+  /** Show its own turning handle when selected; off while several are selected, which share one. */
+  handles?: boolean;
   /**
    * Mid-drag: where the shape should sit instead of under the pointer
    * (lined up with a neighbour), or null to follow the pointer.
@@ -109,6 +117,8 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
   onTransformEnd,
   zoom = 1,
   corner,
+  onContextMenu,
+  handles = true,
 }) => {
   const groupRef = useRef<Konva.Group>(null);
   const rectRef = useRef<Konva.Rect>(null);
@@ -133,19 +143,38 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
   // Attach / detach transformer
   useEffect(() => {
     if (!transformerRef.current || !rectRef.current) return;
-    if (isSelected) {
+    if (isSelected && handles) {
       transformerRef.current.nodes([rectRef.current]);
     } else {
       transformerRef.current.nodes([]);
     }
     transformerRef.current.getLayer()?.batchDraw();
-  }, [isSelected]);
+  }, [isSelected, handles]);
 
   const handleClick = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      onSelect(cabinet.id, e.evt.ctrlKey || e.evt.metaKey);
+      // The right button opens the edit panel instead.
+      if (e.evt.button === 2) return;
+      onSelect(cabinet.id, e.evt.ctrlKey || e.evt.metaKey, e.evt.altKey);
     },
     [cabinet.id, onSelect]
+  );
+
+  const handleDblClick = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (e.evt.button === 2) return;
+      onSelect(cabinet.id, e.evt.ctrlKey || e.evt.metaKey, true);
+    },
+    [cabinet.id, onSelect]
+  );
+
+  const handleContextMenu = useCallback(
+    (e: Konva.KonvaEventObject<PointerEvent>) => {
+      e.evt.preventDefault();
+      e.cancelBubble = true;
+      onContextMenu?.(cabinet.id, e.evt.clientX, e.evt.clientY);
+    },
+    [cabinet.id, onContextMenu]
   );
 
   const handleDragEnd = useCallback(
@@ -268,12 +297,16 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
     <>
       <Group
         ref={groupRef}
+        id={cabinet.id}
+        name="sketch-item"
         x={cabinet.x}
         y={cabinet.y}
         rotation={cabinet.rotation}
         draggable
         onClick={handleClick}
         onTap={handleClick}
+        onDblClick={handleDblClick}
+        onContextMenu={handleContextMenu}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
       >

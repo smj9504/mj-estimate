@@ -82,7 +82,7 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
   const lengthLabel = wall.length_ft > 0 ? `${wall.length_ft.toFixed(1)}'` : '';
 
   return (
-    <Group draggable={isSelected} onDragEnd={handleGroupDragEnd}>
+    <Group id={id} name="sketch-item" draggable={isSelected} onDragEnd={handleGroupDragEnd}>
       <Line
         points={[start_x, start_y, end_x, end_y]}
         stroke={isSelected ? '#1890ff' : color || DEFAULT_WALL_COLOR}

@@ -273,7 +273,7 @@ class CabinetBox(Base, BaseModel):
     # Finished end panels flanking a slide-in range opening (0-2).
     # Only meaningful when specialty_type == "range_base_slide_in".
     range_panel_count = Column(Integer, nullable=True)
-    # lattice / lattice_band; NULL is a plain door in the job's door style.
+    # lattice / lattice_band / mullion; NULL is a plain door in the job's door style.
     door_pattern = Column(String(30), nullable=True)
     qty = Column(Integer, default=1, nullable=False)
     display_order = Column(Integer, default=0)

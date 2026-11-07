@@ -48,6 +48,7 @@ import KitchenGroupBar from '../components/cabinet-estimate/KitchenGroupBar';
 import KitchenGroupCompareDrawer from '../components/cabinet-estimate/KitchenGroupCompareDrawer';
 import KitchenSelections from '../components/cabinet-estimate/KitchenSelections';
 import { boxKey } from '../components/cabinet-estimate/sketch/cabinetSketchLayout';
+import type { BoxFields } from '../components/cabinet-estimate/cabinetBoxChoices';
 import { TRIM_FIELDS, TRIM_FIELD_LABELS } from '../components/cabinet-estimate/sketch/cabinetTrimTakeoff';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
 import { memberName } from '../types/cabinetEstimate';
@@ -493,26 +494,14 @@ const CabinetEstimateDetail: React.FC = () => {
     setSketchBoxEdits((n) => n + 1);
   }, []);
 
-  // A cabinet switched to another code on the sketch: its row changes the
-  // way picking a new code here does, or, when the row is for several, one
-  // is split off into a new row right after it.
-  const handleSketchCabinetChanged = useCallback((key: string, code: string) => {
-    const preset = CABINET_PRESETS[code];
-    if (!preset) return;
+  // A cabinet changed on the sketch (its picker or right-click panel: code,
+  // size, glass, door): its row changes the way editing it here does, or,
+  // when the row is for several, one is split off into a new row right after it.
+  const handleSketchCabinetEdited = useCallback((key: string, box: BoxFields) => {
     const changeOne = (list: CabinetBoxCreate[]): CabinetBoxCreate[] => {
       const i = list.findIndex((b) => boxKey(b) === key);
       if (i < 0) return list;
-      const changed: CabinetBoxCreate = {
-        ...list[i],
-        code,
-        cab_type: preset.cab_type,
-        width_inches: preset.width,
-        height_inches: preset.height,
-        is_specialty: !!preset.specialty,
-        specialty_type: preset.specialty || null,
-        range_panel_count: preset.specialty === 'range_base_slide_in' ? 2 : null,
-        qty: 1,
-      };
+      const changed: CabinetBoxCreate = { ...list[i], ...box, qty: 1 };
       if (list[i].qty <= 1) return list.map((b, j) => (j === i ? changed : b));
       return [...list.slice(0, i), { ...list[i], qty: list[i].qty - 1 }, changed, ...list.slice(i + 1)];
     };
@@ -2008,7 +1997,7 @@ const CabinetEstimateDetail: React.FC = () => {
             wallHeight={wallHeight}
             active={activeTab === 'sketch'}
             onCabinetsRemoved={handleSketchCabinetsRemoved}
-            onCabinetChanged={handleSketchCabinetChanged}
+            onCabinetEdited={handleSketchCabinetEdited}
             islandSeatingIn={islandSeatingIn}
             applianceList={sketchAppliances}
             sinkBowls={sinkType === 'double' ? 2 : 1}

@@ -38,6 +38,7 @@ type CabinetSketchAction =
   | { type: 'SET_ACTIVE_PRESET'; payload: string | null }
   | { type: 'SELECT_ELEMENT'; payload: CabinetSketchSelection }
   | { type: 'TOGGLE_SELECT_ELEMENT'; payload: CabinetSketchSelection }
+  | { type: 'SELECT_ELEMENTS'; payload: { selections: CabinetSketchSelection[]; add: boolean } }
   | { type: 'DESELECT' }
   | { type: 'ADD_WALL'; payload: CabinetSketchWall }
   | { type: 'UPDATE_WALL'; payload: Partial<CabinetSketchWall> & { id: string } }
@@ -45,6 +46,7 @@ type CabinetSketchAction =
   | { type: 'ADD_CABINET'; payload: CabinetSketchCabinet }
   | { type: 'UPDATE_CABINET'; payload: Partial<CabinetSketchCabinet> & { id: string } }
   | { type: 'UPDATE_CABINETS'; payload: (Partial<CabinetSketchCabinet> & { id: string })[] }
+  | { type: 'UPDATE_ELEMENTS'; payload: ElementPatches }
   | { type: 'REMOVE_CABINET'; payload: string }
   | { type: 'BATCH_MOVE_SELECTED'; payload: { draggedId: string; newX: number; newY: number } }
   | { type: 'BRING_TO_FRONT'; payload: string }
@@ -59,6 +61,13 @@ type CabinetSketchAction =
   | { type: 'MARK_SAVED' }
   | { type: 'UNDO' }
   | { type: 'REDO' };
+
+/** Changes to several kinds of element at once: a group moved or turned, walls following a joint. */
+export interface ElementPatches {
+  walls?: (Partial<CabinetSketchWall> & { id: string })[];
+  cabinets?: (Partial<CabinetSketchCabinet> & { id: string })[];
+  appliances?: (Partial<CabinetSketchAppliance> & { id: string })[];
+}
 
 function pushUndo(
   state: CabinetSketchLocalState
@@ -104,6 +113,14 @@ function cabinetSketchReducer(
         ? state.selections.filter((s) => s.element_id !== action.payload.element_id)
         : [...state.selections, action.payload];
       return { ...state, selections: newSelections };
+    }
+
+    // A drag-box or a group pick: the whole selection at once, or added to it.
+    case 'SELECT_ELEMENTS': {
+      const { selections, add } = action.payload;
+      const base = add ? state.selections : [];
+      const fresh = selections.filter((s) => !base.some((b) => b.element_id === s.element_id));
+      return { ...state, selections: [...base, ...fresh] };
     }
 
     case 'DESELECT':
@@ -188,6 +205,25 @@ function cabinetSketchReducer(
         overlayData: {
           ...state.overlayData,
           cabinets: action.payload.reduce((cabs, patch) => updateById(cabs, patch), state.overlayData.cabinets),
+        },
+      };
+    }
+
+    // Walls, cabinets and appliances changed together, as one undo step.
+    case 'UPDATE_ELEMENTS': {
+      const { walls = [], cabinets = [], appliances = [] } = action.payload;
+      if (walls.length + cabinets.length + appliances.length === 0) return state;
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          walls: walls.reduce((ws, patch) => updateById(ws, patch), state.overlayData.walls),
+          cabinets: cabinets.reduce((cs, patch) => updateById(cs, patch), state.overlayData.cabinets),
+          appliances: appliances.reduce((as, patch) => updateById(as, patch), state.overlayData.appliances ?? []),
         },
       };
     }
@@ -420,6 +456,8 @@ export interface CabinetSketchStateReturn {
   setActivePreset: (code: string | null) => void;
   selectElement: (selection: CabinetSketchSelection) => void;
   toggleSelectElement: (selection: CabinetSketchSelection) => void;
+  /** Select these (or, with `add`, add them to the selection). */
+  selectElements: (selections: CabinetSketchSelection[], add?: boolean) => void;
   deselect: () => void;
   selectedIds: Set<string>;
   batchMoveSelected: (draggedId: string, newX: number, newY: number) => void;
@@ -432,6 +470,8 @@ export interface CabinetSketchStateReturn {
   updateCabinet: (patch: Partial<CabinetSketchCabinet> & { id: string }) => void;
   updateCabinets: (patches: (Partial<CabinetSketchCabinet> & { id: string })[]) => void;
   removeCabinet: (id: string) => void;
+  /** Walls, cabinets and appliances changed together, as one undo step. */
+  updateElements: (patches: ElementPatches) => void;
 
   bringToFront: (id: string) => void;
   sendToBack: (id: string) => void;
@@ -469,6 +509,11 @@ export function useCabinetSketchState(
     (selection: CabinetSketchSelection) => dispatch({ type: 'TOGGLE_SELECT_ELEMENT', payload: selection }),
     []
   );
+  const selectElements = useCallback(
+    (selections: CabinetSketchSelection[], add = false) =>
+      dispatch({ type: 'SELECT_ELEMENTS', payload: { selections, add } }),
+    []
+  );
   const deselect = useCallback(() => dispatch({ type: 'DESELECT' }), []);
   const batchMoveSelected = useCallback(
     (draggedId: string, newX: number, newY: number) =>
@@ -498,6 +543,10 @@ export function useCabinetSketchState(
     []
   );
   const removeCabinet = useCallback((id: string) => dispatch({ type: 'REMOVE_CABINET', payload: id }), []);
+  const updateElements = useCallback(
+    (patches: ElementPatches) => dispatch({ type: 'UPDATE_ELEMENTS', payload: patches }),
+    []
+  );
 
   const bringToFront = useCallback((id: string) => dispatch({ type: 'BRING_TO_FRONT', payload: id }), []);
   const sendToBack = useCallback((id: string) => dispatch({ type: 'SEND_TO_BACK', payload: id }), []);
@@ -538,6 +587,7 @@ export function useCabinetSketchState(
     setActivePreset,
     selectElement,
     toggleSelectElement,
+    selectElements,
     deselect,
     selectedIds,
     batchMoveSelected,
@@ -548,6 +598,7 @@ export function useCabinetSketchState(
     updateCabinet,
     updateCabinets,
     removeCabinet,
+    updateElements,
     bringToFront,
     sendToBack,
     bringForward,

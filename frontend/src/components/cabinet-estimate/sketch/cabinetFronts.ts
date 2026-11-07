@@ -244,9 +244,9 @@ export interface DoorRect {
 
 /**
  * What a door pattern puts in a door's frame, in inches from the door's
- * bottom-left corner: the opening, the lattice bars across it, and for a
- * lattice over a band the band's cut-outs below it (ovals in a row, a small
- * diamond between each two).
+ * bottom-left corner: the opening, the bars across it (a diamond lattice,
+ * or a mullion door's square grid), and for a lattice over a band the
+ * band's cut-outs below it (ovals in a row, a small diamond between each two).
  */
 export interface DoorDesign {
   opening: DoorRect;
@@ -268,6 +268,13 @@ const BAND_IN = 5;
 const BAND_RAIL_IN = 0.75;
 /** About how wide each oval's stretch of the band is. */
 const BAND_OVAL_SPAN_IN = 11;
+/**
+ * About how wide and tall a mullion door's panes are: two across and four
+ * down on a W3042's 14"-wide doors, as in the user's photo; three down on a
+ * 30" or 36" upper.
+ */
+const MULLION_PANE_W_IN = 6;
+const MULLION_PANE_H_IN = 9;
 
 export function doorDesign(f: Pick<Face, 'w' | 'h'>, pattern: DoorPattern): DoorDesign {
   const s = Math.min(GLASS_STILE_IN, f.w / 4, f.h / 4);
@@ -276,6 +283,24 @@ export function doorDesign(f: Pick<Face, 'w' | 'h'>, pattern: DoorPattern): Door
   const bandH = pattern === 'lattice_band' ? Math.min(BAND_IN, inH * 0.3) : 0;
   const lift = bandH > 0 ? bandH + BAND_RAIL_IN : 0;
   const opening: DoorRect = { x: s, y: s + lift, w: inW, h: inH - lift };
+
+  if (pattern === 'mullion') {
+    // Upright and level bars splitting the opening into equal panes.
+    const cols = Math.max(1, Math.round(opening.w / MULLION_PANE_W_IN));
+    const rows = Math.max(1, Math.round(opening.h / MULLION_PANE_H_IN));
+    const [left, right, low, high] = [opening.x, opening.x + opening.w, opening.y, opening.y + opening.h];
+    const bars: DoorDesign['bars'] = [
+      ...Array.from({ length: cols - 1 }, (_, i): DoorDesign['bars'][number] => {
+        const x = left + (opening.w * (i + 1)) / cols;
+        return [x, low, x, high];
+      }),
+      ...Array.from({ length: rows - 1 }, (_, i): DoorDesign['bars'][number] => {
+        const y = low + (opening.h * (i + 1)) / rows;
+        return [left, y, right, y];
+      }),
+    ];
+    return { opening, bars, band: null };
+  }
 
   // Two families of 45° bars, a crossing at the opening's middle.
   const step = Math.max(LATTICE_DIAMOND_MIN_IN, Math.min(LATTICE_DIAMOND_IN, Math.min(opening.w, opening.h) / 2));

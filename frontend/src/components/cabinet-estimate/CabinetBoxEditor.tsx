@@ -15,6 +15,12 @@ import {
 } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { CabinetBoxCreate, CabinetLocation, CabType, DoorPattern, SpecialtyType } from '../../types/cabinetEstimate';
+import {
+  DOOR_PATTERN_OPTIONS,
+  NO_DOOR_SPECIALTIES,
+  PLAIN_DOOR,
+  TALL_DOOR_PATTERN_OPTIONS,
+} from './cabinetBoxChoices';
 
 const { Text } = Typography;
 
@@ -241,24 +247,6 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
 };
 
 const CUSTOM_VALUE = '__custom__';
-
-const PLAIN_DOOR = 'plain';
-
-/** `short` is what the narrow table cell shows once picked. */
-const DOOR_PATTERN_OPTIONS: { label: string; short: string; value: DoorPattern | typeof PLAIN_DOOR }[] = [
-  { label: 'Plain', short: 'Plain', value: PLAIN_DOOR },
-  { label: 'Diamond lattice', short: 'Lattice', value: 'lattice' },
-  { label: 'Lattice + oval band', short: 'Oval band', value: 'lattice_band' },
-];
-
-/** Boxes with no door to put a pattern in: all drawers, or an open bay. */
-const NO_DOOR_SPECIALTIES: SpecialtyType[] = [
-  'drawer_base',
-  'trash_pullout',
-  'microwave_drawer_base',
-  'range_base_slide_in',
-  'range_base_drop_in',
-];
 
 export type SectionType = 'base' | 'wall' | 'tall';
 
@@ -606,7 +594,15 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
           <Tooltip title="Glass door insert">
             <Checkbox
               checked={record.has_glass_door}
-              onChange={(e) => updateBox(gi, { has_glass_door: e.target.checked })}
+              onChange={(e) =>
+                // Mullions without their glass are no door we offer: back to plain.
+                updateBox(
+                  gi,
+                  !e.target.checked && record.door_pattern === 'mullion'
+                    ? { has_glass_door: false, door_pattern: null }
+                    : { has_glass_door: e.target.checked }
+                )
+              }
             />
           </Tooltip>
         );
@@ -626,16 +622,23 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
             title={
               cabType === 'tall'
                 ? "A pattern in the door's frame, priced per door. Lattice + oval band makes each row of doors one panel; the drawer and the oven or fridge opening stay as they are."
-                : "A pattern in the door's frame, priced per door. Lattice + oval band makes the whole front one panel. Tick Glass as well for glass behind it."
+                : "A pattern in the door's frame, priced per door. Lattice + oval band makes the whole front one panel. Mullions are a grid of bars over glass, so picking them ticks Glass; for a lattice, tick Glass as well for glass behind it."
             }
           >
             <Select
               size="small"
               style={{ width: 118 }}
-              popupMatchSelectWidth={170}
+              popupMatchSelectWidth={190}
               value={record.door_pattern ?? PLAIN_DOOR}
-              onChange={(v: DoorPattern | typeof PLAIN_DOOR) => updateBox(gi, { door_pattern: v === PLAIN_DOOR ? null : v })}
-              options={DOOR_PATTERN_OPTIONS}
+              onChange={(v: DoorPattern | typeof PLAIN_DOOR) =>
+                updateBox(
+                  gi,
+                  v === 'mullion'
+                    ? { door_pattern: v, has_glass_door: true }
+                    : { door_pattern: v === PLAIN_DOOR ? null : v }
+                )
+              }
+              options={cabType === 'tall' ? TALL_DOOR_PATTERN_OPTIONS : DOOR_PATTERN_OPTIONS}
               labelRender={(p) => DOOR_PATTERN_OPTIONS.find((o) => o.value === p.value)?.short ?? p.label}
             />
           </Tooltip>

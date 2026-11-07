@@ -24,9 +24,10 @@ export type SpecialtyType =
   | 'range_base_slide_in' | 'range_base_drop_in';
 /**
  * A pattern in a cabinet's doors instead of a plain panel: a diamond lattice,
- * or a lattice over a carved oval band with the whole front as one panel.
+ * a lattice over a carved oval band with the whole front as one panel, or
+ * mullions — a square grid of bars over glass.
  */
-export type DoorPattern = 'lattice' | 'lattice_band';
+export type DoorPattern = 'lattice' | 'lattice_band' | 'mullion';
 /**
  * Which pricing world an estimate is quoted in. An insurance claim and a
  * retail remodel price the same physical work differently — most visibly

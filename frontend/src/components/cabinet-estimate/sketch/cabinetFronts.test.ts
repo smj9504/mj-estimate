@@ -151,6 +151,34 @@ describe('doorDesign', () => {
     expect(band!.diamonds).toHaveLength(band!.ovals.length - 1);
     expect(bars.length).toBeGreaterThan(0);
   });
+
+  it('splits a mullion door\'s opening into a grid of equal panes, two across and four down on a W3042', () => {
+    const [door] = doors(facesFor('wall', undefined, 30, 42, 'left', 'mullion'));
+    const { opening, bars, band } = doorDesign(door, 'mullion');
+    expect(band).toBeNull();
+    expect(opening).toEqual({ x: GLASS_STILE_IN, y: GLASS_STILE_IN, w: door.w - 2 * GLASS_STILE_IN, h: door.h - 2 * GLASS_STILE_IN });
+    const upright = bars.filter(([x0, , x1]) => x0 === x1);
+    const level = bars.filter(([, y0, , y1]) => y0 === y1);
+    expect(upright).toHaveLength(1);
+    expect(level).toHaveLength(3);
+    expect(upright.length + level.length).toBe(bars.length);
+    // Each bar runs edge to edge of the opening, and splits it evenly.
+    expect(upright[0]).toEqual([opening.x + opening.w / 2, opening.y, opening.x + opening.w / 2, opening.y + opening.h]);
+    level.forEach(([x0, y, x1], i) => {
+      expect([x0, x1]).toEqual([opening.x, opening.x + opening.w]);
+      expect(y).toBeCloseTo(opening.y + (opening.h * (i + 1)) / 4);
+    });
+    // A 30"-tall upper's door: three down. A narrow door: one across.
+    const [short] = doors(facesFor('wall', undefined, 30, 30, 'left', 'mullion'));
+    expect(doorDesign(short, 'mullion').bars.filter(([, y0, , y1]) => y0 === y1)).toHaveLength(2);
+    const [narrow] = doors(facesFor('wall', undefined, 12, 30, 'left', 'mullion'));
+    expect(doorDesign(narrow, 'mullion').bars.filter(([x0, , x1]) => x0 === x1)).toHaveLength(0);
+  });
+
+  it('keeps a mullion box\'s doors as they are, unlike a lattice over a band', () => {
+    expect(doors(facesFor('wall', undefined, 36, 18, 'left', 'mullion'))).toHaveLength(2);
+    expect(doors(facesFor('base', undefined, 36, 34.5, 'left', 'mullion'))).toHaveLength(2);
+  });
 });
 
 describe('archOutline', () => {

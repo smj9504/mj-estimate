@@ -27,6 +27,8 @@ interface ApplianceShapeProps {
   onDragEnd: (id: string, x: number, y: number) => void;
   /** Turned with its handle: the new back-left corner and rotation. */
   onTransformEnd?: (id: string, x: number, y: number, rotation: number) => void;
+  /** Show its own turning handle when selected; off while several are selected, which share one. */
+  handles?: boolean;
 }
 
 /**
@@ -44,6 +46,7 @@ export const ApplianceShape: React.FC<ApplianceShapeProps> = ({
   onSelect,
   onDragEnd,
   onTransformEnd,
+  handles = true,
 }) => {
   const spec = applianceSpec(appliance.type);
   const { width: w, height: h } = appliance;
@@ -56,9 +59,9 @@ export const ApplianceShape: React.FC<ApplianceShapeProps> = ({
   useEffect(() => {
     const tr = transformerRef.current;
     if (!tr || !bodyRef.current) return;
-    tr.nodes(isSelected && !hosted ? [bodyRef.current] : []);
+    tr.nodes(isSelected && !hosted && handles ? [bodyRef.current] : []);
     tr.getLayer()?.batchDraw();
-  }, [isSelected, hosted]);
+  }, [isSelected, hosted, handles]);
 
   // Shift snaps the turn to 15° steps, as for cabinets.
   const handleTransform = useCallback((e: Konva.KonvaEventObject<Event>) => {
@@ -137,6 +140,8 @@ export const ApplianceShape: React.FC<ApplianceShapeProps> = ({
     <>
       <Group
         ref={groupRef}
+        id={appliance.id}
+        name="sketch-item"
         x={appliance.x}
         y={appliance.y}
         rotation={appliance.rotation}

@@ -589,14 +589,22 @@ GLASS_READY_DOOR_PREMIUM = {
 # whole cabinet front as one panel. Billed by the doors the box would have
 # had, since that one panel covers them. The band's +$50 is an allowance: no
 # price list carries it separately.
+#
+# "mullion" is a square grid of bars over glass (added 2026-11-06 from the
+# user's photo: two lites across, four down). The Arcadia mullion doors and
+# QuikDrawers' per-lite price above are this door, so it takes the lattice's
+# $135. The glass is billed by the box's Glass tick, which the Edit tab sets
+# with it.
 DOOR_PATTERN_PREMIUM = {
     "lattice": {"Stock": 135, "Semi-Custom": 190, "Custom": 270},
     "lattice_band": {"Stock": 185, "Semi-Custom": 260, "Custom": 370},
+    "mullion": {"Stock": 135, "Semi-Custom": 190, "Custom": 270},
 }
 
 DOOR_PATTERN_LABELS = {
     "lattice": "Diamond Lattice",
     "lattice_band": "Lattice + Oval Band",
+    "mullion": "Glass Mullion",
 }
 
 # Island end panel / back panel pricing (per SF, finished to match cabinets)

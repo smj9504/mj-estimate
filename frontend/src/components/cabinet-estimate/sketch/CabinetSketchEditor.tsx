@@ -23,7 +23,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Line, Shape } from 'react-konva';
+import { Stage, Layer, Line, Rect, Shape, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { Button, InputNumber, Popover, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
 import {
@@ -59,7 +59,11 @@ import { WALL_HEIGHT_OPTIONS } from '../CabinetBoxEditor';
 import type { SectionType, WallHeightFilter } from '../CabinetBoxEditor';
 import type { CabType } from '../../../types/cabinetEstimate';
 import CabinetWallRenderer, { CabinetWallPreview, CabinetWallSnapMark } from './CabinetWallRenderer';
-import CabinetShapeRenderer from './CabinetShapeRenderer';
+import CabinetShapeRenderer, { ANCHOR_SIZE, ROTATE_ANCHOR_OFFSET, ROTATION_SNAP_ANGLES } from './CabinetShapeRenderer';
+import CabinetEditPanel, { EDIT_PANEL_WIDTH } from './CabinetEditPanel';
+import { changedBox, type BoxChange, type BoxFields } from '../cabinetBoxChoices';
+import { pickInBox, turnGroup, withIslandGroup, type Box } from './sketchGroupEdit';
+import { keepWallsJoined, moveWallEndJoined, moveWallsJoined, wallsMeetingEnd } from './sketchWallJoints';
 import { ApplianceShape, DR_TAG_COLOR, SinkShape } from './CabinetApplianceRenderer';
 import CabinetElevationView from './CabinetElevationView';
 import KitchenFinishPicker from './KitchenFinishPicker';
@@ -71,6 +75,7 @@ import type { ProductSnapshot } from '../../../types/productLibrary';
 import type { Cabinet3DViewHandle } from './Cabinet3DView';
 import { pixelsToFeet, generateOverlayId, snapToWall, constrainToAxis } from './cabinetSketchUtils';
 import {
+  boxKey,
   buildElevations,
   cabinetKey,
   cornerFootprint,
@@ -79,7 +84,6 @@ import {
   reconcileCabinets,
   snapCabinetToNeighbors,
   snapDroppedCabinet,
-  turnCabinets,
   countAngledJoints,
   islandJointFillers,
   islandTopAreaSf,
@@ -188,8 +192,12 @@ export interface CabinetSketchEditorProps {
   onCabinetPlaced?: (code: string, cabType: CabType) => void;
   /** Cabinets were deleted on the canvas — take one of each key (see boxKey) off the Edit tab. */
   onCabinetsRemoved?: (keys: string[]) => void;
-  /** A cabinet was switched to another code from its picker — change one box of `key` to `code`. */
-  onCabinetChanged?: (key: string, code: string) => void;
+  /**
+   * A cabinet was changed from its picker or its right-click panel (another
+   * code, a custom size, glass, a door pattern) — make one box of `key` into
+   * `box`, splitting it off its row when the row is for several.
+   */
+  onCabinetEdited?: (key: string, box: BoxFields) => void;
   /** "Use in estimate" on the plan's angled-joint count — set the Edit tab's Angled Joints to it. */
   onApplyAngledJoints?: (count: number) => void;
   /** The Edit tab's island seating overhang, inches (0 = edge overhang only), for the island top. */
@@ -220,7 +228,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   active = true,
   onCabinetPlaced,
   onCabinetsRemoved,
-  onCabinetChanged,
+  onCabinetEdited,
   onApplyAngledJoints,
   islandSeatingIn = 0,
   onApplyIslandTopSf,
@@ -269,16 +277,15 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     setActivePreset,
     selectElement,
     toggleSelectElement,
+    selectElements,
     deselect,
     selectedIds,
-    batchMoveSelected,
     addWall,
-    updateWall,
     removeWall,
     addCabinet,
     updateCabinet,
-    updateCabinets,
     removeCabinet,
+    updateElements,
     syncCabinets,
     updateAppliances,
     syncAppliances,
@@ -418,8 +425,76 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     [walls]
   );
 
+  // ------------------------------------------------------------------
+  // Drag-box selection and panning. Dragging empty canvas draws a box that
+  // selects what it touches (Ctrl/Shift adds to the selection); the view
+  // pans with Space held, or with the middle mouse button.
+  // ------------------------------------------------------------------
+  const [marquee, setMarquee] = useState<(Box & { add: boolean }) | null>(null);
+  const marqueeRef = useRef(marquee);
+  marqueeRef.current = marquee;
+  // A drag-box just ended: the click Konva fires on release must not deselect.
+  const swallowClickRef = useRef(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const panRef = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
+
+  const handleStageMouseDown = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      // A fresh press: whatever click a finished drag-box left behind is spent.
+      swallowClickRef.current = false;
+      if (e.evt.button === 1) {
+        e.evt.preventDefault();
+        panRef.current = { x: e.evt.clientX, y: e.evt.clientY, vx: viewport.x, vy: viewport.y };
+        return;
+      }
+      if (e.evt.button !== 0 || spaceHeld || state.activeTool !== 'select') return;
+      if (e.target !== e.target.getStage()) return;
+      const p = getCanvasPos();
+      setMarquee({ x0: p.x, y0: p.y, x1: p.x, y1: p.y, add: e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey });
+    },
+    [viewport.x, viewport.y, spaceHeld, state.activeTool, getCanvasPos]
+  );
+
+  const finishMarquee = useCallback(() => {
+    const box = marqueeRef.current;
+    if (!box) return;
+    setMarquee(null);
+    // Too small to be a box: it was a click, which deselects as before.
+    if (Math.max(Math.abs(box.x1 - box.x0), Math.abs(box.y1 - box.y0)) * viewport.zoom < 4) return;
+    swallowClickRef.current = true;
+    const picked = pickInBox(box, cabinets, appliances, walls);
+    selectElements(
+      [
+        ...picked.cabinets.map((id) => ({ element_id: id, element_type: 'cabinet' as const })),
+        ...picked.appliances.map((id) => ({ element_id: id, element_type: 'appliance' as const })),
+        ...picked.walls.map((id) => ({ element_id: id, element_type: 'wall' as const })),
+      ],
+      box.add
+    );
+  }, [viewport.zoom, cabinets, appliances, walls, selectElements]);
+
+  // Released anywhere — even off the canvas — ends a box or a pan.
+  useEffect(() => {
+    const up = () => {
+      panRef.current = null;
+      if (marqueeRef.current) finishMarquee();
+    };
+    window.addEventListener('mouseup', up);
+    return () => window.removeEventListener('mouseup', up);
+  }, [finishMarquee]);
+
   const handleStageMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const pan = panRef.current;
+      if (pan) {
+        setViewport((v) => ({ ...v, x: pan.vx + e.evt.clientX - pan.x, y: pan.vy + e.evt.clientY - pan.y }));
+        return;
+      }
+      if (marqueeRef.current) {
+        const p = getCanvasPos();
+        setMarquee((m) => (m ? { ...m, x1: p.x, y1: p.y } : m));
+        return;
+      }
       if (state.activeTool !== 'wall') return;
       const wds = wallDrawStartRef.current;
       const snap = wallDrawPoint(getCanvasPos(), wds, e.evt.shiftKey);
@@ -432,6 +507,12 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
 
   const handleStageClick = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (swallowClickRef.current) {
+        swallowClickRef.current = false;
+        return;
+      }
+      // The right button opens a cabinet's panel; the middle one pans.
+      if (e.evt.button !== undefined && e.evt.button !== 0) return;
       // Clicking empty canvas deselects, unless a tool is actively placing something.
       const clickedOnEmpty = e.target === e.target.getStage();
       const pos = getCanvasPos();
@@ -555,13 +636,20 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     (degrees: number) => {
       const picked = cabinets.filter((c) => selectedIds.has(c.id));
       const pickedApps = appliances.filter((a) => selectedIds.has(a.id) && !a.host_id);
+      const pickedWalls = walls.filter((w) => selectedIds.has(w.id));
       if (picked.length + pickedApps.length === 0 || degrees === 0) return;
-      const turned = turnCabinets([...picked, ...pickedApps], degrees);
+      const turned = turnGroup([...picked, ...pickedApps], pickedWalls, degrees);
       const isApp = new Set(pickedApps.map((a) => a.id));
-      if (picked.length > 0) updateCabinets(turned.filter((t) => !isApp.has(t.id)));
-      if (pickedApps.length > 0) updateAppliances(turned.filter((t) => isApp.has(t.id)));
+      const turnedWalls = new Map(turned.walls.map((w) => [w.id, w]));
+      const after = walls.map((w) => turnedWalls.get(w.id) ?? w);
+      const joined = keepWallsJoined(walls, after, new Set(turnedWalls.keys()), scalePixelsPerFoot);
+      updateElements({
+        cabinets: turned.placed.filter((t) => !isApp.has(t.id)),
+        appliances: turned.placed.filter((t) => isApp.has(t.id)),
+        walls: joined.filter((w, i) => w !== walls[i]),
+      });
     },
-    [cabinets, appliances, selectedIds, updateCabinets, updateAppliances]
+    [cabinets, appliances, walls, selectedIds, scalePixelsPerFoot, updateElements]
   );
   // The selection's angle, -180..180 (0 = backed to the top of the screen),
   // or null when the selected cabinets and free-standing appliances are turned different ways.
@@ -603,6 +691,10 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     };
   }, [cabinets, scalePixelsPerFoot, islandSeatingIn]);
 
+  // The right-click panel: the cabinet it edits, and where it opened in the plan's frame.
+  const [editPanel, setEditPanel] = useState<{ id: string; left: number; top: number } | null>(null);
+  const closeEditPanel = useCallback(() => setEditPanel(null), []);
+
   // Cancel an in-progress wall chain, and undo/redo/delete shortcuts —
   // only while this tab is the one on screen.
   useEffect(() => {
@@ -611,9 +703,16 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
+      // Space held pans the view by dragging (and keeps the page from scrolling).
+      if (e.key === ' ') {
+        e.preventDefault();
+        setSpaceHeld(true);
+        return;
+      }
       if (e.key === 'Escape') {
         // Deselecting turns the pickers back to adding cabinets.
-        if (wallDrawStartRef.current) stopWallChain();
+        if (editPanel) closeEditPanel();
+        else if (wallDrawStartRef.current) stopWallChain();
         else deselect();
         return;
       }
@@ -634,29 +733,135 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         turnSelected(e.shiftKey ? -90 : 90);
       }
     };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') setSpaceHeld(false);
+    };
+    const release = () => setSpaceHeld(false);
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [active, view, undo, redo, deletableIds.length, deleteSelected, stopWallChain, deselect, turnSelected]);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', release);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', release);
+    };
+  }, [active, view, undo, redo, deletableIds.length, deleteSelected, stopWallChain, deselect, turnSelected, editPanel, closeEditPanel]);
 
+  // Picking a cabinet of the island picks the whole island, which moves and
+  // turns as one piece; `single` (double-click or Alt+click) picks just the one.
   const handleSelect = useCallback(
-    (elementType: 'wall' | 'cabinet' | 'appliance') => (id: string, ctrlKey?: boolean) => {
-      if (ctrlKey) toggleSelectElement({ element_id: id, element_type: elementType });
-      else selectElement({ element_id: id, element_type: elementType });
+    (elementType: 'wall' | 'cabinet' | 'appliance') => (id: string, ctrlKey?: boolean, single?: boolean) => {
+      const ids = elementType === 'cabinet' && !single ? withIslandGroup([id], cabinets) : [id];
+      const as = (eid: string) => ({ element_id: eid, element_type: elementType });
+      if (ids.length === 1) {
+        if (ctrlKey) toggleSelectElement(as(id));
+        else selectElement(as(id));
+        return;
+      }
+      if (!ctrlKey) {
+        selectElements(ids.map(as));
+        return;
+      }
+      // Ctrl on a group already in the selection takes the group out, else adds it.
+      if (ids.every((eid) => selectedIds.has(eid))) {
+        selectElements(state.selections.filter((s) => !ids.includes(s.element_id)));
+      } else {
+        selectElements(ids.map(as), true);
+      }
     },
-    [selectElement, toggleSelectElement]
+    [cabinets, selectedIds, state.selections, selectElement, selectElements, toggleSelectElement]
+  );
+
+  // ------------------------------------------------------------------
+  // Moving several at once. Dragging one of a selection — or any cabinet
+  // of the island — carries the rest along live; on the drop they all
+  // move by the same amount, and the walls joined to moved walls follow.
+  // ------------------------------------------------------------------
+  const dragGroupRef = useRef<{ leadId: string; ids: string[]; start: Map<string, { x: number; y: number }> } | null>(null);
+  const movable = useCallback(
+    (id: string) =>
+      cabinets.some((c) => c.id === id) || walls.some((w) => w.id === id) || appliances.some((a) => a.id === id && !a.host_id),
+    [cabinets, walls, appliances]
+  );
+  const sketchNodes = useCallback((ids: string[]) => {
+    const stage = stageRef.current;
+    const want = new Set(ids);
+    return stage ? stage.find('.sketch-item').filter((n) => want.has(n.id())) : [];
+  }, []);
+
+  const handleStageDragStart = useCallback(
+    (e: Konva.KonvaEventObject<DragEvent>) => {
+      dragGroupRef.current = null;
+      const node = e.target;
+      const id = node.id();
+      if (node === node.getStage() || !id) return;
+      let ids: string[] = [];
+      if (selectedIds.has(id) && selectedIds.size > 1) {
+        ids = Array.from(selectedIds).filter(movable);
+      } else if (!selectedIds.has(id)) {
+        const island = withIslandGroup([id], cabinets);
+        if (island.length > 1) {
+          ids = island;
+          selectElements(island.map((eid) => ({ element_id: eid, element_type: 'cabinet' as const })));
+        }
+      }
+      if (ids.length < 2) return;
+      setEditPanel(null);
+      const start = new Map(sketchNodes(ids).map((n) => [n.id(), { x: n.x(), y: n.y() }]));
+      dragGroupRef.current = { leadId: id, ids, start };
+    },
+    [selectedIds, movable, cabinets, selectElements, sketchNodes]
+  );
+
+  const handleStageDragMove = useCallback(
+    (e: Konva.KonvaEventObject<DragEvent>) => {
+      const group = dragGroupRef.current;
+      if (!group || e.target.id() !== group.leadId) return;
+      const lead = group.start.get(group.leadId);
+      if (!lead) return;
+      const dx = e.target.x() - lead.x;
+      const dy = e.target.y() - lead.y;
+      for (const n of sketchNodes(group.ids)) {
+        if (n.id() === group.leadId) continue;
+        const s = group.start.get(n.id());
+        if (s) n.position({ x: s.x + dx, y: s.y + dy });
+      }
+    },
+    [sketchNodes]
+  );
+
+  /** Ends a group drag led by `id`, moved by (dx, dy); false when `id` wasn't leading one. */
+  const finishGroupDrag = useCallback(
+    (id: string, dx: number, dy: number): boolean => {
+      const group = dragGroupRef.current;
+      if (!group || group.leadId !== id) return false;
+      dragGroupRef.current = null;
+      const ids = new Set(group.ids);
+      // Walls are drawn at their points; the shift Konva gave their nodes comes off.
+      for (const n of sketchNodes(group.ids)) {
+        if (walls.some((w) => w.id === n.id())) n.position({ x: 0, y: 0 });
+      }
+      const moved = moveWallsJoined(walls, new Set(walls.filter((w) => ids.has(w.id)).map((w) => w.id)), dx, dy, scalePixelsPerFoot);
+      updateElements({
+        cabinets: cabinets.filter((c) => ids.has(c.id)).map((c) => ({ id: c.id, x: c.x + dx, y: c.y + dy })),
+        appliances: appliances
+          .filter((a) => ids.has(a.id) && !a.host_id)
+          .map((a) => ({ id: a.id, x: a.x + dx, y: a.y + dy })),
+        walls: moved.filter((w, i) => w !== walls[i]),
+      });
+      return true;
+    },
+    [walls, cabinets, appliances, scalePixelsPerFoot, sketchNodes, updateElements]
   );
 
   const handleCabinetDragEnd = useCallback(
     (id: string, x: number, y: number) => {
-      if (selectedIds.size > 1 && selectedIds.has(id)) {
-        batchMoveSelected(id, x, y);
-        return;
-      }
       const cabinet = cabinets.find((c) => c.id === id);
+      if (cabinet && finishGroupDrag(id, x - cabinet.x, y - cabinet.y)) return;
       const snapped = cabinet ? snapDroppedCabinet({ ...cabinet, x, y }, neighbors, walls, scalePixelsPerFoot) : null;
       updateCabinet(snapped ? { id, ...snapped } : { id, x, y });
     },
-    [selectedIds, cabinets, neighbors, walls, scalePixelsPerFoot, batchMoveSelected, updateCabinet]
+    [cabinets, neighbors, walls, scalePixelsPerFoot, finishGroupDrag, updateCabinet]
   );
 
   // A free-standing appliance dropped into the cabinet that holds it goes in it; else it lines up like a cabinet.
@@ -664,10 +869,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     (id: string, x: number, y: number) => {
       const appliance = appliances.find((a) => a.id === id);
       if (!appliance) return;
+      if (finishGroupDrag(id, x - appliance.x, y - appliance.y)) return;
       const placed = placeDroppedAppliance({ ...appliance, x, y }, appliances, cabinets, walls, CABINET_PRESETS, scalePixelsPerFoot);
       updateAppliances([{ id, ...placed }]);
     },
-    [appliances, cabinets, walls, scalePixelsPerFoot, updateAppliances]
+    [appliances, cabinets, walls, scalePixelsPerFoot, finishGroupDrag, updateAppliances]
   );
 
   const handleApplianceTransformEnd = useCallback(
@@ -680,11 +886,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   // shape out from under the pointer.
   const handleCabinetDragSnap = useCallback(
     (id: string, x: number, y: number) => {
-      if (selectedIds.size > 1 && selectedIds.has(id)) return null;
+      if (dragGroupRef.current?.ids.includes(id)) return null;
       const cabinet = cabinets.find((c) => c.id === id);
       return cabinet ? snapCabinetToNeighbors({ ...cabinet, x, y }, neighbors, scalePixelsPerFoot) : null;
     },
-    [selectedIds, cabinets, neighbors, scalePixelsPerFoot]
+    [cabinets, neighbors, scalePixelsPerFoot]
   );
 
   const handleCabinetTransformEnd = useCallback(
@@ -696,35 +902,76 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
 
   const handleWallEndpointDrag = useCallback(
     (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => {
-      const pt = snapToWall({ x, y }, walls, WALL_SNAP_THRESHOLD, { excludeId: wallId }).point;
-      const wall = walls.find((w) => w.id === wallId);
-      if (!wall) return;
-      const otherX = endpoint === 'start' ? wall.end_x : wall.start_x;
-      const otherY = endpoint === 'start' ? wall.end_y : wall.start_y;
-      const newLength = pixelsToFeet(Math.hypot(pt.x - otherX, pt.y - otherY), scalePixelsPerFoot);
-      updateWall({
-        id: wallId,
-        ...(endpoint === 'start' ? { start_x: pt.x, start_y: pt.y } : { end_x: pt.x, end_y: pt.y }),
-        length_ft: newLength,
-      });
+      // Dropped on another wall's end or anywhere along it, the end joins it there.
+      // Walls already meeting this end move with it, so it can't snap back onto them.
+      const meeting = new Set(wallsMeetingEnd(walls, wallId, endpoint));
+      const others = walls.filter((w) => !meeting.has(w.id));
+      const pt = snapToWall({ x, y }, others, WALL_SNAP_THRESHOLD, { excludeId: wallId }).point;
+      const next = moveWallEndJoined(walls, wallId, endpoint, pt, scalePixelsPerFoot);
+      updateElements({ walls: next.filter((w, i) => w !== walls[i]) });
     },
-    [walls, scalePixelsPerFoot, updateWall]
+    [walls, scalePixelsPerFoot, updateElements]
   );
 
+  // A wall dragged on its own takes the walls joined to it along; one of a selection moves the selection.
   const handleWallDragEnd = useCallback(
     (wallId: string, dx: number, dy: number) => {
-      const wall = walls.find((w) => w.id === wallId);
-      if (!wall) return;
-      updateWall({
-        id: wallId,
-        start_x: wall.start_x + dx,
-        start_y: wall.start_y + dy,
-        end_x: wall.end_x + dx,
-        end_y: wall.end_y + dy,
-      });
+      if (finishGroupDrag(wallId, dx, dy)) return;
+      const next = moveWallsJoined(walls, new Set([wallId]), dx, dy, scalePixelsPerFoot);
+      updateElements({ walls: next.filter((w, i) => w !== walls[i]) });
     },
-    [walls, updateWall]
+    [walls, scalePixelsPerFoot, finishGroupDrag, updateElements]
   );
+
+  // ------------------------------------------------------------------
+  // Turning several at once by one handle round them all.
+  // ------------------------------------------------------------------
+  const groupTrRef = useRef<Konva.Transformer>(null);
+  const groupIds = useMemo(() => Array.from(selectedIds).filter(movable), [selectedIds, movable]);
+  const multi = groupIds.length > 1;
+  useEffect(() => {
+    const tr = groupTrRef.current;
+    if (!tr) return;
+    tr.nodes(multi && view === 'plan' ? sketchNodes(groupIds) : []);
+    tr.getLayer()?.batchDraw();
+  }, [multi, groupIds, view, sketchNodes, cabinets, walls, appliances]);
+
+  const handleGroupTransform = useCallback((e: Konva.KonvaEventObject<Event>) => {
+    const tr = groupTrRef.current;
+    if (!tr) return;
+    const shift = !!(e.evt as MouseEvent)?.shiftKey;
+    if (shift !== tr.rotationSnaps().length > 0) tr.rotationSnaps(shift ? ROTATION_SNAP_ANGLES : []);
+  }, []);
+
+  const handleGroupTransformEnd = useCallback(() => {
+    const tr = groupTrRef.current;
+    if (!tr) return;
+    tr.rotationSnaps([]);
+    const tidy = (deg: number) => Math.round(((((deg % 360) + 360) % 360) * 100)) / 100;
+    const cabPatches: { id: string; x: number; y: number; rotation: number }[] = [];
+    const appPatches: { id: string; x: number; y: number; rotation: number }[] = [];
+    const turnedWalls = new Map<string, CabinetSketchWall>();
+    for (const n of tr.nodes()) {
+      const id = n.id();
+      const wall = walls.find((w) => w.id === id);
+      if (wall) {
+        // A wall node carries its points; fold the turn into them and set the node back.
+        const t = n.getTransform();
+        const s = t.point({ x: wall.start_x, y: wall.start_y });
+        const e = t.point({ x: wall.end_x, y: wall.end_y });
+        turnedWalls.set(id, { ...wall, start_x: s.x, start_y: s.y, end_x: e.x, end_y: e.y });
+        n.position({ x: 0, y: 0 });
+        n.rotation(0);
+        continue;
+      }
+      const pose = { id, x: n.x(), y: n.y(), rotation: tidy(n.rotation()) };
+      if (cabinets.some((c) => c.id === id)) cabPatches.push(pose);
+      else appPatches.push(pose);
+    }
+    const after = walls.map((w) => turnedWalls.get(w.id) ?? w);
+    const joined = keepWallsJoined(walls, after, new Set(turnedWalls.keys()), scalePixelsPerFoot);
+    updateElements({ cabinets: cabPatches, appliances: appPatches, walls: joined.filter((w, i) => w !== walls[i]) });
+  }, [walls, cabinets, scalePixelsPerFoot, updateElements]);
 
   // Cabinet catalog, one select per section with CabinetBoxEditor's groups
   // (Specialty, Oven, …) and its Upper height, listed by name only — the
@@ -852,34 +1099,86 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       appliance={a}
       isSelected={selectedIds.has(a.id)}
       zoom={viewport.zoom}
+      handles={!multi}
       onSelect={handleSelect('appliance')}
       onDragEnd={handleApplianceDragEnd}
       onTransformEnd={handleApplianceTransformEnd}
     />
   );
 
-  // Switch a cabinet to another code from its picker. It keeps its place
-  // (back-left corner, rotation, corner side, glass) and takes the new size.
-  const changeCabinet = (cabinet: CabinetSketchCabinet, code: string) => {
-    const preset = CABINET_PRESETS[code];
-    if (!preset || code === cabinet.preset_code) return;
-    const depthIn = footprintDepthIn(preset.cab_type, preset.specialty, preset.width);
+  // The Edit-tab box a cabinet stands for, as the sketch knows it.
+  const boxOf = (cabinet: CabinetSketchCabinet): BoxFields => {
+    const preset = CABINET_PRESETS[cabinet.preset_code];
+    const { width, height } = cabinetSizeIn(cabinet, CABINET_PRESETS, scalePixelsPerFoot);
+    return {
+      code: cabinet.preset_code,
+      cab_type: cabinet.cab_type,
+      width_inches: width,
+      height_inches: height,
+      is_specialty: !!preset?.specialty,
+      specialty_type: preset?.specialty ?? null,
+      has_glass_door: !!cabinet.has_glass_door,
+      door_pattern: cabinet.door_pattern ?? null,
+    };
+  };
+
+  // Change a cabinet — another code, a custom size, glass, a door pattern —
+  // from its picker or its right-click panel. It keeps its place (back-left
+  // corner, rotation, corner side) and takes the new size.
+  const editCabinet = (cabinet: CabinetSketchCabinet, change: BoxChange) => {
+    const before = boxOf(cabinet);
+    const box = changedBox(before, change, CABINET_PRESETS);
+    if (
+      box.code === before.code &&
+      box.width_inches === before.width_inches &&
+      box.height_inches === before.height_inches &&
+      box.has_glass_door === before.has_glass_door &&
+      box.door_pattern === before.door_pattern
+    ) {
+      return;
+    }
+    const depthIn = footprintDepthIn(box.cab_type, box.specialty_type, box.width_inches);
     const key = cabinetKey(cabinet, CABINET_PRESETS, scalePixelsPerFoot);
     // Same event as the parent's box change, so the sync sees both together
-    // and the shape stays matched to its (changed) box.
+    // and the shape stays matched to its (changed) box. Glass and pattern are
+    // left off a plain cabinet, as the sync leaves them.
     updateCabinet({
       id: cabinet.id,
-      preset_code: code,
-      cab_type: preset.cab_type,
-      label: code,
-      width_in: preset.width,
+      preset_code: box.code,
+      cab_type: box.cab_type,
+      label: box.code === 'CUSTOM' ? `${Math.round(box.width_inches * 100) / 100}"` : box.code,
+      width_in: box.width_inches,
       depth_in: depthIn,
-      height_in: preset.height,
-      width: inToPx(preset.width, scalePixelsPerFoot),
+      height_in: box.height_inches,
+      width: inToPx(box.width_inches, scalePixelsPerFoot),
       height: inToPx(depthIn, scalePixelsPerFoot),
+      has_glass_door: box.has_glass_door ? true : undefined,
+      door_pattern: box.door_pattern || undefined,
     });
-    onCabinetChanged?.(key, code);
+    onCabinetEdited?.(key, box);
   };
+  const changeCabinet = (cabinet: CabinetSketchCabinet, code: string) => editCabinet(cabinet, { code });
+
+  // Right-click on a cabinet: pick just it and open its panel there, kept inside the plan.
+  const handleCabinetContextMenu = useCallback(
+    (id: string, clientX: number, clientY: number) => {
+      const el = containerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      selectElement({ element_id: id, element_type: 'cabinet' });
+      setEditPanel({
+        id,
+        left: Math.max(8, Math.min(clientX - r.left + 8, r.width - EDIT_PANEL_WIDTH - 8)),
+        top: Math.max(8, Math.min(clientY - r.top + 8, CANVAS_HEIGHT - 230)),
+      });
+    },
+    [selectElement]
+  );
+  const editedCabinet = editPanel ? cabinets.find((c) => c.id === editPanel.id) : undefined;
+  // The panel goes with its cabinet: deleted, undone or the view changed, it closes.
+  useEffect(() => {
+    if (editPanel && (!editedCabinet || view !== 'plan')) setEditPanel(null);
+  }, [editPanel, editedCabinet, view]);
 
   if (isLoading) {
     return <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>Loading sketch…</div>;
@@ -1220,7 +1519,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       {view === 'plan' ? (
         <div
           ref={containerRef}
-          style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#fafafa' }}
+          style={{ position: 'relative', border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#fafafa' }}
         >
           <Stage
             ref={stageRef}
@@ -1228,15 +1527,31 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             height={CANVAS_HEIGHT}
             onClick={handleStageClick}
             onTap={handleStageClick}
+            onMouseDown={(e) => {
+              // A click anywhere on the plan closes the right-click panel.
+              if (e.evt.button !== 2) setEditPanel(null);
+              handleStageMouseDown(e);
+            }}
             onMouseMove={handleStageMouseMove}
+            onContextMenu={(e) => e.evt.preventDefault()}
             onWheel={handleWheel}
             scaleX={viewport.zoom}
             scaleY={viewport.zoom}
             x={viewport.x}
             y={viewport.y}
-            draggable={state.activeTool === 'select'}
+            // Dragging empty canvas draws a selection box; Space + drag pans.
+            draggable={state.activeTool === 'select' && spaceHeld}
+            onDragStart={handleStageDragStart}
+            onDragMove={handleStageDragMove}
             onDragEnd={handleStageDragEnd}
-            style={{ cursor: state.activeTool === 'wall' || state.activeTool === 'place_cabinet' ? 'crosshair' : 'default' }}
+            style={{
+              cursor:
+                state.activeTool === 'wall' || state.activeTool === 'place_cabinet'
+                  ? 'crosshair'
+                  : spaceHeld
+                    ? 'grab'
+                    : 'default',
+            }}
           >
             {showGrid && (
               <CabinetGridLayer
@@ -1322,6 +1637,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     onDragEnd={handleCabinetDragEnd}
                     onDragSnap={handleCabinetDragSnap}
                     onTransformEnd={handleCabinetTransformEnd}
+                    onContextMenu={handleCabinetContextMenu}
+                    handles={!multi}
                     zoom={viewport.zoom}
                     corner={cornerShapes.get(cabinet.id)}
                   />
@@ -1341,13 +1658,58 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     onDragEnd={handleCabinetDragEnd}
                     onDragSnap={handleCabinetDragSnap}
                     onTransformEnd={handleCabinetTransformEnd}
+                    onContextMenu={handleCabinetContextMenu}
+                    handles={!multi}
                     zoom={viewport.zoom}
                     corner={cornerShapes.get(cabinet.id)}
                   />
                 ))}
               {appliances.filter(isHung).map(applianceShape)}
+              {/* Several selected turn together by one handle round them all. */}
+              <Transformer
+                ref={groupTrRef}
+                rotateEnabled
+                resizeEnabled={false}
+                rotateAnchorOffset={ROTATE_ANCHOR_OFFSET}
+                anchorSize={ANCHOR_SIZE}
+                borderStroke="#1890ff"
+                borderDash={[3, 3]}
+                anchorStroke="#1890ff"
+                onTransform={handleGroupTransform}
+                onTransformEnd={handleGroupTransformEnd}
+              />
+              {marquee && (
+                <Rect
+                  x={Math.min(marquee.x0, marquee.x1)}
+                  y={Math.min(marquee.y0, marquee.y1)}
+                  width={Math.abs(marquee.x1 - marquee.x0)}
+                  height={Math.abs(marquee.y1 - marquee.y0)}
+                  fill="rgba(24, 144, 255, 0.08)"
+                  stroke="#1890ff"
+                  strokeWidth={1}
+                  dash={[4, 3]}
+                  strokeScaleEnabled={false}
+                  listening={false}
+                />
+              )}
             </Layer>
           </Stage>
+          {editPanel && editedCabinet && (
+            <CabinetEditPanel
+              box={boxOf(editedCabinet)}
+              label={`${editedCabinet.label || editedCabinet.preset_code}${
+                CABINET_PRESETS[editedCabinet.preset_code] ? ` — ${CABINET_PRESETS[editedCabinet.preset_code].label}` : ''
+              }`}
+              catalog={CABINET_PRESETS}
+              cabinetOptions={presetOptions[sectionOf(editedCabinet)]}
+              rowQty={
+                boxes.find((b) => boxKey(b) === cabinetKey(editedCabinet, CABINET_PRESETS, scalePixelsPerFoot))?.qty ?? 1
+              }
+              onChange={(change) => editCabinet(editedCabinet, change)}
+              onClose={closeEditPanel}
+              style={{ left: editPanel.left, top: editPanel.top }}
+            />
+          )}
         </div>
       ) : view === '3d' ? null : (
         <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#ffffff' }}>
@@ -1412,7 +1774,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it), and turn a selected one by its handle, the angle box or R; the dark edge is its front. Sizes, glass and door patterns come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Drag across empty canvas to select everything the box touches, or Ctrl+click to add one; several selected move together and turn together by the handle round them, R or the angle box. The island moves as one piece: a click on any of its cabinets picks it all, a double-click or Alt+click just that cabinet, and Ctrl+Alt+click adds one more. Space + drag or the middle mouse button pans. Right-click a cabinet to change it there — cabinet, specialty, width, height, door and glass — which changes its row on the Edit tab. Walls that meet stay joined: moving a wall or a wall end brings the walls joined to it along. For an angled island, pick the cabinets of one side that way, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it); the dark edge is its front.'
             : view === '3d'
               ? 'The plan in 3D, at real sizes, with the detach & reset appliances in place. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top. Realistic draws the kitchen in the finishes picked beside it (saved with the sketch, not priced; None under Hardware for fronts with no knobs or pulls); walls between you and the room are left out. Crown molding tops the uppers and talls when Crown Molding is ticked in the Edit tab. With Ray-traced light on, the picture sharpens toward a photo a few seconds after the view stops moving (it needs about a minute to get ready when the 3D view first opens).'
               : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}

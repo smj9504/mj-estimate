@@ -198,6 +198,21 @@ def test_lattice_band_costs_more_and_counts_the_doors_it_covers():
     assert set(DOOR_PATTERN_PREMIUM) == set(DOOR_PATTERN_LABELS)
 
 
+def test_mullions_are_billed_per_door_with_the_glass_on_its_own_line():
+    box = BoxInput(
+        code="W3042", cab_type="wall", location="perimeter", width_inches=30, height_inches=42,
+        is_specialty=False, specialty_type=None, has_glass_door=True, qty=1, door_pattern="mullion",
+    )
+    result = _estimate([box])
+    line = _line(result, "Glass Mullion Door")
+    assert line.description == "Glass Mullion Door - W3042"
+    assert (line.quantity, line.unit_price) == (2, DOOR_PATTERN_PREMIUM["lattice"]["Stock"])
+    assert line.notes.endswith("glass not included")
+    # The glass insert is its own line, as for any glass box.
+    assert _line(result, "Glass Door - W3042").quantity == 1
+    assert DOOR_PATTERN_LABELS["mullion"] == "Glass Mullion"
+
+
 def test_a_three_door_corner_with_lattice_pays_for_all_three_doors():
     box = _box("WTD3642", "wall", 36, 42, "three_door_corner_wall", pattern="lattice")
     assert _line(_estimate([box]), "Diamond Lattice Door").quantity == 3
