@@ -103,6 +103,9 @@ import {
   reconcileAppliances,
 } from './sketchAppliances';
 import { TRIM_FIELDS, TRIM_FIELD_LABELS, takeoffTrim, type TrimCounts } from './cabinetTrimTakeoff';
+import { applianceSolids, cabinetSolids, wallSolids } from './cabinet3dModel';
+import { backsplashLayout, splashOnRun, splashPieces, type BacksplashSpec, type SplashSpan } from './cabinetBacksplash';
+import { pxToIn } from './cabinetSketchLayout';
 import { lazyWithRetry } from '../../../utils/lazyWithRetry';
 
 // three.js is big; it's only fetched once the 3D view is opened.
@@ -230,6 +233,14 @@ export interface CabinetSketchEditorProps {
   crownMolding?: boolean;
   /** The Edit tab's door style is arched: every view draws the doors so. */
   archedDoors?: boolean;
+  /** The Edit tab's backsplashes (tile and its height, the 4" countertop one): the plan, Front and 3D views draw them. */
+  backsplash?: BacksplashSpec | null;
+  /**
+   * "Use in estimate" on the plan's backsplash count: the tile's length and
+   * the 4" countertop backsplash's, LF — for the Edit tab's Backsplash area
+   * and Countertop Backsplash length.
+   */
+  onApplyBacksplash?: (lf: { tile: number; counter: number }) => void;
 }
 
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
@@ -250,6 +261,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   products = null,
   crownMolding = false,
   archedDoors = false,
+  backsplash = null,
+  onApplyBacksplash,
 }) => {
   const queryClient = useQueryClient();
   const stageRef = useRef<Konva.Stage>(null);
@@ -1136,6 +1149,53 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     [cabinets, walls, scalePixelsPerFoot]
   );
 
+  // The backsplash the plan calls for (cabinetBacksplash.ts): what the 3D
+  // and Front views draw, measured for the Edit tab, and each run's share.
+  const splashLayout = useMemo(() => {
+    const wallModels = wallSolids(walls, scalePixelsPerFoot);
+    const solids = cabinetSolids(cabinets, CABINET_PRESETS, scalePixelsPerFoot);
+    const apps = applianceSolids(appliances, cabinets, CABINET_PRESETS, scalePixelsPerFoot);
+    return backsplashLayout(splashPieces(solids, apps, wallModels), wallModels);
+  }, [cabinets, appliances, walls, scalePixelsPerFoot]);
+  const splashByRun = useMemo(() => {
+    const toIn = (px: number) => pxToIn(px, scalePixelsPerFoot);
+    return new Map(elevations.map((r) => [r.key, splashOnRun(r, splashLayout, toIn)]));
+  }, [elevations, splashLayout, scalePixelsPerFoot]);
+  // Each wall face with backsplash, named for the run whose backs (or end) it is behind.
+  const splashFaces = useMemo(() => {
+    const runOf = new Map<string, string>();
+    for (const r of elevations) for (const i of r.items) runOf.set(i.cabinet.id, r.label);
+    return splashLayout.faces.map((f) => {
+      const run = f.ownerIds.map((id) => runOf.get(id)).find(Boolean);
+      const label = run ? (f.back ? run : `${run}: its end, on the side wall`) : 'Behind an appliance';
+      return { ...f, label };
+    });
+  }, [elevations, splashLayout]);
+  const splashTileLf = Math.round((splashLayout.tileIn / 12) * 10) / 10;
+  const splashCounterLf = Math.round((splashLayout.counterIn / 12) * 10) / 10;
+  // The plan shows the backsplash the Edit tab has, and all of it while its count is open.
+  const [splashCountOpen, setSplashCountOpen] = useState(false);
+  const planTile = splashCountOpen || backsplash?.tileIn != null;
+  const planCounter = splashCountOpen || !!backsplash?.counter;
+  /** A stretch of backsplash on the plan, `inIn` inches in from the wall face. */
+  const splashLine = (s: SplashSpan, inIn: number, stroke: string, key: string) => {
+    const at = ([x, z]: [number, number]) => [
+      inToPx(x + s.normal[0] * inIn, scalePixelsPerFoot),
+      inToPx(z + s.normal[1] * inIn, scalePixelsPerFoot),
+    ];
+    return (
+      <Line
+        key={key}
+        points={[...at(s.a), ...at(s.b)]}
+        stroke={stroke}
+        strokeWidth={3}
+        strokeScaleEnabled={false}
+        opacity={0.9}
+        listening={false}
+      />
+    );
+  };
+
   // Corner units (lazy susan, blind, diagonal, easy-reach) draw their own footprint.
   const cornerShapes = useMemo(() => {
     const out = new Map<string, NonNullable<ReturnType<typeof cornerFootprint>>>();
@@ -1525,6 +1585,57 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 </Tag>
               </Popover>
             )}
+            {splashLayout.tileIn > 0 && (
+              <Popover
+                title="Backsplash in this plan"
+                onOpenChange={setSplashCountOpen}
+                content={
+                  <div style={{ maxWidth: 440, fontSize: 12 }}>
+                    {walls.length === 0 && (
+                      <div style={{ color: '#d46b08', marginBottom: 6 }}>
+                        No walls drawn yet — every base&apos;s back counts as on a wall. Draw the walls first.
+                      </div>
+                    )}
+                    <div>
+                      <strong>Tile backsplash: {splashTileLf} LF</strong>
+                      {backsplash?.tileIn != null &&
+                        ` × ${backsplash.tileIn}" = ${Math.round(((splashTileLf * backsplash.tileIn) / 12) * 10) / 10} SF`}
+                    </div>
+                    <div style={{ marginBottom: 4 }}>
+                      <strong>4&quot; countertop backsplash: {splashCounterLf} LF</strong>
+                    </div>
+                    {splashFaces.map((f) => (
+                      <div key={f.key} style={{ paddingLeft: 10, color: '#595959' }}>
+                        {f.label} — tile {Math.round((f.tileIn / 12) * 10) / 10} LF, 4&quot;{' '}
+                        {Math.round((f.counterIn / 12) * 10) / 10} LF
+                      </div>
+                    ))}
+                    <div style={{ marginTop: 6, color: '#8c8c8c' }}>
+                      Measured where a perimeter counter meets a drawn wall — the bases&apos; backs, a corner&apos;s
+                      side leg, a run&apos;s end against a side wall — and behind a dishwasher; the tile runs on
+                      behind a range, the 4&quot; one doesn&apos;t. Island cabinets take none. Shown on the plan in
+                      teal (tile) and gray (4&quot;) while this is open. Use in estimate sets the Edit tab&apos;s
+                      Backsplash area (this length × its height) and 4&quot; Countertop Backsplash length; tick them
+                      there to price them.
+                    </div>
+                  </div>
+                }
+              >
+                <Tag color="cyan" style={{ marginInlineEnd: 0 }}>
+                  Backsplash: {splashTileLf} LF
+                  {onApplyBacksplash && (
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ paddingInline: 4, height: 'auto' }}
+                      onClick={() => onApplyBacksplash({ tile: splashTileLf, counter: splashCounterLf })}
+                    >
+                      Use in estimate
+                    </Button>
+                  )}
+                </Tag>
+              </Popover>
+            )}
             {appliances.length > 0 && (
               <Tooltip
                 title={`The Edit tab's Appliance Detach & Reset list: ${appliances
@@ -1741,6 +1852,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     corner={cornerShapes.get(cabinet.id)}
                   />
                 ))}
+              {/* The backsplash along the walls, just inside the counter's back edge: tile (teal), 4" countertop (gray). */}
+              {splashLayout.faces.flatMap((f) => [
+                ...(planTile ? f.tile : []).map((s, k) => splashLine(s, 5, '#13a8a8', `t-${f.key}-${k}`)),
+                ...(planCounter ? f.counter : []).map((s, k) => splashLine(s, 2, '#6f6d68', `c-${f.key}-${k}`)),
+              ])}
               {appliances.filter(isHung).map(applianceShape)}
               {walls.filter((wall) => selectedIds.has(wall.id)).map(wallShape)}
               {/* Several selected turn together by one handle round them all. */}
@@ -1796,6 +1912,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             selectedIds={selectedIds}
             crownMolding={crownMolding}
             archedDoors={drawnArched}
+            backsplash={backsplash}
+            splash={currentRun ? splashByRun.get(currentRun.key) : null}
           />
         </div>
       )}
@@ -1831,6 +1949,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               surfaces={realistic ? look.surfaces : null}
               crownMolding={crownMolding}
               archedDoors={drawnArched}
+              backsplash={backsplash}
               active={view === '3d'}
               selectedIds={selectedIds}
               onSelect={handleSelect('cabinet')}

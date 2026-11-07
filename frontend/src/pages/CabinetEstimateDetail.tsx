@@ -191,6 +191,15 @@ const CabinetEstimateDetail: React.FC = () => {
   const sinkType: string | undefined = Form.useWatch('sink_type', { form, preserve: true });
   const crownMolding: boolean = Form.useWatch('include_crown_molding', { form, preserve: true }) ?? false;
   const doorStyle: string | undefined = Form.useWatch('door_style', { form, preserve: true });
+  // The backsplashes the Sketch draws: the tile at its height, and the 4" countertop one (with the countertop).
+  const includeBacksplash: boolean = Form.useWatch('include_backsplash', { form, preserve: true }) ?? false;
+  const backsplashHeightIn: number = Form.useWatch('backsplash_height_inches', { form, preserve: true }) || 18;
+  const includeCountertop: boolean = Form.useWatch('include_countertop', { form, preserve: true }) ?? false;
+  const includeCtBacksplash: boolean = Form.useWatch('include_countertop_backsplash', { form, preserve: true }) ?? false;
+  const sketchBacksplash = useMemo(
+    () => ({ tileIn: includeBacksplash ? backsplashHeightIn : null, counter: includeCountertop && includeCtBacksplash }),
+    [includeBacksplash, backsplashHeightIn, includeCountertop, includeCtBacksplash]
+  );
   const sketchAppliances = useMemo(
     () => (includeApplianceRr ? applianceList ?? [] : []),
     [includeApplianceRr, applianceList]
@@ -1775,6 +1784,9 @@ const CabinetEstimateDetail: React.FC = () => {
                                         </Button>
                                       </Space>
                                     )}
+                                    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                                      Measured along the walls: Sketch tab → Backsplash → Use in estimate
+                                    </Text>
                                   </Col>
                                   <Col xs={12}>
                                     <Form.Item label="Unit Price">
@@ -1885,15 +1897,15 @@ const CabinetEstimateDetail: React.FC = () => {
                   }>
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_backsplash')) return null;
-                      const baseLf = allBoxes
+                      // Island bases take no backsplash.
+                      const baseLf = perimeterBoxes
                         .filter((b) => b.cab_type === 'base')
                         .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
                       const heightInches = getFieldValue('backsplash_height_inches') || 18;
-                      const computedSf = Math.round(baseLf * (heightInches / 12) * 10) / 10;
-                      // Sync computed SF to hidden form field
-                      const currentSf = getFieldValue('backsplash_sqft');
-                      if (computedSf > 0 && currentSf !== computedSf) {
-                        setTimeout(() => form.setFieldsValue({ backsplash_sqft: computedSf }), 0);
+                      const suggestedSf = Math.round(baseLf * (heightInches / 12) * 10) / 10;
+                      // Just ticked, no area yet: start from the perimeter bases' length.
+                      if (suggestedSf > 0 && getFieldValue('backsplash_sqft') == null) {
+                        setTimeout(() => form.setFieldsValue({ backsplash_sqft: suggestedSf }), 0);
                       }
                       return (
                         <div>
@@ -1921,20 +1933,31 @@ const CabinetEstimateDetail: React.FC = () => {
                               </Form.Item>
                             </Col>
                             <Col xs={12} md={8}>
-                              <div style={{ paddingTop: 30 }}>
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  Base LF: <Text strong style={{ fontSize: 12 }}>{baseLf.toFixed(1)}</Text>
-                                  {' × '}
-                                  {heightInches}"
-                                  {' = '}
-                                  <Text strong style={{ fontSize: 12 }}>{computedSf} SF</Text>
-                                </Text>
-                              </div>
+                              <Form.Item name="backsplash_sqft" label="Area (SF)" preserve style={{ marginBottom: 4 }}>
+                                <InputNumber min={0} max={1000} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
+                              </Form.Item>
                             </Col>
                           </Row>
-                          <Form.Item name="backsplash_sqft" hidden preserve>
-                            <InputNumber />
-                          </Form.Item>
+                          <Space size={4} wrap>
+                            {suggestedSf > 0 && (
+                              <>
+                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                  Perimeter Base LF({baseLf.toFixed(1)}) × {heightInches}&quot; =
+                                </Text>
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                  onClick={() => form.setFieldsValue({ backsplash_sqft: suggestedSf })}
+                                >
+                                  {suggestedSf} SF 적용
+                                </Button>
+                              </>
+                            )}
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              · measured along the walls: Sketch tab → Backsplash → Use in estimate
+                            </Text>
+                          </Space>
                         </div>
                       );
                     }}
@@ -2066,6 +2089,21 @@ const CabinetEstimateDetail: React.FC = () => {
               form.setFieldsValue(counts);
               const set = TRIM_FIELDS.map((f) => `${TRIM_FIELD_LABELS[f]} ${counts[f]}`).join(', ');
               message.success(`Trim & Finished Panels set on the Edit tab (${set}) — Save or Save & Calculate to price them`, 6);
+            }}
+            backsplash={sketchBacksplash}
+            onApplyBacksplash={({ tile, counter }) => {
+              const sf = Math.round(((tile * backsplashHeightIn) / 12) * 10) / 10;
+              form.setFieldsValue({ backsplash_sqft: sf, countertop_backsplash_lf: counter });
+              const unticked = [
+                !includeBacksplash && 'Backsplash',
+                !(includeCountertop && includeCtBacksplash) && '4" Countertop Backsplash',
+              ].filter(Boolean);
+              message.success(
+                `Backsplash ${sf} SF (${tile} LF × ${backsplashHeightIn}") and 4" Countertop Backsplash ${counter} LF set on the Edit tab — ${
+                  unticked.length ? `tick ${unticked.join(' and ')} there, then ` : ''
+                }Save or Save & Calculate to price them`,
+                6
+              );
             }}
             onCabinetPlaced={(code, cabType) => {
               const preset = CABINET_PRESETS[code];

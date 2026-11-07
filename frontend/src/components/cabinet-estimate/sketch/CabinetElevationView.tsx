@@ -7,14 +7,14 @@
  * the run reads from the front — door/drawer layout (glass doors from the
  * Edit tab's Glass box drawn as panes, its door patterns as a lattice, arched
  * panels when the job's doors are arched), upper mounting height, countertop
- * line and widths, and crown molding over the uppers and talls when the
- * estimate has it.
+ * line and widths, crown molding over the uppers and talls when the
+ * estimate has it, and its backsplashes (tile, 4" countertop) where they run.
  *
  * Plain SVG rather than Konva: nothing here is interactive, and SVG scales
  * crisply and prints/exports as-is.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ElevationItem, ElevationRun, PresetCatalog } from './cabinetSketchLayout';
 import {
   ARCH_MIN_DOOR_IN,
@@ -30,6 +30,8 @@ import {
   facesFor,
 } from './cabinetFronts';
 import type { Face } from './cabinetFronts';
+import { COUNTER_SPLASH_IN } from './cabinetBacksplash';
+import type { BacksplashSpec, RunSplash } from './cabinetBacksplash';
 
 /** Reference ceiling drawn behind the run (8 ft). */
 const CEILING_IN = 96;
@@ -44,6 +46,10 @@ const FACE_STROKE = '#A87B54';
 const FACE_FILL = '#FBF6EF';
 const APPLIANCE_FILL = '#d9d9d6';
 const COUNTER_FILL = '#8c8a85';
+/** The tile backsplash: 3x6 subway in running bond, as the 3D drawing look's colour. */
+const TILE_FILL = '#E6EEEC';
+const TILE_GROUT = '#b8c6c2';
+const TILE_STROKE = '#8fa6a0';
 const GLASS_FILL = '#DCEAF3';
 const GLASS_STROKE = '#7FA6C2';
 const LATTICE_BEHIND = '#6b645a';
@@ -73,6 +79,13 @@ export interface CabinetElevationViewProps {
   archedDoors?: boolean;
   /** Draw at this width, px, instead of the container's: for a picture of it. */
   fixedWidth?: number;
+  /**
+   * The Edit tab's backsplashes, and where they run behind this run
+   * (splashOnRun in cabinetBacksplash.ts): the tile from the counter up its
+   * height, the 4" countertop one at its foot.
+   */
+  backsplash?: BacksplashSpec | null;
+  splash?: RunSplash | null;
 }
 
 /** A stretch of crown: over cabinets side by side with the same top, and how far it returns at each end. */
@@ -113,7 +126,19 @@ function crownRuns(items: ElevationItem[], wall?: { left_in: number; right_in: n
   return runs;
 }
 
-const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, presets, height, selectedIds, crownMolding = false, archedDoors = false, fixedWidth }) => {
+const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({
+  run,
+  presets,
+  height,
+  selectedIds,
+  crownMolding = false,
+  archedDoors = false,
+  fixedWidth,
+  backsplash = null,
+  splash = null,
+}) => {
+  // The tile pattern's id, unique on the page (useId's colons don't belong in url(#…)).
+  const tileId = `tile${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const containerRef = useRef<HTMLDivElement>(null);
   const [measuredWidth, setWidth] = useState(900);
   const width = fixedWidth ?? measuredWidth;
@@ -157,6 +182,7 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
   const wallRight = run.wall ? run.wall.right_in : lengthIn;
   const lowers = run.items.filter((i) => i.bottom_in === 0);
   const uppers = run.items.filter((i) => i.bottom_in > 0);
+  const tileIn = backsplash?.tileIn ?? null;
 
   const renderItem = (item: ElevationItem) => {
     const c = item.cabinet;
@@ -338,6 +364,45 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
             fill={COUNTER_FILL}
           />
         ))}
+        {/* The backsplashes, under the uppers: the tile from the counter up, the 4" countertop one at its foot */}
+        {tileIn !== null && splash && splash.tile.length > 0 && (
+          <defs>
+            <pattern id={tileId} patternUnits="userSpaceOnUse" x={x(0)} y={y(COUNTER_TOP_IN)} width={6 * ppi} height={6 * ppi}>
+              <rect width={6 * ppi} height={6 * ppi} fill={TILE_FILL} />
+              <path
+                d={`M0 0H${6 * ppi}M0 ${3 * ppi}H${6 * ppi}M0 0V${3 * ppi}M${3 * ppi} ${3 * ppi}V${6 * ppi}`}
+                stroke={TILE_GROUT}
+                strokeWidth={0.6}
+              />
+            </pattern>
+          </defs>
+        )}
+        {tileIn !== null &&
+          splash?.tile.map(([l, r]) => (
+            <rect
+              key={`bs-${l}`}
+              x={x(l)}
+              y={y(COUNTER_TOP_IN + tileIn)}
+              width={(r - l) * ppi}
+              height={tileIn * ppi}
+              fill={`url(#${tileId})`}
+              stroke={TILE_STROKE}
+              strokeWidth={0.75}
+            />
+          ))}
+        {backsplash?.counter &&
+          splash?.counter.map(([l, r]) => (
+            <rect
+              key={`cs-${l}`}
+              x={x(l)}
+              y={y(COUNTER_TOP_IN + COUNTER_SPLASH_IN)}
+              width={(r - l) * ppi}
+              height={COUNTER_SPLASH_IN * ppi}
+              fill={COUNTER_FILL}
+              stroke="#6f6d68"
+              strokeWidth={0.75}
+            />
+          ))}
         {uppers.map(renderItem)}
         {crownMolding &&
           crownRuns(run.items, run.wall).map((r) => (

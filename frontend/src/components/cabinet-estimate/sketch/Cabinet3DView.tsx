@@ -67,6 +67,7 @@ import type { CameraPose } from './cabinet3dStage';
 import { RAY_SAMPLES, RAY_SHOW_SAMPLES, disposeRayTracer, hasWebGPU, loadRayTracer } from './rayTracer';
 import type { RayTracer } from './rayTracer';
 import type { ProductSurfaces } from './productLook';
+import type { BacksplashSpec } from './cabinetBacksplash';
 
 const NO_APPLIANCES: CabinetSketchAppliance[] = [];
 /** How far (screen px) the pointer may move between press and release and still count as a click. */
@@ -268,6 +269,8 @@ export interface Cabinet3DViewProps {
   crownMolding?: boolean;
   /** Mark the doors' arched panels in the drawing look. */
   archedDoors?: boolean;
+  /** The Edit tab's backsplashes: drawn in the drawing look; the realistic look takes their height (see cabinet3dScene.ts). */
+  backsplash?: BacksplashSpec | null;
   /** On show. Kept mounted while hidden, so the ray tracer needn't start over; it rests meanwhile. */
   active?: boolean;
   selectedIds: Set<string>;
@@ -296,6 +299,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     surfaces = null,
     crownMolding = false,
     archedDoors = false,
+    backsplash = null,
     active = true,
     selectedIds,
     onSelect,
@@ -303,6 +307,9 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
   },
   ref
 ) {
+  // As plain values, so a new object with the same backsplashes doesn't rebuild the scene.
+  const splashTileIn = backsplash?.tileIn ?? null;
+  const splashCounter = !!backsplash?.counter;
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   // Bumped when the renderer is (re)created, so the model is put into the new scene.
@@ -526,7 +533,14 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     }
     stage.realistic = !!finish;
     setLook(stage, !!finish);
-    stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish, surfaces, crown: crownMolding, archedDoors });
+    stage.content = buildCabinetScene(solids, wallModels, selectedIds, {
+      ...extras,
+      finish,
+      surfaces,
+      crown: crownMolding,
+      archedDoors,
+      backsplash: { tileIn: splashTileIn, counter: splashCounter },
+    });
     stage.scene.add(stage.content);
     stage.traceStale = true;
 
@@ -548,7 +562,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     } else {
       stage.render();
     }
-  }, [solids, wallModels, extras, selectedIds, finish, surfaces, crownMolding, archedDoors, frameView, stageVersion]);
+  }, [solids, wallModels, extras, selectedIds, finish, surfaces, crownMolding, archedDoors, splashTileIn, splashCounter, frameView, stageVersion]);
 
   // Ray tracing: loaded the first time the realistic look wants it, then
   // switched on and off with the look, the toggle and the view's showing.

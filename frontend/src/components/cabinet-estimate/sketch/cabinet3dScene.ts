@@ -6,10 +6,13 @@
  *
  * Two looks. The drawing look follows the Front view's colours, every edge
  * outlined, over a 1 ft grid with see-through walls, so the two read as the
- * same drawing. The realistic look draws the sketch's finish
- * (kitchenFinish.ts) under real light: textured materials (finishMaterials.ts),
- * shaker, raised-panel, arched or slab doors with pulls or knobs (or none), a
- * backsplash on every wall a counter or range backs onto, sinks sunk into the
+ * same drawing, with the Edit tab's backsplashes (tile, and the 4"
+ * countertop one) where cabinetBacksplash.ts puts them. The realistic look
+ * draws the sketch's finish (kitchenFinish.ts) under real light: textured
+ * materials (finishMaterials.ts), shaker, raised-panel, arched or slab doors
+ * with pulls or knobs (or none), the finish's tile backsplash on every wall a
+ * counter or range backs onto (at the Edit tab's height, over its 4"
+ * countertop backsplash), sinks sunk into the
  * counter under a gooseneck faucet, solid walls that open toward the camera
  * (cutAwayWalls) — what the AI photo starts from. Either look can top the
  * uppers and talls with crown molding.
@@ -32,6 +35,8 @@ import {
 import type { DoorDesign, Face } from './cabinetFronts';
 import { applianceExtent, inPolygon, modelBounds, toPlan } from './cabinet3dModel';
 import type { ApplianceSolid, CabinetSolid, CounterSlab, FillerSolid, FrontRun, Pt2, WallSolid } from './cabinet3dModel';
+import { COUNTER_SPLASH_IN, againstWall, applianceSplash, splashSides } from './cabinetBacksplash';
+import type { BacksplashSpec } from './cabinetBacksplash';
 import { finishMaterials } from './finishMaterials';
 import type { FinishMaterials } from './finishMaterials';
 import type { ProductSurfaces } from './productLook';
@@ -59,11 +64,11 @@ const RAISED_BEVEL_IN = 1.1;
 const RAISED_THICK_IN = 0.45;
 /** How deep a sink's bowls go below the counter top, inches. */
 const BOWL_DEPTH_IN = 8;
-/** The backsplash: how high it goes above the counter, and how thick it is. */
+/** The tile backsplash: how high it goes above the counter (unless the Edit tab says otherwise), and how thick it is. */
 const BACKSPLASH_IN = 18;
 const BACKSPLASH_THICK_IN = 0.375;
-/** A side within this of a wall's face lies against it (the plan snaps backs to the face). */
-const WALL_TOUCH_IN = 2;
+/** The 4" countertop backsplash's thickness: a strip of the counter's own stone. */
+const COUNTER_SPLASH_THICK_IN = 0.75;
 
 const COLORS = {
   box: '#EADCC6',
@@ -91,6 +96,8 @@ const COLORS = {
   bowl: '#8f99a1',
   /** An apron sink's front, in the drawing look a face like the rest. */
   ceramic: '#FBF6EF',
+  /** The tile backsplash in the drawing look (the Front view's tile colour). */
+  splash: '#E6EEEC',
 };
 
 type Surface = keyof typeof COLORS;
@@ -570,20 +577,28 @@ function realisticSink(sink: NonNullable<CabinetSolid['sink']>, materials: Finis
 
 /**
  * A backsplash panel along the side a→b of a footprint (local inches),
- * from the counter top up BACKSPLASH_IN, its face turned to `inside` (a
- * point of the footprint). `bottom`: the footprint's height off the floor.
- * The tiles are laid out from where the side is along the wall line
- * (`toWorld` gives plan inches), so they run on unbroken from one cabinet
- * to the next.
+ * `from` inches over the counter top and `height` tall, `thick` off the
+ * wall, its face turned to `inside` (a point of the footprint). `bottom`:
+ * the footprint's height off the floor. The tiles are laid out from where
+ * the side is along the wall line (`toWorld` gives plan inches), so they
+ * run on unbroken from one cabinet to the next.
  */
-function splashPanel(a: Pt2, b: Pt2, inside: Pt2, toWorld: (p: Pt2) => Pt2, bottom: number, material: THREE.Material): THREE.Mesh | null {
+function splashPanel(
+  a: Pt2,
+  b: Pt2,
+  inside: Pt2,
+  toWorld: (p: Pt2) => Pt2,
+  bottom: number,
+  material: THREE.Material,
+  { from = 0, height = BACKSPLASH_IN, thick = BACKSPLASH_THICK_IN }: { from?: number; height?: number; thick?: number } = {}
+): THREE.Mesh | null {
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
   if (len < 1) return null;
   // Run the side so the panel's face (its +z) turns inward, over the counter.
   if ((inside[0] - (a[0] + b[0]) / 2) * -(b[1] - a[1]) + (inside[1] - (a[1] + b[1]) / 2) * (b[0] - a[0]) < 0) [a, b] = [b, a];
   const u = { x: (b[0] - a[0]) / len, z: (b[1] - a[1]) / len };
   const n = { x: -u.z, z: u.x };
-  const geometry = inchBox(len, BACKSPLASH_IN, BACKSPLASH_THICK_IN);
+  const geometry = inchBox(len, height, thick);
   // Along the wall line: from the plan's origin, measured the way the side runs.
   const [wax, waz] = toWorld(a);
   const [wbx, wbz] = toWorld(b);
@@ -591,45 +606,79 @@ function splashPanel(a: Pt2, b: Pt2, inside: Pt2, toWorld: (p: Pt2) => Pt2, bott
   const uv = geometry.attributes.uv as THREE.BufferAttribute;
   for (let k = 0; k < uv.count; k++) uv.setX(k, uv.getX(k) + along);
   const panel = new THREE.Mesh(geometry, material);
-  const off = BACKSPLASH_THICK_IN / 2 + 0.01;
-  panel.position.set((a[0] + b[0]) / 2 + n.x * off, COUNTER_TOP_IN - bottom + BACKSPLASH_IN / 2, (a[1] + b[1]) / 2 + n.z * off);
+  const off = thick / 2 + 0.01;
+  panel.position.set((a[0] + b[0]) / 2 + n.x * off, COUNTER_TOP_IN + from - bottom + height / 2, (a[1] + b[1]) / 2 + n.z * off);
   panel.rotation.y = Math.atan2(-u.z, u.x);
   return panel;
 }
 
-/** Whether the side pa→pb (plan inches) lies against a wall's face, along it and within its length. */
-function againstWall(pa: Pt2, pb: Pt2, walls: WallSolid[]): boolean {
-  return walls.some((w) => {
-    const len = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
-    if (len < 1) return false;
-    const ux = (w.b[0] - w.a[0]) / len;
-    const uz = (w.b[1] - w.a[1]) / len;
-    const off = (p: Pt2) => Math.abs((p[0] - w.a[0]) * -uz + (p[1] - w.a[1]) * ux) - w.thickness / 2;
-    const along = (p: Pt2) => (p[0] - w.a[0]) * ux + (p[1] - w.a[1]) * uz;
-    if (Math.abs(off(pa)) > WALL_TOUCH_IN || Math.abs(off(pb)) > WALL_TOUCH_IN) return false;
-    return Math.max(along(pa), along(pb)) > WALL_TOUCH_IN && Math.min(along(pa), along(pb)) < len - WALL_TOUCH_IN;
-  });
+/** How one build draws the backsplashes: see splashPaint. */
+interface SplashPaint {
+  /** The tile's material, null for none, and its height over the counter. */
+  tile: THREE.Material | null;
+  tileIn: number;
+  /** The 4" countertop backsplash's material, null for none. */
+  counter: THREE.Material | null;
+  outline: (mesh: THREE.Mesh, color: string) => THREE.Mesh;
+}
+
+/**
+ * The drawing look draws the Edit tab's backsplashes (`spec`); the
+ * realistic look its finish's tile — none for a painted wall — at the
+ * Edit tab's height, and the Edit tab's 4" countertop backsplash in the
+ * counter's own material.
+ */
+function splashPaint(paint: Paint, spec: BacksplashSpec | null): SplashPaint {
+  return {
+    tile: paint.materials ? paint.materials.backsplash : spec?.tileIn ? paint.mat('splash') : null,
+    tileIn: spec?.tileIn ?? BACKSPLASH_IN,
+    counter: spec?.counter ? paint.mat('counter') : null,
+    outline: paint.outline,
+  };
+}
+
+/**
+ * The backsplashes along the side a→b of a footprint (as splashPanel): the
+ * 4" countertop one where a counter meets the wall, and the tile from the
+ * top of it (or from the counter) up to the tile's height.
+ */
+function splashMeshes(
+  a: Pt2,
+  b: Pt2,
+  inside: Pt2,
+  toWorld: (p: Pt2) => Pt2,
+  bottom: number,
+  hasCounter: boolean,
+  splash: SplashPaint
+): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  const four = hasCounter && splash.counter;
+  if (four) {
+    const strip = splashPanel(a, b, inside, toWorld, bottom, four, { height: COUNTER_SPLASH_IN, thick: COUNTER_SPLASH_THICK_IN });
+    if (strip) out.push(splash.outline(strip, '#6f6d68'));
+  }
+  const from = four ? COUNTER_SPLASH_IN : 0;
+  if (splash.tile && splash.tileIn > from + 0.5) {
+    const tile = splashPanel(a, b, inside, toWorld, bottom, splash.tile, { from, height: splash.tileIn - from });
+    if (tile) out.push(splash.outline(tile, '#b5afa4'));
+  }
+  return out;
 }
 
 /** The middle of a footprint, to tell its inside from its outside. */
 const middle = (pts: Pt2[]): Pt2 => [pts.reduce((sum, [x]) => sum + x, 0) / pts.length, pts.reduce((sum, [, z]) => sum + z, 0) / pts.length];
 
 /**
- * A base's backsplash on each side that backs onto a wall: its back, a
- * corner unit's side leg, and any other side against a wall — the end of a
- * blind corner base along the side wall, where the run turns.
+ * A perimeter base's backsplashes, on each side against a wall (see
+ * splashSides in cabinetBacksplash.ts): its back, a corner unit's side leg,
+ * and a run's end along the side wall, where the run turns.
  */
-function backsplashes(solid: CabinetSolid, material: THREE.Material, walls: WallSolid[]): THREE.Mesh[] {
+function backsplashes(solid: CabinetSolid, walls: WallSolid[], splash: SplashPaint): THREE.Mesh[] {
   const pts = solid.outline;
   const inside = middle(pts);
-  const out: THREE.Mesh[] = [];
-  pts.forEach((a, i) => {
-    const b = pts[(i + 1) % pts.length];
-    if (!solid.backs[i] && !againstWall(toPlan(solid, a), toPlan(solid, b), walls)) return;
-    const panel = splashPanel(a, b, inside, (p) => toPlan(solid, p), solid.bottom, material);
-    if (panel) out.push(panel);
-  });
-  return out;
+  return splashSides(solid, walls).flatMap((i) =>
+    splashMeshes(pts[i], pts[(i + 1) % pts.length], inside, (p) => toPlan(solid, p), solid.bottom, !!solid.counter, splash)
+  );
 }
 
 /**
@@ -776,7 +825,8 @@ function cabinetObject(
   selected: boolean,
   paint: Paint,
   walls: WallSolid[],
-  crown: CrownSide[] | undefined
+  crown: CrownSide[] | undefined,
+  splash: SplashPaint
 ): THREE.Group {
   const group = new THREE.Group();
   group.userData.cabinetId = solid.cabinet.id;
@@ -804,15 +854,15 @@ function cabinetObject(
   }
   for (const run of solid.fronts) group.add(...frontMeshes(run, solid.glass, solid.doorPattern, faceEdge, solid.bottom, paint));
   if (solid.sink) group.add(materials ? realisticSink(solid.sink, materials) : sinkObject(solid.sink, paint));
-  const isBase = solid.bottom < 1 && solid.height < COUNTER_TOP_IN + 1 && solid.cabinet.location !== 'island';
-  if (materials?.backsplash && isBase) group.add(...backsplashes(solid, materials.backsplash, walls));
+  const splashes = backsplashes(solid, walls, splash);
+  if (splashes.length) group.add(...splashes);
   if (crown) group.add(...crownMolding(solid, crown, boxEdge, paint));
   if (selected && paint.realistic) glow(group);
   return group;
 }
 
 /** One detach & reset appliance, built from boxes in its own frame: x along it, z from its back to its front, y up from its bottom. */
-function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint, walls: WallSolid[]): THREE.Group {
+function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint, walls: WallSolid[], splash: SplashPaint): THREE.Group {
   const group = new THREE.Group();
   // In a cabinet, picking it picks the cabinet.
   if (a.hostId) group.userData.cabinetId = a.hostId;
@@ -884,16 +934,13 @@ function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint, wal
       group.add(barAcross(3, w - 3, h - 3));
     }
   }
-  const splash = paint.materials?.backsplash;
-  if (a.counter) {
-    group.add(block([0, b, w, front + 1], h, COUNTER_TOP_IN, 'counter', '#6f6d68', paint));
-    // In line with the backsplash of the cabinets beside it, whose backs are at the wall.
-    const panel = splash && splashPanel([0, 0], [w, 0], [w / 2, front], (p) => toPlan(a, p), a.bottom, splash);
-    if (panel) group.add(panel);
-  } else if (splash && a.spec.model === 'range' && (!walls.length || againstWall(toPlan(a, [0, 0]), toPlan(a, [w, 0]), walls))) {
-    // The tile runs on behind a range, up under the microwave or hood over it
-    const panel = splashPanel([0, 0], [w, 0], [w / 2, front], (p) => toPlan(a, p), a.bottom, splash);
-    if (panel) group.add(panel);
+  if (a.counter) group.add(block([0, b, w, front + 1], h, COUNTER_TOP_IN, 'counter', '#6f6d68', paint));
+  // In line with the backsplash of the cabinets beside it, whose backs are at
+  // the wall; behind a range the tile runs on, up under the microwave or hood over it.
+  const behind = applianceSplash(a, walls);
+  if (behind.tile) {
+    const splashes = splashMeshes([0, b], [w, b], [w / 2, front], (p) => toPlan(a, p), a.bottom, behind.counter, splash);
+    if (splashes.length) group.add(...splashes);
   }
   if (selected && paint.realistic) glow(group);
   return group;
@@ -960,6 +1007,7 @@ export function buildCabinetScene(
     surfaces = null,
     crown = false,
     archedDoors = false,
+    backsplash = null,
   }: {
     counters?: CounterSlab[];
     fillers?: FillerSolid[];
@@ -972,9 +1020,12 @@ export function buildCabinetScene(
     crown?: boolean;
     /** Mark the doors' arched panels in the drawing look; the realistic look goes by its finish. */
     archedDoors?: boolean;
+    /** The Edit tab's backsplashes (see splashPaint); none drawn in the drawing look when absent. */
+    backsplash?: BacksplashSpec | null;
   } = {}
 ): THREE.Group {
   const paint = finish ? realisticPaint(finish, surfaces) : archedDoors ? { ...DRAWING, doors: 'arched' } : DRAWING;
+  const splash = splashPaint(paint, backsplash);
   const root = new THREE.Group();
   const bounds = modelBounds(solids, walls, applianceExtent(appliances));
   const center = bounds ? { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 } : { x: 0, z: 0 };
@@ -1003,7 +1054,7 @@ export function buildCabinetScene(
   const crowns = crown ? crownSides(solids, walls) : new Map<string, CrownSide[]>();
   for (const solid of solids) {
     if (!replaced.has(solid.cabinet.id)) {
-      root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id), paint, walls, crowns.get(solid.cabinet.id)));
+      root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id), paint, walls, crowns.get(solid.cabinet.id), splash));
     }
   }
   // In the realistic look an island sink's bowls sink through the island top too.
@@ -1018,7 +1069,7 @@ export function buildCabinetScene(
   }
   for (const filler of fillers) root.add(fillerObject(filler, paint));
   for (const a of appliances) {
-    root.add(applianceObject(a, !!a.hostId && selectedIds.has(a.hostId), paint, walls));
+    root.add(applianceObject(a, !!a.hostId && selectedIds.has(a.hostId), paint, walls, splash));
   }
   if (paint.realistic) {
     root.traverse((o) => {
