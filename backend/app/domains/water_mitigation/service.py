@@ -316,10 +316,23 @@ class WaterMitigationService:
         if new_status == 'Estimate requested' and previous_status != 'Estimate requested':
             self._create_estimate_request_for_job(job, job_id, status_update.notes)
 
+        # Paying or done: the WM docs follow-up has nothing left to chase
+        if new_status != previous_status:
+            self._resolve_wm_docs_followups(job, job_id, new_status)
+
         # Log activity on claim
         self._log_claim_activity(job, job_id, previous_status, new_status)
 
         return updated_job
+
+    def _resolve_wm_docs_followups(self, job, job_id, new_status):
+        """Resolve the claim's open WM docs follow-up once the job is paying or done."""
+        try:
+            from app.domains.claim_followup.wm_docs_sync import resolve_wm_docs_followups
+            claim_id = job.get('claim_id') if isinstance(job, dict) else getattr(job, 'claim_id', None)
+            resolve_wm_docs_followups(self.session, str(job_id), claim_id, new_status)
+        except Exception as e:
+            logger.error(f"Error resolving WM docs follow-up for WM job {job_id}: {e}")
 
     def _log_claim_activity(self, job, job_id, previous_status, new_status):
         """Log WM status change as a ClaimActivity on the linked claim"""

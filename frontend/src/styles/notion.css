@@ -2693,6 +2693,12 @@ button.fu-step--extra:hover {
   font-size: 13px;
   color: var(--color-neutral-600);
 }
+/* The WM job's status now, under the status it moves to */
+.fu-wm-now {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .fu-note {
   display: flex;
   align-items: flex-start;

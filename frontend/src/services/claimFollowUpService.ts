@@ -103,6 +103,8 @@ export const claimFollowUpService = {
       rebuild_estimate_company_id?: string;
       /** What the carrier approved on our WM invoice (outcome wm_invoice_accepted) */
       wm_approved_amount?: number;
+      /** WM docs follow-ups: the status the WM job moves to, or 'keep' */
+      wm_job_status?: string;
       file?: File;
       wm_estimate_file?: File;
     }
@@ -122,6 +124,7 @@ export const claimFollowUpService = {
     if (body?.payment_note) formData.append('payment_note', body.payment_note);
     if (body?.rebuild_estimate_company_id) formData.append('rebuild_estimate_company_id', body.rebuild_estimate_company_id);
     if (body?.wm_approved_amount != null) formData.append('wm_approved_amount', String(body.wm_approved_amount));
+    if (body?.wm_job_status) formData.append('wm_job_status', body.wm_job_status);
     if (body?.file) formData.append('file', body.file);
     if (body?.wm_estimate_file) formData.append('wm_estimate_file', body.wm_estimate_file);
 

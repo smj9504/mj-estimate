@@ -149,6 +149,8 @@ export interface FollowUpTask {
   /** Adjusters 2 and 3 (the by-claim task list only) */
   additional_adjusters?: AdjusterContact[];
   wm_cost_status?: string;
+  /** WM docs follow-ups: the status of the WM job they are about */
+  wm_job_status?: string | null;
   // How the claim's estimates come to be
   estimate_origin?: string;
   contractor_estimate_stage?: string;

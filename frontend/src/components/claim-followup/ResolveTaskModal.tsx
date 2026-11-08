@@ -22,6 +22,8 @@ import { fileService } from '../../services/fileService';
 import { Pill, useSheetModal } from '../common/ui';
 import type { FollowUpTask } from '../../types/claimFollowUp';
 import { WM_COST_STATUS_OPTIONS } from '../../types/client';
+import { JOB_STATUS_OPTIONS } from '../../types/waterMitigation';
+import { WMStatusPill } from '../water-mitigation/wmStatus';
 import { ESTIMATE_OUTCOME_TASK_TYPES, PAYMENT_TASK_TYPES } from './claimProgress';
 import RebuildEstimateCompanySelect from './RebuildEstimateCompanySelect';
 
@@ -40,6 +42,21 @@ interface ExistingPdf {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** What resolving a WM docs follow-up may move its WM job to (backend: wm_docs_sync.WM_STATUSES_ON_RESOLVE) */
+const WM_STATUSES_ON_RESOLVE = ['Paperwork received', 'Estimate requested', 'Payment on the way', 'Check received', 'Complete'];
+const KEEP_WM_STATUS = 'keep';
+const wmStatusRank = (status?: string | null) => JOB_STATUS_OPTIONS.findIndex(o => o.value === status);
+
+/** Where an outcome usually leaves the WM job; kept as it is when it's already there or past it */
+const wmStatusForOutcome = (outcome: string | undefined, current?: string | null) => {
+  const target = outcome === 'wm_invoice_accepted'
+    ? 'Payment on the way'
+    : outcome === 'estimate_received' || outcome === 'wm_estimate_only'
+      ? 'Paperwork received'
+      : undefined;
+  return target && wmStatusRank(current) < wmStatusRank(target) ? target : KEEP_WM_STATUS;
+};
 
 const DENIED_ACTIONS = [
   { value: 'complete', label: 'Complete', hint: 'Close the claim' },
@@ -77,6 +94,8 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
   const [isParsing, setIsParsing] = useState(false);
   const [existingPdf, setExistingPdf] = useState<ExistingPdf | undefined>();
   const [existingWmPdf, setExistingWmPdf] = useState<ExistingPdf | undefined>();
+  // Once the WM job status is picked by hand, a new outcome no longer changes it
+  const wmStatusTouched = useRef(false);
 
   // Keep the last task on screen while the dialog animates closed
   const lastTask = useRef<FollowUpTask | null>(null);
@@ -86,6 +105,9 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
   const isPaymentTask = !!shown && PAYMENT_TASK_TYPES.includes(shown.task_type);
   const isEstimateOutcomeTask = !!shown && ESTIMATE_OUTCOME_TASK_TYPES.includes(shown.task_type);
   const isDeniedWithNextStep = outcome === 'denied' && !!deniedAction && deniedAction !== 'complete';
+  // A WM docs follow-up moves its WM job on as it resolves
+  const currentWmStatus = shown?.task_type === 'wm_docs_sent' ? shown.wm_job_status : null;
+  const showWmStatus = !!currentWmStatus && !isDeniedWithNextStep;
 
   const resetState = () => {
     form.resetFields();
@@ -97,6 +119,7 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
     setParsedSections(null);
     setExistingPdf(undefined);
     setExistingWmPdf(undefined);
+    wmStatusTouched.current = false;
   };
 
   // Fresh form for every task; estimate-intake stages prefill from the
@@ -165,6 +188,13 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task?.id]);
 
+  // The WM job status follows the outcome until it's picked by hand
+  useEffect(() => {
+    if (!task || !currentWmStatus || wmStatusTouched.current) return;
+    form.setFieldsValue({ wm_job_status: wmStatusForOutcome(outcome, currentWmStatus) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id, outcome, currentWmStatus]);
+
   const close = () => {
     resetState();
     onClose();
@@ -192,11 +222,14 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
       } else {
         message.success('Task resolved');
       }
+      const wmStatus = variables.body?.wm_job_status;
+      if (wmStatus && wmStatus !== KEEP_WM_STATUS) message.success(`WM job set to ${wmStatus}`);
       queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['followup-stats'] });
       queryClient.invalidateQueries({ queryKey: ['claim-followup-detail'] });
       queryClient.invalidateQueries({ queryKey: ['supplements'] });
       queryClient.invalidateQueries({ queryKey: ['supplement-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['wm-followup-task'] });
       if (shown) onResolved?.(resolved || shown);
       close();
     },
@@ -296,6 +329,7 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
             ? values.rebuild_estimate_company_id : undefined,
           wm_approved_amount: values.outcome === 'wm_invoice_accepted'
             ? values.wm_approved_amount ?? undefined : undefined,
+          wm_job_status: showWmStatus ? values.wm_job_status : undefined,
           file,
           wm_estimate_file: wmFile,
         },
@@ -638,6 +672,32 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
             </Form.Item>
             <Form.Item name="payment_note" label="Payment Note" className="fu-compact-item">
               <TextArea rows={2} placeholder="e.g. Homeowner has check since 6/1 / Check lost, reissue requested to State Farm" />
+            </Form.Item>
+          </section>
+        )}
+
+        {/* The WM job moves on with its docs follow-up */}
+        {showWmStatus && (
+          <section className="fu-form-group">
+            <div className="fu-form-group-head">
+              <h4 className="fu-form-group-title">Water Mitigation Job</h4>
+            </div>
+            <Form.Item
+              name="wm_job_status"
+              label="Set status to"
+              extra={<span className="fu-wm-now">Now <WMStatusPill status={currentWmStatus} /></span>}
+              className="fu-compact-item"
+            >
+              <Select
+                aria-label="Water mitigation job status"
+                onChange={() => { wmStatusTouched.current = true; }}
+                options={[
+                  { value: KEEP_WM_STATUS, label: `Keep as ${currentWmStatus}` },
+                  ...WM_STATUSES_ON_RESOLVE
+                    .filter(status => status !== currentWmStatus)
+                    .map(status => ({ value: status, label: status })),
+                ]}
+              />
             </Form.Item>
           </section>
         )}

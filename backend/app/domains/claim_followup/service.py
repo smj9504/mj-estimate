@@ -292,6 +292,7 @@ class ClaimFollowUpService:
         payment_note: Optional[str] = None,
         rebuild_estimate_company_id: Optional[str] = None,
         wm_approved_amount: Optional[float] = None,
+        wm_job_status: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Mark a task as resolved and process outcome.
 
@@ -299,9 +300,20 @@ class ClaimFollowUpService:
         the task is NOT resolved — instead it is converted to the new type
         and the claim stays open.
 
+        wm_job_status (WM docs follow-ups only): the status its WM job moves
+        to, or 'keep'. Given, it replaces the outcome's own move of the claim's
+        WM jobs to Paperwork received.
+
         Raises SameCompanyAsWMError when outcome='estimate_requested' names the
-        company that did the water mitigation as the rebuild estimate writer.
+        company that did the water mitigation as the rebuild estimate writer,
+        and ValueError for a wm_job_status the form doesn't offer.
         """
+        from app.domains.claim_followup.wm_docs_sync import (
+            KEEP_WM_STATUS, WM_DOCS_TASK_TYPE, WM_STATUSES_ON_RESOLVE, set_wm_status_on_resolve,
+        )
+        if wm_job_status and wm_job_status != KEEP_WM_STATUS and wm_job_status not in WM_STATUSES_ON_RESOLVE:
+            raise ValueError(f"A WM job can't be set to '{wm_job_status}' when its docs follow-up is resolved")
+
         session = self._get_session()
         try:
             from app.domains.claim_followup.repository import get_followup_task_repository
@@ -358,13 +370,19 @@ class ClaimFollowUpService:
             # insurance-estimate outcome flow (it would re-create rebuild
             # projects / payment tasks and overwrite claim estimate data).
             task_type = (task_before or {}).get('task_type')
+            picked_wm_status = bool(wm_job_status) and task_type == WM_DOCS_TASK_TYPE
             if outcome and claim_id and task_type not in ('payment_check', 'wm_payment_check'):
                 self._process_resolve_outcome(
                     session, claim_id, result, outcome, resolution_notes,
                     estimate_data=estimate_data,
                     rebuild_estimate_company_id=rebuild_estimate_company_id,
                     wm_approved_amount=wm_approved_amount,
+                    keep_wm_status=picked_wm_status,
                 )
+
+            # The WM job moves to what the Resolve form picked for it
+            if picked_wm_status:
+                set_wm_status_on_resolve(session, {**task_before, 'claim_id': claim_id}, wm_job_status)
 
             session.commit()
             return result
@@ -624,8 +642,13 @@ class ClaimFollowUpService:
         estimate_data: Optional[Dict[str, Any]] = None,
         rebuild_estimate_company_id: Optional[str] = None,
         wm_approved_amount: Optional[float] = None,
+        keep_wm_status: bool = False,
     ):
-        """Process follow-up resolution outcome - update claim, create rebuild, log activity"""
+        """Process follow-up resolution outcome - update claim, create rebuild, log activity.
+
+        keep_wm_status: the WM job's status was picked in the Resolve form, so
+        the outcome leaves the claim's WM jobs where they are.
+        """
         from app.domains.client.models import Claim, ClaimActivity
 
         claim = session.query(Claim).filter(Claim.id == claim_id).first()
@@ -719,7 +742,7 @@ class ClaimFollowUpService:
             self._auto_create_supplement(session, claim, estimate_data)
 
             # Update WM job status if paperwork received
-            if wm_cost_status in ('included_in_rebuild', 'separate_estimate'):
+            if wm_cost_status in ('included_in_rebuild', 'separate_estimate') and not keep_wm_status:
                 self._update_wm_jobs_paperwork_received(session, claim_id)
 
             # Auto-create payment tasks based on WM cost status
@@ -770,7 +793,8 @@ class ClaimFollowUpService:
             claim.wm_cost_status = 'separate_estimate'
 
             # Update WM job status
-            self._update_wm_jobs_paperwork_received(session, claim_id)
+            if not keep_wm_status:
+                self._update_wm_jobs_paperwork_received(session, claim_id)
 
             # Auto-create WM payment task
             self._auto_create_payment_task(

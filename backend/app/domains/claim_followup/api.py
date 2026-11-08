@@ -373,6 +373,7 @@ async def resolve_task(
     payment_note: Optional[str] = Form(None),
     rebuild_estimate_company_id: Optional[str] = Form(None),
     wm_approved_amount: Optional[float] = Form(None),
+    wm_job_status: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     wm_estimate_file: Optional[UploadFile] = File(None),
     request_db=Depends(get_db),
@@ -386,6 +387,8 @@ async def resolve_task(
       'estimate_requested'); must not be the company that did the WM
     - wm_approved_amount: what the carrier approved on our WM invoice (outcome
       'wm_invoice_accepted'); defaults to the invoice amount
+    - wm_job_status: WM docs follow-ups only — the status its WM job moves to,
+      or 'keep' (see wm_docs_sync.WM_STATUSES_ON_RESOLVE)
     """
     _require_task(request_db, current_staff, task_id)
     service = _get_service()
@@ -533,8 +536,9 @@ async def resolve_task(
             payment_note=payment_note,
             rebuild_estimate_company_id=rebuild_estimate_company_id,
             wm_approved_amount=wm_approved_amount,
+            wm_job_status=wm_job_status,
         )
-    except SameCompanyAsWMError as e:
+    except (SameCompanyAsWMError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")

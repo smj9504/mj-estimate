@@ -272,9 +272,13 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             except Exception:
                 pass
 
+        wm_status_by_task = self._wm_job_status_by_task(tasks)
+
         results = []
         for t in tasks:
             d = self._convert_to_dict(t)
+            if str(t.id) in wm_status_by_task:
+                d['wm_job_status'] = wm_status_by_task[str(t.id)]
             try:
                 if t.claim:
                     d['claim_number'] = t.claim.claim_number or ''
@@ -360,6 +364,15 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
 
         return results, total
 
+    def _wm_job_status_by_task(self, tasks) -> Dict[str, Optional[str]]:
+        """Each WM docs follow-up's WM job status, for its Resolve form."""
+        try:
+            from app.domains.claim_followup.wm_docs_sync import wm_job_status_for_tasks
+            return wm_job_status_for_tasks(self.db_session, tasks)
+        except Exception as e:
+            logger.error(f"Error reading WM job status for follow-ups: {e}")
+            return {}
+
     def get_overdue_tasks(self) -> List[Dict[str, Any]]:
         """Get all tasks that are overdue (next_followup_date has passed)"""
         now = datetime.now(timezone.utc)
@@ -430,9 +443,13 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             except Exception:
                 pass
 
+        wm_status_by_task = self._wm_job_status_by_task(tasks)
+
         results = []
         for t in tasks:
             d = self._convert_to_dict(t)
+            if str(t.id) in wm_status_by_task:
+                d['wm_job_status'] = wm_status_by_task[str(t.id)]
             try:
                 if t.claim:
                     d['claim_number'] = t.claim.claim_number or ''

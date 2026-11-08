@@ -164,6 +164,8 @@ class FollowUpTaskResponse(FollowUpTaskBase):
     # Adjusters past the first [{company, name, phone, email}] (by-claim list only)
     additional_adjusters: Optional[List[Dict[str, Any]]] = None
     wm_cost_status: Optional[str] = None
+    # WM docs follow-ups: the status of the WM job they are about
+    wm_job_status: Optional[str] = None
     has_insurance_estimate: Optional[bool] = None
     bid_estimate_summary: Optional[Dict[str, Any]] = None
     # Claim money picture, same basis as GET /claims/{id}/payments
