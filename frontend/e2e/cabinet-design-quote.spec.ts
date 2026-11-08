@@ -152,7 +152,7 @@ async function start(page: Page, { sketch = SKETCH as unknown, estimate = ESTIMA
 }
 
 async function openModal(page: Page) {
-  await page.getByRole('button', { name: /PDF$/ }).hover({ timeout: 120_000 });
+  await page.getByRole('button', { name: /^Export/ }).hover({ timeout: 120_000 });
   await page.getByRole('menuitem', { name: /Design quote/ }).click();
   await expect(page.getByRole('dialog', { name: 'Design quote' })).toBeVisible();
 }

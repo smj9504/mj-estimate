@@ -23,14 +23,15 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Stage, Layer, Line, Rect, Shape, Transformer } from 'react-konva';
 import Konva from 'konva';
-import { Button, InputNumber, Popover, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
+import { Button, Checkbox, InputNumber, Popover, Segmented, Select, Space, Tooltip, message } from 'antd';
 import {
   BorderOutlined,
   CameraOutlined,
+  CheckOutlined,
   EllipsisOutlined,
-  CompressOutlined,
   DeleteOutlined,
   QuestionCircleOutlined,
   RedoOutlined,
@@ -62,11 +63,12 @@ import type { CabType } from '../../../types/cabinetEstimate';
 import CabinetWallRenderer, { CabinetWallPreview, CabinetWallSnapMark } from './CabinetWallRenderer';
 import CabinetShapeRenderer, { ANCHOR_SIZE, ROTATE_ANCHOR_OFFSET, ROTATION_SNAP_ANGLES } from './CabinetShapeRenderer';
 import CabinetEditPanel, { EDIT_PANEL_WIDTH } from './CabinetEditPanel';
+import '../cabinetEstimate.css';
 import { changedBox, type BoxChange, type BoxFields } from '../cabinetBoxChoices';
 import { pickInBox, turnGroup, withIslandGroup, type Box } from './sketchGroupEdit';
 import { keepWallsJoined, moveWallEndJoined, moveWallsJoined, wallsMeetingEnd } from './sketchWallJoints';
 import { BEHIND_REACH_FT, nearerWallPoint, snapBehindCabinets, wallLinesBehind } from './wallBehindCabinets';
-import { ApplianceShape, DR_TAG_COLOR, SinkShape } from './CabinetApplianceRenderer';
+import { ApplianceShape, SinkShape } from './CabinetApplianceRenderer';
 import CabinetElevationView from './CabinetElevationView';
 import KitchenFinishPicker from './KitchenFinishPicker';
 import AiPhotoModal from './AiPhotoModal';
@@ -253,12 +255,24 @@ export interface CabinetSketchEditorProps {
   keysWhenPointerOver?: boolean;
   /** Bumped by the page's Save: the sketch saves now if it has changes not saved yet. */
   saveSignal?: number;
-  /** The selected cabinets changed: their box keys (see boxKey), so the Edit form can show their rows. */
-  onSelectionChange?: (keys: string[]) => void;
+  /**
+   * The selection changed: the box keys (see boxKey) of the selected cabinets,
+   * so the form can show their rows, and how many things are selected in all.
+   */
+  onSelectionChange?: (keys: string[], count: number) => void;
   /** Select the cabinets of these box keys (their row was clicked in the Edit form); `seq` lets the same row be picked again. */
   pickKeys?: { keys: string[]; seq: number } | null;
   /** Outline the cabinets of this box key (the pointer is over its row in the Edit form). */
   hintKey?: string | null;
+  /**
+   * In a pane, where the estimate's panel shows what the sketch knows: the
+   * selection's settings go into `selection`, the plan's counts into `takeoff`.
+   */
+  inspector?: { selection: HTMLElement | null; takeoff: HTMLElement | null } | null;
+  /** A cabinet was right-clicked in a pane: the panel should show Inspect. */
+  onRequestInspect?: () => void;
+  /** Whether the sketch has changes on their way to the server, for the page's save state. */
+  onSaveStateChange?: (state: 'saved' | 'saving' | 'dirty') => void;
 }
 
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
@@ -287,6 +301,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   onSelectionChange,
   pickKeys = null,
   hintKey = null,
+  inspector = null,
+  onRequestInspect,
+  onSaveStateChange,
 }) => {
   const queryClient = useQueryClient();
   const pane = layout === 'pane';
@@ -298,8 +315,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   // The drawing is framed once the pane's height is known, so it isn't framed for the wrong one.
   const [paneMeasured, setPaneMeasured] = useState(false);
   const canvasHeight = pane ? paneCanvasHeight : CANVAS_HEIGHT;
-  // Whether the pointer is over the sketch, for keysWhenPointerOver.
+  // Whether the pointer is over the sketch, for keysWhenPointerOver (keys also work while it has focus).
   const pointerInRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(900);
   const [showGrid, setShowGrid] = useState(true);
   const [view, setView] = useState<CabinetSketchView>('plan');
@@ -362,6 +380,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     updateAppliances,
     syncAppliances,
     setFinish,
+    setBacksplashOff,
     loadOverlayData,
     markSaved,
     undo,
@@ -464,6 +483,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     },
   });
   const { mutate: saveOverlay, isPending: isSaving } = saveMutation;
+  const onSaveStateRef = useRef(onSaveStateChange);
+  onSaveStateRef.current = onSaveStateChange;
+  useEffect(() => {
+    onSaveStateRef.current?.(isSaving ? 'saving' : state.isDirty ? 'dirty' : 'saved');
+  }, [isSaving, state.isDirty]);
 
   const handleManualSave = useCallback(() => {
     saveOverlay(state.overlayData, {
@@ -834,7 +858,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
-      if (keysWhenPointerOver && !pointerInRef.current) return;
+      if (keysWhenPointerOver && !pointerInRef.current && !rootRef.current?.contains(document.activeElement)) return;
 
       // Space held pans the view by dragging (and keeps the page from scrolling).
       if (e.key === ' ') {
@@ -864,6 +888,16 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         turnSelected(e.shiftKey ? -90 : 90);
+        return;
+      }
+      // V selects, W draws walls.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (e.key.toLowerCase() === 'v') {
+          setTool('select');
+          stopWallChain();
+        } else if (e.key.toLowerCase() === 'w') {
+          setTool('wall');
+        }
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -891,21 +925,23 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     turnSelected,
     editPanel,
     closeEditPanel,
+    setTool,
   ]);
 
   // The Edit form follows the selection: the box keys of the cabinets picked here.
-  const selectionSig = useMemo(
+  const selectionKeys = useMemo(
     () =>
       Array.from(
         new Set(cabinets.filter((c) => selectedIds.has(c.id)).map((c) => cabinetKey(c, CABINET_PRESETS, scalePixelsPerFoot)))
       ).join('\n'),
     [cabinets, selectedIds, scalePixelsPerFoot]
   );
+  const selectionCount = selectedIds.size;
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
   useEffect(() => {
-    onSelectionChangeRef.current?.(selectionSig ? selectionSig.split('\n') : []);
-  }, [selectionSig]);
+    onSelectionChangeRef.current?.(selectionKeys ? selectionKeys.split('\n') : [], selectionCount);
+  }, [selectionKeys, selectionCount]);
 
   // A row clicked in the Edit form picks its cabinets here (just them, not the rest of the island).
   const pickedSeqRef = useRef<number | null>(null);
@@ -1252,12 +1288,26 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
 
   // The backsplash the plan calls for (cabinetBacksplash.ts): what the 3D
   // and Front views draw, measured for the Edit tab, and each run's share.
+  // A face can be left without it (a side wall at a run's end often isn't
+  // tiled): unticked in the count, saved with the sketch.
+  const splashOff = state.overlayData.backsplash_off;
   const splashLayout = useMemo(() => {
     const wallModels = wallSolids(walls, scalePixelsPerFoot);
     const solids = cabinetSolids(cabinets, CABINET_PRESETS, scalePixelsPerFoot);
     const apps = applianceSolids(appliances, cabinets, CABINET_PRESETS, scalePixelsPerFoot);
-    return backsplashLayout(splashPieces(solids, apps, wallModels), wallModels);
-  }, [cabinets, appliances, walls, scalePixelsPerFoot]);
+    return backsplashLayout(splashPieces(solids, apps, wallModels), wallModels, splashOff ?? []);
+  }, [cabinets, appliances, walls, scalePixelsPerFoot, splashOff]);
+  const toggleSplashFace = (key: string, on: boolean) => {
+    const rest = (splashOff ?? []).filter((k) => k !== key);
+    setBacksplashOff(on ? rest : [...rest, key]);
+  };
+  // The 3D view leaves the same faces bare, in either look.
+  const splashSpec = useMemo<BacksplashSpec>(
+    () => ({ tileIn: backsplash?.tileIn ?? null, counter: !!backsplash?.counter, off: splashOff ?? [] }),
+    [backsplash?.tileIn, backsplash?.counter, splashOff]
+  );
+  // The face whose row is under the pointer in the count, picked out on the plan.
+  const [splashHover, setSplashHover] = useState<string | null>(null);
   const splashByRun = useMemo(() => {
     const toIn = (px: number) => pxToIn(px, scalePixelsPerFoot);
     return new Map(elevations.map((r) => [r.key, splashOnRun(r, splashLayout, toIn)]));
@@ -1276,10 +1326,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   const splashCounterLf = Math.round((splashLayout.counterIn / 12) * 10) / 10;
   // The plan shows the backsplash the Edit tab has, and all of it while its count is open.
   const [splashCountOpen, setSplashCountOpen] = useState(false);
+  useEffect(() => {
+    if (!splashCountOpen) setSplashHover(null);
+  }, [splashCountOpen]);
   const planTile = splashCountOpen || backsplash?.tileIn != null;
   const planCounter = splashCountOpen || !!backsplash?.counter;
-  /** A stretch of backsplash on the plan, `inIn` inches in from the wall face. */
-  const splashLine = (s: SplashSpan, inIn: number, stroke: string, key: string) => {
+  /**
+   * A stretch of backsplash on the plan, `inIn` inches in from the wall face;
+   * a face left without it shows dashed and faint while the count is open,
+   * and the face under the pointer in the count stands out.
+   */
+  const splashLine = (s: SplashSpan, inIn: number, stroke: string, key: string, off = false, picked = false) => {
     const at = ([x, z]: [number, number]) => [
       inToPx(x + s.normal[0] * inIn, scalePixelsPerFoot),
       inToPx(z + s.normal[1] * inIn, scalePixelsPerFoot),
@@ -1288,10 +1345,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       <Line
         key={key}
         points={[...at(s.a), ...at(s.b)]}
-        stroke={stroke}
-        strokeWidth={3}
+        stroke={picked ? '#d4380d' : stroke}
+        strokeWidth={picked ? 6 : 3}
+        dash={off ? [6, 5] : undefined}
         strokeScaleEnabled={false}
-        opacity={0.9}
+        opacity={off && !picked ? 0.45 : 0.9}
         listening={false}
       />
     );
@@ -1414,13 +1472,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       if (!el) return;
       const r = el.getBoundingClientRect();
       selectElement({ element_id: id, element_type: 'cabinet' });
+      if (pane) {
+        onRequestInspect?.();
+        return;
+      }
       setEditPanel({
         id,
         left: Math.max(8, Math.min(clientX - r.left + 8, r.width - EDIT_PANEL_WIDTH - 8)),
         top: Math.max(8, Math.min(clientY - r.top + 8, canvasHeight - 230)),
       });
     },
-    [selectElement, canvasHeight]
+    [selectElement, canvasHeight, pane, onRequestInspect]
   );
   const editedCabinet = editPanel ? cabinets.find((c) => c.id === editPanel.id) : undefined;
   // The panel goes with its cabinet: deleted, undone or the view changed, it closes.
@@ -1429,234 +1491,209 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   }, [editPanel, editedCabinet, view]);
 
   if (isLoading) {
-    return <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>Loading sketch…</div>;
+    return <div style={{ padding: 24, textAlign: 'center', color: '#73726e' }}>Loading sketch…</div>;
   }
 
-  // Cabinet pickers, in the Top and 3D toolbars.
-  const cabinetPickers = (
-    <>
-      <Space.Compact>
-        {PLACE_SECTIONS.map(({ type, label }) => {
-          // Only the picker the pending placement came from shows it.
-          // Otherwise the selected cabinet shows in its section's
-          // picker, and picking there changes that cabinet.
-          const placing = state.activeTool === 'place_cabinet' ? state.activePresetCode : null;
-          const editing = !placing && selectedCabinet && sectionOf(selectedCabinet) === type ? selectedCabinet : undefined;
-          const picked = placing && CABINET_PRESETS[placing]?.cab_type === type ? placing : editing?.preset_code;
-          return (
-            <Select
-              // Remount when the pending placement clears or moves to another
-              // picker, so it falls back to the placeholder instead of keeping
-              // the last pick.
-              key={`${type}:${picked ?? 'idle'}`}
-              // The Wall picker says which height it's narrowed to, e.g. "+ Wall 36"…".
-              placeholder={`+ ${label}${type === 'wall' && wallHeight !== 'all' ? ` ${wallHeightLabel}` : ''}…`}
-              style={{ width: (type === 'wall' && wallHeight !== 'all' ? 140 : 120) - (pane ? 16 : 0) }}
-              popupMatchSelectWidth={300}
-              showSearch
-              value={picked}
-              // A custom box, or an upper outside the height filter, isn't in the list.
-              labelRender={(p) => p.label ?? CABINET_PRESETS[String(p.value)]?.label ?? editing?.label ?? p.value}
-              onChange={(value: string) => {
-                if (editing) {
-                  changeCabinet(editing, value);
-                  return;
-                }
-                // Placing needs the plan, so the 3D view hands over to it.
-                setView('plan');
-                setActivePreset(value);
-                setTool('place_cabinet');
-              }}
-              options={presetOptions[type]}
-              filterOption={(input, option: any) =>
-                `${option?.label ?? ''} ${option?.value ?? ''}`.toLowerCase().includes(input.toLowerCase())
-              }
-            />
-          );
-        })}
-      </Space.Compact>
-      {state.activeTool === 'place_cabinet' && state.activePresetCode ? (
-        <Tag color="blue">
-          Click canvas to place {CABINET_PRESETS[state.activePresetCode]?.label ?? state.activePresetCode}
-        </Tag>
-      ) : (
-        selectedCabinet && (
-          <Tag>
-            Pick another {PLACE_SECTIONS.find((s) => s.type === sectionOf(selectedCabinet))?.label} to replace{' '}
-            {selectedCabinet.label || selectedCabinet.preset_code}
-          </Tag>
-        )
-      )}
-    </>
-  );
+  // Cabinet pickers, in the Top and 3D toolbars. With a cabinet selected, its
+  // section's picker shows it, and picking there changes that cabinet.
+  const cabinetPickers = PLACE_SECTIONS.map(({ type, label }) => {
+    // Only the picker the pending placement came from shows it.
+    const placing = state.activeTool === 'place_cabinet' ? state.activePresetCode : null;
+    const editing = !placing && selectedCabinet && sectionOf(selectedCabinet) === type ? selectedCabinet : undefined;
+    const picked = placing && CABINET_PRESETS[placing]?.cab_type === type ? placing : editing?.preset_code;
+    return (
+      <Tooltip
+        key={type}
+        mouseEnterDelay={0.6}
+        title={
+          editing
+            ? `Pick another ${label.toLowerCase()} cabinet to put in place of ${editing.label || editing.preset_code}`
+            : `Pick a ${label.toLowerCase()} cabinet, then click the plan where it goes`
+        }
+      >
+        <Select
+          // Remount when the pending placement clears or moves to another
+          // picker, so it falls back to the placeholder instead of keeping
+          // the last pick.
+          key={`${type}:${picked ?? 'idle'}`}
+          className="ce-picker"
+          variant="borderless"
+          aria-label={editing ? `Replace ${editing.label || editing.preset_code}` : `Add a ${label.toLowerCase()} cabinet`}
+          // The Wall picker says which height it's narrowed to, e.g. "Wall 36"…".
+          placeholder={`${label}${type === 'wall' && wallHeight !== 'all' ? ` ${wallHeightLabel}` : ''}…`}
+          style={{ width: type === 'wall' && wallHeight !== 'all' ? 116 : 96 }}
+          popupMatchSelectWidth={300}
+          showSearch
+          value={picked}
+          // A custom box, or an upper outside the height filter, isn't in the list.
+          labelRender={(p) => (CABINET_PRESETS[String(p.value)] ? String(p.value) : editing?.label ?? String(p.value))}
+          onChange={(value: string) => {
+            if (editing) {
+              changeCabinet(editing, value);
+              return;
+            }
+            // Placing needs the plan, so the 3D view hands over to it.
+            setView('plan');
+            setActivePreset(value);
+            setTool('place_cabinet');
+          }}
+          options={presetOptions[type]}
+          filterOption={(input, option: any) =>
+            `${option?.label ?? ''} ${option?.value ?? ''}`.toLowerCase().includes(input.toLowerCase())
+          }
+        />
+      </Tooltip>
+    );
+  });
 
-  // What the plan counts for the estimate, each with its "Use in estimate": in the
-  // toolbar, or under the drawing in a pane.
-  const countTags = (
-    <>
-      {angledJoints > 0 && (
-        <Tooltip title="Floor cabinets joined at an angle other than 90° in this plan. Each needs an angled filler and fitting, and an angled countertop cut — the Edit tab's Angled Joints bills them.">
-          <Tag color="orange" style={{ marginInlineEnd: 0 }}>
-            Angled joints: {angledJoints}
-            {onApplyAngledJoints && (
-              <Button
-                type="link"
-                size="small"
-                style={{ paddingInline: 4, height: 'auto' }}
-                onClick={() => onApplyAngledJoints(angledJoints)}
-              >
-                Use in estimate
-              </Button>
-            )}
-          </Tag>
-        </Tooltip>
+  // What the plan counts for the estimate, each with its "Use in estimate":
+  // as rows in the panel beside the form, or along the foot of the drawing.
+  const trimDetail = (
+    <div style={{ maxWidth: 440, fontSize: 13 }}>
+      {walls.length === 0 && (
+        <div style={{ color: '#a65208', marginBottom: 6 }}>
+          No walls drawn yet, so every run end reads as open. Draw the walls first.
+        </div>
       )}
-      {islandTop.sf > 0 && (
-        <Tooltip
-          title={`The island countertop as drawn (shaded under the island): ${TOP_EDGE_OVERHANG_IN}" past every front, end and back${
+      {TRIM_FIELDS.map((f) => (
+        <div key={f} style={{ marginBottom: 4 }}>
+          <strong>
+            {TRIM_FIELD_LABELS[f]}: {trim.counts[f]}
+          </strong>
+          {trim.items
+            .filter((item) => item.field === f)
+            .map((item, k) => (
+              <div key={k} style={{ paddingLeft: 10, color: '#5f5e5b' }}>
+                {item.where}: {item.why}
+              </div>
+            ))}
+        </div>
+      ))}
+      <div style={{ marginTop: 6, color: '#73726e' }}>
+        Counted from where each cabinet end stands: a wall within 12&quot; beside it (filler, never a
+        panel), at the doors of the run that turns the corner (filler), beside a cabinet or across an
+        appliance-wide gap in the run (nothing), or open (end panel). A tall beside a base shows above the counter. A Fridge Deep Upper marks the
+        refrigerator opening. A dishwasher counts only once the Appliance Detach &amp; Reset list puts it
+        on the plan. Island ends are priced by the island&apos;s End Panel SF, angled joints by Angled
+        Joints.
+      </div>
+    </div>
+  );
+  const splashDetail = (
+    <div style={{ maxWidth: 440, fontSize: 13 }}>
+      {walls.length === 0 && (
+        <div style={{ color: '#a65208', marginBottom: 6 }}>
+          No walls drawn yet, so every base&apos;s back counts as on a wall. Draw the walls first.
+        </div>
+      )}
+      <div>
+        <strong>Tile backsplash: {splashTileLf} LF</strong>
+        {backsplash?.tileIn != null &&
+          ` × ${backsplash.tileIn}" = ${Math.round(((splashTileLf * backsplash.tileIn) / 12) * 10) / 10} SF`}
+      </div>
+      <div style={{ marginBottom: 4 }}>
+        <strong>4&quot; countertop backsplash: {splashCounterLf} LF</strong>
+      </div>
+      {splashFaces.map((f) => (
+        <div
+          key={f.key}
+          style={{ paddingLeft: 10, color: f.off ? '#a3a29e' : '#5f5e5b' }}
+          onMouseEnter={() => setSplashHover(f.key)}
+          onMouseLeave={() => setSplashHover((k) => (k === f.key ? null : k))}
+        >
+          <Checkbox
+            checked={!f.off}
+            onChange={(e) => toggleSplashFace(f.key, e.target.checked)}
+            style={{ color: 'inherit', fontSize: 13 }}
+          >
+            {f.label}: tile {Math.round((f.tileIn / 12) * 10) / 10} LF, 4&quot;{' '}
+            {Math.round((f.counterIn / 12) * 10) / 10} LF{f.off ? ' — none' : ''}
+          </Checkbox>
+        </div>
+      ))}
+      <div style={{ marginTop: 6, color: '#73726e' }}>
+        Measured where a perimeter counter meets a drawn wall: the bases&apos; backs, a corner&apos;s
+        side leg, a run&apos;s end against a side wall, and behind a dishwasher. The tile runs on
+        behind a range, the 4&quot; one doesn&apos;t. Island cabinets take none. Shown on the plan in
+        teal (tile) and gray (4&quot;) while this is open. Untick a face that has none, such as a side wall
+        at a run&apos;s end left bare: it drops out of the length and the views (dashed here), and the
+        sketch keeps it. Use in estimate sets the Backsplash area (this
+        length × its height) and the 4&quot; Countertop Backsplash length; tick them to price them.
+      </div>
+    </div>
+  );
+  const counts: {
+    key: string;
+    label: string;
+    value: string;
+    tip?: string;
+    detail?: React.ReactNode;
+    onDetailOpen?: (open: boolean) => void;
+    use?: () => void;
+  }[] = [
+    ...(islandTop.sf > 0
+      ? [{
+          key: 'island',
+          label: 'Island top',
+          value: `${islandTop.sf} SF`,
+          tip: `The island countertop as drawn (shaded under the island): ${TOP_EDGE_OVERHANG_IN}" past every front, end and back${
             islandSeatingIn > 0 ? `, ${islandSeatingIn}" behind the backs for seating` : ''
-          }, with the wedges of angled joints filled. Set the seating overhang in the Edit tab's Island Countertop.`}
-        >
-          <Tag color="gold" style={{ marginInlineEnd: 0 }}>
-            Island top: {islandTop.sf} SF
-            {onApplyIslandTopSf && (
-              <Button
-                type="link"
-                size="small"
-                style={{ paddingInline: 4, height: 'auto' }}
-                onClick={() => onApplyIslandTopSf(islandTop.sf)}
-              >
-                Use in estimate
-              </Button>
-            )}
-          </Tag>
-        </Tooltip>
-      )}
-      {cabinets.length > 0 && (
-        <Popover
-          title="Trim & Finished Panels in this plan"
-          content={
-            <div style={{ maxWidth: 440, fontSize: 12 }}>
-              {walls.length === 0 && (
-                <div style={{ color: '#d46b08', marginBottom: 6 }}>
-                  No walls drawn yet — every run end reads as open. Draw the walls first.
-                </div>
-              )}
-              {TRIM_FIELDS.map((f) => (
-                <div key={f} style={{ marginBottom: 4 }}>
-                  <strong>
-                    {TRIM_FIELD_LABELS[f]}: {trim.counts[f]}
-                  </strong>
-                  {trim.items
-                    .filter((item) => item.field === f)
-                    .map((item, k) => (
-                      <div key={k} style={{ paddingLeft: 10, color: '#595959' }}>
-                        {item.where} — {item.why}
-                      </div>
-                    ))}
-                </div>
-              ))}
-              <div style={{ marginTop: 6, color: '#8c8c8c' }}>
-                Counted from where each cabinet end stands: a wall within 12&quot; beside it (filler, never a
-                panel), at the doors of the run that turns the corner (filler), beside a cabinet or across an
-                appliance-wide gap in the run (nothing), or open (end panel). A tall beside a base shows above the counter. A Fridge Deep Upper marks the
-                refrigerator opening. A dishwasher counts only once the Appliance Detach &amp; Reset list puts it
-                on the plan. Island ends are priced by the island&apos;s End Panel SF, angled joints by Angled
-                Joints.
-              </div>
-            </div>
-          }
-        >
-          <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
-            Trim &amp; panels: {trimTotal}
-            {onApplyTrim && walls.length > 0 && (
-              <Button
-                type="link"
-                size="small"
-                style={{ paddingInline: 4, height: 'auto' }}
-                onClick={() => onApplyTrim(trim.counts)}
-              >
-                Use in estimate
-              </Button>
-            )}
-          </Tag>
-        </Popover>
-      )}
-      {splashLayout.tileIn > 0 && (
-        <Popover
-          title="Backsplash in this plan"
-          onOpenChange={setSplashCountOpen}
-          content={
-            <div style={{ maxWidth: 440, fontSize: 12 }}>
-              {walls.length === 0 && (
-                <div style={{ color: '#d46b08', marginBottom: 6 }}>
-                  No walls drawn yet — every base&apos;s back counts as on a wall. Draw the walls first.
-                </div>
-              )}
-              <div>
-                <strong>Tile backsplash: {splashTileLf} LF</strong>
-                {backsplash?.tileIn != null &&
-                  ` × ${backsplash.tileIn}" = ${Math.round(((splashTileLf * backsplash.tileIn) / 12) * 10) / 10} SF`}
-              </div>
-              <div style={{ marginBottom: 4 }}>
-                <strong>4&quot; countertop backsplash: {splashCounterLf} LF</strong>
-              </div>
-              {splashFaces.map((f) => (
-                <div key={f.key} style={{ paddingLeft: 10, color: '#595959' }}>
-                  {f.label} — tile {Math.round((f.tileIn / 12) * 10) / 10} LF, 4&quot;{' '}
-                  {Math.round((f.counterIn / 12) * 10) / 10} LF
-                </div>
-              ))}
-              <div style={{ marginTop: 6, color: '#8c8c8c' }}>
-                Measured where a perimeter counter meets a drawn wall — the bases&apos; backs, a corner&apos;s
-                side leg, a run&apos;s end against a side wall — and behind a dishwasher; the tile runs on
-                behind a range, the 4&quot; one doesn&apos;t. Island cabinets take none. Shown on the plan in
-                teal (tile) and gray (4&quot;) while this is open. Use in estimate sets the Edit tab&apos;s
-                Backsplash area (this length × its height) and 4&quot; Countertop Backsplash length; tick them
-                there to price them.
-              </div>
-            </div>
-          }
-        >
-          <Tag color="cyan" style={{ marginInlineEnd: 0 }}>
-            Backsplash: {splashTileLf} LF
-            {onApplyBacksplash && (
-              <Button
-                type="link"
-                size="small"
-                style={{ paddingInline: 4, height: 'auto' }}
-                onClick={() => onApplyBacksplash({ tile: splashTileLf, counter: splashCounterLf })}
-              >
-                Use in estimate
-              </Button>
-            )}
-          </Tag>
-        </Popover>
-      )}
-      {appliances.length > 0 && (
-        <Tooltip
-          title={`The Edit tab's Appliance Detach & Reset list: ${appliances
+          }, with the wedges of angled joints filled. The seating overhang is set with the island.`,
+          use: onApplyIslandTopSf ? () => onApplyIslandTopSf(islandTop.sf) : undefined,
+        }]
+      : []),
+    ...(cabinets.length > 0
+      ? [{
+          key: 'trim',
+          label: 'Trim & panels',
+          value: String(trimTotal),
+          detail: trimDetail,
+          use: onApplyTrim && walls.length > 0 ? () => onApplyTrim(trim.counts) : undefined,
+        }]
+      : []),
+    ...(splashLayout.faces.length > 0
+      ? [{
+          key: 'splash',
+          label: 'Backsplash',
+          value: `${splashTileLf} LF`,
+          detail: splashDetail,
+          onDetailOpen: setSplashCountOpen,
+          use: onApplyBacksplash ? () => onApplyBacksplash({ tile: splashTileLf, counter: splashCounterLf }) : undefined,
+        }]
+      : []),
+    ...(angledJoints > 0
+      ? [{
+          key: 'angled',
+          label: 'Angled joints',
+          value: String(angledJoints),
+          tip: 'Floor cabinets joined at an angle other than 90° in this plan. Each needs an angled filler and fitting, and an angled countertop cut; Angled Joints bills them.',
+          use: onApplyAngledJoints ? () => onApplyAngledJoints(angledJoints) : undefined,
+        }]
+      : []),
+    ...(appliances.length > 0
+      ? [{
+          key: 'dr',
+          label: 'D&R appliances',
+          value: String(appliances.length),
+          tip: `The Appliance Detach & Reset list: ${appliances
             .map((a) => applianceSpec(a.type).label)
-            .join(', ')}. One that goes in a cabinet (range base, oven or refrigerator cabinet, OTR microwave cabinet, sink base) sits in it and moves with it; drag the rest into place.`}
-        >
-          <Tag color={DR_TAG_COLOR} style={{ marginInlineEnd: 0 }}>
-            D&R appliances: {appliances.length}
-          </Tag>
-        </Tooltip>
-      )}
-    </>
-  );
+            .join(', ')}. One that goes in a cabinet (range base, oven or refrigerator cabinet, OTR microwave cabinet, sink base) sits in it and moves with it; drag the rest into place.`,
+        }]
+      : []),
+  ];
+  const countLabel = (c: (typeof counts)[number], body: React.ReactNode) =>
+    c.detail ? (
+      <Popover title={`${c.label} in this plan`} content={c.detail} onOpenChange={c.onDetailOpen} placement={pane ? 'left' : 'top'}>
+        <span style={{ cursor: 'help' }}>{body}</span>
+      </Popover>
+    ) : c.tip ? (
+      <Tooltip title={c.tip} placement={pane ? 'left' : 'top'}>
+        <span style={{ cursor: 'help' }}>{body}</span>
+      </Tooltip>
+    ) : (
+      body
+    );
 
-  const gridToggle = (
-    <Tooltip title={`${showGrid ? 'Hide' : 'Show'} 1 ft reference grid`}>
-      <Button
-        type={showGrid ? 'primary' : 'default'}
-        ghost={showGrid}
-        icon={<TableOutlined />}
-        onClick={() => setShowGrid((v) => !v)}
-      />
-    </Tooltip>
-  );
   const angleControls = (
     <>
       <Tooltip title="Turn 15° counter-clockwise">
@@ -1667,6 +1704,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       <Tooltip title="Angle of the selected cabinets or appliances (0° = backed to the top of the screen). Type an angle such as 45 and press Enter to set one side of an angled island; several selected turn together. An appliance in a cabinet turns with the cabinet.">
         <InputNumber
           style={{ width: 76 }}
+          aria-label="Angle"
           min={-180}
           max={180}
           step={15}
@@ -1692,18 +1730,181 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
 
   const helpText =
     cabinets.length === 0
-      ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
+      ? 'Cabinets you add to the cabinet list appear here. You can also draw the walls first, then pick a cabinet from a picker and click the plan to place it.'
       : view === 'plan'
-        ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Drag across empty canvas to select everything the box touches, or Ctrl+click to add one; several selected move together and turn together by the handle round them, R or the angle box. The island moves as one piece: a click on any of its cabinets picks it all, a double-click or Alt+click just that cabinet, and Ctrl+Alt+click adds one more. Space + drag or the middle mouse button pans. Right-click a cabinet to change it there — cabinet, specialty, width, height, door and glass, a slide-in range\'s end panels — which changes its row on the Edit tab. Walls that meet stay joined: moving a wall or a wall end brings the walls joined to it along, keeping their angle (they turn only in 15° steps when they have to). A wall drawn against cabinets goes behind them, its face on their backs. For an angled island, pick the cabinets of one side that way, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it); the dark edge is its front.'
+        ? 'Drag cabinets into place. Dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Drag across empty canvas to select everything the box touches, or Ctrl+click to add one; several selected move together and turn together by the handle round them. The island moves as one piece: a click on any of its cabinets picks it all, a double-click or Alt+click just that cabinet, and Ctrl+Alt+click adds one more. Right-click a cabinet to change it: cabinet, specialty, width, height, door and glass, a slide-in range\'s end panels. Walls that meet stay joined: moving a wall or a wall end brings the walls joined to it along, keeping their angle. A wall drawn against cabinets goes behind them. For an angled island, pick the cabinets of one side, set their angle (e.g. 45) under More and bring their end up to the other side. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Appliance Detach & Reset list: one that goes in a cabinet sits in it, the rest start in a row below the drawing; drag them into place. The dark edge is the front.'
         : view === '3d'
-          ? 'The plan in 3D, at real sizes, with the detach & reset appliances in place. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top. Realistic draws the kitchen in the finishes picked beside it (saved with the sketch, not priced; None under Hardware for fronts with no knobs or pulls); walls between you and the room are left out. Crown molding tops the uppers and talls when Crown Molding is ticked in the Edit tab. With Ray-traced light on, the picture sharpens toward a photo a few seconds after the view stops moving (it needs about a minute to get ready when the 3D view first opens).'
+          ? 'The plan in 3D, at real sizes. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it; move cabinets and appliances in Top. Realistic draws the kitchen in the finishes picked beside it (saved with the sketch, not priced); walls between you and the room are left out. With Ray-traced light on, the picture sharpens toward a photo a few seconds after the view stops moving (it needs about a minute to get ready the first time).'
           : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.';
-  // Beside the form, where clicks there select its rows and keys typed there are its own.
-  const paneHelpText = `${helpText} Clicking a cabinet here shows its row in the form beside it, and clicking a row picks its cabinets here. The shortcuts (Delete, R, Ctrl+Z, Esc, Space + drag) work while the pointer is over the sketch.`;
-  const saveState = isSaving ? 'Saving…' : state.isDirty ? 'Not saved yet' : 'Sketch saved';
+  const helpContent = (
+    <div className="ce-help" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+      <div className="ce-keys">
+        <kbd>V</kbd>
+        <span>Select</span>
+        <kbd>W</kbd>
+        <span>Draw walls (Esc stops)</span>
+        <kbd>R</kbd>
+        <span>Turn 90° (Shift+R the other way)</span>
+        <kbd>Delete</kbd>
+        <span>Delete the selection; a cabinet also leaves the list</span>
+        <kbd>Ctrl+Z</kbd>
+        <span>Undo (Ctrl+Shift+Z redo)</span>
+        <kbd>Space</kbd>
+        <span>Hold and drag to pan</span>
+        <kbd>Ctrl+scroll</kbd>
+        <span>Zoom</span>
+      </div>
+      {pane && (
+        <p>
+          Shortcuts work while the pointer is on the sketch or after clicking it. Clicking a cabinet shows its row in
+          the panel; clicking a row picks its cabinets here.
+        </p>
+      )}
+      <p>{helpText}</p>
+    </div>
+  );
+
+  // The selection, in the panel beside the form: one cabinet's settings, or what is selected.
+  const selectedCabinets = cabinets.filter((c) => selectedIds.has(c.id));
+  const selectedWalls = walls.filter((w) => selectedIds.has(w.id));
+  const selectedApps = appliances.filter((a) => selectedIds.has(a.id));
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const feetInches = (px: number) => {
+    const inches = Math.round((px / scalePixelsPerFoot) * 12);
+    return `${Math.floor(inches / 12)}' ${inches % 12}"`;
+  };
+  const selectionPanel = (() => {
+    if (selectionCount === 0) return null;
+    const one = selectedCabinets.length === 1 && selectionCount === 1 ? selectedCabinets[0] : undefined;
+    const codes = Array.from(
+      selectedCabinets.reduce((m, c) => m.set(c.label || c.preset_code, (m.get(c.label || c.preset_code) ?? 0) + 1), new Map<string, number>())
+    )
+      .map(([code, n]) => (n > 1 ? `${code} ×${n}` : code))
+      .join(', ');
+    const what = [
+      selectedCabinets.length ? plural(selectedCabinets.length, 'cabinet', 'cabinets') : null,
+      selectedWalls.length ? plural(selectedWalls.length, 'wall', 'walls') : null,
+      selectedApps.length ? plural(selectedApps.length, 'appliance', 'appliances') : null,
+    ]
+      .filter(Boolean)
+      .join(', ');
+    return (
+      <div className="ce-section">
+        {one ? (
+          <>
+            <div className="ce-inspect-head">
+              <span className="ce-inspect-title">{one.label || one.preset_code}</span>
+              <span className="ce-inspect-sub">{CABINET_PRESETS[one.preset_code]?.label ?? 'Custom size'}</span>
+            </div>
+            <CabinetEditPanel
+              docked
+              box={boxOf(one)}
+              label={one.label || one.preset_code}
+              catalog={CABINET_PRESETS}
+              cabinetOptions={presetOptions[sectionOf(one)]}
+              rowQty={rowOf(one)?.qty ?? 1}
+              onChange={(change) => editCabinet(one, change)}
+              onClose={deselect}
+            />
+          </>
+        ) : (
+          <>
+            <div className="ce-inspect-head">
+              <span className="ce-inspect-title" style={{ fontFamily: 'inherit' }}>
+                {selectionCount === 1 && selectedWalls.length === 1
+                  ? 'Wall'
+                  : selectionCount === 1 && selectedApps.length === 1
+                    ? applianceSpec(selectedApps[0].type).label
+                    : what}
+              </span>
+              {selectionCount === 1 && selectedWalls.length === 1 && (
+                <span className="ce-inspect-sub">
+                  {feetInches(
+                    Math.hypot(selectedWalls[0].end_x - selectedWalls[0].start_x, selectedWalls[0].end_y - selectedWalls[0].start_y)
+                  )}
+                </span>
+              )}
+            </div>
+            {codes && <p className="ce-hint-text" style={{ marginTop: 0 }}>{codes}</p>}
+            {selectedApps.length > 0 && selectionCount === selectedApps.length && (
+              <p className="ce-hint-text" style={{ marginTop: 0 }}>
+                From the Appliance Detach &amp; Reset list in Scope. Drag it on the plan to place it.
+              </p>
+            )}
+          </>
+        )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginTop: 10 }}>
+          {hasSelectedCabinet && (
+            <>
+              <Tooltip title="Turn 90° counter-clockwise (Shift+R)">
+                <Button type="text" className="ui-icon-btn" icon={<RotateLeftOutlined />} aria-label="Turn left" onClick={() => turnSelected(-90)} />
+              </Tooltip>
+              <Tooltip title="Turn 90° clockwise (R)">
+                <Button type="text" className="ui-icon-btn" icon={<RotateRightOutlined />} aria-label="Turn right" onClick={() => turnSelected(90)} />
+              </Tooltip>
+            </>
+          )}
+          {flipTarget && (
+            <Tooltip title="Swap which end of the corner cabinet sits in the corner">
+              <Button
+                type="text"
+                className="ce-quiet"
+                icon={<SwapOutlined />}
+                onClick={() => updateCabinet({ id: flipTarget.id, corner_side: flipTarget.corner_side === 'right' ? 'left' : 'right' })}
+              >
+                Flip corner
+              </Button>
+            </Tooltip>
+          )}
+          {deletableIds.length > 0 && (
+            <Button
+              type="text"
+              className="ce-quiet ui-icon-btn--danger"
+              icon={<DeleteOutlined />}
+              style={{ marginLeft: 'auto' }}
+              onClick={deleteSelected}
+            >
+              Delete
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  })();
+
+  const takeoffPanel = (
+    <div className="ce-section">
+      <div className="ce-section-title">From the plan</div>
+      {counts.map((c) => (
+        <div className="ce-row" key={c.key}>
+          {countLabel(c, <span className="ce-row-name" style={{ color: '#37352f' }}>{c.label}</span>)}
+          <span className="ce-row-value" style={{ marginLeft: 'auto' }}>{c.value}</span>
+          {c.use ? (
+            <Button
+              type="text"
+              size="small"
+              className="ce-row-action ce-quiet"
+              aria-label={`Use the ${c.label.toLowerCase()} in the estimate`}
+              onClick={c.use}
+            >
+              Use
+            </Button>
+          ) : (
+            <span style={{ width: 37, flexShrink: 0 }} aria-hidden="true" />
+          )}
+        </div>
+      ))}
+      {counts.length === 0 && (
+        <p className="ce-hint-text" style={{ marginTop: 0 }}>
+          Draw the walls and place the cabinets, and the trim, backsplash and island top are measured here.
+        </p>
+      )}
+    </div>
+  );
 
   return (
     <div
+      ref={rootRef}
       onPointerEnter={() => {
         pointerInRef.current = true;
       }}
@@ -1711,10 +1912,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         pointerInRef.current = false;
         if (keysWhenPointerOver) setSpaceHeld(false);
       }}
-      style={pane ? { display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 } : undefined}
+      style={pane ? { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 } : undefined}
     >
-      <Space style={pane ? undefined : { marginBottom: 12 }} wrap size={pane ? 6 : undefined}>
+      <div className="ce-toolbar" role="toolbar" aria-label="Sketch tools">
         <Segmented<CabinetSketchView>
+          aria-label="View"
           value={view}
           onChange={(v) => {
             setView(v);
@@ -1725,91 +1927,99 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           options={[
             { label: <Tooltip title="Floor plan, seen from above">Top</Tooltip>, value: 'plan' },
             { label: <Tooltip title="Elevation of each run, seen from the front">Front</Tooltip>, value: 'elevation' },
-            { label: <Tooltip title="The kitchen in 3D — drag to look around">3D</Tooltip>, value: '3d' },
+            { label: <Tooltip title="The kitchen in 3D; drag to look around">3D</Tooltip>, value: '3d' },
           ]}
         />
 
         {view === 'plan' ? (
           <>
-            <Tooltip title="Select / move / rotate">
-              <Button
-                type={state.activeTool === 'select' ? 'primary' : 'default'}
-                icon={<SelectOutlined />}
-                onClick={() => {
-                  setTool('select');
-                  stopWallChain();
-                }}
-              >
-                {pane ? null : 'Select'}
-              </Button>
-            </Tooltip>
-            <Tooltip title="Draw walls — click to start, click again to place, Esc to stop, Shift to lock to horizontal/vertical">
-              <Button
-                type={state.activeTool === 'wall' ? 'primary' : 'default'}
-                icon={<BorderOutlined />}
-                onClick={() => setTool('wall')}
-              >
-                {pane ? null : 'Draw Wall'}
-              </Button>
-            </Tooltip>
-            {!pane && gridToggle}
-            <Space.Compact>
-              <Tooltip title="Zoom out">
-                <Button icon={<ZoomOutOutlined />} onClick={() => zoomAtCenter(1 / 1.25)} />
-              </Tooltip>
-              <Tooltip title="Fit the drawing to the view. Ctrl + scroll zooms; drag empty canvas to pan.">
-                <Button icon={<CompressOutlined />} onClick={fitView}>
-                  {Math.round(viewport.zoom * 100)}%
+            <span className="ce-toolbar-sep" aria-hidden="true" />
+            <div className="ce-toolbar-group">
+              <Tooltip title="Select, move and turn (V)" mouseEnterDelay={0.6}>
+                <Button
+                  type="text"
+                  className={`ce-tool${state.activeTool === 'select' ? ' is-selected' : ''}`}
+                  aria-pressed={state.activeTool === 'select'}
+                  icon={<SelectOutlined />}
+                  onClick={() => {
+                    setTool('select');
+                    stopWallChain();
+                  }}
+                >
+                  Select
                 </Button>
               </Tooltip>
-              <Tooltip title="Zoom in">
-                <Button icon={<ZoomInOutlined />} onClick={() => zoomAtCenter(1.25)} />
+              <Tooltip title="Draw walls: click to start, click again for each corner (W)" mouseEnterDelay={0.6}>
+                <Button
+                  type="text"
+                  className={`ce-tool${state.activeTool === 'wall' ? ' is-selected' : ''}`}
+                  aria-pressed={state.activeTool === 'wall'}
+                  icon={<BorderOutlined />}
+                  onClick={() => setTool('wall')}
+                >
+                  Wall
+                </Button>
               </Tooltip>
-            </Space.Compact>
-
-            {cabinetPickers}
-
-            <Button icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
-            <Button icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
-            <Tooltip
-              title={pane ? 'Delete (Del) — also takes the cabinet off the cabinet list' : 'Also removes the cabinet from the Edit tab list'}
-            >
-              <Button icon={<DeleteOutlined />} danger disabled={deletableIds.length === 0} onClick={deleteSelected}>
-                {pane ? null : 'Delete'}
-              </Button>
-            </Tooltip>
-            <Space.Compact>
-              <Tooltip title="Turn 90° counter-clockwise (Shift+R). Several selected turn together.">
-                <Button icon={<RotateLeftOutlined />} disabled={!hasSelectedCabinet} onClick={() => turnSelected(-90)} />
+            </div>
+            <span className="ce-toolbar-sep" aria-hidden="true" />
+            <div className="ce-toolbar-group">{cabinetPickers}</div>
+            <span className="ce-toolbar-sep" aria-hidden="true" />
+            <div className="ce-toolbar-group">
+              <Tooltip title="Undo (Ctrl+Z)" mouseEnterDelay={0.6}>
+                <Button type="text" className="ui-icon-btn" icon={<UndoOutlined />} aria-label="Undo" disabled={!canUndo} onClick={undo} />
               </Tooltip>
-              {!pane && angleControls}
-              <Tooltip title="Turn 90° clockwise (R). Several selected turn together.">
-                <Button icon={<RotateRightOutlined />} disabled={!hasSelectedCabinet} onClick={() => turnSelected(90)} />
+              <Tooltip title="Redo (Ctrl+Shift+Z)" mouseEnterDelay={0.6}>
+                <Button type="text" className="ui-icon-btn" icon={<RedoOutlined />} aria-label="Redo" disabled={!canRedo} onClick={redo} />
               </Tooltip>
-            </Space.Compact>
-            {pane && (
+              <Tooltip title="Turn 90° counter-clockwise (Shift+R). Several selected turn together." mouseEnterDelay={0.6}>
+                <Button
+                  type="text"
+                  className="ui-icon-btn"
+                  icon={<RotateLeftOutlined />}
+                  aria-label="Turn left"
+                  disabled={!hasSelectedCabinet}
+                  onClick={() => turnSelected(-90)}
+                />
+              </Tooltip>
+              <Tooltip title="Turn 90° clockwise (R). Several selected turn together." mouseEnterDelay={0.6}>
+                <Button
+                  type="text"
+                  className="ui-icon-btn"
+                  icon={<RotateRightOutlined />}
+                  aria-label="Turn right"
+                  disabled={!hasSelectedCabinet}
+                  onClick={() => turnSelected(90)}
+                />
+              </Tooltip>
               <Popover
                 trigger="click"
-                placement="bottomRight"
-                content={
-                  <Space direction="vertical" size={10}>
-                    <Space size={8}>
-                      {gridToggle}
-                      <span>1 ft reference grid</span>
-                    </Space>
-                    <Space.Compact>{angleControls}</Space.Compact>
-                  </Space>
-                }
+                placement="bottom"
+                title="Turn by 15° or to an angle"
+                content={<Space.Compact>{angleControls}</Space.Compact>}
               >
-                <Tooltip title="More: the grid, and turning by 15° or to an angle">
-                  <Button icon={<EllipsisOutlined />} aria-label="More sketch tools" />
+                <Tooltip title="Turn by 15° or to an angle" mouseEnterDelay={0.6}>
+                  <Button type="text" className="ui-icon-btn" icon={<EllipsisOutlined />} aria-label="Turn by 15° or to an angle" />
                 </Tooltip>
               </Popover>
-            )}
-            {!pane && countTags}
-            {flipTarget && (
+              <Tooltip
+                title={pane ? 'Delete (Del); a cabinet also leaves the cabinet list' : 'Delete (Del); a cabinet also leaves the Edit tab list'}
+                mouseEnterDelay={0.6}
+              >
+                <Button
+                  type="text"
+                  className="ui-icon-btn ui-icon-btn--danger"
+                  icon={<DeleteOutlined />}
+                  aria-label="Delete"
+                  disabled={deletableIds.length === 0}
+                  onClick={deleteSelected}
+                />
+              </Tooltip>
+            </div>
+            {flipTarget && !pane && (
               <Tooltip title="Swap which end of the corner cabinet sits in the corner (for an angle end: which end is full depth; for a three-door corner: which end its doors wrap)">
                 <Button
+                  type="text"
+                  className="ce-tool"
                   icon={<SwapOutlined />}
                   onClick={() =>
                     updateCabinet({
@@ -1825,8 +2035,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           </>
         ) : view === '3d' ? (
           <>
-            {cabinetPickers}
+            <span className="ce-toolbar-sep" aria-hidden="true" />
+            <div className="ce-toolbar-group">{cabinetPickers}</div>
+            <span className="ce-toolbar-sep" aria-hidden="true" />
             <Segmented<'drawing' | 'realistic'>
+              aria-label="Look"
               value={realistic ? 'realistic' : 'drawing'}
               onChange={(v) => setRealistic(v === 'realistic')}
               options={[
@@ -1838,13 +2051,15 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               <KitchenFinishPicker
                 finish={finish}
                 onChange={setFinish}
-                setBy={archedByStyle ? { ...look.setBy, door_style: 'Arched raised panel (Edit tab)' } : look.setBy}
+                setBy={archedByStyle ? { ...look.setBy, door_style: 'Arched raised panel (door style)' } : look.setBy}
                 drawn={drawnFinish}
               />
             )}
             {realistic && (
               <Tooltip title="A photo-like picture of the finished kitchen, drawn by AI from the view as framed now">
                 <Button
+                  type="text"
+                  className="ce-tool"
                   icon={<CameraOutlined />}
                   disabled={cabinets.length === 0}
                   onClick={() => {
@@ -1860,36 +2075,46 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           </>
         ) : (
           elevations.length > 1 && (
-            <Select
-              style={{ width: 200 }}
-              value={currentRun?.key}
-              onChange={setRunKey}
-              options={elevations.map((r) => ({ label: `${r.label} (${r.items.length})`, value: r.key }))}
-            />
+            <>
+              <span className="ce-toolbar-sep" aria-hidden="true" />
+              <Select
+                aria-label="Run"
+                style={{ width: 200 }}
+                value={currentRun?.key}
+                onChange={setRunKey}
+                options={elevations.map((r) => ({ label: `${r.label} (${r.items.length})`, value: r.key }))}
+              />
+            </>
           )
         )}
 
-        {pane ? (
-          <Popover
-            trigger="click"
-            placement="bottomRight"
-            title="How the sketch works"
-            content={<div style={{ maxWidth: 420, fontSize: 12, color: '#595959' }}>{paneHelpText}</div>}
-          >
-            <Button icon={<QuestionCircleOutlined />} aria-label="How the sketch works" />
+        <div className="ce-toolbar-group ce-toolbar-end">
+          <Popover trigger="click" placement="bottomRight" title="How the sketch works" content={helpContent}>
+            <Tooltip title="How the sketch works, and its shortcuts" mouseEnterDelay={0.6}>
+              <Button type="text" className="ui-icon-btn" icon={<QuestionCircleOutlined />} aria-label="How the sketch works" />
+            </Tooltip>
           </Popover>
-        ) : (
-          <Button type="primary" icon={<SaveOutlined />} loading={isSaving} onClick={handleManualSave}>
-            Save Sketch{state.isDirty ? ' *' : ''}
-          </Button>
-        )}
-      </Space>
-
+          {!pane && (
+            <Tooltip title={state.isDirty ? 'Save the sketch now; it also saves itself a moment after each change' : 'All changes saved'} mouseEnterDelay={0.6}>
+              <Button
+                icon={state.isDirty ? <SaveOutlined /> : <CheckOutlined />}
+                loading={isSaving}
+                disabled={!state.isDirty && !isSaving}
+                onClick={handleManualSave}
+              >
+                {state.isDirty || isSaving ? 'Save Sketch' : 'Saved'}
+              </Button>
+            </Tooltip>
+          )}
+        </div>
+      </div>
       <div ref={viewAreaRef} style={pane ? { flex: 1, minHeight: 0, position: 'relative' } : undefined}>
         {view === 'plan' ? (
           <div
             ref={containerRef}
-            style={{ position: 'relative', border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#fafafa' }}
+            className="ce-stage"
+            tabIndex={0}
+            aria-label="Kitchen plan. Click a cabinet to select it; V selects, W draws walls, R turns, Delete removes."
           >
             <Stage
               ref={stageRef}
@@ -2025,10 +2250,16 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     />
                   ))}
                 {/* The backsplash along the walls, just inside the counter's back edge: tile (teal), 4" countertop (gray). */}
-                {splashLayout.faces.flatMap((f) => [
-                  ...(planTile ? f.tile : []).map((s, k) => splashLine(s, 5, '#13a8a8', `t-${f.key}-${k}`)),
-                  ...(planCounter ? f.counter : []).map((s, k) => splashLine(s, 2, '#6f6d68', `c-${f.key}-${k}`)),
-                ])}
+                {splashLayout.faces
+                  .filter((f) => !f.off || splashCountOpen)
+                  .flatMap((f) => [
+                    ...(planTile ? f.tile : []).map((s, k) =>
+                      splashLine(s, 5, '#13a8a8', `t-${f.key}-${k}`, f.off, f.key === splashHover)
+                    ),
+                    ...(planCounter ? f.counter : []).map((s, k) =>
+                      splashLine(s, 2, '#6f6d68', `c-${f.key}-${k}`, f.off, f.key === splashHover)
+                    ),
+                  ])}
                 {appliances.filter(isHung).map(applianceShape)}
                 {walls.filter((wall) => selectedIds.has(wall.id)).map(wallShape)}
               {/* The cabinets of the form row under the pointer. */}
@@ -2055,9 +2286,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                   resizeEnabled={false}
                   rotateAnchorOffset={ROTATE_ANCHOR_OFFSET}
                   anchorSize={ANCHOR_SIZE}
-                  borderStroke="#1890ff"
+                  borderStroke="#1f74c9"
                   borderDash={[3, 3]}
-                  anchorStroke="#1890ff"
+                  anchorStroke="#1f74c9"
                   onTransform={handleGroupTransform}
                   onTransformEnd={handleGroupTransformEnd}
                 />
@@ -2067,8 +2298,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     y={Math.min(marquee.y0, marquee.y1)}
                     width={Math.abs(marquee.x1 - marquee.x0)}
                     height={Math.abs(marquee.y1 - marquee.y0)}
-                    fill="rgba(24, 144, 255, 0.08)"
-                    stroke="#1890ff"
+                    fill="rgba(31, 116, 201, 0.08)"
+                    stroke="#1f74c9"
                     strokeWidth={1}
                     dash={[4, 3]}
                     strokeScaleEnabled={false}
@@ -2077,6 +2308,59 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 )}
               </Layer>
             </Stage>
+            {/* The active drawing tool, in words, and how to stop it */}
+            {(state.activeTool === 'wall' || (state.activeTool === 'place_cabinet' && state.activePresetCode)) && (
+              <div className="ce-hint" role="status">
+                <span className="ce-hint-tool">
+                  {state.activeTool === 'wall'
+                    ? 'Wall'
+                    : `Placing ${CABINET_PRESETS[state.activePresetCode!]?.label ?? state.activePresetCode}`}
+                </span>
+                <span>
+                  {state.activeTool === 'wall'
+                    ? wallDrawStart
+                      ? 'Click for the next corner. Shift keeps it level or plumb.'
+                      : 'Click where the wall starts.'
+                    : 'Click the plan where it goes.'}
+                </span>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    stopWallChain();
+                    setTool('select');
+                    setActivePreset(null);
+                  }}
+                >
+                  {state.activeTool === 'wall' ? 'Done' : 'Cancel'}
+                </Button>
+              </div>
+            )}
+            {/* Zoom and the grid, bottom right */}
+            <div className="ce-view" role="group" aria-label="Zoom and grid">
+              <Tooltip title="Zoom out">
+                <Button type="text" size="small" icon={<ZoomOutOutlined />} aria-label="Zoom out" onClick={() => zoomAtCenter(1 / 1.25)} />
+              </Tooltip>
+              <Tooltip title="Fit the drawing to the view. Ctrl + scroll zooms; Space + drag pans.">
+                <Button type="text" size="small" className="ce-zoom" aria-label="Fit the drawing to the view" onClick={fitView}>
+                  {Math.round(viewport.zoom * 100)}%
+                </Button>
+              </Tooltip>
+              <Tooltip title="Zoom in">
+                <Button type="text" size="small" icon={<ZoomInOutlined />} aria-label="Zoom in" onClick={() => zoomAtCenter(1.25)} />
+              </Tooltip>
+              <span className="ce-toolbar-sep" style={{ margin: '0 2px' }} aria-hidden="true" />
+              <Tooltip title={`${showGrid ? 'Hide' : 'Show'} the 1 ft grid`}>
+                <Button
+                  type="text"
+                  size="small"
+                  className={showGrid ? 'is-selected' : undefined}
+                  icon={<TableOutlined />}
+                  aria-label="1 ft grid"
+                  aria-pressed={showGrid}
+                  onClick={() => setShowGrid((v) => !v)}
+                />
+              </Tooltip>
+            </div>
             {editPanel && editedCabinet && (
               <CabinetEditPanel
                 box={boxOf(editedCabinet)}
@@ -2093,7 +2377,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             )}
           </div>
         ) : view === '3d' ? null : (
-          <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#ffffff' }}>
+          <div className="ce-stage" style={{ background: '#ffffff' }}>
             <CabinetElevationView
               run={currentRun}
               presets={CABINET_PRESETS}
@@ -2109,17 +2393,15 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {/* Kept mounted once opened, only hidden after: the ray tracer's shader takes about a minute to build. */}
         {opened3d && (
           <div
+            className="ce-stage"
             style={{
               display: view === '3d' ? 'block' : 'none',
-              border: '1px solid #d9d9d9',
-              borderRadius: 4,
-              overflow: 'hidden',
               background: '#f7f7f5',
             }}
           >
             <React.Suspense
               fallback={
-                <div style={{ height: canvasHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                <div style={{ height: canvasHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#73726e' }}>
                   Loading 3D view…
                 </div>
               }
@@ -2138,7 +2420,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 surfaces={realistic ? look.surfaces : null}
                 crownMolding={crownMolding}
                 archedDoors={drawnArched}
-                backsplash={backsplash}
+                backsplash={splashSpec}
                 active={view === '3d'}
                 selectedIds={selectedIds}
                 onSelect={handleSelect('cabinet')}
@@ -2155,29 +2437,24 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         )}
       </div>
 
-      {pane ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px 12px' }}>
-          <Space size={6} wrap>
-            {view === 'plan' && countTags}
-          </Space>
-          <span style={{ color: '#8c8c8c', fontSize: 12, whiteSpace: 'nowrap' }}>
-            <span
-              style={{
-                display: 'inline-block',
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                marginRight: 6,
-                verticalAlign: 'middle',
-                background: isSaving || state.isDirty ? '#faad14' : '#52c41a',
-              }}
-            />
-            {saveState}
-          </span>
+      {/* What the plan counts: under the drawing on its own tab; in the panel beside the form */}
+      {!pane && view === 'plan' && counts.length > 0 && (
+        <div className="ce-counts">
+          {counts.map((c) => (
+            <span className="ce-count" key={c.key}>
+              {countLabel(c, <span>{c.label}</span>)}
+              <span className="ce-count-value">{c.value}</span>
+              {c.use && (
+                <Button type="link" size="small" onClick={c.use} aria-label={`Use the ${c.label.toLowerCase()} in the estimate`}>
+                  Use in estimate
+                </Button>
+              )}
+            </span>
+          ))}
         </div>
-      ) : (
-        <div style={{ marginTop: 8, color: '#999', fontSize: 13 }}>{helpText}</div>
       )}
+      {pane && inspector?.selection && createPortal(selectionPanel, inspector.selection)}
+      {pane && inspector?.takeoff && createPortal(takeoffPanel, inspector.takeoff)}
     </div>
   );
 };

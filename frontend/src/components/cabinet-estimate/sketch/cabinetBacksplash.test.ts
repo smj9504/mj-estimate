@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { applianceSolids, cabinetSolids, wallSolids } from './cabinet3dModel';
-import { backsplashLayout, splashOnRun, splashPieces } from './cabinetBacksplash';
+import { backsplashLayout, splashFaceKey, splashOnRun, splashPieces } from './cabinetBacksplash';
+import { buildCabinetScene } from './cabinet3dScene';
 import { buildElevations, pxToIn, type PresetCatalog } from './cabinetSketchLayout';
 import type { CabinetSketchAppliance, CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
 
@@ -64,14 +65,19 @@ const SIDE = wall('side', -2, -4, -2, 120);
 /** B30 · RB30S (range opening) · B30 · B30 from the side wall along the back wall. */
 const RUN = [cab('a', 'B30', 0, 0), cab('r', 'RB30S', 30, 0), cab('b', 'B30', 60, 0), cab('c', 'B30', 90, 0)];
 
-const layoutOf = (cabinets: CabinetSketchCabinet[], walls: CabinetSketchWall[], appliances: CabinetSketchAppliance[] = []) => {
+const layoutOf = (
+  cabinets: CabinetSketchCabinet[],
+  walls: CabinetSketchWall[],
+  appliances: CabinetSketchAppliance[] = [],
+  off: string[] = []
+) => {
   const wallModels = wallSolids(walls, SCALE);
   const pieces = splashPieces(
     cabinetSolids(cabinets, PRESETS, SCALE),
     applianceSolids(appliances, cabinets, PRESETS, SCALE),
     wallModels
   );
-  return backsplashLayout(pieces, wallModels);
+  return backsplashLayout(pieces, wallModels, off);
 };
 
 describe('backsplashLayout', () => {
@@ -152,5 +158,57 @@ describe('splashOnRun', () => {
     const layout = layoutOf([...RUN, ...island], [BACK, SIDE]);
     const islandRun = buildElevations([...RUN, ...island], [BACK, SIDE], PRESETS, SCALE).find((r) => r.island)!;
     expect(splashOnRun(islandRun, layout, (px) => pxToIn(px, SCALE))).toEqual({ tile: [], counter: [] });
+  });
+});
+
+describe('a face left without backsplash', () => {
+  const walls = [BACK, SIDE];
+  const sideKey = () => layoutOf(RUN, walls).faces.find((f) => f.key.startsWith('side'))!.key;
+
+  it('names a face by its wall and which side of it, as splashFaceKey does', () => {
+    const layout = layoutOf(RUN, walls);
+    expect(layout.faces.map((f) => f.key).sort()).toEqual([expect.stringMatching(/^back:-?1$/), expect.stringMatching(/^side:-?1$/)]);
+    // The end base's side against the side wall, the counter toward the run.
+    expect(splashFaceKey([0, 0], [0, 24], [15, 12], wallSolids(walls, SCALE))).toBe(sideKey());
+    expect(splashFaceKey([0, 0], [0, 0.2], [15, 12], wallSolids(walls, SCALE))).toBeNull();
+  });
+
+  it("is listed but left out of the length: the side wall at the run's end bare", () => {
+    const layout = layoutOf(RUN, walls, [], [sideKey()]);
+    expect(layout.faces).toHaveLength(2);
+    expect(layout.faces.find((f) => f.key === sideKey())).toMatchObject({ off: true, back: false });
+    expect(layout.faces.find((f) => f.key.startsWith('back'))!.off).toBe(false);
+    expect(layout.tileIn).toBeCloseTo(120, 6);
+    expect(layout.counterIn).toBeCloseTo(90, 6);
+    // A key for no face changes nothing.
+    expect(layoutOf(RUN, walls, [], ['gone:1']).tileIn).toBeCloseTo(144, 6);
+  });
+
+  it("leaves the Front view's run without it when it is the back wall", () => {
+    const backKey = layoutOf(RUN, walls).faces.find((f) => f.key.startsWith('back'))!.key;
+    const layout = layoutOf(RUN, walls, [], [backKey]);
+    const [run] = buildElevations(RUN, walls, PRESETS, SCALE);
+    const onRun = splashOnRun(run, layout, (px) => pxToIn(px, SCALE));
+    expect(onRun).toEqual({ tile: [], counter: [] });
+    expect(layout.tileIn).toBeCloseTo(24, 6);
+  });
+
+  it('is not built in 3D, in the drawing look or the realistic one', () => {
+    const wallModels = wallSolids(walls, SCALE);
+    const solids = cabinetSolids(RUN, PRESETS, SCALE);
+    const meshesOfA = (off: string[]) => {
+      const root = buildCabinetScene(solids, wallModels, new Set(), {
+        backsplash: { tileIn: 18, counter: true, off },
+      });
+      const group = root.children.find((c) => c.userData.cabinetId === 'a')!;
+      let n = 0;
+      group.traverse((o) => {
+        if ((o as { isMesh?: boolean }).isMesh) n += 1;
+      });
+      return n;
+    };
+    // The end base: tile and 4" strip on its back and on its end; the end's two go.
+    const all = meshesOfA([]);
+    expect(meshesOfA([sideKey()])).toBe(all - 2);
   });
 });

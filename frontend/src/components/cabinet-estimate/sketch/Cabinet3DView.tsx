@@ -310,6 +310,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
   // As plain values, so a new object with the same backsplashes doesn't rebuild the scene.
   const splashTileIn = backsplash?.tileIn ?? null;
   const splashCounter = !!backsplash?.counter;
+  const splashOff = (backsplash?.off ?? []).join('|');
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   // Bumped when the renderer is (re)created, so the model is put into the new scene.
@@ -546,7 +547,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       surfaces,
       crown: crownMolding,
       archedDoors,
-      backsplash: { tileIn: splashTileIn, counter: splashCounter },
+      backsplash: { tileIn: splashTileIn, counter: splashCounter, off: splashOff ? splashOff.split('|') : [] },
     });
     stage.scene.add(stage.content);
     stage.traceStale = true;
@@ -569,7 +570,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     } else {
       stage.render();
     }
-  }, [solids, wallModels, extras, selectedIds, finish, surfaces, crownMolding, archedDoors, splashTileIn, splashCounter, frameView, stageVersion]);
+  }, [solids, wallModels, extras, selectedIds, finish, surfaces, crownMolding, archedDoors, splashTileIn, splashCounter, splashOff, frameView, stageVersion]);
 
   // Ray tracing: loaded the first time the realistic look wants it, then
   // switched on and off with the look, the toggle and the view's showing.

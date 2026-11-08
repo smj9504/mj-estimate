@@ -34,6 +34,11 @@ export interface BacksplashSpec {
   tileIn: number | null;
   /** The 4" countertop backsplash (with the countertop). */
   counter: boolean;
+  /**
+   * Faces left without backsplash (splashFaceKey), as the sketch saves them
+   * — a side wall at a run's end is tiled in some kitchens and not in others.
+   */
+  off?: string[] | null;
 }
 
 /** The wall whose face the side pa→pb (plan inches) lies against, along it and within its length; null for none. */
@@ -140,9 +145,55 @@ export interface SplashSpan {
   lengthIn: number;
 }
 
+/** Where a side with backsplash lies: the face it is on, along it (`u` from `origin`) and toward the counter (`n`). */
+interface FaceFrame {
+  key: string;
+  origin: Pt2;
+  u: Pt2;
+  n: Pt2;
+  /** How far a point is off the wall's (or line's) middle, to its left going along u. */
+  sideOf: (p: Pt2) => number;
+}
+
+function faceFrame(a: Pt2, b: Pt2, inside: Pt2, walls: WallSolid[]): FaceFrame | null {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < 0.5) return null;
+  const wall = wallAgainst(a, b, walls);
+  let origin: Pt2;
+  let u: Pt2;
+  let key: string;
+  if (wall) {
+    const wl = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
+    origin = wall.a;
+    u = [(wall.b[0] - wall.a[0]) / wl, (wall.b[1] - wall.a[1]) / wl];
+    key = wall.id;
+  } else {
+    // No wall drawn: the line it is on, its direction made one way round.
+    u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+    if (u[0] < -1e-9 || (Math.abs(u[0]) < 1e-9 && u[1] < 0)) u = [-u[0], -u[1]];
+    origin = [0, 0];
+    const c = a[0] * -u[1] + a[1] * u[0];
+    key = `line:${Math.round((Math.atan2(u[1], u[0]) * 180) / Math.PI)}:${Math.round(c)}`;
+  }
+  const n0: Pt2 = [-u[1], u[0]];
+  const sideOf = (p: Pt2) => (p[0] - origin[0]) * n0[0] + (p[1] - origin[1]) * n0[1];
+  const side = sideOf(inside) - sideOf(a) >= 0 ? 1 : -1;
+  return { key: `${key}:${side}`, origin, u, n: [n0[0] * side, n0[1] * side], sideOf };
+}
+
+/**
+ * The face of a wall the side a→b (plan inches, the counter toward
+ * `inside`) has its backsplash on: the wall and which of its two faces, or,
+ * with no wall drawn there, the line. Null for a side too short to count.
+ */
+export const splashFaceKey = (a: Pt2, b: Pt2, inside: Pt2, walls: WallSolid[]): string | null =>
+  faceFrame(a, b, inside, walls)?.key ?? null;
+
 /** One face of a wall (or, with no walls drawn, one line) with backsplash on it. */
 export interface SplashFace {
   key: string;
+  /** Left without backsplash (BacksplashSpec.off): not measured, not drawn. */
+  off: boolean;
   /** The tile backsplash's stretches on it, and the 4" countertop one's (none behind a range). */
   tile: SplashSpan[];
   counter: SplashSpan[];
@@ -166,47 +217,25 @@ const JOIN_IN = 0.5;
 
 /**
  * The backsplash as measured: the pieces on each face of each wall joined
- * into stretches, the tile and the 4" countertop splash apiece.
+ * into stretches, the tile and the 4" countertop splash apiece. Faces in
+ * `off` are listed, marked off, and left out of the totals.
  */
-export function backsplashLayout(pieces: SplashPiece[], walls: WallSolid[]): BacksplashLayout {
+export function backsplashLayout(
+  pieces: SplashPiece[],
+  walls: WallSolid[],
+  off: readonly string[] = []
+): BacksplashLayout {
   type Placed = { piece: SplashPiece; key: string; origin: Pt2; u: Pt2; n: Pt2; off: number; t0: number; t1: number };
   const placed: Placed[] = [];
   for (const piece of pieces) {
-    const len = Math.hypot(piece.b[0] - piece.a[0], piece.b[1] - piece.a[1]);
-    if (len < 0.5) continue;
-    const wall = wallAgainst(piece.a, piece.b, walls);
-    let origin: Pt2;
-    let u: Pt2;
-    let key: string;
-    if (wall) {
-      const wl = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
-      origin = wall.a;
-      u = [(wall.b[0] - wall.a[0]) / wl, (wall.b[1] - wall.a[1]) / wl];
-      key = wall.id;
-    } else {
-      // No wall drawn: the line it is on, its direction made one way round.
-      u = [(piece.b[0] - piece.a[0]) / len, (piece.b[1] - piece.a[1]) / len];
-      if (u[0] < -1e-9 || (Math.abs(u[0]) < 1e-9 && u[1] < 0)) u = [-u[0], -u[1]];
-      origin = [0, 0];
-      const c = piece.a[0] * -u[1] + piece.a[1] * u[0];
-      key = `line:${Math.round((Math.atan2(u[1], u[0]) * 180) / Math.PI)}:${Math.round(c)}`;
-    }
-    const n0: Pt2 = [-u[1], u[0]];
-    const sideOf = (p: Pt2) => (p[0] - origin[0]) * n0[0] + (p[1] - origin[1]) * n0[1];
-    const side = sideOf(piece.inside) - sideOf(piece.a) >= 0 ? 1 : -1;
+    const frame = faceFrame(piece.a, piece.b, piece.inside, walls);
+    if (!frame) continue;
+    const { key, origin, u, n, sideOf } = frame;
     const along = (p: Pt2) => (p[0] - origin[0]) * u[0] + (p[1] - origin[1]) * u[1];
     const [t0, t1] = [along(piece.a), along(piece.b)].sort((p, q) => p - q);
-    placed.push({
-      piece,
-      key: `${key}:${side}`,
-      origin,
-      u,
-      n: [n0[0] * side, n0[1] * side],
-      off: (sideOf(piece.a) + sideOf(piece.b)) / 2,
-      t0,
-      t1,
-    });
+    placed.push({ piece, key, origin, u, n, off: (sideOf(piece.a) + sideOf(piece.b)) / 2, t0, t1 });
   }
+  const offKeys = new Set(off);
 
   const byKey = new Map<string, Placed[]>();
   for (const p of placed) byKey.set(p.key, [...(byKey.get(p.key) ?? []), p]);
@@ -233,6 +262,7 @@ export function backsplashLayout(pieces: SplashPiece[], walls: WallSolid[]): Bac
     const counter = spans(group.filter((p) => p.piece.counter));
     faces.push({
       key,
+      off: offKeys.has(key),
       tile,
       counter,
       tileIn: tile.reduce((sum, s) => sum + s.lengthIn, 0),
@@ -241,10 +271,11 @@ export function backsplashLayout(pieces: SplashPiece[], walls: WallSolid[]): Bac
       back: group.some((p) => p.piece.back),
     });
   }
+  const on = faces.filter((f) => !f.off);
   return {
     faces,
-    tileIn: faces.reduce((sum, f) => sum + f.tileIn, 0),
-    counterIn: faces.reduce((sum, f) => sum + f.counterIn, 0),
+    tileIn: on.reduce((sum, f) => sum + f.tileIn, 0),
+    counterIn: on.reduce((sum, f) => sum + f.counterIn, 0),
   };
 }
 
@@ -288,6 +319,7 @@ export function splashOnRun(run: ElevationRun, layout: BacksplashLayout, toIn: (
     return [p, q];
   };
   for (const face of layout.faces) {
+    if (face.off) continue;
     for (const s of face.tile) {
       const span = onRun(s);
       if (span) out.tile.push(span);

@@ -101,6 +101,83 @@ export function boxChoices(
   return { widths, heights, specialties };
 }
 
+/**
+ * A cabinet kind: one catalog line in all its sizes — the same section,
+ * specialty and code family (W, WEA, SB…). Null for a code not in the catalog.
+ */
+export const kindOf = (code: string, catalog: Catalog): string | null => {
+  const e = catalog[code];
+  return e ? `${e.cab_type}|${e.specialty ?? ''}|${prefixOf(code)}` : null;
+};
+
+const SECTION_NAMES: Partial<Record<CabType, string>> = { base: 'Base', wall: 'Wall', tall: 'Tall' };
+
+/**
+ * A kind in words: the label without its sizes ("Angle End Wall 3-Door",
+ * "Range Base (Slide-in)"); a plain upper, labelled by size alone, is "Wall".
+ */
+export function kindName(entry: CatalogEntry): string {
+  const name = entry.label
+    .replace(/\s*\([^)]*\d"[^)]*\)/g, '') // "(17" door)"
+    .replace(/\d+(?:\.\d+)?"\s*[WH]?(?:\s*x\s*\d+(?:\.\d+)?"\s*[WH]?)?/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return name || SECTION_NAMES[entry.cab_type] || entry.label;
+}
+
+export interface KindOption {
+  /** The kind (kindOf). */
+  value: string;
+  label: string;
+  /** The kind's codes in the list, in its order. */
+  codes: string[];
+}
+
+/**
+ * A cabinet list (grouped as in the toolbar picker) as one entry per kind,
+ * in the order the kinds first appear: the panel's Cabinet picks the kind
+ * and its Width and Height the size, so the sizes aren't listed again.
+ */
+export function cabinetKinds(groups: { options: { value: string }[] }[], catalog: Catalog): KindOption[] {
+  const kinds = new Map<string, KindOption>();
+  for (const group of groups) {
+    for (const { value: code } of group.options) {
+      const kind = kindOf(code, catalog);
+      if (!kind) continue;
+      const known = kinds.get(kind);
+      if (known) known.codes.push(code);
+      else kinds.set(kind, { value: kind, label: kindName(catalog[code]), codes: [code] });
+    }
+  }
+  return Array.from(kinds.values());
+}
+
+/**
+ * The code a box takes when its kind is picked: at the box's height if the
+ * kind is made in it, or else at the kind's main height (the one most of its
+ * codes have, the nearer of a tie) — a 30" upper turned into a Wall on the
+ * 36" list is a 36" one, not a 27" short one — with the nearest width.
+ */
+export function codeForKind(
+  codes: string[],
+  size: { width_inches: number; height_inches: number },
+  catalog: Catalog
+): string {
+  const count = new Map<number, number>();
+  for (const c of codes) count.set(catalog[c].height, (count.get(catalog[c].height) ?? 0) + 1);
+  const height = count.has(size.height_inches)
+    ? size.height_inches
+    : Array.from(count).reduce((best, h) =>
+        h[1] > best[1] ||
+        (h[1] === best[1] && Math.abs(h[0] - size.height_inches) < Math.abs(best[0] - size.height_inches))
+          ? h
+          : best
+      )[0];
+  const atHeight = codes.filter((c) => catalog[c].height === height);
+  const off = (c: string) => Math.abs(catalog[c].width - size.width_inches);
+  return atHeight.reduce((best, c) => (off(c) < off(best) ? c : best));
+}
+
 /** The fields of a box a change touches. */
 export interface BoxFields {
   code: string;

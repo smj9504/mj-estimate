@@ -159,7 +159,7 @@ test.describe('an island with cabinets on both sides', () => {
     await page.getByText('Island Panels').scrollIntoViewIfNeeded();
     await page.screenshot({ path: test.info().outputPath('edit-tab-two-sided.png'), fullPage: false });
 
-    await page.getByRole('button', { name: /^save Save$/ }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => server.saves.at(-1)?.island_two_sided).toBe(true);
 
     await openTab(page, 'Sketch');
@@ -180,7 +180,7 @@ test.describe('an island with cabinets on both sides', () => {
     await openTab(page, 'Edit');
     await bothSides(page).check();
     await expect.poll(() => island(server).rotations).toEqual([0, 0, 180, 180]);
-    await page.getByRole('button', { name: /^save Save$/ }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => server.saves.length).toBe(1);
     const laid = JSON.stringify(server.overlay.cabinets);
 

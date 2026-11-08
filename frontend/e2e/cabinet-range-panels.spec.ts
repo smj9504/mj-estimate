@@ -43,6 +43,8 @@ async function start(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem('auth_token', 'test-token');
     localStorage.setItem('auth_user', JSON.stringify({ id: 'u1', username: 'admin', role: 'admin' }));
+    // The cabinet table is the Edit tab's (beside the sketch the list is a compact one).
+    localStorage.setItem('cabinet-estimate.view', 'tabs');
   });
 
   await page.route('**/api/**', route => {
@@ -76,7 +78,7 @@ test.describe('a slide-in range base\'s end panels', () => {
     // Never chosen: priced and shown as both ends.
     await expect(panelsShown(page, 'RB40S')).toHaveText('2');
 
-    await page.getByRole('button', { name: /^save Save$/ }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => saves.length).toBe(1);
 
     expect(saves[0].boxes?.map(b => [b.code, b.range_panel_count])).toEqual([

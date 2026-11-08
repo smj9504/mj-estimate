@@ -55,6 +55,8 @@ async function start(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem('auth_token', 'test-token');
     localStorage.setItem('auth_user', JSON.stringify({ id: 'u1', username: 'admin', role: 'admin' }));
+    // The cabinet table is the Edit tab's (beside the sketch the list is a compact one).
+    localStorage.setItem('cabinet-estimate.view', 'tabs');
   });
 
   await page.route('**/api/**', route => {
@@ -79,7 +81,7 @@ const doorShown = (page: Page, code: string) => row(page, code).locator('.ant-se
 // The last list opened: the one before may still be fading out.
 const option = (page: Page, label: string) =>
   page.locator('.ant-select-dropdown:visible .ant-select-item-option-content', { hasText: label }).last();
-const save = (page: Page) => page.getByRole('button', { name: /^save Save$/ }).click();
+const save = (page: Page) => page.getByRole('button', { name: 'Save', exact: true }).click();
 const patternsIn = (saved: Saved) => saved.boxes?.map(b => [b.code, b.door_pattern ?? null]);
 
 test.describe('a cabinet\'s door pattern', () => {

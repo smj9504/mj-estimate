@@ -14,28 +14,20 @@ import {
   Modal,
   Radio,
   Row,
-  Segmented,
   Select,
   Space,
   Spin,
-  Statistic,
-  Tabs,
-  Tag,
   Tooltip,
   Typography,
-  theme,
 } from 'antd';
 import {
   ArrowLeftOutlined,
-  AuditOutlined,
-  CalculatorOutlined,
-  CopyOutlined,
-  FileExcelOutlined,
-  FilePdfOutlined,
+  CheckOutlined,
+  DownOutlined,
+  MoreOutlined,
   RightOutlined,
-  SaveOutlined,
 } from '@ant-design/icons';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { useHeaderSlot } from '../contexts/HeaderSlotContext';
@@ -63,21 +55,25 @@ import type { BoxFields } from '../components/cabinet-estimate/cabinetBoxChoices
 import { TRIM_FIELDS, TRIM_FIELD_LABELS } from '../components/cabinet-estimate/sketch/cabinetTrimTakeoff';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
 import { memberName } from '../types/cabinetEstimate';
-import type { CabinetTier, CabType } from '../types/cabinetEstimate';
+import type { CabinetTier } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { returnToOf } from '../utils/returnTo';
+import { Pill, humanize } from '../components/common/ui';
+import type { TagTone } from '../components/common/ui';
+import '../components/cabinet-estimate/cabinetEstimate.css';
 
 const RegisterBidItemModal = lazyWithRetry(() => import('../components/supplement/RegisterBidItemModal'));
 
 const { Title, Text } = Typography;
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'default',
-  calculated: 'processing',
-  approved: 'success',
+const STATUS_TONES: Record<string, TagTone> = {
+  draft: 'gray',
+  calculated: 'blue',
+  approved: 'green',
   exported: 'purple',
 };
+const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // ── Appliance Selector (inline component) ──
 interface ApplianceOption { type: string; label: string; cost: number }
@@ -112,10 +108,10 @@ const ApplianceSelector: React.FC<ApplianceSelectorProps> = ({ value = [], onCha
                 <InputNumber
                   size="small" min={1} max={5} value={item?.qty || 1}
                   onChange={(v) => setQty(opt.type, v || 1)}
-                  style={{ width: 50, fontSize: 11 }}
+                  style={{ width: 50, fontSize: 12 }}
                 />
               )}
-              <Text type="secondary" style={{ fontSize: 10 }}>${opt.cost}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>${opt.cost}</Text>
             </div>
           </Col>
         );
@@ -173,9 +169,16 @@ const ISLAND_PANEL_HEIGHTS: { label: string; value: number }[] = [
 // Narrower, or by choice, they are two tabs as before.
 const SIDE_BY_SIDE_MIN_WIDTH = 1400;
 const VIEW_KEY = 'cabinet-estimate.view';
-const SPLIT_RATIO_KEY = 'cabinet-estimate.split-ratio';
-const DEFAULT_SPLIT_RATIO = 0.55;
-const clampSplitRatio = (r: number) => Math.min(0.72, Math.max(0.35, r));
+// The panel beside the drawing (Inspect / Cabinets / Estimate), in px.
+const PANEL_WIDTH_KEY = 'cabinet-estimate.panel-width';
+const DEFAULT_PANEL_WIDTH = 400;
+const clampPanelWidth = (w: number) => Math.min(640, Math.max(340, Math.round(w)));
+type PanelTab = 'inspect' | 'cabinets' | 'estimate';
+const PANEL_TABS: { key: PanelTab; label: string }[] = [
+  { key: 'inspect', label: 'Inspect' },
+  { key: 'cabinets', label: 'Cabinets' },
+  { key: 'estimate', label: 'Estimate' },
+];
 const readStored = (key: string): string | null => {
   try {
     return window.localStorage.getItem(key);
@@ -204,22 +207,8 @@ function useMinWidth(px: number): boolean {
   return matches;
 }
 
-// The form's sections, for the jump links over it side by side. The first
-// two and the drywall and backsplash ones are seldom changed once set, so
-// they start folded to a one-line summary there.
-const FORM_SECTIONS: { key: string; label: string }[] = [
-  { key: 'client', label: 'Client' },
-  { key: 'project', label: 'Project' },
-  { key: 'specs', label: 'Specs' },
-  { key: 'perimeter', label: 'Cabinets' },
-  { key: 'island', label: 'Island' },
-  { key: 'scope', label: 'Scope' },
-  { key: 'countertop', label: 'Countertop' },
-  { key: 'drywall', label: 'Drywall' },
-  { key: 'backsplash', label: 'Backsplash' },
-  { key: 'price', label: 'Price' },
-  { key: 'notes', label: 'Notes' },
-];
+// Beside the drawing, the seldom-changed sections of the Estimate panel
+// start folded to a one-line summary.
 const FOLDABLE_SECTIONS = ['client', 'project', 'drywall', 'backsplash'];
 const sectionId = (key: string) => `cabinet-section-${key}`;
 
@@ -249,7 +238,7 @@ const FoldTitle: React.FC<{ title: string; summary?: string; folded: boolean; on
       textAlign: 'left',
     }}
   >
-    <RightOutlined rotate={folded ? 0 : 90} style={{ fontSize: 10, color: '#8c8c8c' }} />
+    <RightOutlined rotate={folded ? 0 : 90} style={{ fontSize: 12, color: '#73726e' }} />
     <span>{title}</span>
     {folded && summary && (
       <Text type="secondary" ellipsis style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 400 }}>
@@ -319,6 +308,8 @@ const CabinetEstimateDetail: React.FC = () => {
   // Edits made on this page since the last save or calculate: typed into the
   // form or made to the box lists. Fields the page fills in itself don't count.
   const unsavedRef = useRef(false);
+  // Flags new edits: unsaved until saved, and the total stale until calculated.
+  const markDirtyRef = useRef<() => void>(() => {});
   const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
@@ -326,7 +317,6 @@ const CabinetEstimateDetail: React.FC = () => {
   const [claims, setClaims] = useState<Claim[]>([]);
 
   // ── Side by side (see SIDE_BY_SIDE_MIN_WIDTH) ──
-  const { token } = theme.useToken();
   const wideScreen = useMinWidth(SIDE_BY_SIDE_MIN_WIDTH);
   const [viewChoice, setViewChoice] = useState<'split' | 'tabs'>(() => (readStored(VIEW_KEY) === 'tabs' ? 'tabs' : 'split'));
   const split = wideScreen && viewChoice === 'split';
@@ -335,12 +325,25 @@ const CabinetEstimateDetail: React.FC = () => {
   // The sketch mounts once it is first on screen, and stays.
   const [sketchMounted, setSketchMounted] = useState(false);
   if (!sketchMounted && (split || activeTab === 'sketch')) setSketchMounted(true);
-  const [splitRatio, setSplitRatio] = useState(() => clampSplitRatio(Number(readStored(SPLIT_RATIO_KEY)) || DEFAULT_SPLIT_RATIO));
+  const [panelWidth, setPanelWidth] = useState(() => clampPanelWidth(Number(readStored(PANEL_WIDTH_KEY)) || DEFAULT_PANEL_WIDTH));
   const [draggingDivider, setDraggingDivider] = useState(false);
-  const [hoverDivider, setHoverDivider] = useState(false);
   useEffect(() => {
-    if (!draggingDivider) writeStored(SPLIT_RATIO_KEY, String(splitRatio));
-  }, [splitRatio, draggingDivider]);
+    if (!draggingDivider) writeStored(PANEL_WIDTH_KEY, String(panelWidth));
+  }, [panelWidth, draggingDivider]);
+  const [panelTab, setPanelTab] = useState<PanelTab>('inspect');
+  // Where the sketch puts the selection's settings and the plan's counts (see its `inspector`).
+  const [selectionEl, setSelectionEl] = useState<HTMLDivElement | null>(null);
+  const [takeoffEl, setTakeoffEl] = useState<HTMLDivElement | null>(null);
+  const [selectionCount, setSelectionCount] = useState(0);
+  // Edits not saved yet (the form and the cabinet list), and edits since the total was last worked out.
+  const [dirty, setDirty] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [sketchSave, setSketchSave] = useState<'saved' | 'saving' | 'dirty'>('saved');
+  // The last save or calculation, read out by screen readers.
+  const [announce, setAnnounce] = useState('');
+  // Result and Purchase Order mount once opened, and stay.
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<string>>(() => new Set([activeTab]));
+  if (!visitedTabs.has(activeTab)) setVisitedTabs(new Set([...visitedTabs, activeTab]));
   // The split's height: from where it starts down to the window's bottom, so only the form scrolls.
   const splitRef = useRef<HTMLDivElement>(null);
   const formPaneRef = useRef<HTMLDivElement>(null);
@@ -354,7 +357,6 @@ const CabinetEstimateDetail: React.FC = () => {
   const [hintKey, setHintKey] = useState<string | null>(null);
   const rowPickRef = useRef<string | null>(null);
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set(FOLDABLE_SECTIONS));
-  const [activeSection, setActiveSection] = useState(FORM_SECTIONS[0].key);
 
   // What a folded section says about itself.
   const watchedCompanyId: string | undefined = Form.useWatch('company_id', { form, preserve: true });
@@ -368,6 +370,11 @@ const CabinetEstimateDetail: React.FC = () => {
   const paintingSf: number | undefined = Form.useWatch('painting_sqft', { form, preserve: true });
   const backsplashType: string | undefined = Form.useWatch('backsplash_type', { form, preserve: true });
   const backsplashSf: number | undefined = Form.useWatch('backsplash_sqft', { form, preserve: true });
+  const pricingBasis: string | undefined = Form.useWatch('pricing_basis', { form, preserve: true });
+  const boxMaterial: string | undefined = Form.useWatch('box_material', { form, preserve: true });
+  const finishName: string | undefined = Form.useWatch('finish', { form, preserve: true });
+  const overlayStyle: string | undefined = Form.useWatch('overlay_style', { form, preserve: true });
+  const islandType: string | undefined = Form.useWatch('island_type', { form, preserve: true });
 
   // Watch island panel SF values for reactive LF display
   const endPanelSf = Form.useWatch('island_end_panel_sqft', form) || 0;
@@ -603,6 +610,8 @@ const CabinetEstimateDetail: React.FC = () => {
       cabinetEstimateService.update(id!, payload),
     onSuccess: () => {
       unsavedRef.current = false;
+      setDirty(false);
+      setAnnounce(`Saved at ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
       message.success('Saved');
       queryClient.invalidateQueries({ queryKey: ['cabinet-estimate', id] });
       // Job facts are shared, so the job's other estimates may have changed
@@ -611,16 +620,23 @@ const CabinetEstimateDetail: React.FC = () => {
     onError: () => message.error('Failed to save'),
   });
 
+  const totalBeforeCalcRef = useRef(0);
   const calculateMutation = useMutation({
     mutationFn: (payload?: CabinetEstimateUpdate) =>
       cabinetEstimateService.calculate(id!, payload),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       unsavedRef.current = false;
-      message.success('Calculation complete');
+      setDirty(false);
+      setStale(false);
+      // Stays where you are, and says what the total became.
+      const before = totalBeforeCalcRef.current;
+      const after = updated?.total ?? 0;
+      const change = before > 0 && after !== before ? ` (was ${money(before)}, ${after > before ? '+' : '−'}${money(Math.abs(after - before))})` : '';
+      setAnnounce(`Calculated. Total ${money(after)}${change}`);
+      message.success(`Calculated: ${money(after)}${change}`);
       queryClient.invalidateQueries({ queryKey: ['cabinet-estimate', id] });
       queryClient.invalidateQueries({ queryKey: ['cabinet-estimate-group'] });
       queryClient.invalidateQueries({ queryKey: ['cabinet-estimate-history', id] });
-      setActiveTab('result');
     },
     onError: (err: any) => {
       message.error(err?.response?.data?.detail || 'Calculation failed');
@@ -636,11 +652,11 @@ const CabinetEstimateDetail: React.FC = () => {
   });
 
   const editPerimeterBoxes = useCallback((boxes: CabinetBoxCreate[]) => {
-    unsavedRef.current = true;
+    markDirtyRef.current();
     setPerimeterBoxes(boxes);
   }, []);
   const editIslandBoxes = useCallback((boxes: CabinetBoxCreate[]) => {
-    unsavedRef.current = true;
+    markDirtyRef.current();
     setIslandBoxes(boxes);
   }, []);
 
@@ -700,6 +716,7 @@ const CabinetEstimateDetail: React.FC = () => {
     setPerimeterBoxes((prev) => keys.reduce(takeOne, prev));
     setIslandBoxes((prev) => keys.reduce(takeOne, prev));
     setSketchBoxEdits((n) => n + 1);
+    setStale(true);
   }, []);
 
   // A cabinet changed on the sketch (its picker or right-click panel: code,
@@ -716,6 +733,7 @@ const CabinetEstimateDetail: React.FC = () => {
     setPerimeterBoxes(changeOne);
     setIslandBoxes(changeOne);
     setSketchBoxEdits((n) => n + 1);
+    setStale(true);
   }, []);
 
   // Merge perimeter + island boxes for API
@@ -795,26 +813,75 @@ const CabinetEstimateDetail: React.FC = () => {
 
   // ── Save handler ──
   // The sketch saves itself a moment after each change; Save sends what it hasn't yet.
+  // A required field left empty: open it and say which.
+  const showMissing = useCallback((err: any, doing: string) => {
+    const first = err?.errorFields?.[0];
+    const name = first?.name?.[0];
+    const label = name === 'tier' ? 'Tier' : 'the required fields';
+    if (name === 'tier') setPanelTab('estimate');
+    if (first) window.requestAnimationFrame(() => form.scrollToField(first.name, { block: 'center' }));
+    message.warning(`Fill in ${label} before ${doing}`);
+  }, [form]);
+
   const handleSave = useCallback(async () => {
     setSketchSaveSignal((n) => n + 1);
     try {
       await form.validateFields();
       saveMutation.mutate(buildPayload());
-    } catch {
-      message.warning('Please fill required fields');
+    } catch (err) {
+      showMissing(err, 'saving');
     }
-  }, [form, buildPayload, saveMutation]);
+  }, [form, buildPayload, saveMutation, showMissing]);
 
   // ── Save & Calculate (single API call) ──
   const handleCalculate = useCallback(async () => {
     setSketchSaveSignal((n) => n + 1);
     try {
       await form.validateFields();
+      totalBeforeCalcRef.current = queryClient.getQueryData<CabinetEstimate>(['cabinet-estimate', id])?.total ?? 0;
       calculateMutation.mutate(buildPayload());
-    } catch {
-      message.warning('Please fill required fields before calculating');
+    } catch (err) {
+      showMissing(err, 'calculating');
     }
-  }, [form, buildPayload, calculateMutation]);
+  }, [form, buildPayload, calculateMutation, showMissing, queryClient, id]);
+
+  markDirtyRef.current = () => {
+    unsavedRef.current = true;
+    setDirty(true);
+    setStale(true);
+  };
+
+  // Ctrl+S saves and Ctrl+Enter calculates, from anywhere on the page.
+  const shortcutsRef = useRef({ save: handleSave, calculate: handleCalculate });
+  shortcutsRef.current = { save: handleSave, calculate: handleCalculate };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        shortcutsRef.current.save();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        shortcutsRef.current.calculate();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Leaving with edits not saved asks first: another page here, or the browser's own close or reload.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => unsavedRef.current && currentLocation.pathname !== nextLocation.pathname
+  );
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!unsavedRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
 
   // ── The job's other estimates ──
   // Run `action` once this estimate's unsaved edits are saved or let go.
@@ -835,6 +902,7 @@ const CabinetEstimateDetail: React.FC = () => {
             danger
             onClick={() => {
               unsavedRef.current = false;
+              setDirty(false);
               modal.destroy();
               action();
             }}
@@ -851,10 +919,47 @@ const CabinetEstimateDetail: React.FC = () => {
     });
   }, [estimate, buildPayload, saveMutation]);
 
+  // A link or Back with edits not saved: Save, Discard or Stay here, as for the job's other estimates.
+  const blocked = blocker.state === 'blocked';
+  useEffect(() => {
+    if (!blocked) return;
+    const modal = Modal.confirm({
+      title: 'Save your changes first?',
+      content: `${estimate ? memberName(estimate) : 'This estimate'} has changes that aren't saved yet.`,
+      okText: 'Save',
+      cancelText: 'Stay here',
+      footer: (_, { OkBtn, CancelBtn }) => (
+        <>
+          <CancelBtn />
+          <Button
+            danger
+            onClick={() => {
+              unsavedRef.current = false;
+              setDirty(false);
+              modal.destroy();
+              blocker.proceed?.();
+            }}
+          >
+            Discard changes
+          </Button>
+          <OkBtn />
+        </>
+      ),
+      onOk: async () => {
+        await saveMutation.mutateAsync(buildPayload());
+        blocker.proceed?.();
+      },
+      onCancel: () => blocker.reset?.(),
+    });
+    return () => modal.destroy();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocked]);
+
   const openMember = useCallback((memberId: string, options?: { discard?: boolean }) => {
     const go = () => navigate(`/cabinet-estimates/${memberId}`, { state: { tab: activeTab, returnTo } });
     if (options?.discard) {
       unsavedRef.current = false;
+      setDirty(false);
       go();
     } else {
       guardUnsaved(go);
@@ -897,22 +1002,24 @@ const CabinetEstimateDetail: React.FC = () => {
     };
   }, [split, hasEstimate]);
 
-  const dividerRatioAt = useCallback((clientX: number) => {
+  // The panel's width as the divider is dragged: from its right edge to the pointer.
+  const panelWidthAt = useCallback((clientX: number) => {
     const r = splitRef.current?.getBoundingClientRect();
-    return r ? clampSplitRatio((clientX - r.left - 6) / (r.width - 12)) : DEFAULT_SPLIT_RATIO;
+    return r ? clampPanelWidth(r.right - clientX - 6) : DEFAULT_PANEL_WIDTH;
   }, []);
 
   // A cabinet picked on the sketch: its row is marked, and brought into view
   // unless the pick came from clicking that row.
   const handleSketchSelection = useCallback(
-    (keys: string[]) => {
+    (keys: string[], count: number) => {
       setLinkedKeys(new Set(keys));
+      setSelectionCount(count);
       const fromRow = rowPickRef.current;
       rowPickRef.current = null;
       if (!split || keys.length === 0 || (fromRow !== null && keys.includes(fromRow))) return;
       window.requestAnimationFrame(() => {
         const row = formPaneRef.current?.querySelector(`[data-link-key="${CSS.escape(keys[0])}"]`);
-        row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (row && (row as HTMLElement).offsetParent) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       });
     },
     [split]
@@ -928,6 +1035,7 @@ const CabinetEstimateDetail: React.FC = () => {
               setPickKeys((prev) => ({ keys: [key], seq: (prev?.seq ?? 0) + 1 }));
             },
             onHover: setHintKey,
+            hinted: null,
           }
         : undefined,
     [split, linkedKeys]
@@ -949,29 +1057,17 @@ const CabinetEstimateDetail: React.FC = () => {
       return next;
     });
   }, []);
+  // Open a section of the Estimate panel (or the Edit tab) and bring it into view.
   const goToSection = useCallback(
     (key: string) => {
       unfold(key);
+      setPanelTab('estimate');
       window.requestAnimationFrame(() =>
         document.getElementById(sectionId(key))?.scrollIntoView({ block: 'start', behavior: 'smooth' })
       );
     },
     [unfold]
   );
-  // The jump link of the section at the top of the form.
-  const handleFormScroll = useCallback(() => {
-    const pane = formPaneRef.current;
-    if (!pane) return;
-    const line = pane.getBoundingClientRect().top + 64;
-    let current = FORM_SECTIONS[0].key;
-    for (const s of FORM_SECTIONS) {
-      const el = document.getElementById(sectionId(s.key));
-      if (el && el.getBoundingClientRect().top <= line) current = s.key;
-    }
-    if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 4) current = FORM_SECTIONS[FORM_SECTIONS.length - 1].key;
-    setActiveSection(current);
-  }, []);
-
   if (isLoading) {
     return (
       <div style={{ textAlign: 'center', padding: 100 }}>
@@ -984,15 +1080,17 @@ const CabinetEstimateDetail: React.FC = () => {
     return <Alert type="error" message="Estimate not found" />;
   }
 
-  // A form section: found by its jump link; side by side, the seldom-changed ones fold to a summary.
+  // A form section: a heading over a hairline (ui-sheet-card); beside the drawing,
+  // the seldom-changed ones fold to a summary.
   const section = (key: string, title: string, summary?: string) => {
     const foldable = split && FOLDABLE_SECTIONS.includes(key);
     const isFolded = foldable && folded.has(key);
     return {
       id: sectionId(key),
+      className: 'ui-sheet-card',
       title: foldable ? <FoldTitle title={title} summary={summary} folded={isFolded} onToggle={() => toggleFold(key)} /> : title,
       styles: isFolded ? { body: { display: 'none' } } : undefined,
-      style: { marginBottom: 16, scrollMarginTop: split ? 48 : undefined },
+      style: { scrollMarginTop: 8 },
     };
   };
   const companyName = companies?.find((c) => c.id === watchedCompanyId)?.name;
@@ -1030,6 +1128,9 @@ const CabinetEstimateDetail: React.FC = () => {
     onSelectionChange={handleSketchSelection}
     pickKeys={split ? pickKeys : null}
     hintKey={split ? hintKey : null}
+    inspector={split ? { selection: selectionEl, takeoff: takeoffEl } : null}
+    onRequestInspect={() => setPanelTab('inspect')}
+    onSaveStateChange={setSketchSave}
         onCabinetsRemoved={handleSketchCabinetsRemoved}
         onCabinetEdited={handleSketchCabinetEdited}
         islandSeatingIn={islandSeatingIn}
@@ -1089,114 +1190,255 @@ const CabinetEstimateDetail: React.FC = () => {
       />
   );
 
-  // Sits in the app header beside Search; inline above the actions on phones
+  // Sits in the app header beside Search; inline above the estimate bar on phones
+  const title = estimate.property_address || 'Cabinet estimate';
   const titleBar = (
-    <Space wrap={!headerSlot} size="small">
-      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(returnTo ?? '/cabinet-estimates')}>
+    <Space wrap={!headerSlot} size="small" style={{ minWidth: 0 }}>
+      <Button type="text" className="ce-quiet" icon={<ArrowLeftOutlined />} onClick={() => navigate(returnTo ?? '/cabinet-estimates')}>
         Back
       </Button>
-      <Title level={4} style={{ margin: 0 }}>
-        Cabinet Estimate
+      <Title level={4} style={{ margin: 0, fontSize: 16, maxWidth: 420 }} ellipsis={{ tooltip: title }}>
+        {title}
       </Title>
-      {(estimate.group_members?.length ?? 0) > 1 || estimate.kind === 'option' ? (
-        <Tag color={estimate.kind === 'option' ? 'green' : 'blue'}>{memberName(estimate)}</Tag>
-      ) : null}
-      <Tag color={STATUS_COLORS[estimate.status]}>{estimate.status.toUpperCase()}</Tag>
-      {estimate.claim_number && <Tag>Claim: {estimate.claim_number}</Tag>}
-      {estimate.client_name && <Text type="secondary">{estimate.client_name}</Text>}
+      <Pill tone={STATUS_TONES[estimate.status] ?? 'gray'}>{humanize(estimate.status)}</Pill>
+      {estimate.client_name && (
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          {estimate.client_name}
+          {estimate.claim_number ? ` · Claim ${estimate.claim_number}` : ''}
+        </Text>
+      )}
     </Space>
   );
 
-  return (
-    <div style={{ padding: '12px 8px' }}>
-      {/* Header */}
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }} gutter={[8, 8]}>
-        {headerSlot ? createPortal(titleBar, headerSlot) : <Col xs={24} md="auto">{titleBar}</Col>}
-        <Col xs={24} md="auto">
-          <Space wrap size="small">
-            {/* A supplement goes to the carrier: only the restoration may */}
-            {estimate.kind !== 'option' && (
-              <Button
-                icon={<AuditOutlined />}
-                onClick={() => setRegisterBidItemOpen(true)}
-                disabled={estimate.status === 'draft'}
-                title="Register as Bid Item in Supplement"
-              >
-                Add to Supplement
+  const draft = estimate.status === 'draft';
+  const busy = saveMutation.isPending || calculateMutation.isPending;
+  const saveState = busy
+    ? { cls: 'is-saving', text: calculateMutation.isPending ? 'Calculating…' : 'Saving…' }
+    : dirty
+      ? { cls: 'is-dirty', text: 'Unsaved changes' }
+      : sketchSave !== 'saved'
+        ? { cls: 'is-saving', text: 'Saving the sketch…' }
+        : { cls: '', text: 'All changes saved' };
+
+  // The estimate's views: Edit (with the sketch beside it, or its own Sketch tab), Result, Purchase order
+  const pageTabs: { key: string; label: string; disabled?: boolean; why?: string }[] = [
+    { key: 'edit', label: 'Edit' },
+    ...(split ? [] : [{ key: 'sketch', label: 'Sketch' }]),
+    { key: 'result', label: 'Estimate result', disabled: draft, why: draft ? 'Calculate first' : undefined },
+    {
+      key: 'purchase-order',
+      label: 'Purchase order',
+      disabled: !estimate.boxes?.length,
+      why: !estimate.boxes?.length ? 'Add cabinets and save first' : undefined,
+    },
+  ];
+
+  const exportItems = [
+    { key: 'with-sig', label: 'PDF with signature', disabled: draft },
+    { key: 'no-sig', label: 'PDF without signature', disabled: draft },
+    { type: 'divider' as const },
+    { key: 'design', label: 'Design quote (drawings optional)…', disabled: draft },
+    // The customer's side-by-side of the whole job; never for the carrier
+    ...((estimate.group_members?.length ?? 0) > 1
+      ? [{ key: 'proposal', label: 'Customer proposal (all estimates)', disabled: draft }]
+      : []),
+    { type: 'divider' as const },
+    { key: 'excel', label: 'Excel', disabled: !estimate.boxes?.length },
+    ...(draft ? [{ type: 'divider' as const }, { key: 'why', label: 'Calculate first to make the PDFs', disabled: true }] : []),
+  ];
+  const onExport = ({ key }: { key: string }) => {
+    if (key === 'design') {
+      setDesignQuoteFor(id!);
+      return;
+    }
+    if (key === 'excel') {
+      cabinetEstimateService.exportExcel(id!);
+      return;
+    }
+    const run =
+      key === 'proposal'
+        ? cabinetEstimateService.exportProposalPdf(id!)
+        : cabinetEstimateService.exportPdf(id!, {
+            show_signature: key === 'with-sig',
+            address: estimate.property_address,
+          });
+    run.catch(() => message.error('The PDF could not be made'));
+  };
+  const moreItems = [
+    // A supplement goes to the carrier: only the restoration may
+    ...(estimate.kind !== 'option'
+      ? [{ key: 'supplement', label: 'Add to Supplement…', disabled: draft }]
+      : []),
+    { key: 'clone', label: 'Clone into a new job' },
+    ...(wideScreen
+      ? [
+          { type: 'divider' as const },
+          {
+            key: 'view',
+            label: 'Sketch beside the form',
+            icon: split ? <CheckOutlined /> : <span style={{ display: 'inline-block', width: 14 }} />,
+          },
+        ]
+      : []),
+  ];
+  const onMore = ({ key }: { key: string }) => {
+    if (key === 'supplement') setRegisterBidItemOpen(true);
+    if (key === 'clone') cloneMutation.mutate();
+    if (key === 'view') chooseView(split ? 'tabs' : 'split');
+  };
+
+  // Inspect with nothing selected: the total, what the plan measures, and the estimate's essentials
+  const lf = (boxes: CabinetBoxCreate[], type: string) =>
+    boxes.filter((b) => b.cab_type === type).reduce((s, b) => s + (b.width_inches * b.qty) / 12, 0);
+  const boxCount = [...perimeterBoxes, ...islandBoxes].reduce((s, b) => s + b.qty, 0);
+  const pricingLabel = pricingInfo?.pricing_bases?.find((b) => b.key === pricingBasis)?.label ?? pricingBasis;
+  const editLink = (onClick: () => void, what: string) => (
+    <Button type="link" size="small" style={{ padding: 0, height: 'auto', fontWeight: 400 }} aria-label={`Edit ${what}`} onClick={onClick}>
+      Edit
+    </Button>
+  );
+  const fieldRows = (rows: [string, React.ReactNode][]) =>
+    rows.map(([label, value]) => (
+      <div className="ce-field" key={label}>
+        <span className="ce-field-label">{label}</span>
+        <span className={`ce-field-value${value ? '' : ' is-empty'}`}>{value || 'Empty'}</span>
+      </div>
+    ));
+  const inspectSummary = (
+    <>
+      {selectionCount === 0 && (
+        <div className="ce-section" style={{ paddingTop: 4 }}>
+          <div className="ce-section-title">
+            <span>Total</span>
+            <Pill tone={STATUS_TONES[estimate.status] ?? 'gray'}>{humanize(estimate.status)}</Pill>
+          </div>
+          <div className="ce-total">
+            {estimate.total > 0 ? (
+              <span className="ce-total-value">{money(estimate.total)}</span>
+            ) : (
+              <span className="ce-total-none">Not calculated yet</span>
+            )}
+            {estimate.total > 0 && !draft && (
+              <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => setActiveTab('result')}>
+                See the lines
               </Button>
             )}
-            <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
+          </div>
+          {(stale || estimate.total <= 0) && (
+            <div className="ce-stale">
+              <span>{estimate.total > 0 ? 'Changed since the last calculation' : 'Calculate to work out the total'}</span>
+              <Button size="small" onClick={handleCalculate} loading={calculateMutation.isPending}>
+                Calculate
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      <div ref={setTakeoffEl} hidden={selectionCount > 0} />
+      {selectionCount === 0 && (
+        <>
+          <div className="ce-section">
+            <div className="ce-section-title">
+              <span>Specifications</span>
+              {editLink(() => goToSection('specs'), 'specifications')}
+            </div>
+            {fieldRows([
+              ['Pricing', pricingLabel],
+              ['Tier', tier],
+              ['Box', boxMaterial],
+              ['Finish', finishName],
+              ['Door style', doorStyle],
+              ['Overlay', overlayStyle],
+            ])}
+          </div>
+          <div className="ce-section">
+            <div className="ce-section-title">
+              <span>Cabinets</span>
+              {editLink(() => setPanelTab('cabinets'), 'cabinets')}
+            </div>
+            {fieldRows([
+              ['Base', `${lf(perimeterBoxes, 'base').toFixed(1)} LF`],
+              ['Wall', `${lf(perimeterBoxes, 'wall').toFixed(1)} LF`],
+              ['Tall', `${perimeterBoxes.filter((b) => b.cab_type === 'tall').reduce((s, b) => s + b.qty, 0)} EA`],
+              ['Island', islandType === 'prefab' ? 'Prefab' : `${lf(islandBoxes, 'base').toFixed(1)} LF`],
+              ['Boxes', String(boxCount)],
+            ])}
+          </div>
+          <div className="ce-section">
+            <div className="ce-section-title">
+              <span>Job</span>
+              {editLink(() => goToSection('client'), 'the job')}
+            </div>
+            {fieldRows([
+              ['Client', estimate.client_name],
+              ['Claim', estimate.claim_number],
+              ['Address', watchedAddress],
+              ['Company', companyName],
+            ])}
+          </div>
+        </>
+      )}
+    </>
+  );
+
+  return (
+    <div className="ce-page" style={{ padding: '12px 8px' }}>
+      {headerSlot ? createPortal(titleBar, headerSlot) : <div style={{ marginBottom: 8 }}>{titleBar}</div>}
+
+      {/* One bar: the views, the job's estimates, and what you do with this one */}
+      <div className="ce-bar">
+        <div className="ce-bar-start">
+          <div role="tablist" aria-label="Estimate views" style={{ display: 'flex', gap: 2 }}>
+            {pageTabs.map((t) => (
+              <Tooltip key={t.key} title={t.why}>
+                <Button
+                  type="text"
+                  role="tab"
+                  aria-selected={shownTab === t.key}
+                  className={`ui-view-tab${shownTab === t.key ? ' is-selected' : ''}`}
+                  disabled={t.disabled}
+                  onClick={() => setActiveTab(t.key)}
+                >
+                  {t.label}
+                </Button>
+              </Tooltip>
+            ))}
+          </div>
+          <span className="ce-bar-sep" aria-hidden="true" />
+          <KitchenGroupBar
+            estimate={estimate}
+            onOpen={openMember}
+            guardUnsaved={guardUnsaved}
+            onCompare={() => setCompareOpen(true)}
+          />
+        </div>
+        <div className="ce-bar-end">
+          <span className={`ce-save-state ${saveState.cls}`}>
+            <span className="ce-save-state-dot" aria-hidden="true" />
+            {saveState.text}
+          </span>
+          <Tooltip title="Save (Ctrl+S)" mouseEnterDelay={0.6}>
+            <Button onClick={handleSave} loading={saveMutation.isPending}>
               Save
             </Button>
-            <Button
-              type="primary"
-              icon={<CalculatorOutlined />}
-              onClick={handleCalculate}
-              loading={calculateMutation.isPending}
-            >
-              Save & Calculate
+          </Tooltip>
+          <Tooltip title="Save and work out the total (Ctrl+Enter)" mouseEnterDelay={0.6}>
+            <Button type="primary" onClick={handleCalculate} loading={calculateMutation.isPending}>
+              Calculate
             </Button>
-            <Button
-              icon={<CopyOutlined />}
-              onClick={() => cloneMutation.mutate()}
-              title="Copy this estimate into a new job, e.g. another kitchen"
-            >
-              Clone
+          </Tooltip>
+          <Dropdown menu={{ items: exportItems, onClick: onExport }}>
+            <Button>
+              Export <DownOutlined style={{ fontSize: 12 }} />
             </Button>
-            <Dropdown
-              disabled={estimate.status === 'draft'}
-              menu={{
-                items: [
-                  { key: 'with-sig', label: 'PDF (with signature)' },
-                  { key: 'no-sig', label: 'PDF (without signature)' },
-                  { type: 'divider' as const },
-                  { key: 'design', label: 'Design quote (drawings optional)…' },
-                  // The customer's side-by-side of the whole job; never for the carrier
-                  ...((estimate.group_members?.length ?? 0) > 1
-                    ? [
-                        { type: 'divider' as const },
-                        { key: 'proposal', label: 'Customer proposal (all estimates)' },
-                      ]
-                    : []),
-                ],
-                onClick: ({ key }) => {
-                  if (key === 'design') {
-                    setDesignQuoteFor(id!);
-                    return;
-                  }
-                  const run =
-                    key === 'proposal'
-                      ? cabinetEstimateService.exportProposalPdf(id!)
-                      : cabinetEstimateService.exportPdf(id!, {
-                          show_signature: key === 'with-sig',
-                          address: estimate.property_address,
-                        });
-                  run.catch(() => message.error('The PDF could not be made'));
-                },
-              }}
-            >
-              <Button icon={<FilePdfOutlined />} disabled={estimate.status === 'draft'}>
-                PDF
-              </Button>
-            </Dropdown>
-            <Button
-              icon={<FileExcelOutlined />}
-              onClick={() => cabinetEstimateService.exportExcel(id!)}
-              disabled={!estimate.boxes?.length}
-            >
-              Excel
-            </Button>
-          </Space>
-        </Col>
-      </Row>
+          </Dropdown>
+          <Dropdown trigger={['click']} menu={{ items: moreItems, onClick: onMore }}>
+            <Button type="text" className="ui-icon-btn" icon={<MoreOutlined />} aria-label="More actions" />
+          </Dropdown>
+        </div>
+      </div>
 
       <KitchenDesignQuoteModal estimateId={designQuoteFor} onClose={() => setDesignQuoteFor(null)} />
-      <KitchenGroupBar
-        estimate={estimate}
-        onOpen={openMember}
-        guardUnsaved={guardUnsaved}
-        onCompare={() => setCompareOpen(true)}
-      />
       <KitchenGroupCompareDrawer
         open={compareOpen}
         onClose={() => setCompareOpen(false)}
@@ -1206,82 +1448,41 @@ const CabinetEstimateDetail: React.FC = () => {
           if (memberId !== estimate.id) openMember(memberId);
         }}
       />
+      <div className="ce-sr-only" aria-live="polite">
+        {announce}
+      </div>
 
-      {/* Edit and Sketch: side by side on a wide screen, else a tab each. Result and Purchase Order are tabs. */}
-      <Tabs
-        activeKey={shownTab}
-        onChange={setActiveTab}
-        tabBarExtraContent={
-          wideScreen ? (
-            <Space size={6}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                View
-              </Text>
-              <Segmented<'split' | 'tabs'>
-                size="small"
-                value={viewChoice}
-                onChange={chooseView}
-                options={[
-                  { label: <Tooltip title="The sketch beside the form, on one screen">Side by side</Tooltip>, value: 'split' },
-                  { label: <Tooltip title="Edit and Sketch on tabs of their own">Tabs</Tooltip>, value: 'tabs' },
-                ]}
-              />
-            </Space>
-          ) : null
-        }
-        items={[
-          { key: 'edit', label: 'Edit' },
-          ...(split ? [] : [{ key: 'sketch', label: 'Sketch' }]),
-          {
-            key: 'result',
-            label: 'Estimate Result',
-            disabled: estimate.status === 'draft',
-            children: <CabinetEstimateResult estimate={estimate} />,
-          },
-          {
-            key: 'purchase-order',
-            label: 'Purchase Order',
-            disabled: !estimate.boxes?.length,
-            children: <CabinetPurchaseOrder estimateId={id!} />,
-          },
-        ]}
-      />
       {/* The same three children either way, so switching never remounts the sketch or the form. */}
       <div
         ref={splitRef}
+        className={split ? 'ce-split' : undefined}
         style={
           shownTab !== 'edit' && shownTab !== 'sketch'
             ? { display: 'none' }
             : split
-              ? {
-                  display: 'grid',
-                  gridTemplateColumns: `minmax(0, ${splitRatio}fr) 12px minmax(0, ${1 - splitRatio}fr)`,
-                  height: splitHeight,
-                }
+              ? { gridTemplateColumns: `minmax(0, 1fr) 12px ${panelWidth}px`, height: splitHeight }
               : undefined
         }
       >
         <div
           key="sketch"
-          style={
-            split
-              ? { minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }
-              : { display: shownTab === 'sketch' ? 'block' : 'none' }
-          }
+          className={split ? 'ce-split-canvas' : undefined}
+          style={split ? undefined : { display: shownTab === 'sketch' ? 'block' : 'none' }}
         >
           {sketchMounted && sketchEditor}
         </div>
         {split && (
           <div
             key="divider"
+            className={`ce-divider${draggingDivider ? ' is-dragging' : ''}`}
             role="separator"
             aria-orientation="vertical"
-            aria-label="Widths of the sketch and the form"
-            aria-valuemin={35}
-            aria-valuemax={72}
-            aria-valuenow={Math.round(splitRatio * 100)}
+            aria-label="Width of the panel"
+            aria-valuemin={340}
+            aria-valuemax={640}
+            aria-valuenow={panelWidth}
             tabIndex={0}
-            title="Drag to change the widths; double-click for the usual ones"
+            title="Drag to change the panel's width; double-click for the usual width"
             onPointerDown={(e) => {
               if (e.button !== 0) return;
               e.preventDefault();
@@ -1289,91 +1490,83 @@ const CabinetEstimateDetail: React.FC = () => {
               setDraggingDivider(true);
             }}
             onPointerMove={(e) => {
-              if (e.currentTarget.hasPointerCapture(e.pointerId)) setSplitRatio(dividerRatioAt(e.clientX));
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) setPanelWidth(panelWidthAt(e.clientX));
             }}
             onPointerUp={() => setDraggingDivider(false)}
             onPointerCancel={() => setDraggingDivider(false)}
-            onPointerEnter={() => setHoverDivider(true)}
-            onPointerLeave={() => setHoverDivider(false)}
-            onDoubleClick={() => setSplitRatio(DEFAULT_SPLIT_RATIO)}
+            onDoubleClick={() => setPanelWidth(DEFAULT_PANEL_WIDTH)}
             onKeyDown={(e) => {
               if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
               e.preventDefault();
-              setSplitRatio((r) => clampSplitRatio(r + (e.key === 'ArrowLeft' ? -0.02 : 0.02)));
+              setPanelWidth((w) => clampPanelWidth(w + (e.key === 'ArrowLeft' ? 16 : -16)));
             }}
-            style={{ position: 'relative', cursor: 'col-resize', touchAction: 'none' }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: 5,
-                width: 2,
-                borderRadius: 1,
-                background: draggingDivider || hoverDivider ? token.colorPrimary : token.colorBorderSecondary,
-              }}
-            />
-            <div
-              style={{
-                position: 'absolute',
-                top: '50%',
-                left: 1,
-                width: 10,
-                height: 36,
-                marginTop: -18,
-                borderRadius: 5,
-                background: token.colorBgContainer,
-                border: `1px solid ${draggingDivider || hoverDivider ? token.colorPrimary : token.colorBorder}`,
-              }}
-            />
-          </div>
+          />
         )}
         <div
           key="form"
           ref={formPaneRef}
-          onScroll={split ? handleFormScroll : undefined}
-          style={
-            split
-              ? { minWidth: 0, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', paddingRight: 4 }
-              : { display: shownTab === 'edit' ? 'block' : 'none' }
-          }
+          className={split ? 'ce-panel' : undefined}
+          style={split ? undefined : { display: shownTab === 'edit' ? 'block' : 'none' }}
         >
           {split && (
-            <nav
-              aria-label="Form sections"
-              style={{
-                position: 'sticky',
-                top: 0,
-                zIndex: 3,
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 6,
-                paddingBottom: 10,
-                background: token.colorBgContainer,
-              }}
-            >
-              {FORM_SECTIONS.map((s) => (
+            <div className="ce-panel-tabs" role="tablist" aria-label="Panel">
+              {PANEL_TABS.map((t) => (
                 <Button
-                  key={s.key}
-                  size="small"
-                  shape="round"
-                  type={activeSection === s.key ? 'primary' : 'default'}
-                  ghost={activeSection === s.key}
-                  onClick={() => goToSection(s.key)}
+                  key={t.key}
+                  type="text"
+                  role="tab"
+                  aria-selected={panelTab === t.key}
+                  className={`ui-view-tab${panelTab === t.key ? ' is-selected' : ''}`}
+                  onClick={() => setPanelTab(t.key)}
                 >
-                  {s.label}
+                  {t.label}
                 </Button>
               ))}
-            </nav>
+            </div>
           )}
+          <div className={split ? 'ce-panel-body' : undefined}>
+            {split && (
+              <div className="ce-panel-pane" role="tabpanel" aria-label="Inspect" hidden={panelTab !== 'inspect'}>
+                <div ref={setSelectionEl} />
+                {inspectSummary}
+              </div>
+            )}
+            {split && (
+              <div className="ce-panel-pane" role="tabpanel" aria-label="Cabinets" hidden={panelTab !== 'cabinets'}>
+                <CabinetBoxEditor
+                  variant="list"
+                  boxes={perimeterBoxes}
+                  onChange={editPerimeterBoxes}
+                  location="perimeter"
+                  wallHeight={wallHeight}
+                  onWallHeightChange={handleWallHeightChange}
+                  tier={tier}
+                  link={rowLink}
+                />
+                {islandType !== 'prefab' && (
+                  <CabinetBoxEditor variant="list" boxes={islandBoxes} onChange={editIslandBoxes} location="island" link={rowLink} />
+                )}
+              </div>
+            )}
+            <div
+              className={split ? 'ce-panel-pane' : undefined}
+              role={split ? 'tabpanel' : undefined}
+              aria-label={split ? 'Estimate' : undefined}
+              hidden={split && panelTab !== 'estimate'}
+            >
           <KitchenSelections
             estimate={estimate}
             slots={pricingInfo?.selection_slots}
             onChanged={handleSelectionsChanged}
             guardUnsaved={guardUnsaved}
           />
-          <Form form={form} layout="vertical" size="middle" onValuesChange={() => { unsavedRef.current = true; }}>
+          <Form
+            form={form}
+            layout="vertical"
+            size="middle"
+            className={split ? 'ce-form ce-panel-form' : 'ce-form'}
+            onValuesChange={() => markDirtyRef.current()}
+          >
             <Row gutter={24}>
               {/* Left column: Project Info + Kitchen + Scope */}
               <Col xs={24} lg={split ? 24 : 16}>
@@ -1528,7 +1721,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       const info = (pricingInfo?.pricing_bases || []).find((b) => b.key === key);
                       if (!info) return null;
                       return (
-                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 12 }}>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
                           {info.description}
                         </Text>
                       );
@@ -1605,6 +1798,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Perimeter Cabinets */}
+                {!split && (
                 <Card size="small" {...section('perimeter', 'Perimeter Cabinets')}>
                   <CabinetBoxEditor
                     boxes={perimeterBoxes}
@@ -1613,9 +1807,9 @@ const CabinetEstimateDetail: React.FC = () => {
                     wallHeight={wallHeight}
                     onWallHeightChange={handleWallHeightChange}
                     tier={tier}
-                    link={rowLink}
                   />
                 </Card>
+                )}
 
                 {/* Island Cabinets + Panels + Countertop */}
                 <Card size="small" {...section('island', 'Island')}>
@@ -1689,20 +1883,31 @@ const CabinetEstimateDetail: React.FC = () => {
                                 </Form.Item>
                               </Col>
                             </Row>
-                            <Alert
-                              type="info"
-                              showIcon
-                              style={{ marginBottom: 8 }}
-                              message="Prefab island price is an estimate based on size and tier. Actual cost may vary depending on the specific product selected."
-                            />
+                            <Text type="secondary" style={{ display: 'block', fontSize: 13, marginBottom: 8 }}>
+                              The prefab island price is an estimate from its size and tier; the product picked may cost more or less.
+                            </Text>
                           </>
                         );
                       }
 
                       return (
                         <>
-                          <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Cabinets</Text>
-                          <CabinetBoxEditor boxes={islandBoxes} onChange={editIslandBoxes} location="island" link={rowLink} />
+                          {split ? (
+                            <Text type="secondary" style={{ display: 'block', fontSize: 13 }}>
+                              {islandBoxes.length
+                                ? `${islandBoxes.reduce((n, b) => n + b.qty, 0)} island cabinets, in `
+                                : 'No island cabinets yet. Add them in '}
+                              <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => setPanelTab('cabinets')}>
+                                Cabinets
+                              </Button>
+                              .
+                            </Text>
+                          ) : (
+                            <>
+                              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Island Cabinets</Text>
+                              <CabinetBoxEditor boxes={islandBoxes} onChange={editIslandBoxes} location="island" />
+                            </>
+                          )}
                           {islandBoxes.length > 0 && (
                             <Form.Item
                               name="island_two_sided"
@@ -1728,7 +1933,7 @@ const CabinetEstimateDetail: React.FC = () => {
                     <Row gutter={16}>
                       {/* End Panel */}
                       <Col xs={24} md={12}>
-                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>End Panel (Side)</Text>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>End Panel (Side)</Text>
                         <Row gutter={8}>
                           <Col xs={10} sm={10}>
                             <Form.Item label="LF" style={{ marginBottom: 4 }}>
@@ -1778,13 +1983,13 @@ const CabinetEstimateDetail: React.FC = () => {
                           const sf = Math.round(lf * endPanelHeight * 10) / 10;
                           return (
                             <Space size={4} wrap>
-                              <Text type="secondary" style={{ fontSize: 11 }}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
                                 2 ends × {depthIn}" deep = {lf} LF
                               </Text>
                               <Button
                                 type="link"
                                 size="small"
-                                style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                style={{ padding: 0, fontSize: 12, height: 'auto' }}
                                 onClick={() => form.setFieldsValue({ island_end_panel_sqft: sf })}
                               >
                                 {sf} SF 적용
@@ -1795,7 +2000,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       </Col>
                       {/* Back Panel */}
                       <Col xs={24} md={12}>
-                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>Back Panel</Text>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Back Panel</Text>
                         {islandTwoSided ? (
                           <Text type="secondary" style={{ fontSize: 12 }}>
                             None — with cabinets on both sides, the backs face each other.
@@ -1848,7 +2053,7 @@ const CabinetEstimateDetail: React.FC = () => {
                     </Row>
                     {pricingInfo && form.getFieldValue('tier') && (
                       <div style={{ marginTop: 4 }}>
-                        <Text type="secondary" style={{ fontSize: 11 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
                           End: ${pricingInfo.island_panel_pricing?.end_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
                           {!islandTwoSided && (
                             <>
@@ -1912,13 +2117,13 @@ const CabinetEstimateDetail: React.FC = () => {
                               </Form.Item>
                               {suggestedSf > 0 && (
                                 <Space size={4} wrap>
-                                  <Text type="secondary" style={{ fontSize: 11 }}>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
                                     {Math.round(topLengthIn * 10) / 10}" × {Math.round(topDepthIn * 10) / 10}" =
                                   </Text>
                                   <Button
                                     type="link"
                                     size="small"
-                                    style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                    style={{ padding: 0, fontSize: 12, height: 'auto' }}
                                     onClick={() => form.setFieldsValue({ island_countertop_sqft: suggestedSf })}
                                   >
                                     {suggestedSf} SF 적용
@@ -1929,7 +2134,7 @@ const CabinetEstimateDetail: React.FC = () => {
                           </Row>
                           <Row gutter={16}>
                             <Col xs={12}>
-                              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
                                 Seating overhang
                               </Text>
                               {islandTwoSided ? (
@@ -1952,7 +2157,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               )}
                             </Col>
                             <Col xs={24} style={{ marginTop: 4 }}>
-                              <Text type="secondary" style={{ fontSize: 11 }}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
                                 L-shaped, three-sided or angled island? The Sketch tab's Island top measures the drawn shape.
                               </Text>
                             </Col>
@@ -1984,20 +2189,20 @@ const CabinetEstimateDetail: React.FC = () => {
                                 <Col xs={12} style={{ display: 'flex', alignItems: 'center' }}>
                                   {needed ? (
                                     <Space size={4} wrap>
-                                      <Text type="secondary" style={{ fontSize: 11 }}>
+                                      <Text type="secondary" style={{ fontSize: 12 }}>
                                         {islandSeatingIn}" &gt; {maxFreeIn}" for {material}:
                                       </Text>
                                       <Button
                                         type="link"
                                         size="small"
-                                        style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                        style={{ padding: 0, fontSize: 12, height: 'auto' }}
                                         onClick={() => form.setFieldsValue({ countertop_support_count: suggestedSupports })}
                                       >
                                         {suggestedSupports} 적용
                                       </Button>
                                     </Space>
                                   ) : (
-                                    <Text type="secondary" style={{ fontSize: 11 }}>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
                                       Not needed — {material} carries {maxFreeIn}" unsupported.
                                     </Text>
                                   )}
@@ -2060,7 +2265,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               {/* P-trap, supply lines and angle stops always
                                   come with the plumbing scope; these are the
                                   extras that depend on the kitchen. */}
-                              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
+                              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>
                                 Under-sink extras (1 sink)
                               </Text>
                               <Form.Item name="include_dw_hookup" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
@@ -2095,7 +2300,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               <Checkbox disabled={hasNewCountertop}>
                                 Countertop Reset
                                 {hasNewCountertop && (
-                                  <Text type="secondary" style={{ fontSize: 10, marginLeft: 4 }}>
+                                  <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>
                                     (N/A — new countertop selected)
                                   </Text>
                                 )}
@@ -2155,9 +2360,9 @@ const CabinetEstimateDetail: React.FC = () => {
                   {/* Trim & finished panels — present on nearly every
                       kitchen, so these are counted rather than assumed. */}
                   <div style={{ borderTop: '1px solid #f0f0f0', margin: '8px 0 12px', paddingTop: 8 }}>
-                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
                       Trim &amp; Finished Panels
-                      <span style={{ marginLeft: 8, color: '#8c8c8c' }}>
+                      <span style={{ marginLeft: 8, color: '#73726e' }}>
                         — the Sketch tab counts these from the drawing: Trim &amp; panels → Use in estimate
                       </span>
                     </Text>
@@ -2261,7 +2466,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       if (!getFieldValue('include_appliance_rr')) return null;
                       return (
                         <div style={{ borderTop: '1px solid #f0f0f0', margin: '8px 0 12px', paddingTop: 8 }}>
-                          <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
                             Select appliances to detach & reset:
                           </Text>
                           <Form.Item name="appliance_list" noStyle preserve>
@@ -2289,7 +2494,7 @@ const CabinetEstimateDetail: React.FC = () => {
                         <>
                         <Row gutter={16}>
                           <Col xs={24}>
-                            <Text type="secondary" style={{ fontSize: 11, marginBottom: 4, display: 'block' }}>
+                            <Text type="secondary" style={{ fontSize: 12, marginBottom: 4, display: 'block' }}>
                               Perimeter countertop (Island countertop은 Island 카드에서 입력)
                             </Text>
                           </Col>
@@ -2307,13 +2512,13 @@ const CabinetEstimateDetail: React.FC = () => {
                             </Form.Item>
                             {suggestedSf > 0 && (
                               <Space size={4}>
-                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
                                   Perimeter Base LF({perimBaseLf.toFixed(1)}) x 2.125ft =
                                 </Text>
                                 <Button
                                   type="link"
                                   size="small"
-                                  style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                  style={{ padding: 0, fontSize: 12, height: 'auto' }}
                                   onClick={() => form.setFieldsValue({ countertop_sqft: suggestedSf })}
                                 >
                                   {suggestedSf} SF 적용
@@ -2337,20 +2542,20 @@ const CabinetEstimateDetail: React.FC = () => {
                                     </Form.Item>
                                     {perimBaseLf > 0 && (
                                       <Space size={4}>
-                                        <Text type="secondary" style={{ fontSize: 11 }}>
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
                                           Perimeter Base =
                                         </Text>
                                         <Button
                                           type="link"
                                           size="small"
-                                          style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                          style={{ padding: 0, fontSize: 12, height: 'auto' }}
                                           onClick={() => form.setFieldsValue({ countertop_backsplash_lf: Math.round(perimBaseLf * 10) / 10 })}
                                         >
                                           {perimBaseLf.toFixed(1)} LF 적용
                                         </Button>
                                       </Space>
                                     )}
-                                    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                                    <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
                                       Measured along the walls: Sketch tab → Backsplash → Use in estimate
                                     </Text>
                                   </Col>
@@ -2374,7 +2579,7 @@ const CabinetEstimateDetail: React.FC = () => {
 
                 {/* Drywall & Painting */}
                 <Card size="small" {...section('drywall', 'Drywall & Painting', drywallSummary)}>
-                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
                     Cabinet 제거 후 벽면 수리 및 도장. 면적은 wall cabinet 뒤쪽 벽 기준.
                   </Text>
                   <Row gutter={16}>
@@ -2407,7 +2612,7 @@ const CabinetEstimateDetail: React.FC = () => {
                                 <Button
                                   type="link"
                                   size="small"
-                                  style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                  style={{ padding: 0, fontSize: 12, height: 'auto' }}
                                   onClick={() => form.setFieldsValue({ drywall_repair_sqft: suggestedDwSf })}
                                 >
                                   추천: {suggestedDwSf} SF 적용 (LF x 4ft)
@@ -2438,7 +2643,7 @@ const CabinetEstimateDetail: React.FC = () => {
                                 <Button
                                   type="link"
                                   size="small"
-                                  style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                  style={{ padding: 0, fontSize: 12, height: 'auto' }}
                                   onClick={() => form.setFieldsValue({ painting_sqft: dwSf })}
                                 >
                                   Drywall과 동일: {dwSf} SF 적용
@@ -2507,20 +2712,20 @@ const CabinetEstimateDetail: React.FC = () => {
                           <Space size={4} wrap>
                             {suggestedSf > 0 && (
                               <>
-                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
                                   Perimeter Base LF({baseLf.toFixed(1)}) × {heightInches}&quot; =
                                 </Text>
                                 <Button
                                   type="link"
                                   size="small"
-                                  style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                  style={{ padding: 0, fontSize: 12, height: 'auto' }}
                                   onClick={() => form.setFieldsValue({ backsplash_sqft: suggestedSf })}
                                 >
                                   {suggestedSf} SF 적용
                                 </Button>
                               </>
                             )}
-                            <Text type="secondary" style={{ fontSize: 11 }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
                               · measured along the walls: Sketch tab → Backsplash → Use in estimate
                             </Text>
                           </Space>
@@ -2542,13 +2747,10 @@ const CabinetEstimateDetail: React.FC = () => {
                   </Form.Item>
                 </Card>
 
-                <Card size="small" title="Target Price" style={{ marginBottom: 16 }}>
-                  <Alert
-                    message="Set a desired total and all line items will scale proportionally when you Calculate."
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 12, fontSize: 11 }}
-                  />
+                <Card size="small" className="ui-sheet-card" title="Target Price" id={sectionId('target')} style={{ scrollMarginTop: 8 }}>
+                  <Text type="secondary" style={{ display: 'block', fontSize: 13, marginBottom: 12 }}>
+                    Set the total you want, and every line scales to it when you calculate.
+                  </Text>
                   <Row gutter={8} align="middle">
                     <Col flex="auto">
                       <Form.Item label="Target Total ($)" name="target_total" style={{ marginBottom: 4 }}>
@@ -2577,27 +2779,26 @@ const CabinetEstimateDetail: React.FC = () => {
                     </Col>
                   </Row>
                   {estimate.adjustment_factor && (
-                    <Statistic
-                      title="Adjustment Factor"
-                      value={estimate.adjustment_factor}
-                      precision={4}
-                      suffix="x"
-                      valueStyle={{
-                        color: estimate.adjustment_factor > 1 ? '#cf1322' : '#3f8600',
-                        fontSize: 16,
-                      }}
-                    />
+                    <div className="ce-field" style={{ marginTop: 8 }}>
+                      <span className="ce-field-label">Lines scaled by</span>
+                      <span className="ce-field-value">
+                        {estimate.adjustment_factor.toFixed(4)}×{' '}
+                        <span style={{ color: '#73726e' }}>
+                          ({estimate.adjustment_factor > 1 ? 'up' : 'down'} {Math.abs((estimate.adjustment_factor - 1) * 100).toFixed(1)}%)
+                        </span>
+                      </span>
+                    </div>
                   )}
                 </Card>
 
-                <Card size="small" title="PDF Overview" style={{ marginBottom: 16 }}>
+                <Card size="small" className="ui-sheet-card" title="PDF Overview">
                   <Form.Item name="overview_text">
                     <Input.TextArea
                       rows={4}
                       placeholder="All cabinets will feature matching industrial-grade cabinet board surfaces..."
                     />
                   </Form.Item>
-                  <Text type="secondary" style={{ fontSize: 11 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
                     Leave blank to use default text. Shown at top of PDF.
                   </Text>
                 </Card>
@@ -2608,26 +2809,38 @@ const CabinetEstimateDetail: React.FC = () => {
                   </Form.Item>
                 </Card>
 
-                {estimate.total > 0 && (
-                  <Card
-                    size="small"
-                    style={{ marginBottom: 16, background: '#f0f5ff', borderColor: '#adc6ff' }}
-                  >
-                    <div style={{ textAlign: 'center' }}>
-                      <Text type="secondary">Current Total</Text>
-                      <Title level={3} style={{ margin: '4px 0 0' }}>
-                        ${estimate.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </Title>
-                    </div>
-                  </Card>
+                {/* Beside the drawing the total heads Inspect instead */}
+                {!split && estimate.total > 0 && (
+                  <div style={{ marginBottom: 28 }}>
+                    <Text type="secondary" style={{ fontSize: 13 }}>Current total</Text>
+                    <div className="ce-total-value">{money(estimate.total)}</div>
+                    {stale && <div className="ce-stale"><span>Changed since the last calculation</span></div>}
+                  </div>
                 )}
 
                 <CabinetEstimateHistory estimateId={id!} />
               </Col>
             </Row>
           </Form>
+            </div>
+          </div>
         </div>
       </div>
+
+      {visitedTabs.has('result') && (
+        <div role="tabpanel" aria-label="Estimate result" hidden={shownTab !== 'result'}>
+          {draft ? (
+            <Text type="secondary">Calculate the estimate to see its lines.</Text>
+          ) : (
+            <CabinetEstimateResult estimate={estimate} />
+          )}
+        </div>
+      )}
+      {visitedTabs.has('purchase-order') && !!estimate.boxes?.length && (
+        <div role="tabpanel" aria-label="Purchase order" hidden={shownTab !== 'purchase-order'}>
+          <CabinetPurchaseOrder estimateId={id!} />
+        </div>
+      )}
 
       {registerBidItemOpen && (
         <React.Suspense fallback={null}>

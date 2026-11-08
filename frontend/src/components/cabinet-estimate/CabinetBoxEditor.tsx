@@ -9,7 +9,6 @@ import {
   Select,
   Space,
   Table,
-  Tag,
   Tooltip,
   Typography,
 } from 'antd';
@@ -20,6 +19,7 @@ import {
   NO_DOOR_SPECIALTIES,
   PLAIN_DOOR,
   TALL_DOOR_PATTERN_OPTIONS,
+  specialtyName,
 } from './cabinetBoxChoices';
 
 const { Text } = Typography;
@@ -478,7 +478,14 @@ interface CabinetBoxEditorProps {
     linked: ReadonlySet<string>;
     onPick: (key: string) => void;
     onHover: (key: string | null) => void;
+    /** The row whose cabinets the pointer is over on the plan, if any. */
+    hinted?: string | null;
   };
+  /**
+   * 'list' beside the sketch: a line per row (code, name, qty), edited by
+   * picking it and changing it in Inspect. 'table' (default) edits every column in place.
+   */
+  variant?: 'table' | 'list';
 }
 
 // A click on these inside a row edits the row; anywhere else it picks the row's cabinets on the sketch.
@@ -492,6 +499,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
   onWallHeightChange,
   tier,
   link,
+  variant = 'table',
 }) => {
   const tierWallHeight = wallHeightForTier(tier);
   const addBox = (cabType: SectionType, codeOrCustom: string) => {
@@ -673,8 +681,8 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
       width: 98,
       render: (_: string, record: CabinetBoxCreate) => (
         record.is_specialty && record.specialty_type ? (
-          <Tag color="orange">{record.specialty_type.replace(/_/g, ' ')}</Tag>
-        ) : <Text type="secondary">—</Text>
+          <span>{specialtyName(record.specialty_type as SpecialtyType)}</span>
+        ) : <Text type="secondary">None</Text>
       ),
     }] : []),
     // Only a slide-in range has panels; the column makes room for the rest when there is none.
@@ -791,8 +799,10 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
         return (
           <Button
             size="small"
-            danger
+            type="text"
+            className="ui-icon-btn ui-icon-btn--danger"
             icon={<DeleteOutlined />}
+            aria-label={`Remove ${record.code}`}
             onClick={() => removeBox(gi)}
           />
         );
@@ -800,8 +810,111 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
     },
   ];
 
+  // The Upper height control, on the Wall section.
+  const upperHeight = (compact: boolean) => (
+    <Space size={6} style={compact ? undefined : { marginLeft: 8 }} wrap>
+      <Tooltip title={`Starts at the Tier's height (Stock 30", Semi-Custom 36", Custom 42") and can be changed here. The Wall pickers list this height and the short uppers over a fridge, range or microwave.`}>
+        <Text type="secondary" style={{ fontSize: 13 }}>Upper height</Text>
+      </Tooltip>
+      <Segmented<WallHeightFilter>
+        size="small"
+        value={wallHeight}
+        onChange={onWallHeightChange}
+        options={WALL_HEIGHT_OPTIONS}
+      />
+      {tierWallHeight !== 'all' && wallHeight !== tierWallHeight && (
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          {tier} is usually {tierWallHeight}"
+        </Text>
+      )}
+    </Space>
+  );
+
+  // Beside the sketch: each row a line in a list (code, name, qty), picked to edit it in Inspect.
+  const renderListSection = (config: typeof SECTION_CONFIG[number]) => {
+    const { type, label } = config;
+    const sectionBoxes = boxes.filter((b) => b.cab_type === type).map((b, i) => ({ ...b, _localIdx: i }));
+    const options = getOptionsForType(type, wallHeight);
+    const summary = type === 'tall'
+      ? `${sectionBoxes.reduce((s, b) => s + b.qty, 0)} EA`
+      : `${sectionBoxes.reduce((s, b) => s + (b.width_inches * b.qty) / 12, 0).toFixed(1)} LF`;
+    const noun = label.replace(' Cabinets', '').toLowerCase();
+    return (
+      <div key={type} className="ce-section">
+        <div className="ce-section-title">
+          <span>{location === 'island' ? `Island ${noun}` : label.replace(' Cabinets', '')}</span>
+          <span className="ce-section-meta">{summary}</span>
+        </div>
+        {type === 'wall' && onWallHeightChange && <div style={{ margin: '2px 0 6px' }}>{upperHeight(true)}</div>}
+        {sectionBoxes.map((record) => {
+          const gi = getGlobalIndex(type, record._localIdx);
+          const key = link?.keyOf(record);
+          const preset = CABINET_PRESETS[record.code];
+          const name = [
+            preset?.label ?? `Custom ${record.width_inches}" × ${record.height_inches}"`,
+            record.has_glass_door ? 'glass' : null,
+            record.door_pattern ? DOOR_PATTERN_OPTIONS.find((o) => o.value === record.door_pattern)?.short ?? null : null,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          const picked = !!key && !!link?.linked.has(key);
+          return (
+            <div
+              key={gi}
+              className={`ce-row${picked ? ' is-selected' : ''}${key && link?.hinted === key ? ' is-hinted' : ''}`}
+              data-link-key={key}
+              onMouseEnter={() => key && link?.onHover(key)}
+              onMouseLeave={() => link?.onHover(null)}
+            >
+              <button
+                type="button"
+                className="ce-row is-link"
+                style={{ flex: 1, width: 'auto', margin: 0, padding: 0, minHeight: 0, background: 'none' }}
+                aria-pressed={picked}
+                title={link ? 'Pick it on the plan to change it' : undefined}
+                onClick={() => key && link?.onPick(key)}
+              >
+                <span className="ce-row-code">{record.code === 'CUSTOM' ? 'Custom' : record.code}</span>
+                <span className="ce-row-name">{name}</span>
+              </button>
+              <InputNumber
+                size="small"
+                aria-label={`How many ${record.code}`}
+                value={record.qty}
+                min={1}
+                max={50}
+                onChange={(val) => val && updateBox(gi, { qty: val })}
+              />
+              <Button
+                size="small"
+                type="text"
+                className="ui-icon-btn ui-icon-btn--danger ce-row-remove"
+                icon={<DeleteOutlined />}
+                aria-label={`Remove ${record.code}`}
+                onClick={() => removeBox(gi)}
+              />
+            </div>
+          );
+        })}
+        <Select
+          className="ce-add"
+          aria-label={`Add a ${noun} cabinet`}
+          placeholder={`Add ${location === 'island' ? 'an island' : 'a'} ${noun} cabinet…`}
+          showSearch
+          value={null}
+          onChange={(val: string) => addBox(type, val)}
+          options={options}
+          filterOption={(input, option) =>
+            (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+          }
+          popupMatchSelectWidth={300}
+        />
+      </div>
+    );
+  };
+
   const renderSection = (config: typeof SECTION_CONFIG[number]) => {
-    const { type, label, color, unit } = config;
+    const { type, label } = config;
     const sectionBoxes = boxes
       .filter(b => b.cab_type === type)
       .map((b, i) => ({ ...b, _localIdx: i, key: i }));
@@ -812,28 +925,11 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
       : `${sectionBoxes.reduce((s, b) => s + (b.width_inches * b.qty) / 12, 0).toFixed(1)} LF`;
 
     return (
-      <div key={type} style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-          <Tag color={color} style={{ fontSize: 12, margin: 0 }}>{label}</Tag>
-          <Text type="secondary" style={{ fontSize: 12 }}>{summary}</Text>
-          {type === 'wall' && onWallHeightChange && (
-            <Space size={6} style={{ marginLeft: 8 }}>
-              <Tooltip title={`Starts at the Tier's height (Stock 30", Semi-Custom 36", Custom 42") and can be changed here. The Wall pickers list this height and the short uppers over a fridge, range or microwave.`}>
-                <Text type="secondary" style={{ fontSize: 12 }}>Upper height</Text>
-              </Tooltip>
-              <Segmented<WallHeightFilter>
-                size="small"
-                value={wallHeight}
-                onChange={onWallHeightChange}
-                options={WALL_HEIGHT_OPTIONS}
-              />
-              {tierWallHeight !== 'all' && wallHeight !== tierWallHeight && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {tier} is usually {tierWallHeight}"
-                </Text>
-              )}
-            </Space>
-          )}
+      <div key={type} style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <Text strong style={{ fontSize: 14 }}>{label}</Text>
+          <Text type="secondary" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{summary}</Text>
+          {type === 'wall' && onWallHeightChange && upperHeight(false)}
         </div>
 
         {sectionBoxes.length > 0 && (
@@ -868,7 +964,8 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
         )}
 
         <Select
-          placeholder={`+ Add ${label.replace(' Cabinets', '')}...`}
+          aria-label={`Add a ${label.replace(' Cabinets', '').toLowerCase()} cabinet`}
+          placeholder={`Add a ${label.replace(' Cabinets', '').toLowerCase()} cabinet…`}
           style={{ width: 260, marginTop: sectionBoxes.length > 0 ? 8 : 0 }}
           showSearch
           // Controlled and always empty: left uncontrolled (undefined) it kept
@@ -891,14 +988,20 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
     ? SECTION_CONFIG.filter(s => s.type === 'base')
     : SECTION_CONFIG;
 
+  if (variant === 'list') return <div>{sections.map(renderListSection)}</div>;
+
   return (
     <div>
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Tag color="blue">Base: {baseLF.toFixed(1)} LF</Tag>
-        {!isIsland && <Tag color="green">Wall: {wallLF.toFixed(1)} LF</Tag>}
-        {!isIsland && <Tag color="orange">Tall: {tallCount} EA</Tag>}
-        <Tag>Total: {totalBoxes} boxes</Tag>
-      </Space>
+      <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+        {[
+          `Base ${baseLF.toFixed(1)} LF`,
+          !isIsland && `Wall ${wallLF.toFixed(1)} LF`,
+          !isIsland && `Tall ${tallCount} EA`,
+          `${totalBoxes} ${totalBoxes === 1 ? 'box' : 'boxes'}`,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </Text>
 
       {sections.map(renderSection)}
     </div>

@@ -102,6 +102,12 @@ export interface CabinetSketchOverlayData {
   finish?: CabinetSketchFinish | null;
   /** The estimate's "cabinets on both sides" the island was last laid out for (see layoutIslandSides). */
   island_two_sided?: boolean | null;
+  /**
+   * Wall faces left without backsplash (splashFaceKey in cabinetBacksplash.ts:
+   * a wall's id and which of its faces), e.g. a side wall at a run's end
+   * that isn't tiled. Absent: every face a counter meets has it.
+   */
+  backsplash_off?: string[] | null;
 }
 
 export interface CabinetSketch {

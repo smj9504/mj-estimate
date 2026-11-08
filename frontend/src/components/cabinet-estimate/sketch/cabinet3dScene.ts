@@ -35,7 +35,7 @@ import {
 import type { DoorDesign, Face } from './cabinetFronts';
 import { applianceExtent, inPolygon, modelBounds, toPlan } from './cabinet3dModel';
 import type { ApplianceSolid, CabinetSolid, CounterSlab, FillerSolid, FrontRun, Pt2, WallSolid } from './cabinet3dModel';
-import { COUNTER_SPLASH_IN, againstWall, applianceSplash, splashSides } from './cabinetBacksplash';
+import { COUNTER_SPLASH_IN, againstWall, applianceSplash, splashFaceKey, splashSides } from './cabinetBacksplash';
 import type { BacksplashSpec } from './cabinetBacksplash';
 import { finishMaterials } from './finishMaterials';
 import type { FinishMaterials } from './finishMaterials';
@@ -620,6 +620,8 @@ interface SplashPaint {
   /** The 4" countertop backsplash's material, null for none. */
   counter: THREE.Material | null;
   outline: (mesh: THREE.Mesh, color: string) => THREE.Mesh;
+  /** Faces left without backsplash (splashFaceKey), in either look. */
+  off: ReadonlySet<string>;
 }
 
 /**
@@ -634,8 +636,16 @@ function splashPaint(paint: Paint, spec: BacksplashSpec | null): SplashPaint {
     tileIn: spec?.tileIn ?? BACKSPLASH_IN,
     counter: spec?.counter ? paint.mat('counter') : null,
     outline: paint.outline,
+    off: new Set(spec?.off ?? []),
   };
 }
+
+/** Whether the side a→b of a footprint (local inches; toPlan to the plan) is on a face left without backsplash. */
+const splashOff = (a: Pt2, b: Pt2, inside: Pt2, toWorld: (p: Pt2) => Pt2, walls: WallSolid[], splash: SplashPaint) => {
+  if (!splash.off.size) return false;
+  const key = splashFaceKey(toWorld(a), toWorld(b), toWorld(inside), walls);
+  return key !== null && splash.off.has(key);
+};
 
 /**
  * The backsplashes along the side a→b of a footprint (as splashPanel): the
@@ -676,9 +686,10 @@ const middle = (pts: Pt2[]): Pt2 => [pts.reduce((sum, [x]) => sum + x, 0) / pts.
 function backsplashes(solid: CabinetSolid, walls: WallSolid[], splash: SplashPaint): THREE.Mesh[] {
   const pts = solid.outline;
   const inside = middle(pts);
-  return splashSides(solid, walls).flatMap((i) =>
-    splashMeshes(pts[i], pts[(i + 1) % pts.length], inside, (p) => toPlan(solid, p), solid.bottom, !!solid.counter, splash)
-  );
+  const toWorld = (p: Pt2) => toPlan(solid, p);
+  return splashSides(solid, walls)
+    .filter((i) => !splashOff(pts[i], pts[(i + 1) % pts.length], inside, toWorld, walls, splash))
+    .flatMap((i) => splashMeshes(pts[i], pts[(i + 1) % pts.length], inside, toWorld, solid.bottom, !!solid.counter, splash));
 }
 
 /**
@@ -938,7 +949,7 @@ function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint, wal
   // In line with the backsplash of the cabinets beside it, whose backs are at
   // the wall; behind a range the tile runs on, up under the microwave or hood over it.
   const behind = applianceSplash(a, walls);
-  if (behind.tile) {
+  if (behind.tile && !splashOff([0, b], [w, b], [w / 2, front], (p) => toPlan(a, p), walls, splash)) {
     const splashes = splashMeshes([0, b], [w, b], [w / 2, front], (p) => toPlan(a, p), a.bottom, behind.counter, splash);
     if (splashes.length) group.add(...splashes);
   }

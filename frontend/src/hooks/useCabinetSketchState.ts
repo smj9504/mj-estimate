@@ -58,6 +58,7 @@ type CabinetSketchAction =
   | { type: 'UPDATE_APPLIANCES'; payload: (Partial<CabinetSketchAppliance> & { id: string })[] }
   | { type: 'SYNC_APPLIANCES'; payload: CabinetSketchAppliance[] }
   | { type: 'SET_FINISH'; payload: CabinetSketchFinish }
+  | { type: 'SET_BACKSPLASH_OFF'; payload: string[] }
   | { type: 'LOAD_OVERLAY_DATA'; payload: CabinetSketchOverlayData }
   | { type: 'MARK_SAVED' }
   | { type: 'UNDO' }
@@ -407,6 +408,18 @@ function cabinetSketchReducer(
       };
     }
 
+    // The wall faces left without backsplash, as one undo step.
+    case 'SET_BACKSPLASH_OFF': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: { ...state.overlayData, backsplash_off: action.payload },
+      };
+    }
+
     case 'LOAD_OVERLAY_DATA':
       return {
         ...state,
@@ -499,6 +512,8 @@ export interface CabinetSketchStateReturn {
   updateAppliances: (patches: (Partial<CabinetSketchAppliance> & { id: string })[]) => void;
   syncAppliances: (appliances: CabinetSketchAppliance[]) => void;
   setFinish: (finish: CabinetSketchFinish) => void;
+  /** The wall faces left without backsplash (splashFaceKey in cabinetBacksplash.ts). */
+  setBacksplashOff: (keys: string[]) => void;
   loadOverlayData: (data: CabinetSketchOverlayData) => void;
   markSaved: () => void;
 
@@ -592,6 +607,10 @@ export function useCabinetSketchState(
     (finish: CabinetSketchFinish) => dispatch({ type: 'SET_FINISH', payload: finish }),
     []
   );
+  const setBacksplashOff = useCallback(
+    (keys: string[]) => dispatch({ type: 'SET_BACKSPLASH_OFF', payload: keys }),
+    []
+  );
   const loadOverlayData = useCallback(
     (data: CabinetSketchOverlayData) => dispatch({ type: 'LOAD_OVERLAY_DATA', payload: data }),
     []
@@ -630,6 +649,7 @@ export function useCabinetSketchState(
     updateAppliances,
     syncAppliances,
     setFinish,
+    setBacksplashOff,
     loadOverlayData,
     markSaved,
     undo,

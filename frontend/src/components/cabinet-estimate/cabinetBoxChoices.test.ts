@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CABINET_PRESETS } from './CabinetBoxEditor';
-import { boxChoices, changedBox, type BoxFields } from './cabinetBoxChoices';
+import { boxChoices, cabinetKinds, changedBox, codeForKind, kindName, kindOf, type BoxFields } from './cabinetBoxChoices';
+import { getOptionsForType } from './CabinetBoxEditor';
 
 const box = (code: string, over: Partial<BoxFields> = {}): BoxFields => {
   const p = CABINET_PRESETS[code];
@@ -94,5 +95,67 @@ describe('changedBox', () => {
     expect(changedBox(box('RB30S', { range_panel_count: 2 }), { range_panel_count: 1 }, CABINET_PRESETS).range_panel_count).toBe(1);
     expect(changedBox(box('RB30S', { range_panel_count: 2 }), { range_panel_count: 0 }, CABINET_PRESETS).range_panel_count).toBe(0);
     expect(changedBox(box('B30', { range_panel_count: null }), { range_panel_count: 1 }, CABINET_PRESETS).range_panel_count).toBeNull();
+  });
+});
+
+describe('cabinet kinds', () => {
+  it('names a kind by its label without the sizes', () => {
+    const name = (code: string) => kindName(CABINET_PRESETS[code]);
+    expect(name('WEA3D1236')).toBe('Angle End Wall 3-Door');
+    expect(name('WEA2D1230')).toBe('Angle End Wall 2-Door');
+    expect(name('WTD3036')).toBe('3-Door End Corner');
+    expect(name('WDC24')).toBe('Diagonal Corner');
+    expect(name('RB30S')).toBe('Range Base (Slide-in)');
+    expect(name('T1884')).toBe('Tall');
+    expect(name('SB36')).toBe('Sink Base');
+    expect(name('W3036')).toBe('Wall');
+  });
+
+  it('lists each kind once, its codes kept for the size pick', () => {
+    const kinds = cabinetKinds(getOptionsForType('wall', 'all'), CABINET_PRESETS);
+    const labels = kinds.map((k) => k.label);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels[0]).toBe('Wall');
+    expect(labels).toEqual(
+      expect.arrayContaining(['Angle End Wall', 'Angle End Wall 2-Door', 'Angle End Wall 3-Door', 'Blind Corner Wall'])
+    );
+    const three = kinds.find((k) => k.label === 'Angle End Wall 3-Door')!;
+    expect(three.value).toBe(kindOf('WEA3D2742', CABINET_PRESETS));
+    expect(three.codes).toHaveLength(18);
+    // The custom-size entry isn't a kind.
+    expect(kinds.every((k) => k.codes.every((c) => CABINET_PRESETS[c]))).toBe(true);
+  });
+
+  it('keeps one-door, two-door and three-door angle ends apart', () => {
+    const k = (c: string) => kindOf(c, CABINET_PRESETS);
+    expect(new Set([k('WEA1236'), k('WEA2D1236'), k('WEA3D1236')]).size).toBe(3);
+    expect(k('WEA3D1236')).toBe(k('WEA3D2730'));
+    expect(k('CUSTOM')).toBeNull();
+  });
+
+  it("picks the kind at the box's size, or the nearest one at its height", () => {
+    const kinds = cabinetKinds(getOptionsForType('wall', 'all'), CABINET_PRESETS);
+    const codes = (label: string) => kinds.find((o) => o.label === label)!.codes;
+    const size = (code: string) => box(code);
+    expect(codeForKind(codes('Blind Corner Wall'), size('W3036'), CABINET_PRESETS)).toBe('WBC3036');
+    expect(codeForKind(codes('Angle End Wall 3-Door'), size('W3036'), CABINET_PRESETS)).toBe('WEA3D2736');
+    expect(codeForKind(codes('Angle End Wall 3-Door'), size('W1542'), CABINET_PRESETS)).toBe('WEA3D1542');
+    expect(codeForKind(codes('Wall'), size('WEA3D2136'), CABINET_PRESETS)).toBe('W2136');
+    // Made only 18" high: its own height, whatever the box's.
+    expect(codeForKind(codes('OTR Microwave'), size('W3030'), CABINET_PRESETS)).toBe('WMW30');
+    // A short upper's height is kept where the kind has it.
+    expect(codeForKind(codes('Wall'), size('WRD36'), CABINET_PRESETS)).toBe('W3624');
+    // Not made at the box's height: the main height, the nearer of a tie.
+    const doubleOven = Object.keys(CABINET_PRESETS).filter((c) => c.startsWith('DOC'));
+    expect(codeForKind(doubleOven, size('T3696'), CABINET_PRESETS)).toBe('DOC3390');
+  });
+
+  it("keeps an upper on the height filter's list", () => {
+    const kinds = cabinetKinds(getOptionsForType('wall', 36), CABINET_PRESETS);
+    const wall = kinds.find((o) => o.label === 'Wall')!;
+    // Short uppers (over a fridge or microwave) stay on every filter.
+    expect(wall.codes.every((c) => [36, 12, 15, 18, 24, 27].includes(CABINET_PRESETS[c].height))).toBe(true);
+    expect(wall.codes).not.toContain('W3030');
+    expect(codeForKind(wall.codes, box('W3030'), CABINET_PRESETS)).toBe('W3036');
   });
 });

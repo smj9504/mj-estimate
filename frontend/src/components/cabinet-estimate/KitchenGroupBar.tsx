@@ -7,10 +7,9 @@
  */
 
 import React, { useState } from 'react';
-import { Button, Dropdown, Input, Modal, Segmented, Space, Tag, Tooltip, message } from 'antd';
+import { Button, Dropdown, Input, Modal, Tooltip, message } from 'antd';
 import {
   DeleteOutlined,
-  DiffOutlined,
   DownOutlined,
   EditOutlined,
   MoreOutlined,
@@ -150,28 +149,16 @@ const KitchenGroupBar: React.FC<KitchenGroupBarProps> = ({ estimate, onOpen, gua
     });
   };
 
-  const segments = members.map((m) => {
+  // One line per estimate of the job: its name, and its total (an option's also against the restoration)
+  const memberTotal = (m: KitchenGroupMember) => {
     const overRestoration = insurance && restoration && m.kind === 'option' && m.total && restoration.total
       ? signedMoney(m.total - restoration.total)
       : null;
-    return {
-      value: m.id,
-      label: (
-        <div style={{ padding: '2px 4px', lineHeight: 1.3, textAlign: 'left' }}>
-          <div style={{ fontWeight: 600 }}>{memberName(m)}</div>
-          <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: 'nowrap' }}>
-            {m.total ? money(m.total) : 'Not calculated'}
-            {overRestoration && ` · ${overRestoration}`}
-          </div>
-        </div>
-      ),
-    };
-  });
+    return `${m.total ? money(m.total) : 'Not calculated'}${overRestoration ? ` · ${overRestoration}` : ''}`;
+  };
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12,
-    }}>
+    <div className="ce-bar-start" role="group" aria-label="Estimates of this job">
       <Dropdown
         trigger={['click']}
         menu={{
@@ -184,62 +171,68 @@ const KitchenGroupBar: React.FC<KitchenGroupBarProps> = ({ estimate, onOpen, gua
           onClick: ({ key }) => changeType(key as KitchenProjectType),
         }}
       >
-        <Tag
-          color={insurance ? 'blue' : 'green'}
-          style={{ cursor: 'pointer', margin: 0, padding: '2px 8px' }}
-        >
+        <Button type="text" className="ce-quiet" aria-label={`Job type: ${PROJECT_TYPE_LABELS[projectType]}`}>
           {PROJECT_TYPE_LABELS[projectType]} <DownOutlined style={{ fontSize: 10 }} />
-        </Tag>
+        </Button>
       </Dropdown>
+      <span className="ce-bar-sep" aria-hidden="true" />
 
-      <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
-        <Segmented
-          value={estimate.id}
-          options={segments}
-          onChange={(id) => { if (id !== estimate.id) onOpen(id as string); }}
-        />
-      </div>
-
-      <Space size={4} wrap>
-        <Tooltip title={`New option, starting as a copy of ${memberName(estimate)}`}>
+      {members.map((m) => {
+        const current = m.id === estimate.id;
+        return (
           <Button
-            icon={<PlusOutlined />}
-            loading={addOption.isPending}
-            onClick={() => guardUnsaved(() => addOption.mutate())}
+            key={m.id}
+            type="text"
+            className={`ui-view-tab ce-member${current ? ' is-selected' : ''}`}
+            aria-current={current ? 'page' : undefined}
+            onClick={() => { if (!current) onOpen(m.id); }}
           >
-            {insurance ? 'Upgrade option' : 'Option'}
+            <span>{memberName(m)}</span>
+            <span className="ce-member-total">{memberTotal(m)}</span>
           </Button>
-        </Tooltip>
-        {members.length > 1 && (
-          <Button icon={<DiffOutlined />} onClick={onCompare}>
-            Compare
-          </Button>
-        )}
-        {isOption && (
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                { key: 'rename', icon: <EditOutlined />, label: 'Rename option' },
-                {
-                  key: 'delete',
-                  icon: <DeleteOutlined />,
-                  label: 'Delete option',
-                  danger: true,
-                  // A remodel's last option is the job; it goes from the list
-                  disabled: members.length < 2,
-                },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'rename') setRenaming(estimate.option_label || '');
-                if (key === 'delete') confirmDelete();
+        );
+      })}
+
+      <Tooltip title={`New option, starting as a copy of ${memberName(estimate)}`}>
+        <Button
+          type="text"
+          className="ce-quiet"
+          icon={<PlusOutlined />}
+          loading={addOption.isPending}
+          onClick={() => guardUnsaved(() => addOption.mutate())}
+        >
+          {insurance ? 'Upgrade option' : 'Option'}
+        </Button>
+      </Tooltip>
+      {members.length > 1 && (
+        <Button type="text" className="ce-quiet" onClick={onCompare}>
+          Compare
+        </Button>
+      )}
+      {isOption && (
+        <Dropdown
+          trigger={['click']}
+          menu={{
+            items: [
+              { key: 'rename', icon: <EditOutlined />, label: 'Rename option' },
+              {
+                key: 'delete',
+                icon: <DeleteOutlined />,
+                label: 'Delete option',
+                danger: true,
+                // A remodel's last option is the job; it goes from the list
+                disabled: members.length < 2,
               },
-            }}
-          >
-            <Button icon={<MoreOutlined />} aria-label="Option actions" />
-          </Dropdown>
-        )}
-      </Space>
+            ],
+            onClick: ({ key }) => {
+              if (key === 'rename') setRenaming(estimate.option_label || '');
+              if (key === 'delete') confirmDelete();
+            },
+          }}
+        >
+          <Button type="text" className="ui-icon-btn" icon={<MoreOutlined />} aria-label="Option actions" />
+        </Dropdown>
+      )}
 
       <Modal
         title="Rename option"

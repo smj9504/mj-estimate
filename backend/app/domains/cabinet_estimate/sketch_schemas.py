@@ -86,6 +86,10 @@ class CabinetSketchOverlayData(BaseModel):
     # The estimate's "cabinets on both sides" the island was last laid out
     # for, so the Sketch re-lays it (two rows / one) only when that changes.
     island_two_sided: Optional[bool] = None
+    # Wall faces left without backsplash ("<wall id>:<1|-1>", which face of
+    # the wall), e.g. a side wall at a run's end that isn't tiled. See
+    # splashFaceKey in the frontend's cabinetBacksplash.ts.
+    backsplash_off: Optional[List[str]] = None
 
 
 class CabinetSketchResponse(BaseModel):

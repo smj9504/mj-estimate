@@ -1,10 +1,12 @@
 import { test, expect as baseExpect, Page } from '@playwright/test';
 
-// On a wide screen a cabinet estimate shows the Edit form and the Sketch side
-// by side: the sketch on the left at the window's height, the form scrolling
-// on the right. Picking a cabinet on one side marks it on the other, shortcuts
-// only reach the sketch while the pointer is on it, and the page's Save saves
-// the sketch too. Runs against the dev server with /api answered here.
+// On a wide screen a cabinet estimate is an editor: the sketch fills the
+// window on the left, and a panel beside it (Inspect / Cabinets / Estimate)
+// shows the selected cabinet's settings, the cabinet list or the form.
+// Picking a cabinet on one side marks it on the other, shortcuts only reach
+// the sketch while the pointer is on it (or it has focus), the page's Save
+// saves the sketch too, and leaving with edits not saved asks first.
+// Runs against the dev server with /api answered here.
 
 const expect = baseExpect.configure({ timeout: 20_000 });
 
@@ -27,7 +29,7 @@ const box = (code: string, cabType: 'base' | 'wall', width: number, height: numb
 
 const ESTIMATE = {
   id: ID,
-  status: 'draft',
+  status: 'calculated',
   kind: 'restoration',
   property_address: '1 Old Rd, Fairfax, VA 22030',
   tier: 'Standard',
@@ -35,13 +37,14 @@ const ESTIMATE = {
   line_items: [],
   appliance_list: [],
   group_members: [],
-  total: 0,
+  total: 12345,
 };
 
 interface Server {
   overlay: { cabinets: unknown[]; [key: string]: unknown };
   boxes: { code: string }[];
   overlaySaves: number;
+  saves: Record<string, unknown>[];
 }
 
 async function start(page: Page): Promise<Server> {
@@ -49,6 +52,7 @@ async function start(page: Page): Promise<Server> {
     overlay: { walls: [], cabinets: [], appliances: [], element_order: [] },
     boxes: ESTIMATE.boxes,
     overlaySaves: 0,
+    saves: [],
   };
   const sketch = () => ({
     id: 'sketch-1',
@@ -79,11 +83,13 @@ async function start(page: Page): Promise<Server> {
     }
     if (path === `/api/cabinet-estimates/${ID}`) {
       if (method === 'PUT') {
-        const { boxes } = request.postDataJSON();
-        if (boxes) server.boxes = boxes;
+        const body = request.postDataJSON();
+        server.saves.push(body);
+        if (body.boxes) server.boxes = body.boxes;
       }
       return json({ ...ESTIMATE, boxes: server.boxes });
     }
+    if (path === '/api/cabinet-estimates') return json({ items: [], total: 0 });
     return json([]);
   });
 
@@ -113,53 +119,62 @@ const drawn = (page: Page) =>
       });
   });
 
-/** The one cabinet selected on the sketch, as its toolbar names it ("Pick another Base to replace B30"). */
-const selectedOnSketch = (code: string) => (page: Page) =>
-  page.getByText(new RegExp(`^Pick another \\w+ to replace ${code}$`));
-
-const row = (page: Page, code: string) => page.locator(`tr[data-link-key*="|${code}|"]`);
+const panelTab = (page: Page, name: 'Inspect' | 'Cabinets' | 'Estimate') =>
+  page.getByRole('tablist', { name: 'Panel' }).getByRole('tab', { name, exact: true }).click();
+/** The one cabinet Inspect shows as selected, or null. */
+const inspected = (page: Page) => page.locator('.ce-inspect-title').first().textContent({ timeout: 2000 }).catch(() => null);
+const row = (page: Page, code: string) => page.locator(`.ce-row[data-link-key*="|${code}|"]`);
 const markedRows = (page: Page) =>
-  page.locator('tr.ant-table-row-selected[data-link-key]').evaluateAll(rows =>
+  page.locator('.ce-row.is-selected[data-link-key]').evaluateAll(rows =>
     rows.map(r => (r.getAttribute('data-link-key') ?? '').split('|')[1]).sort()
   );
 
 test.describe('cabinet estimate side by side', () => {
   test.use({ viewport: { width: 1600, height: 900 } });
 
-  test('the sketch sits beside the form at the window height, with no Sketch tab', async ({ page }) => {
+  test('the sketch fills the window beside a panel, with no Sketch tab', async ({ page }) => {
     await start(page);
     await expect(page.getByRole('tab', { name: 'Sketch' })).toHaveCount(0);
     const canvas = (await page.locator('.konvajs-content').first().boundingBox())!;
-    const form = (await page.locator('#cabinet-section-perimeter').boundingBox())!;
-    expect(canvas.x + canvas.width).toBeLessThan(form.x);
-    // Only the form scrolls: the page fits the window.
+    const panel = (await page.locator('.ce-panel').boundingBox())!;
+    expect(canvas.x + canvas.width).toBeLessThan(panel.x);
+    expect(panel.width).toBeGreaterThan(330);
+    // Only the panel scrolls: the page fits the window.
     const pageScroll = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
     expect(pageScroll).toBeLessThanOrEqual(2);
-    // The seldom-changed sections start folded, and their jump link opens them.
+    // Inspect opens on the total and the estimate's essentials.
+    await expect(page.locator('.ce-total-value')).toHaveText('$12,345.00');
+    await expect(page.getByText('From the plan')).toBeVisible();
+    // The seldom-changed sections start folded; Edit beside Job opens Company & Client.
+    await panelTab(page, 'Estimate');
     await expect(page.locator('#cabinet-section-client .ant-card-body')).toBeHidden();
-    await page.getByRole('button', { name: 'Client', exact: true }).click();
+    await panelTab(page, 'Inspect');
+    await page.getByRole('button', { name: 'Edit the job' }).click();
     await expect(page.locator('#cabinet-section-client .ant-card-body')).toBeVisible();
   });
 
-  test('a cabinet picked on the sketch marks its row, and a row picks its cabinet', async ({ page }) => {
+  test('a cabinet picked on the sketch shows in Inspect and marks its row; a row picks its cabinet', async ({ page }) => {
     await start(page);
     const b33 = (await drawn(page)).find(c => c.label === 'B33')!;
     await page.mouse.click(b33.screenX, b33.screenY);
+    await expect.poll(() => inspected(page)).toBe('B33');
     await expect.poll(() => markedRows(page)).toEqual(['B33']);
 
-    // A cell with no control in it picks the row's cabinet on the sketch.
-    await row(page, 'B30').locator('td').nth(3).click();
-    await expect(selectedOnSketch('B30')(page)).toBeVisible();
+    await panelTab(page, 'Cabinets');
+    await row(page, 'B30').locator('button.is-link').click();
     await expect.poll(() => markedRows(page)).toEqual(['B30']);
+    await panelTab(page, 'Inspect');
+    await expect.poll(() => inspected(page)).toBe('B30');
   });
 
   test('Delete reaches the sketch only while the pointer is on it', async ({ page }) => {
     const server = await start(page);
-    await row(page, 'B30').locator('td').nth(3).click();
-    await expect(selectedOnSketch('B30')(page)).toBeVisible();
+    await panelTab(page, 'Cabinets');
+    await row(page, 'B30').locator('button.is-link').click();
+    await expect.poll(() => markedRows(page)).toEqual(['B30']);
 
-    // Over the form: the key is the form's, the cabinet stays.
-    await page.locator('#cabinet-section-specs').hover();
+    // Over the panel: the key is the panel's, the cabinet stays.
+    await page.locator('.ce-panel-tabs').hover();
     await page.keyboard.press('Delete');
     await page.waitForTimeout(500);
     await expect(row(page, 'B30')).toHaveCount(1);
@@ -172,7 +187,7 @@ test.describe('cabinet estimate side by side', () => {
     await expect.poll(() => server.boxes.map(b => b.code).sort()).toEqual(['B33', 'W3036']);
   });
 
-  test("the page's Save saves the sketch at once", async ({ page }) => {
+  test("the page's Save saves the sketch at once, and Ctrl+S saves the form", async ({ page }) => {
     const server = await start(page);
     await page.waitForTimeout(2500);
     const saves = server.overlaySaves;
@@ -182,22 +197,47 @@ test.describe('cabinet estimate side by side', () => {
     await page.mouse.move(b33.screenX + 30, b33.screenY + 120, { steps: 6 });
     await page.mouse.up();
     // Before the sketch's own save a moment later.
-    await page.getByRole('button', { name: /^save Save$/ }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await page.waitForTimeout(600);
     expect(server.overlaySaves).toBe(saves + 1);
+
+    await panelTab(page, 'Estimate');
+    await page.getByPlaceholder('Internal notes (not shown on PDF)...').fill('Check the soffit');
+    await expect(page.getByText('Unsaved changes')).toBeVisible();
+    await page.keyboard.press('Control+s');
+    await expect.poll(() => server.saves.at(-1)?.notes).toBe('Check the soffit');
+    await expect(page.getByText('All changes saved')).toBeVisible();
   });
 
-  test('Tabs puts Edit and Sketch back on tabs of their own, and is remembered', async ({ page }) => {
+  test('leaving with edits not saved asks first', async ({ page }) => {
     await start(page);
-    await page.getByText('Tabs', { exact: true }).click();
+    await panelTab(page, 'Estimate');
+    await page.getByPlaceholder('Internal notes (not shown on PDF)...').fill('Not saved yet');
+    await page.getByRole('button', { name: /Back/ }).first().click();
+    const ask = page.getByRole('dialog').filter({ hasText: 'Save your changes first?' });
+    await expect(ask).toBeVisible();
+    await ask.getByRole('button', { name: 'Stay here' }).click();
+    await expect(page).toHaveURL(new RegExp(`${PATH}$`));
+    await page.getByRole('button', { name: /Back/ }).first().click();
+    await page.getByRole('dialog').filter({ hasText: 'Save your changes first?' }).getByRole('button', { name: 'Discard changes' }).click();
+    await expect(page).toHaveURL(/\/cabinet-estimates$/);
+  });
+
+  test('the sketch can go back to a tab of its own, and that is remembered', async ({ page }) => {
+    await start(page);
+    const view = async () => {
+      await page.getByRole('button', { name: 'More actions' }).click();
+      await page.getByRole('menuitem', { name: /Sketch beside the form/ }).click();
+    };
+    await view();
     await expect(page.getByRole('tab', { name: 'Sketch' })).toBeVisible();
     await expect(page.locator('.konvajs-content')).toBeHidden();
     await page.reload();
     await expect(page.getByRole('tab', { name: 'Sketch' })).toBeVisible({ timeout: 90_000 });
     await page.getByRole('tab', { name: 'Sketch' }).click();
     await expect(page.locator('.konvajs-content').first()).toBeVisible();
-    await page.getByText('Side by side', { exact: true }).click();
+    await view();
     await expect(page.getByRole('tab', { name: 'Sketch' })).toHaveCount(0);
-    await expect(page.locator('#cabinet-section-perimeter')).toBeVisible();
+    await expect(page.locator('.ce-panel')).toBeVisible();
   });
 });
