@@ -9,6 +9,8 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from app.core.interfaces import DatabaseSession
+from app.domains.unit_prices.service import UnitPriceService
+from app.domains.unit_prices.tables import use_prices
 
 from .calculator import calculate_estimate
 from .layout_changes import layout_changes
@@ -60,6 +62,9 @@ def _renumber(members: List[BathroomEstimate]):
     ordered = sorted(members, key=lambda m: (m.kind == "existing", m.kind != "restore", m.option_order))
     for i, m in enumerate(ordered):
         m.option_order = i
+
+# The price catalog bathroom estimates are priced from (unit_prices)
+PRICE_DOMAIN = "bathroom"
 
 # What an existing (current-layout) member is called
 CURRENT_LAYOUT_LABEL = "Current layout"
@@ -163,6 +168,10 @@ class BathroomEstimateService:
             return None
 
         update_dict = data.dict(exclude_unset=True)
+        company_moved = (
+            "company_id" in update_dict
+            and str(update_dict["company_id"] or "") != str(estimate.company_id or "")
+        )
         if update_dict:
             self.estimate_repo.update(estimate_id, update_dict)
 
@@ -182,6 +191,11 @@ class BathroomEstimateService:
                         pass
 
             self._share_with_group(estimate, update_dict)
+            if company_moved:
+                # Its prices were the old company's: the next calculation
+                # pins the job to the new company's
+                for member in self._group_members(estimate):
+                    member.price_book_id = None
 
         self.session.flush()
         if skip_full_read:
@@ -254,7 +268,13 @@ class BathroomEstimateService:
             layout_changes(baseline.sketch_data, estimate.sketch_data)
             if baseline is not None else None
         )
-        result = calculate_estimate(estimate, layout_changes=changes)
+        # Priced with the prices it was first priced with (a price book),
+        # pinned now if this is the first time
+        book = UnitPriceService(self.session).book_for(
+            PRICE_DOMAIN, estimate, self._group_members(estimate),
+        )
+        with use_prices(book.prices):
+            result = calculate_estimate(estimate, layout_changes=changes)
 
         # Clear existing line items and create new ones
         self.line_item_repo.delete_by_estimate_id(estimate_id)
@@ -283,8 +303,26 @@ class BathroomEstimateService:
             "methodology_notes": result.get("methodology_notes"),
             "warning_flags": result.get("warning_flags", []),
             "status": "calculated",
+            "price_book_id": str(book.id),
         })
 
+        self.session.flush()
+        return self._get_full_estimate(estimate_id)
+
+    def use_current_prices(
+        self, estimate_id: str, changed_by_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Move a whole job onto today's prices (the defaults with its
+        company's figures) and reprice every estimate of it that was priced."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        members = self._group_members(estimate)
+        UnitPriceService(self.session).repin_group(PRICE_DOMAIN, members, estimate.company_id)
+        for member in members:
+            if member.kind == "existing" or not member.line_items:
+                continue
+            self.calculate(str(member.id), save_history=True, changed_by_id=changed_by_id)
         self.session.flush()
         return self._get_full_estimate(estimate_id)
 
@@ -312,6 +350,8 @@ class BathroomEstimateService:
             "notes": "Cloned from estimate",
             # A clone that starts an insurance job is its restoration: no products
             "selections": copy.deepcopy(source.selections) if remodel else None,
+            # A new job is priced at today's prices when it is calculated
+            "price_book_id": None,
         })
 
         # Recalculate totals for cloned estimate
@@ -814,6 +854,7 @@ class BathroomEstimateService:
         ]
         self._enrich_claim_info(estimate, result)
         self._enrich_company_info(estimate, result)
+        result["price_book"] = UnitPriceService(self.session).book_summary(PRICE_DOMAIN, estimate)
         return result
 
     def _enrich_claim_info(

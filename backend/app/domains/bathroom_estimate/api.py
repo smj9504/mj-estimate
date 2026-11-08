@@ -17,6 +17,8 @@ from app.domains.auth.company_scope import (
     sees_everything,
 )
 from app.domains.auth.dependencies import get_current_user
+from app.domains.unit_prices.service import UnitPriceService
+from app.domains.unit_prices.tables import resolved, use_prices
 
 from .models import BathroomEstimate
 from .pricing import (
@@ -75,8 +77,26 @@ router = APIRouter(prefix="/bathroom-estimates", tags=["Bathroom Estimates"])
 # ── Pricing info (for frontend dropdowns) ──
 
 @router.get("/pricing-info", response_model=PricingInfoResponse)
-def get_pricing_info():
-    """Get available options and pricing constants for the estimate form."""
+def get_pricing_info(
+    estimate_id: Optional[str] = Query(
+        None, description="Quote this estimate's prices (its price book, or its company's today)",
+    ),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Get available options and pricing constants for the estimate form.
+
+    With an estimate, the rates are the ones it is priced with; without,
+    the defaults."""
+    if not estimate_id:
+        return resolved(_pricing_info())
+    _require_estimate(session, current_user, estimate_id)
+    estimate = session.query(BathroomEstimate).filter(BathroomEstimate.id == estimate_id).first()
+    with use_prices(UnitPriceService(session).prices_for("bathroom", estimate)):
+        return resolved(_pricing_info())
+
+
+def _pricing_info() -> Dict[str, Any]:
     return {
         "building_types": BUILDING_TYPES,
         "designations": BATHROOM_DESIGNATIONS,
@@ -404,6 +424,27 @@ def calculate_estimate(
         raise HTTPException(status_code=404, detail="Estimate not found")
     return result
 
+
+
+@router.post("/{estimate_id}/use-current-prices", response_model=BathroomEstimateResponse)
+def use_current_prices(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Reprice the estimate's whole job at today's prices (the defaults with
+    its company's own figures). Until this is asked for, an estimate keeps
+    the prices it was first priced with."""
+    _require_estimate(session, current_user, estimate_id)
+    try:
+        result = BathroomEstimateService(session).use_current_prices(
+            estimate_id, changed_by_id=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
 
 # ── Clone ──
 

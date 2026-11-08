@@ -24,9 +24,9 @@ from .pricing import (
     BATHTUB_INSTALL,
     BATHTUB_PRICES,
     DEMO_RATES,
+    FLAT_PRICES,
     ELECTRICAL_RATES,
     HIDDEN_COSTS,
-    MIRROR_INSTALL,
     MIRROR_PRICES,
     TUB_FAUCET_PRICES,
     MOISTURE_RESISTANT_PAINT_MULT,
@@ -34,18 +34,14 @@ from .pricing import (
     PAINT_PREP,
     PAINT_RATES,
     PLUMBING_RATES,
-    NEO_ANGLE_BASE_INSTALL,
     NEO_ANGLE_BASE_PRICES,
     NEO_ANGLE_DOOR_INSTALL,
     NEO_ANGLE_DOOR_PRICES,
-    NEO_ANGLE_KIT_INSTALL,
     NEO_ANGLE_KIT_PRICES,
-    NEO_ANGLE_WALL_SURROUND_INSTALL,
     NEO_ANGLE_WALL_SURROUND_PRICES,
     SHOWER_CUSTOM_EXTRAS,
     SHOWER_DOOR_INSTALL,
     SHOWER_DOOR_PRICES,
-    SHOWER_INSERT_INSTALL,
     SHOWER_INSERT_PRICES,
     SHOWER_PAN_COSTS,
     SHOWER_VALVE_PRICES,
@@ -64,16 +60,12 @@ from .pricing import (
     TOILET_PRICES,
     TRIM_GRADE_MULTIPLIER,
     DETACH_RESET_COSTS,
-    WALL_CABINET_INSTALL,
-    WALL_CABINET_PRICE,
     VANITY_EXTRAS,
-    VANITY_INSTALL,
     VANITY_PRICES,
     VANITY_TOP_PRICES,
     SINK_PRICES,
     SINK_INSTALL,
     FAUCET_PRICES,
-    FAUCET_WALL_MOUNT_ROUGH,
     get_labor_multiplier,
     get_material_tax_loading,
     get_material_share,
@@ -1403,7 +1395,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 SHOWER_INSERT_PRICES.get(
                     stype, SHOWER_INSERT_PRICES["one_piece"]))
             insert_install = round(
-                SHOWER_INSERT_INSTALL * labor_mult, 2)
+                FLAT_PRICES["SHOWER_INSERT_INSTALL"] * labor_mult, 2)
             shower_total += insert_price + insert_install
             shower_parts.append(
                 f"Unit: {stype.replace('_', ' ')} "
@@ -1422,7 +1414,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             sz = min(sizes, key=lambda x: abs(x - s_w))
             kit_price = apply_material_handling(kit_prices.get(sz, 900))
             kit_install = round(
-                NEO_ANGLE_KIT_INSTALL * labor_mult, 2)
+                FLAT_PRICES["NEO_ANGLE_KIT_INSTALL"] * labor_mult, 2)
             shower_total += kit_price + kit_install
             grade_label = kit_grade.replace("_", " ")
             shower_parts.append(
@@ -1443,7 +1435,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             base_price = apply_material_handling(
                 NEO_ANGLE_BASE_PRICES.get(bsz, 220))
             base_install = round(
-                NEO_ANGLE_BASE_INSTALL * labor_mult, 2)
+                FLAT_PRICES["NEO_ANGLE_BASE_INSTALL"] * labor_mult, 2)
             shower_total += base_price + base_install
             shower_parts.append(
                 f"Neo-angle base ({bsz}\"): "
@@ -1460,7 +1452,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 ws_price = apply_material_handling(
                     ws_prices.get(wsz, 325))
                 ws_install = round(
-                    NEO_ANGLE_WALL_SURROUND_INSTALL
+                    FLAT_PRICES["NEO_ANGLE_WALL_SURROUND_INSTALL"]
                     * labor_mult, 2)
                 shower_total += ws_price + ws_install
                 ws_label = wall_mat.replace("_", " ")
@@ -1854,7 +1846,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                         PLUMBING_RATES["vanity_faucet_install"] * labor_mult, 2)
                     if faucet == "wall_mount":
                         faucet_connect += round(
-                            FAUCET_WALL_MOUNT_ROUGH * labor_mult, 2)
+                            FLAT_PRICES["FAUCET_WALL_MOUNT_ROUGH"] * labor_mult, 2)
                 faucet_total = round(faucet_price + faucet_connect, 2)
 
                 mirror_total = 0
@@ -1866,7 +1858,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                     mirror_price = apply_material_handling(
                         MIRROR_PRICES.get(mirror, MIRROR_PRICES["framed"]) if _m_pick is None else _m_pick)
                     mirror_label = mirror.replace('_', ' ') if _m_pick is None else picks.name("mirror")
-                    mirror_total = round(mirror_price + MIRROR_INSTALL * labor_mult, 2)
+                    mirror_total = round(mirror_price + FLAT_PRICES["MIRROR_INSTALL"] * labor_mult, 2)
 
                 combined = fixture_price + install_price + faucet_total + mirror_total
 
@@ -1880,7 +1872,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 else:
                     parts.append(f"Faucet: {faucet_label} ${faucet_price:,.2f} (plumbing: plumber completed)")
                 if getattr(estimate, 'replace_mirror', False):
-                    mirror_install_cost = round(MIRROR_INSTALL * labor_mult, 2)
+                    mirror_install_cost = round(FLAT_PRICES["MIRROR_INSTALL"] * labor_mult, 2)
                     parts.append(f"Mirror: {mirror_label} ${mirror_price:,.2f} + install ${mirror_install_cost:,.2f}")
                 elif getattr(estimate, 'detach_reset_mirror', False):
                     parts.append("Mirror: D&R (separate line)")
@@ -1919,7 +1911,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                     top_note = f"Top: {picks.name('vanity_top')} ${top_total:,.2f}"
 
             # --- Installation ---
-            install_price = round(VANITY_INSTALL * labor_mult, 2)
+            install_price = round(FLAT_PRICES["VANITY_INSTALL"] * labor_mult, 2)
 
             # --- Wall mount blocking ---
             wall_mount_price = 0
@@ -1947,7 +1939,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 if faucet == "wall_mount":
                     # Wall-mount needs a rough valve + access panel
                     faucet_connect += round(
-                        FAUCET_WALL_MOUNT_ROUGH * sink_count * labor_mult, 2)
+                        FLAT_PRICES["FAUCET_WALL_MOUNT_ROUGH"] * sink_count * labor_mult, 2)
             faucet_total += faucet_connect
 
             # --- Mirror (only if replace_mirror is set) ---
@@ -1961,7 +1953,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                         MIRROR_PRICES.get(mirror, MIRROR_PRICES["framed"]) if _m_pick is None else _m_pick)
                 mirror_label = mirror.replace('_', ' ') if _m_pick is None else picks.name("mirror")
                 mirror_total = round(
-                    mirror_price + MIRROR_INSTALL * labor_mult, 2)
+                    mirror_price + FLAT_PRICES["MIRROR_INSTALL"] * labor_mult, 2)
 
             # --- Toe kick (freestanding cabinet vanity) ---
             toe_kick_price = 0
@@ -2022,7 +2014,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 )
             if getattr(estimate, 'replace_mirror', False):
                 mirror_install_cost = round(
-                    MIRROR_INSTALL * labor_mult, 2)
+                    FLAT_PRICES["MIRROR_INSTALL"] * labor_mult, 2)
                 parts.append(
                     f"Mirror: {mirror_label} "
                     f"${mirror_price:,.2f}{' allowance' if _m_pick is None else ''} + "
@@ -2204,7 +2196,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             mirror_price = apply_material_handling(
                 MIRROR_PRICES.get(mirror_type, MIRROR_PRICES["framed"]) if _m_pick is None else _m_pick)
             mirror_label = mirror_type.replace('_', ' ') if _m_pick is None else picks.name("mirror")
-            mirror_install = round(MIRROR_INSTALL * labor_mult, 2)
+            mirror_install = round(FLAT_PRICES["MIRROR_INSTALL"] * labor_mult, 2)
             mirror_combined = mirror_price + mirror_install
             _add(line_items, 5,
                  f"Mirror{label} - {mirror_label} (supply + install)",
@@ -2222,11 +2214,11 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                  notes="Labor only: empty, remove, store, rehang level")
             continue
         if _ct == "wall_cabinet":
-            _c_price = apply_material_handling(WALL_CABINET_PRICE)
-            _c_install = round(WALL_CABINET_INSTALL * labor_mult, 2)
+            _c_price = apply_material_handling(FLAT_PRICES["WALL_CABINET_PRICE"])
+            _c_install = round(FLAT_PRICES["WALL_CABINET_INSTALL"] * labor_mult, 2)
         else:
             _c_price = apply_material_handling(MIRROR_PRICES[_ct])
-            _c_install = round(MIRROR_INSTALL * labor_mult, 2)
+            _c_install = round(FLAT_PRICES["MIRROR_INSTALL"] * labor_mult, 2)
         _add(line_items, 5, f"{_clbl} (supply + install)", _cn, "EA",
              _c_price + _c_install, "fixture",
              notes=f"Cabinet: ${_c_price:,.2f} allowance | Install: ${_c_install:,.2f}")

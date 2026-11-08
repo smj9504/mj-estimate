@@ -250,6 +250,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             icon: <SettingOutlined />,
             label: '견적 계산 단가',
           },
+          {
+            // Each company's bathroom and kitchen cabinet prices
+            key: '/unit-prices',
+            icon: <DollarOutlined />,
+            label: '회사별 단가',
+          },
         ],
       },
 

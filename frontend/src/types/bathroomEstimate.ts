@@ -3,6 +3,7 @@
  */
 
 import type { ProductLook } from './productLibrary';
+import type { PriceBookSummary } from './unitPrices';
 
 // ── Shower type helpers ──
 
@@ -380,6 +381,8 @@ export interface BathroomEstimate {
   option_label?: string | null;
   option_order?: number;
   group_members?: BathroomGroupMember[];
+  /** The prices it is priced with: when they're from, and whether today's differ */
+  price_book?: PriceBookSummary | null;
 
   // Enriched
   claim_number?: string;
@@ -479,7 +482,9 @@ export type BathroomEstimateCreate = Omit<BathroomEstimate,
   'warning_flags' | 'line_items' | 'claim_number' | 'client_name' |
   'created_at' | 'updated_at' |
   // A job's shape changes through its own endpoints, not a save
-  'group_id' | 'kind' | 'option_label' | 'option_order' | 'group_members'
+  'group_id' | 'kind' | 'option_label' | 'option_order' | 'group_members' |
+  // Pinned when priced; moved only by use-current-prices
+  'price_book'
 >;
 
 export type BathroomEstimateUpdate = Partial<Omit<BathroomEstimateCreate, 'project_type'>>;

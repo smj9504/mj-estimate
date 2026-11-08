@@ -52,13 +52,32 @@ WebSearch로 해당 항목군의 **최근 원가/시장 동향**을 조사한다
 - 구 가격 값이 도메인 전체에 더 이상 남아있지 않은지 최종 Grep.
 - 요약 리포트: 리서치 근거 bullet, 카테고리별 인상률 표, 수정된 파일 목록.
 
-## 알려진 대상 (마지막 업데이트: 2026-08)
+## Bathroom / Kitchen Cabinet: 기본 단가와 회사 단가 (2026-11-08부터)
+
+이 두 도메인은 단가가 세 층이다. 이 스킬이 고치는 건 **기본 단가(코드)뿐**이다.
+
+1. **기본 단가** — `pricing.py`의 표. 월/분기 업데이트 대상.
+2. **회사 단가** — DB `unit_price_overrides`. 회사가 "회사별 단가" 화면(`/unit-prices`)에서 항목별 material/labor를 직접 넣은 값. 이 스킬은 절대 건드리지 않는다. 회사가 비워둔 쪽(material 또는 labor)만 기본 단가를 따라가므로, 기본 단가를 올리면 그 쪽만 같이 오른다.
+3. **견적의 price book** — 견적은 처음 계산할 때 그 시점 단가 전체(기본+회사)로 고정된다(`price_books`, `*_estimates.price_book_id`). 기본 단가를 올려도 **이미 계산된 견적은 바뀌지 않는다**. 견적 화면의 "현재 단가로 다시 계산"을 눌러야 바뀐다. 리포트에 이 점을 적는다.
+
+주의할 것:
+- **어떤 숫자가 "가격"인지는 `price_catalog.py`가 정한다.** 거기 등록된 표의 값만 회사가 바꿀 수 있고 price book에 들어간다. 계수(multiplier, share, waste, tax, zip)는 등록돼 있지 않으며 이 스킬로 올리면 안 된다(가격이 아니다).
+- **키 이름을 바꾸거나 표 구조를 바꾸지 말 것.** 회사 단가와 price book은 `"DEMO_RATES.floor_tile_per_sf"` 같은 경로로 값을 찾는다. 키를 바꾸면 그 항목의 회사 단가가 조용히 사라진다. 값만 바꾼다.
+- 새 가격 표나 새 키를 추가했다면 `price_catalog.py`에도 넣는다(kind: material/labor/mixed, mixed면 share). `tests/test_unit_prices.py`가 기본 split 합이 코드 값과 같은지 검사한다.
+- 계산기 안의 숫자 리터럴 fallback(`.get(tier, 900)` 같은)은 여전히 grep 대상이다.
+
+## 알려진 대상 (마지막 업데이트: 2026-11)
 
 파일 경로는 항상 grep으로 재확인할 것 — 아래는 시작점이지 고정된 정답이 아니다.
 
 ### Kitchen Cabinet Estimate
-- `backend/app/domains/cabinet_estimate/pricing.py` — `BASE_RATES` (Stock/Semi-Custom/Custom × base_lf/wall_lf/tall_each)가 핵심. `calculator.py`가 이 모듈을 import해서 쓰고 별도 하드코딩은 없었음(2026-08 기준, 매번 재확인).
+- `backend/app/domains/cabinet_estimate/pricing.py` — `BASE_RATES` (Stock/Semi-Custom/Custom × base_lf/wall_lf/tall_each)가 핵심. 그 외 `SCOPE_ITEMS`, `SINK_BY_BASE`(→ `SINK_PRICES`로 파생), 패널/필러/카운터탑 표. 어떤 표가 가격인지는 `cabinet_estimate/price_catalog.py`.
+- 가전 detach & reset은 `appliance_labor.py`의 시간 모델(`CREW_RATE`, `XACTIMATE_DR_PUBLISHED` 등)에서 생성되어 `APPLIANCE_RESET_PRICES`가 된다. 가격을 직접 쓰지 말고 시간/공개가를 고친다.
 - 인상 로직 예시: 관세/원자재 노출도가 높은 tier(Stock)에 더 높은 인상률, 국내 제작 위주 tier(Custom)에 낮은 인상률.
+
+### Bathroom Estimate
+- `backend/app/domains/bathroom_estimate/pricing.py` — 페이즈별 표(`DEMO_RATES`, `PLUMBING_RATES`, `TILE_*`, `VANITY_*`, `DETACH_RESET_COSTS`, `HIDDEN_COSTS` 등)와 단일 상수(`VANITY_INSTALL`, `MIRROR_INSTALL` …). 단일 상수는 계산기가 `FLAT_PRICES["VANITY_INSTALL"]`로 읽는다. 어떤 표가 가격인지는 `bathroom_estimate/price_catalog.py`.
+- 파일 상단 docstring에 지난 인상 이력(Tier A/B)이 있다. 이어서 적는다.
 
 ### Packing Estimate
 - `backend/app/domains/pack_calculation/seed_prices.py` — `DEFAULT_PACKING_PRICES` (원본, DB 시딩용).

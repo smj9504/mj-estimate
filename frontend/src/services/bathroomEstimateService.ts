@@ -22,8 +22,11 @@ const BASE_URL = '/api/bathroom-estimates';
 export const bathroomEstimateService = {
   // ── Pricing info ──
 
-  async getPricingInfo() {
-    const { data } = await api.get(`${BASE_URL}/pricing-info`);
+  /** With an estimate, the rates it is priced with (its company's) */
+  async getPricingInfo(estimateId?: string) {
+    const { data } = await api.get(`${BASE_URL}/pricing-info`, {
+      params: estimateId ? { estimate_id: estimateId } : undefined,
+    });
     return data as BathroomPricingInfo;
   },
 

@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from app.core.interfaces import DatabaseSession
+from app.domains.unit_prices.service import UnitPriceService
+from app.domains.unit_prices.tables import use_prices
 
 from .calculator import BoxInput, calculate_estimate
 from .pricing import DOOR_PATTERN_LABELS
@@ -35,6 +37,9 @@ logger = logging.getLogger(__name__)
 # Facts about the job rather than the scope: every estimate of a kitchen job
 # shares them, so changing one estimate's changes them all.
 GROUP_SHARED_FIELDS = ("claim_id", "company_id", "property_address", "zip_code")
+
+# The price catalog cabinet estimates are priced from (unit_prices)
+PRICE_DOMAIN = "cabinet"
 
 # Columns a copy never takes from its source: its identity, its place in a
 # job and its bookkeeping. Everything else is the scope and is copied, so a
@@ -170,9 +175,18 @@ class CabinetEstimateService:
             return None
 
         update_dict = data.dict(exclude_unset=True, exclude={"boxes"})
+        company_moved = (
+            "company_id" in update_dict
+            and str(update_dict["company_id"] or "") != str(estimate.company_id or "")
+        )
         if update_dict:
             self.estimate_repo.update(estimate_id, update_dict)
             self._share_with_group(estimate, update_dict)
+            if company_moved:
+                # Its prices were the old company's: the next calculation
+                # pins the job to the new company's
+                for member in self._group_members(estimate):
+                    member.price_book_id = None
 
         # Replace boxes if provided
         if data.boxes is not None:
@@ -266,200 +280,206 @@ class CabinetEstimateService:
             for b in estimate.boxes
         ]
 
-        result = calculate_estimate(
-            boxes=box_inputs,
-            tier=estimate.tier,
-            zip_code=estimate.zip_code or "",
-            box_material=getattr(estimate, 'box_material', None),
-            finish=getattr(estimate, 'finish', None),
-            door_style=getattr(estimate, 'door_style', None),
-            overlay_style=getattr(estimate, 'overlay_style', None),
-            pricing_basis=getattr(estimate, 'pricing_basis', None),
-            include_demo=estimate.include_demo,
-            include_install=estimate.include_install,
-            include_delivery=estimate.include_delivery,
-            include_plumbing=estimate.include_plumbing,
-            sink_type=getattr(estimate, 'sink_type', 'single') or 'single',
-            include_aav=getattr(estimate, 'include_aav', False) or False,
-            include_air_gap=getattr(
-                estimate, 'include_air_gap', False,
-            ) or False,
-            include_soap_dispenser=getattr(
-                estimate, 'include_soap_dispenser', False,
-            ) or False,
-            include_instant_hot=getattr(
-                estimate, 'include_instant_hot', False,
-            ) or False,
-            include_dw_hookup=getattr(
-                estimate, 'include_dw_hookup', False,
-            ) or False,
-            include_countertop_reset=estimate.include_countertop_reset,
-            include_hardware=(
-                estimate.include_hardware
-                if estimate.include_hardware is not None
-                else True
-            ),
-            include_crown_molding=(
-                getattr(estimate, 'include_crown_molding', False)
-                or False
-            ),
-            include_backsplash=(
-                getattr(estimate, 'include_backsplash', False)
-                or False
-            ),
-            backsplash_type=getattr(
-                estimate, 'backsplash_type', None
-            ),
-            backsplash_sqft=getattr(
-                estimate, 'backsplash_sqft', None
-            ),
-            include_toe_kick=(
-                getattr(estimate, 'include_toe_kick', True)
-                if getattr(estimate, 'include_toe_kick', None)
-                is not None else True
-            ),
-            include_quarter_round=(
-                getattr(estimate, 'include_quarter_round', False)
-                or False
-            ),
-            include_countertop=(
-                getattr(estimate, 'include_countertop', False)
-                or False
-            ),
-            countertop_material=getattr(
-                estimate, 'countertop_material', None
-            ),
-            countertop_sqft=getattr(
-                estimate, 'countertop_sqft', None
-            ),
-            include_countertop_backsplash=(
-                getattr(
-                    estimate,
-                    'include_countertop_backsplash',
-                    False,
-                ) or False
-            ),
-            countertop_backsplash_lf=getattr(
-                estimate,
-                'countertop_backsplash_lf',
-                None,
-            ),
-            island_countertop_material=getattr(
-                estimate, 'island_countertop_material',
-                None,
-            ),
-            island_countertop_sqft=getattr(
-                estimate, 'island_countertop_sqft',
-                None,
-            ),
-            include_drywall_repair=(
-                getattr(estimate, 'include_drywall_repair', False)
-                or False
-            ),
-            drywall_repair_type=getattr(
-                estimate, 'drywall_repair_type', 'patch',
-            ) or 'patch',
-            drywall_repair_sqft=getattr(
-                estimate, 'drywall_repair_sqft', None
-            ),
-            include_painting=(
-                getattr(estimate, 'include_painting', False)
-                or False
-            ),
-            painting_sqft=getattr(
-                estimate, 'painting_sqft', None
-            ),
-            include_appliance_rr=(
-                getattr(estimate, 'include_appliance_rr', False)
-                or False
-            ),
-            appliance_list=(
-                getattr(estimate, 'appliance_list', None)
-            ),
-            include_dumpster=(
-                getattr(estimate, 'include_dumpster', True)
-                if getattr(estimate, 'include_dumpster', None)
-                is not None else True
-            ),
-            include_electrical=(
-                getattr(estimate, 'include_electrical', False)
-                or False
-            ),
-            include_permit=(
-                getattr(estimate, 'include_permit', False)
-                or False
-            ),
-            filler_count=(
-                getattr(estimate, 'filler_count', 0) or 0
-            ),
-            angled_joint_count=(
-                getattr(estimate, 'angled_joint_count', 0) or 0
-            ),
-            countertop_support_count=(
-                getattr(estimate, 'countertop_support_count', 0) or 0
-            ),
-            island_seating_overhang_in=getattr(
-                estimate, 'island_seating_overhang_in', None,
-            ),
-            end_panel_counts=getattr(
-                estimate, 'end_panel_counts', None,
-            ),
-            dishwasher_return_panel_count=(
-                getattr(
-                    estimate, 'dishwasher_return_panel_count', 0,
-                ) or 0
-            ),
-            include_light_rail=(
-                getattr(estimate, 'include_light_rail', False)
-                or False
-            ),
-            light_rail_lf=getattr(
-                estimate, 'light_rail_lf', None,
-            ),
-            outlet_relocation_count=(
-                getattr(estimate, 'outlet_relocation_count', 0)
-                or 0
-            ),
-            delivery_floor=getattr(
-                estimate, 'delivery_floor', 1,
-            ) or 1,
-            island_type=getattr(
-                estimate, 'island_type', 'custom',
-            ) or 'custom',
-            island_prefab_size=getattr(
-                estimate, 'island_prefab_size', None,
-            ),
-            island_prefab_price=getattr(
-                estimate, 'island_prefab_price', None,
-            ),
-            island_end_panel_sqft=getattr(
-                estimate, 'island_end_panel_sqft', 0
-            ) or 0,
-            island_back_panel_sqft=getattr(
-                estimate, 'island_back_panel_sqft', 0
-            ) or 0,
-            island_two_sided=bool(
-                getattr(estimate, 'island_two_sided', False)
-            ),
-            overhead_pct=(
-                estimate.overhead_pct
-                if estimate.overhead_pct is not None
-                else 0.15
-            ),
-            profit_pct=(
-                estimate.profit_pct
-                if estimate.profit_pct is not None
-                else 0.15
-            ),
-            target_total=(
-                getattr(estimate, 'target_total', None)
-            ),
-            # The restoration is priced from the rate tables alone
-            products=(
-                clean_selections(estimate.selections)
-                if estimate.kind == "option" else None
-            ),
+        # Priced with the prices it was first priced with (a price book),
+        # pinned now if this is the first time
+        book = UnitPriceService(self.session).book_for(
+            PRICE_DOMAIN, estimate, self._group_members(estimate),
         )
+        with use_prices(book.prices):
+            result = calculate_estimate(
+                boxes=box_inputs,
+                tier=estimate.tier,
+                zip_code=estimate.zip_code or "",
+                box_material=getattr(estimate, 'box_material', None),
+                finish=getattr(estimate, 'finish', None),
+                door_style=getattr(estimate, 'door_style', None),
+                overlay_style=getattr(estimate, 'overlay_style', None),
+                pricing_basis=getattr(estimate, 'pricing_basis', None),
+                include_demo=estimate.include_demo,
+                include_install=estimate.include_install,
+                include_delivery=estimate.include_delivery,
+                include_plumbing=estimate.include_plumbing,
+                sink_type=getattr(estimate, 'sink_type', 'single') or 'single',
+                include_aav=getattr(estimate, 'include_aav', False) or False,
+                include_air_gap=getattr(
+                    estimate, 'include_air_gap', False,
+                ) or False,
+                include_soap_dispenser=getattr(
+                    estimate, 'include_soap_dispenser', False,
+                ) or False,
+                include_instant_hot=getattr(
+                    estimate, 'include_instant_hot', False,
+                ) or False,
+                include_dw_hookup=getattr(
+                    estimate, 'include_dw_hookup', False,
+                ) or False,
+                include_countertop_reset=estimate.include_countertop_reset,
+                include_hardware=(
+                    estimate.include_hardware
+                    if estimate.include_hardware is not None
+                    else True
+                ),
+                include_crown_molding=(
+                    getattr(estimate, 'include_crown_molding', False)
+                    or False
+                ),
+                include_backsplash=(
+                    getattr(estimate, 'include_backsplash', False)
+                    or False
+                ),
+                backsplash_type=getattr(
+                    estimate, 'backsplash_type', None
+                ),
+                backsplash_sqft=getattr(
+                    estimate, 'backsplash_sqft', None
+                ),
+                include_toe_kick=(
+                    getattr(estimate, 'include_toe_kick', True)
+                    if getattr(estimate, 'include_toe_kick', None)
+                    is not None else True
+                ),
+                include_quarter_round=(
+                    getattr(estimate, 'include_quarter_round', False)
+                    or False
+                ),
+                include_countertop=(
+                    getattr(estimate, 'include_countertop', False)
+                    or False
+                ),
+                countertop_material=getattr(
+                    estimate, 'countertop_material', None
+                ),
+                countertop_sqft=getattr(
+                    estimate, 'countertop_sqft', None
+                ),
+                include_countertop_backsplash=(
+                    getattr(
+                        estimate,
+                        'include_countertop_backsplash',
+                        False,
+                    ) or False
+                ),
+                countertop_backsplash_lf=getattr(
+                    estimate,
+                    'countertop_backsplash_lf',
+                    None,
+                ),
+                island_countertop_material=getattr(
+                    estimate, 'island_countertop_material',
+                    None,
+                ),
+                island_countertop_sqft=getattr(
+                    estimate, 'island_countertop_sqft',
+                    None,
+                ),
+                include_drywall_repair=(
+                    getattr(estimate, 'include_drywall_repair', False)
+                    or False
+                ),
+                drywall_repair_type=getattr(
+                    estimate, 'drywall_repair_type', 'patch',
+                ) or 'patch',
+                drywall_repair_sqft=getattr(
+                    estimate, 'drywall_repair_sqft', None
+                ),
+                include_painting=(
+                    getattr(estimate, 'include_painting', False)
+                    or False
+                ),
+                painting_sqft=getattr(
+                    estimate, 'painting_sqft', None
+                ),
+                include_appliance_rr=(
+                    getattr(estimate, 'include_appliance_rr', False)
+                    or False
+                ),
+                appliance_list=(
+                    getattr(estimate, 'appliance_list', None)
+                ),
+                include_dumpster=(
+                    getattr(estimate, 'include_dumpster', True)
+                    if getattr(estimate, 'include_dumpster', None)
+                    is not None else True
+                ),
+                include_electrical=(
+                    getattr(estimate, 'include_electrical', False)
+                    or False
+                ),
+                include_permit=(
+                    getattr(estimate, 'include_permit', False)
+                    or False
+                ),
+                filler_count=(
+                    getattr(estimate, 'filler_count', 0) or 0
+                ),
+                angled_joint_count=(
+                    getattr(estimate, 'angled_joint_count', 0) or 0
+                ),
+                countertop_support_count=(
+                    getattr(estimate, 'countertop_support_count', 0) or 0
+                ),
+                island_seating_overhang_in=getattr(
+                    estimate, 'island_seating_overhang_in', None,
+                ),
+                end_panel_counts=getattr(
+                    estimate, 'end_panel_counts', None,
+                ),
+                dishwasher_return_panel_count=(
+                    getattr(
+                        estimate, 'dishwasher_return_panel_count', 0,
+                    ) or 0
+                ),
+                include_light_rail=(
+                    getattr(estimate, 'include_light_rail', False)
+                    or False
+                ),
+                light_rail_lf=getattr(
+                    estimate, 'light_rail_lf', None,
+                ),
+                outlet_relocation_count=(
+                    getattr(estimate, 'outlet_relocation_count', 0)
+                    or 0
+                ),
+                delivery_floor=getattr(
+                    estimate, 'delivery_floor', 1,
+                ) or 1,
+                island_type=getattr(
+                    estimate, 'island_type', 'custom',
+                ) or 'custom',
+                island_prefab_size=getattr(
+                    estimate, 'island_prefab_size', None,
+                ),
+                island_prefab_price=getattr(
+                    estimate, 'island_prefab_price', None,
+                ),
+                island_end_panel_sqft=getattr(
+                    estimate, 'island_end_panel_sqft', 0
+                ) or 0,
+                island_back_panel_sqft=getattr(
+                    estimate, 'island_back_panel_sqft', 0
+                ) or 0,
+                island_two_sided=bool(
+                    getattr(estimate, 'island_two_sided', False)
+                ),
+                overhead_pct=(
+                    estimate.overhead_pct
+                    if estimate.overhead_pct is not None
+                    else 0.15
+                ),
+                profit_pct=(
+                    estimate.profit_pct
+                    if estimate.profit_pct is not None
+                    else 0.15
+                ),
+                target_total=(
+                    getattr(estimate, 'target_total', None)
+                ),
+                # The restoration is priced from the rate tables alone
+                products=(
+                    clean_selections(estimate.selections)
+                    if estimate.kind == "option" else None
+                ),
+            )
 
         # Save history before updating
         if save_history:
@@ -499,8 +519,26 @@ class CabinetEstimateService:
             "methodology_notes": result.methodology_notes,
             "warning_flags": result.warning_flags,
             "status": "calculated",
+            "price_book_id": str(book.id),
         })
 
+        self.session.flush()
+        return self._get_full_estimate(estimate_id)
+
+    def use_current_prices(
+        self, estimate_id: str, changed_by_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Move a whole job onto today's prices (the defaults with its
+        company's figures) and reprice every estimate of it that was priced."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        members = self._group_members(estimate)
+        UnitPriceService(self.session).repin_group(PRICE_DOMAIN, members, estimate.company_id)
+        for member in members:
+            if not member.line_items:
+                continue
+            self._recalculate_quietly(str(member.id), changed_by_id, "Repriced at current prices")
         self.session.flush()
         return self._get_full_estimate(estimate_id)
 
@@ -531,6 +569,8 @@ class CabinetEstimateService:
             "notes": "Cloned from estimate",
             # A restoration never carries products
             "selections": source.selections if remodel else None,
+            # A new job is priced at today's prices when it is calculated
+            "price_book_id": None,
             "subtotal": 0, "overhead_amount": 0, "profit_amount": 0,
             "adjustment_factor": None, "total": 0,
             "methodology_notes": None, "warning_flags": [],
@@ -892,6 +932,7 @@ class CabinetEstimateService:
         ]
         self._enrich_claim_info(estimate, result)
         self._enrich_company_info(estimate, result)
+        result["price_book"] = UnitPriceService(self.session).book_summary(PRICE_DOMAIN, estimate)
         return result
 
     def _enrich_claim_info(

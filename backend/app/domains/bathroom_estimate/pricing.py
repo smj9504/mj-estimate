@@ -1414,3 +1414,18 @@ def get_curbless_floor_cost(shower_type: str) -> float:
 
 # Backwards-compatible alias (older imports)
 get_sales_tax_rate = get_material_tax_loading
+
+
+# ──────────────────────────────────────────────
+# Company prices
+# ──────────────────────────────────────────────
+# The tables listed in price_catalog.py are wrapped in place, so a company's
+# own prices and an estimate's pinned price book answer for them while it is
+# calculated (app/domains/unit_prices). Outside a calculation they read as
+# the defaults above. The constants it lists (VANITY_INSTALL, ...) are read
+# through FLAT_PRICES["VANITY_INSTALL"].
+from app.domains.unit_prices.catalog import install as _install_price_tables  # noqa: E402
+
+from .price_catalog import PRICE_TABLES as _PRICE_TABLES  # noqa: E402
+
+_install_price_tables("bathroom", "Bathroom", globals(), _PRICE_TABLES)

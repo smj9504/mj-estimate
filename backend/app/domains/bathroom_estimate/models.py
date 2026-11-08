@@ -52,6 +52,14 @@ class BathroomEstimate(Base, BaseModel):
         ForeignKey("companies.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # The prices it is priced with (unit_prices.PriceBook), set the first
+    # time it is calculated: a later default update or company price change
+    # doesn't move it. NULL until then; a copy in the same job keeps it.
+    price_book_id = Column(
+        UUIDType(),
+        ForeignKey("price_books.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_by_id = Column(
         UUIDType(),
         ForeignKey("staff.id", ondelete="SET NULL"),

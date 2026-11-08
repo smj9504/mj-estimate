@@ -388,8 +388,8 @@ const CabinetEstimateDetail: React.FC = () => {
 
   // ── Fetch pricing options ──
   const { data: pricingInfo } = useQuery({
-    queryKey: ['cabinet-pricing-info'],
-    queryFn: () => cabinetEstimateService.getPricingInfo(),
+    queryKey: ['cabinet-pricing-info', id],
+    queryFn: () => cabinetEstimateService.getPricingInfo(id),
     staleTime: 1000 * 60 * 30,
   });
 

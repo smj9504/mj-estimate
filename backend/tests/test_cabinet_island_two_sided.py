@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
+from app.domains.unit_prices.models import PriceBook, UnitPriceOverride  # noqa: E402
 from app.core.database_factory import SQLAlchemySession  # noqa: E402
 from app.domains.cabinet_estimate.calculator import BoxInput, calculate_estimate  # noqa: E402
 from app.domains.cabinet_estimate.models import (  # noqa: E402
@@ -96,7 +97,7 @@ def _jsonb_on_sqlite(type_, compiler, **kw):
 @pytest.fixture
 def service(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'kitchen.db'}")
-    for model in (Client, Claim, CabinetEstimate, CabinetBox, CabinetEstimateLineItem,
+    for model in (PriceBook, UnitPriceOverride, Client, Claim, CabinetEstimate, CabinetBox, CabinetEstimateLineItem,
                   CabinetEstimateHistory, CabinetSketch, Product):
         model.__table__.create(engine)
     s = SQLAlchemySession(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)())

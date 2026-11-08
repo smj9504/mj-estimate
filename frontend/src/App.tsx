@@ -113,6 +113,7 @@ const RoofingEstimateList = lazyWithRetry(() => import('./pages/RoofingEstimateL
 const RoofingEstimateDetail = lazyWithRetry(() => import('./pages/RoofingEstimateDetail'));
 const RoofingMaterialCost = lazyWithRetry(() => import('./pages/RoofingMaterialCost'));
 const RoofingMaterialPrices = lazyWithRetry(() => import('./pages/RoofingMaterialPrices'));
+const UnitPrices = lazyWithRetry(() => import('./pages/UnitPrices'));
 const RoofingPricingSettings = lazyWithRetry(() => import('./pages/RoofingPricingSettings'));
 
 // Material Order Pages
@@ -1014,6 +1015,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <RoofingMaterialCost />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    // Each company's bathroom and kitchen cabinet prices over the defaults
+    path: "/unit-prices",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <UnitPrices />
           </Suspense>
         </Layout>
       </ProtectedRoute>

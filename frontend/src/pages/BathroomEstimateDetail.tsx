@@ -73,6 +73,7 @@ import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRo
 import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
 import { exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
+import PriceBookNotice from '../components/common/PriceBookNotice';
 
 const RegisterBidItemModal = lazyWithRetry(() => import('../components/supplement/RegisterBidItemModal'));
 
@@ -157,8 +158,8 @@ const BathroomEstimateDetail: React.FC = () => {
   });
 
   const { data: pricingInfo } = useQuery({
-    queryKey: ['bathroom-pricing-info'],
-    queryFn: () => bathroomEstimateService.getPricingInfo(),
+    queryKey: ['bathroom-pricing-info', id],
+    queryFn: () => bathroomEstimateService.getPricingInfo(id),
   });
 
   // Cost Guide rows and scenario totals, computed from the live rate tables.
@@ -2922,6 +2923,13 @@ const BathroomEstimateDetail: React.FC = () => {
                         style={{ marginBottom: 12 }}
                       />
                     )}
+
+                    <PriceBookNotice
+                      domain="bathroom"
+                      estimateId={id!}
+                      priceBook={estimate?.price_book}
+                      refreshKeys={[['bathroom-estimate', id], ['bathroom-estimate-group'], ['bathroom-pricing-info', id]]}
+                    />
 
                     {/* Methodology */}
                     {estimate?.methodology_notes && (

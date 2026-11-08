@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app.main  # noqa: E402,F401
+from app.domains.unit_prices.models import PriceBook, UnitPriceOverride  # noqa: E402
 from app.core.database_factory import SQLAlchemySession  # noqa: E402
 from app.domains.bathroom_estimate.models import (  # noqa: E402
     BathroomEstimate,
@@ -39,7 +40,7 @@ def _jsonb_on_sqlite(type_, compiler, **kw):
 @pytest.fixture
 def session(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'bath.db'}")
-    for model in (Client, Claim, BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory, Product, File):
+    for model in (PriceBook, UnitPriceOverride, Client, Claim, BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory, Product, File):
         model.__table__.create(engine)
     s = SQLAlchemySession(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)())
     yield s

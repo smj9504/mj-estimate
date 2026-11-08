@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.domains.unit_prices.schemas import PriceBookSummary
+
 
 # ── Estimate schemas ──
 
@@ -267,6 +269,9 @@ class BathroomEstimateResponse(BaseModel):
     option_label: Optional[str] = None
     option_order: int = 0
     group_members: List[GroupMemberSummary] = []
+    # The prices it is priced with (unit_prices): when they're from, and
+    # whether today's prices for its company differ
+    price_book: Optional[PriceBookSummary] = None
 
     # Project meta
     property_address: Optional[str] = None

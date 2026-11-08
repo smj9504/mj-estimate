@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
+from app.domains.unit_prices.models import PriceBook, UnitPriceOverride  # noqa: E402
 from app.core.database_factory import SQLAlchemySession  # noqa: E402
 from app.domains.bathroom_estimate.layout_changes import (  # noqa: E402
     layout_change_line_items,
@@ -184,7 +185,7 @@ def test_walls_are_priced_by_the_foot():
 @pytest.fixture
 def service(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'bath.db'}")
-    for model in (Client, Claim, BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory):
+    for model in (PriceBook, UnitPriceOverride, Client, Claim, BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory):
         model.__table__.create(engine)
     s = SQLAlchemySession(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)())
     yield BathroomEstimateService(s)

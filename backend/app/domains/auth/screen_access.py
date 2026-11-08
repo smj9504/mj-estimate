@@ -38,6 +38,7 @@ SCREEN_KEYS: tuple = (
     "siding_estimates",
     "material_prices",
     "pricing_settings",
+    "unit_prices",
     # Documents
     "estimates",
     "invoices",

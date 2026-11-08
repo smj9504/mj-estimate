@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert, Card, Divider, Space, Table, Tag, Typography } from 'antd';
 import type { CabinetEstimate, EstimateLineItem } from '../../types/cabinetEstimate';
+import PriceBookNotice from '../common/PriceBookNotice';
 
 const { Title, Text } = Typography;
 
@@ -252,6 +253,15 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
 
   return (
     <div>
+      <PriceBookNotice
+        domain="cabinet"
+        estimateId={estimate.id}
+        priceBook={estimate.price_book}
+        refreshKeys={[
+          ['cabinet-estimate', estimate.id], ['cabinet-estimate-group'],
+          ['cabinet-estimate-history', estimate.id], ['cabinet-pricing-info', estimate.id],
+        ]}
+      />
       {hasIsland ? renderGroupedTable() : renderFlatTable()}
 
       {estimate.warning_flags && estimate.warning_flags.length > 0 && (

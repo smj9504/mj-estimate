@@ -58,6 +58,12 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
       { key: 'siding_estimates', label: 'Siding', paths: ['/siding-estimates'] },
       { key: 'material_prices', label: '자재 기본 단가', paths: ['/roofing/material-prices'] },
       { key: 'pricing_settings', label: '견적 계산 단가', paths: ['/roofing/pricing-settings'] },
+      {
+        key: 'unit_prices',
+        label: '회사별 단가',
+        paths: ['/unit-prices'],
+        hint: 'Bathroom and kitchen cabinet prices for each company',
+      },
     ],
   },
   {
