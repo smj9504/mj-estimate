@@ -2,21 +2,31 @@
 Xactimate domain API endpoints
 """
 
+import asyncio
+import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_db
+from app.domains.auth.dependencies import get_current_user
+from . import screen_read
 from .service import XactimateCategoryService, XactimateItemService, XactimateComponentService, XactimateUnifiedService
 from .schemas import (
     XactimateCategoryResponse, XactimateCategoryCreate, XactimateCategoryUpdate,
     XactimateItemResponse, XactimateItemCreate, XactimateItemUpdate,
     XactimateComponentResponse, XactimateComponentCreate, XactimateComponentUpdate,
     XactimateSearchRequest, XactimateSearchResponse,
-    UnifiedSearchRequest, UnifiedSearchResponse
+    UnifiedSearchRequest, UnifiedSearchResponse,
+    XactimateScreenDraft, XactimateScreenSave, XactimateScreenSaveResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["xactimate"])
+
+SCREENSHOT_MAX_BYTES = 12 * 1024 * 1024
+SCREENSHOT_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 
 # Category endpoints
@@ -171,6 +181,56 @@ def get_price_history(item_code: str, db: Session = Depends(get_db)):
     """Get price history for an item"""
     service = XactimateItemService(db)
     return service.get_price_history(item_code)
+
+
+@router.post("/items/read-screenshot", response_model=XactimateScreenDraft)
+async def read_item_screenshot(
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+):
+    """
+    Read an item off a screenshot of Xactimate's Item Activity Information
+    window. Nothing is stored; the draft comes back for the person to check.
+    """
+    media_type = (file.content_type or "").lower()
+    if media_type == "image/jpg":
+        media_type = "image/jpeg"
+    if media_type not in SCREENSHOT_TYPES:
+        raise HTTPException(status_code=400, detail="Send a PNG or JPEG screenshot")
+    data = await file.read(SCREENSHOT_MAX_BYTES + 1)
+    if len(data) > SCREENSHOT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The screenshot is larger than 12 MB")
+    if not data:
+        raise HTTPException(status_code=400, detail="The screenshot is empty")
+    try:
+        read = await asyncio.to_thread(screen_read.read_screenshot, data, media_type)
+    except Exception as e:
+        logger.warning("Xactimate screenshot read failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Couldn't read the screenshot: {e}")
+    return screen_read.to_draft(read)
+
+
+@router.post("/items/save-from-screen", response_model=XactimateScreenSaveResponse)
+def save_item_from_screen(
+    payload: XactimateScreenSave,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Store an item read off a Xactimate screenshot in the price list. The same
+    item code in the same price month is updated instead of added twice.
+    """
+    data = payload.model_dump(exclude={"category_name"})
+    data["item_code"] = data["item_code"].strip().upper()
+    data["category_code"] = data["category_code"].strip().upper()
+    data["components"] = [c.model_dump() for c in payload.components]
+    try:
+        item, created = screen_read.save_item(db, data, payload.category_name)
+    except Exception as e:
+        db.rollback()
+        logger.exception("Saving Xactimate item from screenshot failed")
+        raise HTTPException(status_code=400, detail=f"Couldn't save the item: {e}")
+    return {"item": XactimateItemResponse.model_validate(item), "created": created}
 
 
 @router.post("/items", response_model=XactimateItemResponse)

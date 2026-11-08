@@ -177,3 +177,63 @@ export interface XactimateItemUpdate {
   reference_description?: string;
   has_life_expectancy_data?: boolean;
 }
+
+// An item read off a screenshot of Xactimate's Item Activity Information window
+export interface XactimateScreenComponent {
+  component_type: 'lab' | 'mat' | 'equ';
+  component_code?: string | null;
+  unit_price: number;
+  cost?: number | null;
+}
+
+export interface XactimateScreenDraft {
+  item_code: string;
+  category_code: string;
+  selector?: string | null;
+  activity?: string | null;
+  activity_label?: string | null;
+  phase?: string | null;
+  description: string;
+  unit?: string | null;
+  price_year: number;
+  price_month: number;
+  material_cost?: number | null;
+  equipment_cost?: number | null;
+  labor_cost?: number | null;
+  labor_burden?: number | null;
+  market_conditions?: number | null;
+  retail_labor?: number | null;
+  replace_price?: number | null;
+  remove_price?: number | null;
+  untaxed_unit_price?: number | null;
+  /** Price for the activity shown (remove + replace for R&R) */
+  unit_price?: number | null;
+  includes_description?: string | null;
+  excludes_description?: string | null;
+  quality_description?: string | null;
+  reference_description?: string | null;
+  note_description?: string | null;
+  components: XactimateScreenComponent[];
+  warnings: string[];
+}
+
+export interface XactimateScreenSave {
+  item_code: string;
+  category_code: string;
+  category_name?: string | null;
+  description: string;
+  price_year: number;
+  price_month: number;
+  labor_cost?: number | null;
+  material_cost?: number | null;
+  equipment_cost?: number | null;
+  labor_burden?: number | null;
+  market_conditions?: number | null;
+  untaxed_unit_price: number;
+  includes_description?: string | null;
+  excludes_description?: string | null;
+  note_description?: string | null;
+  quality_description?: string | null;
+  reference_description?: string | null;
+  components: XactimateScreenComponent[];
+}

@@ -223,3 +223,68 @@ class UnifiedSearchResponse(BaseModel):
     total_pages: int
     xactimate_count: int
     custom_count: int
+
+class XactimateScreenComponent(BaseModel):
+    """A row of the Item Activity Information window's component table"""
+    component_type: str = Field(..., pattern="^(lab|mat|equ)$")
+    component_code: Optional[str] = Field(None, max_length=50)
+    unit_price: Decimal = Field(..., ge=0)
+    cost: Optional[Decimal] = Field(None, ge=0)
+
+
+class XactimateScreenDraft(BaseModel):
+    """An item read off a screenshot of Xactimate, for the person to check"""
+    item_code: str
+    category_code: str
+    selector: Optional[str] = None
+    activity: Optional[str] = None
+    activity_label: Optional[str] = None
+    phase: Optional[str] = None
+    description: str
+    unit: Optional[str] = None
+    price_year: int
+    price_month: int
+    material_cost: Optional[float] = None
+    equipment_cost: Optional[float] = None
+    labor_cost: Optional[float] = None
+    labor_burden: Optional[float] = None
+    market_conditions: Optional[float] = None
+    retail_labor: Optional[float] = None
+    replace_price: Optional[float] = None
+    remove_price: Optional[float] = None
+    untaxed_unit_price: Optional[float] = None
+    unit_price: Optional[float] = None
+    includes_description: Optional[str] = None
+    excludes_description: Optional[str] = None
+    quality_description: Optional[str] = None
+    reference_description: Optional[str] = None
+    note_description: Optional[str] = None
+    components: List[XactimateScreenComponent] = []
+    warnings: List[str] = []
+
+
+class XactimateScreenSave(BaseModel):
+    """A checked screenshot draft to store in the price list"""
+    item_code: str = Field(..., min_length=1, max_length=50)
+    category_code: str = Field(..., min_length=2, max_length=3)
+    category_name: Optional[str] = Field(None, max_length=100)
+    description: str = Field(..., min_length=1)
+    price_year: int = Field(..., ge=2020, le=2100)
+    price_month: int = Field(..., ge=1, le=12)
+    labor_cost: Optional[Decimal] = Field(None, ge=0)
+    material_cost: Optional[Decimal] = Field(None, ge=0)
+    equipment_cost: Optional[Decimal] = Field(None, ge=0)
+    labor_burden: Optional[Decimal] = Field(None, ge=0)
+    market_conditions: Optional[Decimal] = Field(None, ge=0)
+    untaxed_unit_price: Decimal = Field(..., ge=0)
+    includes_description: Optional[str] = None
+    excludes_description: Optional[str] = None
+    note_description: Optional[str] = None
+    quality_description: Optional[str] = None
+    reference_description: Optional[str] = None
+    components: List[XactimateScreenComponent] = []
+
+
+class XactimateScreenSaveResponse(BaseModel):
+    item: XactimateItemResponse
+    created: bool

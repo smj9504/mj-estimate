@@ -13,8 +13,13 @@ import {
   XactimateSearchRequest,
   XactimateSearchResponse,
   UnifiedSearchRequest,
-  UnifiedSearchResponse
+  UnifiedSearchResponse,
+  XactimateScreenDraft,
+  XactimateScreenSave,
 } from '../types/xactimate';
+
+// Claude reads the screenshot; give it longer than the default 30s.
+const SCREEN_READ_TIMEOUT_MS = 120000;
 
 class XactimateService {
   private baseUrl = '/api/xactimate';
@@ -196,6 +201,22 @@ class XactimateService {
 
   formatPricePeriod(year: number, month: number): string {
     return `${year}-${month.toString().padStart(2, '0')}`;
+  }
+
+  /** Read an item off a screenshot of Xactimate's Item Activity Information window (nothing is saved) */
+  async readItemScreenshot(image: Blob, filename = 'xactimate.png'): Promise<XactimateScreenDraft> {
+    const form = new FormData();
+    form.append('file', image, filename);
+    const response = await api.post(`${this.baseUrl}/items/read-screenshot`, form, {
+      timeout: SCREEN_READ_TIMEOUT_MS,
+    });
+    return response.data;
+  }
+
+  /** Store a checked screenshot item in the price list (same code + price month is updated) */
+  async saveItemFromScreen(data: XactimateScreenSave): Promise<{ item: XactimateItem; created: boolean }> {
+    const response = await api.post(`${this.baseUrl}/items/save-from-screen`, data);
+    return response.data;
   }
 
   // Convert Xactimate item to legacy line item format for compatibility

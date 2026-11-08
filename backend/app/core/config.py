@@ -241,6 +241,11 @@ class Settings(BaseSettings):
     PRODUCT_EXTRACT_MODEL: str = os.getenv("PRODUCT_EXTRACT_MODEL", "claude-haiku-5-5")
     # low | medium | high | xhigh | max; empty for models without effort.
     PRODUCT_EXTRACT_EFFORT: str = os.getenv("PRODUCT_EXTRACT_EFFORT", "low")
+    # Xactimate: the Claude model (ANTHROPIC_API_KEY) that reads an item's
+    # prices off a screenshot of Xactimate's Item Activity Information window.
+    XACTIMATE_SCREEN_MODEL: str = os.getenv("XACTIMATE_SCREEN_MODEL", "claude-opus-5-5")
+    # low | medium | high | xhigh | max; empty for models without effort.
+    XACTIMATE_SCREEN_EFFORT: str = os.getenv("XACTIMATE_SCREEN_EFFORT", "medium")
 
     # Storage Configuration
     STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, gcs, s3, azure

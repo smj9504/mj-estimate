@@ -32,6 +32,7 @@ import {
   ClearOutlined,
   SearchOutlined,
   BookOutlined,
+  SnippetsOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { EstimateLineItem } from '../../services/estimateService';
@@ -41,6 +42,7 @@ import Calculator from '../common/Calculator';
 import CategoryModal from './CategoryModal';
 import SelectionModal from './SelectionModal';
 import XactimateInputMode from './XactimateInputMode';
+import XactimatePasteImport from './XactimatePasteImport';
 import { XactimateLineItemData } from '../../utils/xactimateTransform';
 import { formatNumber } from '../../utils/formatUtils';
 /** Lightweight arithmetic evaluator — input must be pre-validated */
@@ -160,6 +162,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
   
   // Xactimate mode state
   const [xactimateModalVisible, setXactimateModalVisible] = useState(false);
+  const [xactimatePasteVisible, setXactimatePasteVisible] = useState(false);
 
   // Memoized table data source with validation
   const tableDataSource = useMemo(() => {
@@ -552,6 +555,17 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
       ? ` to ${selectedGroup}`
       : ' (using Xactimate categories)';
     message.success(`${xactimateItems.length} Xactimate item(s) added successfully${groupMessage}`);
+  };
+
+  // Items copied out of Xactimate (pasted text or a screenshot of an item)
+  const handleXactimatePasteImport = (pastedItems: EstimateLineItem[]) => {
+    onItemsChange([...(items || []), ...pastedItems]);
+    setXactimatePasteVisible(false);
+    const groups = new Set(pastedItems.map(item => item.primary_group).filter(Boolean));
+    message.success(
+      `${pastedItems.length} item(s) added from Xactimate` +
+      (groups.size > 1 ? ` into ${groups.size} groups` : '')
+    );
   };
 
   // Handle Xactimate modal close
@@ -1649,7 +1663,22 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
             </div>
           </Col>
 
-          <Col xs={24} sm={24} md={{ span: 4, offset: 8 }}>
+          <Col xs={12} sm={12} md={{ span: 4, offset: 4 }}>
+            <div>
+              <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: 2 }}>From Xactimate</Text>
+              <Button
+                style={{ width: '100%', textAlign: 'left', justifyContent: 'flex-start' }}
+                icon={<SnippetsOutlined />}
+                onClick={() => setXactimatePasteVisible(true)}
+                disabled={!isGroupSelected}
+                data-testid="xactimate-paste-button"
+              >
+                Paste
+              </Button>
+            </div>
+          </Col>
+
+          <Col xs={12} sm={12} md={4}>
             <div>
               <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: 2 }}>Xactimate Database</Text>
               <Button
@@ -2302,6 +2331,15 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
             (items[selectionModalEditingIndex] as any)?.category : formData.category}
         />
       )}
+
+      {/* Paste line items copied out of Xactimate */}
+      <XactimatePasteImport
+        open={xactimatePasteVisible}
+        selectedGroup={selectedGroup}
+        makeItemCode={generateItemCode}
+        onImport={handleXactimatePasteImport}
+        onCancel={() => setXactimatePasteVisible(false)}
+      />
 
       {/* Xactimate Input Mode Modal */}
       <Modal
