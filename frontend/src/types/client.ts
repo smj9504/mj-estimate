@@ -658,6 +658,8 @@ export interface PlumberReportSummary {
 export interface Client {
   id: string;
   display_name: string;
+  /** What staff call the client among themselves ("아이스크림집"); most have none */
+  nickname?: string | null;
   owners: OwnerInfo[];
   address?: string;
   city?: string;
@@ -686,6 +688,8 @@ export interface Client {
 
 export interface ClientCreate {
   display_name: string;
+  /** What staff call the client among themselves ("아이스크림집"); most have none */
+  nickname?: string | null;
   owners: OwnerInfo[];
   address?: string;
   city?: string;
@@ -742,6 +746,8 @@ export interface ClientAllDocumentsResponse {
 export interface ClientListItem {
   id: string;
   display_name: string;
+  /** What staff call the client among themselves ("아이스크림집"); most have none */
+  nickname?: string | null;
   owners: OwnerInfo[];
   address?: string;
   city?: string;

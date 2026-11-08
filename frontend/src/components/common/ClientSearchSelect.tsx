@@ -5,6 +5,7 @@ import type { SelectProps } from 'antd';
 import { LoadingOutlined } from '@ant-design/icons';
 import { clientService } from '../../services/clientService';
 import type { ClientListItem } from '../../types/client';
+import { ClientNickname } from '../client/ClientNickname';
 
 const { Text } = Typography;
 
@@ -17,7 +18,7 @@ interface ClientSearchSelectProps
 }
 
 /**
- * Pick a client by typing the name, address, or phone.
+ * Pick a client by typing the name, nickname, address, or phone.
  * Drop-in for a Form.Item whose field holds the client UUID.
  */
 const ClientSearchSelect: React.FC<ClientSearchSelectProps> = ({
@@ -70,7 +71,10 @@ const ClientSearchSelect: React.FC<ClientSearchSelectProps> = ({
         const address = [c.address, c.city].filter(Boolean).join(', ');
         return (
           <div style={{ lineHeight: 1.3, padding: '2px 0' }}>
-            <div><Text strong>{c.display_name}</Text></div>
+            <div>
+              <Text strong>{c.display_name}</Text>
+              <ClientNickname nickname={c.nickname} style={{ marginLeft: 6, fontSize: 13 }} />
+            </div>
             {(address || c.phone) && (
               <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'normal' }}>
                 {[address, c.phone].filter(Boolean).join(' · ')}

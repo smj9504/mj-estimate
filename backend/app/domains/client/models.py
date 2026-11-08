@@ -37,6 +37,13 @@ class Client(Base, BaseModel):
     # [{name: str, phone: str, email: str, is_primary: bool}]
     owners = Column(JSON, nullable=False, default=list)
     display_name = Column(String(500), nullable=False)  # "John & Jane Smith"
+    # What staff call the client among themselves ("아이스크림집", "목사님").
+    # Most clients have none. Everyone who can see the client sees it, and
+    # the client and claim searches find it; it never goes on customer papers.
+    nickname = Column(
+        String(100), nullable=True,
+        comment="Name staff call the client by internally; never shown to the customer",
+    )
 
     # Address
     address = Column(Text)

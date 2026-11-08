@@ -4,6 +4,7 @@ import { Select, Typography } from 'antd';
 import type { SelectProps } from 'antd';
 import { LoadingOutlined } from '@ant-design/icons';
 import { claimService, type ClaimSearchResult } from '../../services/clientService';
+import { ClientNickname } from '../client/ClientNickname';
 
 const { Text } = Typography;
 
@@ -18,8 +19,8 @@ interface ClaimSearchSelectProps
 }
 
 /**
- * Pick a claim or cash job by typing the homeowner's name, property address,
- * or claim #. Only the ones the signed-in person may see come back.
+ * Pick a claim or cash job by typing the homeowner's name or nickname,
+ * property address, or claim #. Only the ones the signed-in person may see come back.
  * Drop-in for a Form.Item whose field holds the claim UUID.
  */
 const ClaimSearchSelect: React.FC<ClaimSearchSelectProps> = ({ value, onChange, loading, ...rest }) => {
@@ -73,6 +74,7 @@ const ClaimSearchSelect: React.FC<ClaimSearchSelectProps> = ({ value, onChange, 
           <div style={{ lineHeight: 1.3, padding: '2px 0' }}>
             <div>
               <Text strong>{c.client_name}</Text>
+              <ClientNickname nickname={c.client_nickname} style={{ marginLeft: 6, fontSize: 13 }} />
               <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>{claimLabel(c)}</Text>
             </div>
             <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'normal' }}>

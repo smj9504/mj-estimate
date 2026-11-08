@@ -222,7 +222,7 @@ def search_claims(
     current_staff=Depends(get_current_staff),
 ):
     """Search the claims and cash jobs the signed-in person may see by client
-    name, property address, or claim number. Pass claim_id instead of q to
+    name or nickname, property address, or claim number. Pass claim_id instead of q to
     resolve a single known claim (e.g. a preset form value)."""
     from sqlalchemy import or_
     from app.domains.client.models import Client, Claim
@@ -239,6 +239,7 @@ def search_claims(
             term = f"%{q.strip()}%"
             query = query.filter(or_(
                 Client.display_name.ilike(term),
+                Client.nickname.ilike(term),
                 Client.address.ilike(term),
                 Client.city.ilike(term),
                 Claim.claim_number.ilike(term),
@@ -260,6 +261,7 @@ def search_claims(
                 'insurance_company': claim.insurance_company,
                 'date_of_loss': claim.date_of_loss.isoformat() if claim.date_of_loss else None,
                 'client_name': client.display_name,
+                'client_nickname': client.nickname,
                 'address': address,
             })
         return {"claims": claims, "total": len(claims)}

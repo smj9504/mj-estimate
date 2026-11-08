@@ -379,7 +379,7 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
 
     def search_by_name(self, query: str, limit: int = 20,
                        source: Optional[str] = None, staff: Any = None) -> List[Dict[str, Any]]:
-        """Search clients by display_name, address, phone, or email"""
+        """Search clients by display_name, nickname, address, phone, or email"""
         from app.domains.auth.company_scope import scoped
 
         try:
@@ -388,6 +388,7 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             clients = self._filter_source(base, source).filter(
                 or_(
                     Client.display_name.ilike(search_term),
+                    Client.nickname.ilike(search_term),
                     Client.address.ilike(search_term),
                     Client.phone.ilike(search_term),
                     Client.email.ilike(search_term),

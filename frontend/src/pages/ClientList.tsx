@@ -36,6 +36,7 @@ import { useNavigate } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { PageHeader, useSheetModal } from '../components/common/ui';
 import ClaimStagePill from '../components/client/ClaimStagePill';
+import { ClientNickname, NicknameFormItem } from '../components/client/ClientNickname';
 import { clientService } from '../services/clientService';
 import { useAuth } from '../contexts/AuthContext';
 import type { Client, ClientCreate, ClientListItem, ClientSourceFilter, OwnerInfo } from '../types/client';
@@ -111,6 +112,7 @@ const ClientFormModal: React.FC<ClientFormModalProps> = ({
       if (initialValues) {
         form.setFieldsValue({
           display_name: initialValues.display_name,
+          nickname: initialValues.nickname ?? undefined,
           owners: initialValues.owners.length > 0 ? initialValues.owners : [{ name: '', is_primary: true }],
           address: initialValues.address,
           city: initialValues.city,
@@ -171,6 +173,8 @@ const ClientFormModal: React.FC<ClientFormModalProps> = ({
         >
           <Input placeholder="e.g. Smith Residence" />
         </Form.Item>
+
+        <NicknameFormItem />
 
         {/* Owners */}
         <Divider orientation="left" plain style={{ marginBottom: 8 }}>
@@ -496,6 +500,7 @@ const ClientList: React.FC = () => {
         return (
           <div>
             <div style={{ fontWeight: 600 }}>{name}</div>
+            <ClientNickname nickname={record.nickname} style={{ display: 'block', fontSize: 13 }} />
             {owner && owner.name !== name && (
               <Text type="secondary" style={{ fontSize: 12 }}>{owner.name}</Text>
             )}
@@ -628,7 +633,10 @@ const ClientList: React.FC = () => {
               />
             </div>
           )}
-          <span className="ui-row-title">{record.display_name}</span>
+          <span className="ui-row-title">
+            {record.display_name}
+            <ClientNickname nickname={record.nickname} style={{ marginLeft: 6 }} />
+          </span>
           {(owner && owner.name !== record.display_name) || address ? (
             <div className="ui-row-meta">
               {owner && owner.name !== record.display_name && <span>{owner.name}</span>}
@@ -676,7 +684,7 @@ const ClientList: React.FC = () => {
       <div className="ui-toolbar-end" style={isPhone ? { width: '100%' } : undefined}>
         <Input
           prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
-          placeholder="Search name, phone, email..."
+          placeholder="Search name, nickname, phone, email..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           allowClear

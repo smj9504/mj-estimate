@@ -114,6 +114,8 @@ export interface ClaimSearchResult {
   insurance_company?: string | null;
   date_of_loss?: string | null;
   client_name: string;
+  /** What staff call the client among themselves; most have none */
+  client_nickname?: string | null;
   address: string;
 }
 

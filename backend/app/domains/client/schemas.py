@@ -648,8 +648,23 @@ class TodoReorder(BaseModel):
 # Client schemas
 # ============================================================
 
+NICKNAME_MAX = 100
+
+
+def _clean_nickname(v):
+    """Spaces collapsed; blank clears it"""
+    if v is None:
+        return None
+    v = " ".join(str(v).split())
+    if len(v) > NICKNAME_MAX:
+        raise ValueError(f"nickname must be at most {NICKNAME_MAX} characters")
+    return v or None
+
+
 class ClientBase(BaseModel):
     display_name: str
+    # What staff call the client among themselves ("아이스크림집"); most have none
+    nickname: Optional[str] = None
     owners: List[OwnerInfo] = Field(default_factory=list)
     address: Optional[str] = None
     city: Optional[str] = None
@@ -663,6 +678,8 @@ class ClientBase(BaseModel):
     notes: Optional[str] = None
     is_active: bool = True
 
+    _nickname = validator('nickname', allow_reuse=True)(_clean_nickname)
+
 
 class ClientCreate(ClientBase):
     pass
@@ -670,6 +687,7 @@ class ClientCreate(ClientBase):
 
 class ClientUpdate(BaseModel):
     display_name: Optional[str] = None
+    nickname: Optional[str] = None
     owners: Optional[List[OwnerInfo]] = None
     address: Optional[str] = None
     city: Optional[str] = None
@@ -683,11 +701,14 @@ class ClientUpdate(BaseModel):
     notes: Optional[str] = None
     is_active: Optional[bool] = None
 
+    _nickname = validator('nickname', allow_reuse=True)(_clean_nickname)
+
 
 class ClientListResponse(BaseModel):
     """Lightweight client for list views"""
     id: UUID
     display_name: str
+    nickname: Optional[str] = None
     owners: Optional[List[OwnerInfo]] = []
     address: Optional[str] = None
     city: Optional[str] = None

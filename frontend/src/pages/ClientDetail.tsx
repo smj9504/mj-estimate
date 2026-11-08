@@ -71,6 +71,7 @@ import '../components/client/clientRecord.css';
 import { tagTones } from '../styles/tokens';
 import ClaimSection from '../components/client/ClaimSection';
 import ClaimStagePill from '../components/client/ClaimStagePill';
+import { ClientNickname, NicknameFormItem } from '../components/client/ClientNickname';
 import { WMStatusPill } from '../components/water-mitigation/wmStatus';
 import { WorkOrderStatusPill } from '../components/work-order/workOrderUi';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
@@ -298,6 +299,7 @@ const ClientRecordHeader: React.FC<{ client: Client; claims: Claim[]; actions: R
         <div className="clr-titles">
           <div className="clr-title-row">
             <h1 className="ui-page-title">{client.display_name}</h1>
+            <ClientNickname nickname={client.nickname} size="title" />
             <Pill tone={client.is_active ? 'green' : 'gray'}>{client.is_active ? 'Active' : 'Inactive'}</Pill>
           </div>
           {address && (
@@ -380,6 +382,7 @@ const EditClientModal: React.FC<EditClientModalProps> = ({
     if (open) {
       form.setFieldsValue({
         display_name: client.display_name,
+        nickname: client.nickname ?? undefined,
         owners: client.owners.length > 0 ? client.owners : [{ name: '', is_primary: true }],
         address: client.address,
         city: client.city,
@@ -426,6 +429,8 @@ const EditClientModal: React.FC<EditClientModalProps> = ({
         >
           <Input />
         </Form.Item>
+
+        <NicknameFormItem />
 
         <Divider orientation="left" plain style={{ marginBottom: 8 }}>Owners</Divider>
         <Form.List
