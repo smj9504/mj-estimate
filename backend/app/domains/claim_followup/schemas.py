@@ -164,6 +164,13 @@ class FollowUpTaskResponse(FollowUpTaskBase):
     # Adjusters past the first [{company, name, phone, email}] (by-claim list only)
     additional_adjusters: Optional[List[Dict[str, Any]]] = None
     wm_cost_status: Optional[str] = None
+    # Who writes the rebuild estimate, and the companies that did the WM (they
+    # may not write it): the Resolve form's writer picker reads these
+    estimate_origin: Optional[str] = None
+    contractor_estimate_stage: Optional[str] = None
+    rebuild_estimate_company_id: Optional[str] = None
+    rebuild_estimate_company_name: Optional[str] = None
+    wm_company_ids: Optional[List[str]] = None
     # WM docs follow-ups: the status of the WM job they are about
     wm_job_status: Optional[str] = None
     has_insurance_estimate: Optional[bool] = None
