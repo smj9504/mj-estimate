@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -11,7 +11,6 @@ import {
   ArrowLeftOutlined, CalendarOutlined, CheckOutlined, ClockCircleOutlined, DeleteOutlined,
   DownOutlined, EditOutlined, EllipsisOutlined, FilePdfOutlined, MailOutlined, PhoneOutlined,
   PlusOutlined, ReloadOutlined, RightOutlined, RollbackOutlined, StopOutlined,
-  UserOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -89,6 +88,40 @@ const followUpPresets = () => [
   { label: 'In 1 week', value: dayjs().add(1, 'week') },
   { label: 'In 2 weeks', value: dayjs().add(2, 'week') },
 ];
+
+/** A follow-up date as short as it can be: the year only when it isn't this one */
+const shortDate = (d: Dayjs) => d.format(d.year() === dayjs().year() ? 'MMM D' : 'MMM D, YYYY');
+
+/** Facts in one grey line, a dot between each */
+const joinDots = (parts: React.ReactNode[]) =>
+  parts.flatMap((part, i) => (i === 0 ? [part] : [<span key={`dot-${i}`} className="fu-dot"> · </span>, part]));
+
+/** A task's note, cut to two lines until asked for the rest */
+const TaskNote: React.FC<{ text: string }> = ({ text }) => {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [open, setOpen] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || open) return undefined;
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [text, open]);
+  return (
+    <div className="fu-task-note">
+      <p ref={ref} className={`fu-task-desc${open ? '' : ' is-clamped'}`}>{text}</p>
+      {(clipped || open) && (
+        <button type="button" className="fu-more-btn" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+};
 
 const ClaimFollowUpDetail: React.FC = () => {
   const { claimId } = useParams<{ claimId: string }>();
@@ -451,120 +484,105 @@ const ClaimFollowUpDetail: React.FC = () => {
     );
   };
 
-  const renderTaskMeta = (task: FollowUpTask) => {
+  /** The grey line under a title: the stage, then what about it needs a look */
+  const renderFacts = (task: FollowUpTask, done = false) => {
+    const parts: React.ReactNode[] = [<span key="stage">{getStageLabel(task.task_type)}</span>];
+    if (!done && task.priority === 'urgent') parts.push(<span key="priority" className="fu-fact-red">Urgent</span>);
+    if (!done && task.priority === 'high') parts.push(<span key="priority" className="fu-fact-ink">High priority</span>);
+    const when = task.resolved_at || task.updated_at;
+    if (done && when) parts.push(<span key="when" className="fu-num">{dayjs(when).format('MMM D, YYYY')}</span>);
+    if (PAYMENT_TASK_TYPES.includes(task.task_type) && task.payment_status) {
+      const needsChasing = !done && PAYMENT_ISSUE_STATUSES.includes(task.payment_status);
+      parts.push(
+        <span key="payment" className={needsChasing ? 'fu-fact-orange' : undefined}>
+          Payment: {PAYMENT_STATUS_LABELS[task.payment_status] || task.payment_status}
+          {task.payment_note && ` (${task.payment_note})`}
+        </span>
+      );
+    }
+    return <p className="fu-task-facts">{joinDots(parts)}</p>;
+  };
+
+  /** Who it is with and what has happened so far. Their address is in Contacts and the email form. */
+  const renderWho = (task: FollowUpTask) => {
     const roleLabel = ASSIGNED_ROLE_LABELS[task.assigned_to_role] || task.assigned_to_role;
-    const isPayment = PAYMENT_TASK_TYPES.includes(task.task_type);
-    const intervalDays = task.followup_interval_days || 3;
+    const who = task.assigned_to_name || task.assigned_to_email;
+    const parts: React.ReactNode[] = [
+      who
+        ? <span key="who" className="fu-task-person" title={task.assigned_to_email || undefined}>{who}</span>
+        : <span key="who">Not assigned</span>,
+    ];
+    if (who && roleLabel) parts.push(<span key="role">{roleLabel}</span>);
+    parts.push(task.contact_count > 0 ? (
+      <button key="contact" type="button" className="fu-link-btn" onClick={() => openHistory(task.id)}>
+        Contacted {task.contact_count}×
+        {task.last_contacted_at && `, last ${dayjs(task.last_contacted_at).format('MMM D')}`}
+      </button>
+    ) : (
+      <span key="contact">Not contacted yet</span>
+    ));
+    return <p className="fu-task-facts">{joinDots(parts)}</p>;
+  };
+
+  /** The next follow-up: the date, changed in place, and how far off it is */
+  const renderDue = (task: FollowUpTask) => {
+    const date = dateOf(task);
+    const overdue = isTaskOverdue(task);
+    const label = date ? shortDate(dayjs(date)) : 'Set date';
     return (
-      <div className="fu-task-meta">
-        {/* Who it is with */}
-        <div className="fu-task-meta-line">
-          <UserOutlined className="fu-task-meta-icon" aria-hidden="true" />
-          {task.assigned_to_name ? (
-            <span>
-              <span className="fu-task-person">{task.assigned_to_name}</span>
-              {roleLabel && <span className="fu-muted"> · {roleLabel}</span>}
-            </span>
-          ) : (
-            <span className="fu-muted">Not assigned</span>
-          )}
-          {task.assigned_to_email && (
-            <a href={`mailto:${task.assigned_to_email}`} className="fu-task-email">{task.assigned_to_email}</a>
-          )}
-        </div>
-        {/* What has happened so far */}
-        <div className="fu-task-meta-line">
-          <MailOutlined className="fu-task-meta-icon" aria-hidden="true" />
-          {task.contact_count > 0 ? (
-            <button type="button" className="fu-link-btn" onClick={() => openHistory(task.id)}>
-              Contacted {task.contact_count}×
-              {task.last_contacted_at && ` · last ${dayjs(task.last_contacted_at).format('MMM D')}`}
-            </button>
-          ) : (
-            <span className="fu-muted">Not contacted yet</span>
-          )}
-          {isTaskActive(task) && (
-            <span className="fu-muted">
-              Manual emails · next date is set {intervalDays} day{intervalDays === 1 ? '' : 's'} after each send
-            </span>
-          )}
-        </div>
-        {isPayment && task.payment_status && (
-          <div className="fu-task-meta-line">
-            <span className="fu-muted">Payment</span>
-            <Pill tone={PAYMENT_ISSUE_STATUSES.includes(task.payment_status) ? 'orange' : task.payment_status === 'received' ? 'green' : 'gray'}>
-              {PAYMENT_STATUS_LABELS[task.payment_status] || task.payment_status}
-            </Pill>
-            {task.payment_note && <span className="fu-muted">{task.payment_note}</span>}
-          </div>
+      <div className="fu-task-due">
+        <DatePicker
+          value={date ? dayjs(date) : null}
+          onChange={(v) => setFollowUpDate(task, v)}
+          presets={followUpPresets()}
+          format={shortDate}
+          allowClear={false}
+          inputReadOnly
+          variant="borderless"
+          placeholder="Set date"
+          prefix={<CalendarOutlined className="fu-date-icon" aria-hidden="true" />}
+          suffixIcon={null}
+          placement="bottomRight"
+          classNames={{ popup: { root: 'fu-date-popup' } }}
+          className="fu-date"
+          // Sized to the date it shows (ch runs a little narrow for this font, hence the slack)
+          style={{ width: `calc(${label.length}ch + 42px)` }}
+          aria-label={`Next follow-up date for ${task.title}`}
+        />
+        {date && (
+          <span className={`fu-task-due-rel${overdue ? ' is-overdue' : ''}`}>{relativeDue(date, overdue)}</span>
         )}
       </div>
     );
   };
 
   const renderOpenTask = (task: FollowUpTask) => {
-    const overdue = isTaskOverdue(task);
-    const date = dateOf(task);
     const moreItems: MenuProps['items'] = [
       { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => openEdit(task) },
       { key: 'cancel', icon: <StopOutlined />, label: 'Cancel task', onClick: () => confirmCancel(task) },
       { type: 'divider' },
       { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => confirmDelete(task) },
     ];
-    const isHighPriority = task.priority === 'high' || task.priority === 'urgent';
     return (
       <article
         key={task.id}
         id={`fu-task-${task.id}`}
-        className={`fu-task${overdue ? ' is-overdue' : ''}${flashTaskId === task.id ? ' is-flash' : ''}`}
+        className={`fu-task${flashTaskId === task.id ? ' is-flash' : ''}`}
       >
-        <div className="fu-task-main">
-          <div className="fu-task-top">
-            {renderStatusControl(task)}
-            <span className="fu-task-stage">{getStageLabel(task.task_type)}</span>
-            {isHighPriority && (
-              <Pill tone={task.priority === 'urgent' ? 'red' : 'orange'}>
-                {task.priority === 'urgent' ? 'Urgent' : 'High priority'}
-              </Pill>
-            )}
-          </div>
+        <div className="fu-task-top">{renderStatusControl(task)}</div>
+        {renderDue(task)}
+        <div className="fu-task-body">
           <h3 className="fu-task-title">{task.title}</h3>
-          {task.description && <p className="fu-task-desc">{task.description}</p>}
-          {renderTaskMeta(task)}
+          {renderFacts(task)}
+          {renderWho(task)}
+          {task.description && <TaskNote text={task.description} />}
         </div>
-
-        <div className="fu-task-side">
-          <div className="fu-task-due">
-            <span className="fu-task-due-label">Next follow-up</span>
-            <div className="fu-task-due-value">
-              <DatePicker
-                value={date ? dayjs(date) : null}
-                onChange={(v) => setFollowUpDate(task, v)}
-                presets={followUpPresets()}
-                format="MMM D, YYYY"
-                allowClear={false}
-                inputReadOnly
-                variant="borderless"
-                placeholder="Set date"
-                suffixIcon={<CalendarOutlined />}
-                className="fu-date"
-                aria-label={`Next follow-up date for ${task.title}`}
-              />
-              {date && (
-                <span className={`fu-task-due-rel${overdue ? ' is-overdue' : ''}`}>
-                  {overdue && <ClockCircleOutlined aria-hidden="true" />}
-                  {relativeDue(date, overdue)}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="fu-task-actions">
-            <Button icon={<MailOutlined />} onClick={() => openEmail(task.id)}>Email</Button>
-            <Button icon={<CheckOutlined />} onClick={() => setResolvingTask(task)}>Resolve</Button>
-            <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
-              <Button type="text" className="ui-icon-btn" icon={<EllipsisOutlined />} aria-label={`More actions for ${task.title}`} />
-            </Dropdown>
-          </div>
+        <div className="fu-task-actions">
+          <Button icon={<MailOutlined />} onClick={() => openEmail(task.id)}>Email</Button>
+          <Button icon={<CheckOutlined />} onClick={() => setResolvingTask(task)}>Resolve</Button>
+          <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
+            <Button type="text" className="ui-icon-btn" icon={<EllipsisOutlined />} aria-label={`More actions for ${task.title}`} />
+          </Dropdown>
         </div>
       </article>
     );
@@ -578,47 +596,32 @@ const ClaimFollowUpDetail: React.FC = () => {
       { type: 'divider' },
       { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => confirmDelete(task) },
     ];
-    const when = task.resolved_at || task.updated_at;
     return (
       <article
         key={task.id}
         id={`fu-task-${task.id}`}
         className={`fu-task fu-task--done${flashTaskId === task.id ? ' is-flash' : ''}`}
       >
-        <div className="fu-task-main">
-          <div className="fu-task-top">
-            <Pill tone={TASK_STATUS_TONES[task.status] || 'gray'} icon={isResolved ? <CheckOutlined /> : undefined}>
-              {TASK_STATUS_LABELS[task.status] || task.status}
-            </Pill>
-            <span className="fu-task-stage">{getStageLabel(task.task_type)}</span>
-            {when && <span className="fu-muted">{dayjs(when).format('MMM D, YYYY')}</span>}
-          </div>
-          <h3 className="fu-task-title">{task.title}</h3>
-          {task.resolution_notes && <p className="fu-task-desc">{task.resolution_notes}</p>}
-          {PAYMENT_TASK_TYPES.includes(task.task_type) && task.payment_status && (
-            <div className="fu-task-meta">
-              <div className="fu-task-meta-line">
-                <span className="fu-muted">Payment</span>
-                <Pill tone={task.payment_status === 'received' ? 'green' : PAYMENT_ISSUE_STATUSES.includes(task.payment_status) ? 'orange' : 'gray'}>
-                  {PAYMENT_STATUS_LABELS[task.payment_status] || task.payment_status}
-                </Pill>
-                {task.payment_note && <span className="fu-muted">{task.payment_note}</span>}
-              </div>
-            </div>
-          )}
+        <div className="fu-task-top">
+          <Pill tone={TASK_STATUS_TONES[task.status] || 'gray'} icon={isResolved ? <CheckOutlined /> : undefined}>
+            {TASK_STATUS_LABELS[task.status] || task.status}
+          </Pill>
         </div>
-        <div className="fu-task-side">
-          <div className="fu-task-actions">
-            {canReopen && (
-              <Button icon={<RollbackOutlined />} loading={reopenMutation.isPending && reopenMutation.variables === task.id}
-                onClick={() => reopenMutation.mutate(task.id)}>
-                Reopen
-              </Button>
-            )}
-            <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
-              <Button type="text" className="ui-icon-btn" icon={<EllipsisOutlined />} aria-label={`More actions for ${task.title}`} />
-            </Dropdown>
-          </div>
+        <div className="fu-task-actions">
+          {canReopen && (
+            <Button icon={<RollbackOutlined />} loading={reopenMutation.isPending && reopenMutation.variables === task.id}
+              onClick={() => reopenMutation.mutate(task.id)}>
+              Reopen
+            </Button>
+          )}
+          <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
+            <Button type="text" className="ui-icon-btn" icon={<EllipsisOutlined />} aria-label={`More actions for ${task.title}`} />
+          </Dropdown>
+        </div>
+        <div className="fu-task-body">
+          <h3 className="fu-task-title">{task.title}</h3>
+          {renderFacts(task, true)}
+          {task.resolution_notes && <TaskNote text={task.resolution_notes} />}
         </div>
       </article>
     );

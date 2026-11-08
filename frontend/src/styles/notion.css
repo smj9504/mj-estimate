@@ -2020,20 +2020,31 @@ button.fu-step--extra:hover {
   }
 }
 
-/* Tasks: one row per task, actions in reach, next date editable in place */
+/* Tasks: the status and the next date on top, what it is in two grey lines
+   under the title, the actions in reach. One pill per task: its status. */
 .fu-task-list {
   display: flex;
   flex-direction: column;
 }
 .fu-task {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "head due"
+    "body actions";
+  align-items: start;
+  gap: 8px 24px;
   padding: 16px 0;
   border-bottom: 1px solid var(--color-neutral-200);
 }
 .fu-task:last-child {
   border-bottom: none;
+}
+/* Done: nothing to date, so its actions take the top right */
+.fu-task--done {
+  grid-template-areas:
+    "head actions"
+    "body body";
 }
 /* Arriving from the stage track: a brief wash that reaches past the text */
 .fu-task.is-flash {
@@ -2049,77 +2060,68 @@ button.fu-step--extra:hover {
     box-shadow: 0 0 0 8px transparent;
   }
 }
-.fu-task-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .fu-task-top {
+  grid-area: head;
+  align-self: center;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  min-width: 0;
 }
-.fu-task-stage {
-  font-size: 13px;
-  color: var(--color-neutral-600);
-}
-.fu-task-top > .fu-muted {
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
+.fu-task-body {
+  grid-area: body;
+  min-width: 0;
 }
 .fu-task-title {
-  margin: 6px 0 0;
+  margin: 0;
   font-size: 15px;
   font-weight: 500;
   line-height: 1.4;
   color: var(--color-neutral-900);
+  text-wrap: pretty;
   overflow-wrap: anywhere;
 }
 .fu-task--done .fu-task-title {
   color: var(--color-neutral-700);
 }
-.fu-task-desc {
+.fu-task-facts {
   margin: 4px 0 0;
-  font-size: 14px;
-  color: var(--color-neutral-700);
-  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-neutral-600);
   overflow-wrap: anywhere;
 }
-/* Two short lines under the title: who it is with, then what has happened */
-.fu-task-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 10px;
-  font-size: 13px;
-  color: var(--color-neutral-700);
+.fu-task-title + .fu-task-facts {
+  margin-top: 6px;
 }
-.fu-task-meta-line {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 2px 10px;
-  min-width: 0;
+.fu-dot {
+  color: var(--color-neutral-600);
 }
-.fu-task-meta-icon {
-  color: #a5a29a;
+.fu-num {
+  font-variant-numeric: tabular-nums;
+}
+.fu-fact-ink {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+/* Colour only where something needs chasing: money, and urgent work */
+.fu-fact-orange {
+  font-weight: 500;
+  color: var(--tag-orange-text);
+}
+.fu-fact-red {
+  font-weight: 500;
+  color: var(--tag-red-text);
 }
 .fu-task-person {
   color: var(--color-neutral-900);
-}
-.fu-task-email,
-.fu-link-btn {
-  color: var(--color-neutral-700);
-  overflow-wrap: anywhere;
-}
-.fu-task-email:hover {
-  color: var(--color-primary);
 }
 .fu-link-btn {
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
+  color: inherit;
+  overflow-wrap: anywhere;
   cursor: pointer;
   text-decoration: underline;
   text-decoration-color: var(--color-neutral-400);
@@ -2129,33 +2131,52 @@ button.fu-step--extra:hover {
   color: var(--color-neutral-900);
   text-decoration-color: currentColor;
 }
-.fu-task-side {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
+/* The note: two lines, the rest on request */
+.fu-task-note {
+  margin-top: 8px;
 }
-.fu-task-due {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+.fu-task-desc {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-neutral-700);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-.fu-task-due-label {
+.fu-task-desc.is-clamped {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.fu-more-btn {
+  margin: 2px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 13px;
+  font-weight: 500;
   color: var(--color-neutral-600);
+  cursor: pointer;
 }
-.fu-task-due-value {
+.fu-more-btn:hover {
+  color: var(--color-neutral-900);
+}
+/* Next follow-up: the date is the control, how far off it is beside it */
+.fu-task-due {
+  grid-area: due;
+  align-self: center;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0 6px;
+  min-width: 0;
 }
 .fu-date.ant-picker {
-  width: 138px;
+  max-width: 100%;
   padding: 2px 6px;
-  margin-right: -6px;
+  margin-right: -2px;
   border-radius: 6px;
   transition: background-color 0.12s ease;
 }
@@ -2166,25 +2187,28 @@ button.fu-step--extra:hover {
 .fu-date.ant-picker .ant-picker-input > input {
   font-size: 14px;
   color: var(--color-neutral-900);
-  text-align: right;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
+.fu-date-icon {
+  margin-right: 2px;
+  color: var(--color-neutral-600);
+}
 .fu-task-due-rel {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   font-size: 13px;
   color: var(--color-neutral-600);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .fu-task-due-rel.is-overdue {
   font-weight: 500;
   color: var(--tag-red-text);
 }
 .fu-task-actions {
+  grid-area: actions;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
 }
 .fu-done {
@@ -2248,26 +2272,53 @@ button.fu-step--extra:hover {
 
 @media (max-width: 768px) {
   .fu-task {
-    flex-direction: column;
-    gap: 12px;
+    grid-template-areas:
+      "head due"
+      "body body"
+      "actions actions";
+    gap: 8px 12px;
   }
-  .fu-task-side {
-    align-self: stretch;
-    align-items: stretch;
+  .fu-task--done {
+    grid-template-areas:
+      "head actions"
+      "body body";
   }
-  .fu-task-due {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
+  .fu-task:not(.fu-task--done) .fu-task-actions {
+    margin-top: 6px;
   }
   .fu-task-actions .ant-btn {
     height: 40px;
   }
-  .fu-task-actions .ant-btn:not(.ui-icon-btn) {
+  .fu-task:not(.fu-task--done) .fu-task-actions .ant-btn:not(.ui-icon-btn) {
     flex: 1 1 0;
   }
   .fu-task-actions .ant-btn.ui-icon-btn {
     width: 40px;
+  }
+  /* The date's presets go in a row over the calendar, and the popup keeps to
+     the screen's right edge (the date's), so it fits a phone */
+  .fu-date-popup.ant-picker-dropdown {
+    left: auto !important;
+    right: 8px !important;
+  }
+  .fu-date-popup.ant-picker-dropdown .ant-picker-panel-layout {
+    flex-direction: column;
+  }
+  .fu-date-popup.ant-picker-dropdown .ant-picker-presets {
+    max-width: none;
+  }
+  .fu-date-popup.ant-picker-dropdown .ant-picker-presets ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    height: auto;
+    padding: 8px;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--color-neutral-200);
+  }
+  .fu-date-popup.ant-picker-dropdown .ant-picker-presets ul li,
+  .fu-date-popup.ant-picker-dropdown .ant-picker-presets ul li + li {
+    margin: 0;
   }
 }
 
@@ -2800,38 +2851,22 @@ button.fu-step--extra:hover {
 }
 
 .fu-page .fu-task {
-  gap: 12px 32px;
+  gap: 10px 32px;
   padding: 20px 0;
 }
-.fu-page .fu-task-top {
-  gap: 6px 10px;
-}
-.fu-page .fu-task-stage,
-.fu-page .fu-task-top > .fu-muted,
-.fu-page .fu-task-meta,
-.fu-page .fu-task-due-label,
-.fu-page .fu-task-due-rel {
-  font-size: 14px;
-}
 .fu-page .fu-task-title {
-  margin-top: 8px;
   font-size: 17px;
   font-weight: 600;
   line-height: 1.4;
 }
+.fu-page .fu-task-facts,
+.fu-page .fu-task-due-rel,
+.fu-page .fu-more-btn {
+  font-size: 14px;
+}
 .fu-page .fu-task-desc {
   font-size: 15px;
   line-height: 1.55;
-}
-.fu-page .fu-task-side {
-  width: 264px;
-  gap: 12px;
-}
-.fu-page .fu-task-due-label {
-  white-space: nowrap;
-}
-.fu-page .fu-date.ant-picker {
-  width: 152px;
 }
 .fu-page .fu-date.ant-picker .ant-picker-input > input {
   font-size: 15px;
@@ -2888,9 +2923,6 @@ button.fu-step--extra:hover {
   }
   .fu-page .fu-track {
     gap: 16px 12px;
-  }
-  .fu-page .fu-task-side {
-    width: auto;
   }
 }
 
