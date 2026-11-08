@@ -139,7 +139,10 @@ test.describe('a water mitigation job', () => {
 test.describe('a claim', () => {
   const openClaim = async (page: Page) => {
     const saved = await open(page, CLIENT_PATH);
-    await page.locator('.cl-claims .ant-collapse-header').first().click({ timeout: 60_000 });
+    // A lone claim opens by itself; clicking it then would close it
+    const header = page.locator('.cl-claims .ant-collapse-header').first();
+    await header.waitFor({ timeout: 60_000 });
+    if (await header.getAttribute('aria-expanded') !== 'true') await header.click();
     return saved;
   };
 

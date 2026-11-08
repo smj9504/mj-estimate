@@ -128,8 +128,11 @@ async function open(page: Page, url: string, start: PackingEntry[]) {
   return photos;
 }
 
+// A lone claim opens by itself; clicking it then would close it
 const openClaim = async (page: Page) => {
-  await page.locator('.cl-claims .ant-collapse-header').first().click({ timeout: 120_000 });
+  const header = page.locator('.cl-claims .ant-collapse-header').first();
+  await header.waitFor({ timeout: 120_000 });
+  if (await header.getAttribute('aria-expanded') !== 'true') await header.click();
 };
 
 const sent = (page: Page, method: string) => page.waitForRequest((request: Request) =>
