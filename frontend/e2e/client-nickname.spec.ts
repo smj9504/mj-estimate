@@ -1,8 +1,8 @@
 import { test, expect as baseExpect, Page } from '@playwright/test';
 
 // A client can carry a nickname, what staff call it among themselves
-// ("아이스크림집"). It shows beside the name on the list and the client page,
-// and saves from the edit form. Runs against the dev server with /api
+// ("아이스크림집"). It shows beside the name on the client list and page and
+// under the homeowner on the WM list, and saves from the edit form. Runs against the dev server with /api
 // answered here.
 
 const expect = baseExpect.configure({ timeout: 20_000 });
@@ -114,4 +114,44 @@ test('the edit form changes and clears the nickname', async ({ page }) => {
   await dialog.getByRole('button', { name: /Save|Update/ }).click();
   await expect.poll(() => saved.length).toBe(2);
   expect(saved[1].nickname).toBe('');
+});
+
+test('the WM list shows the client nickname under the homeowner', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'test-token');
+    localStorage.setItem('auth_user', JSON.stringify({ id: 'u1', username: 'admin', role: 'admin' }));
+  });
+  const job = (id: string, address: string, homeowner: string | null, nickname: string | null) => ({
+    id, property_address: address, homeowner_name: homeowner, client_nickname: nickname,
+    status: 'Lead', active: true, claim_number: `CLM-${id}`, photo_count: 0, supplements: [],
+    created_at: '2026-10-01T00:00:00Z',
+  });
+  const items = [
+    job('1', '12 Elm St', 'Jin Park', '아이스크림집'),
+    job('2', '9 Oak Ave', 'Sam Lee', null),
+    // On a job with no homeowner name the nickname stands alone
+    job('3', '1 Lone Rd', null, '목사님'),
+  ];
+  const searches: string[] = [];
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    const json = (body: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (url.pathname === '/api/auth/me') return json({ id: 'u1', username: 'admin', role: 'admin', is_active: true });
+    if (url.pathname.endsWith('/water-mitigation/jobs')) {
+      const search = url.searchParams.get('search');
+      if (search) searches.push(search);
+      return json({ items, total: items.length, page: 1, page_size: 50, total_pages: 1 });
+    }
+    return json([]);
+  });
+  await page.goto('/water-mitigation');
+
+  const row = (address: string) => page.locator('tr', { hasText: address });
+  await expect(row('12 Elm St')).toContainText('Jin Park\u201C아이스크림집\u201D', { timeout: 60_000 });
+  await expect(row('9 Oak Ave').locator('.client-nickname')).toHaveCount(0);
+  await expect(row('1 Lone Rd').locator('.client-nickname')).toHaveText('\u201C목사님\u201D');
+
+  await page.getByPlaceholder(/Search address/).fill('아이스크림');
+  await page.getByPlaceholder(/Search address/).press('Enter');
+  await expect.poll(() => searches).toContain('아이스크림');
 });

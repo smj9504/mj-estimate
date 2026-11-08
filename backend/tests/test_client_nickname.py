@@ -1,7 +1,8 @@
 """A client can carry a nickname, what staff call it among themselves
 ("아이스크림집", "목사님"). It saves and clears like any field, everyone who
-can see the client sees it, and the client and claim searches find it -
-but only for the people who may see that client.
+can see the client sees it, the WM list shows it on the client's jobs, and
+the client, claim and WM list searches find it - but only for the people
+who may see that client.
 
 Run through the API on a throwaway SQLite database."""
 
@@ -24,6 +25,7 @@ from app.domains.client.models import Claim, Client  # noqa: E402
 from app.domains.company.models import Company  # noqa: E402
 from app.domains.contract.models import ClaimCompany  # noqa: E402
 from app.domains.staff.models import Staff, StaffCompany, StaffRole  # noqa: E402
+from app.domains.water_mitigation.models import WaterMitigationJob  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -87,14 +89,29 @@ def env(tmp_path, monkeypatch):
 
     shop = Client(display_name='Jin Park', nickname='아이스크림집', owners=[],
                   address='12 Elm St', company_id=ours.id)
+    plain = Client(display_name='Sam Lee', owners=[], address='9 Oak Ave', company_id=ours.id)
     session.add(shop)
-    session.add(Client(display_name='Sam Lee', owners=[], address='9 Oak Ave', company_id=ours.id))
+    session.add(plain)
     session.flush()
-    claim = Claim(client_id=shop.id, claim_number='CLM-1', status='open', company_id=ours.id)
-    session.add(claim)
-    session.flush()
-    # Staff see a claim through the companies assigned to it
-    session.add(ClaimCompany(claim_id=claim.id, company_id=ours.id, role='water_mitigation'))
+
+    def claim(client, number):
+        row = Claim(client_id=client.id, claim_number=number, status='open', company_id=ours.id)
+        session.add(row)
+        session.flush()
+        # Staff see a claim through the companies assigned to it
+        session.add(ClaimCompany(claim_id=row.id, company_id=ours.id, role='water_mitigation'))
+        return row
+
+    def wm_job(address, homeowner, on_claim=None):
+        session.add(WaterMitigationJob(
+            property_address=address, homeowner_name=homeowner, status='Lead', active=True,
+            claim_id=on_claim.id if on_claim else None, company_id=ours.id,
+        ))
+
+    wm_job('12 Elm St', 'Jin Park', claim(shop, 'CLM-1'))
+    wm_job('9 Oak Ave', 'Sam Lee', claim(plain, 'CLM-2'))
+    # A WM job on no claim has no client to take a nickname from
+    wm_job('1 Lone Rd', 'Kim Choi')
     session.commit()
 
     people = {
@@ -186,3 +203,29 @@ def test_a_new_client_can_start_with_a_nickname(env):
     })
     assert made.status_code == 200, made.text
     assert names(api.get('/api/clients/search', params={'q': '목사'})) == ['Grace Church']
+
+
+def wm_rows(response):
+    assert response.status_code == 200, response.text
+    return {j['property_address']: j['client_nickname'] for j in response.json()['items']}
+
+
+def test_the_wm_list_shows_the_claims_client_nickname(env):
+    api = env.as_('admin')
+    assert wm_rows(api.get('/api/water-mitigation/jobs')) == {
+        '12 Elm St': '아이스크림집', '9 Oak Ave': None, '1 Lone Rd': None,
+    }
+
+
+def test_the_wm_list_search_finds_a_job_by_its_clients_nickname(env):
+    assert wm_rows(env.as_('ours').get(
+        '/api/water-mitigation/jobs', params={'search': '아이스크림'},
+    )) == {'12 Elm St': '아이스크림집'}
+    # Its own fields still find it
+    assert list(wm_rows(env.as_('ours').get(
+        '/api/water-mitigation/jobs', params={'search': 'Oak'},
+    ))) == ['9 Oak Ave']
+    # Someone who can't see the job can't find it by the nickname either
+    assert wm_rows(env.as_('theirs').get(
+        '/api/water-mitigation/jobs', params={'search': '아이스크림'},
+    )) == {}

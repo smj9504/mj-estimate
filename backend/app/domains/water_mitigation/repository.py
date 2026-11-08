@@ -112,12 +112,22 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
             conditions.append(WaterMitigationJob.client_id == client_id)
 
         if search:
+            from sqlalchemy import select
+            from app.domains.client.models import Claim, Client
+
             search_term = f"%{search}%"
+            # The list shows the claim's client's nickname, so it finds it too
+            nicknamed_claims = (
+                select(Claim.id)
+                .join(Client, Client.id == Claim.client_id)
+                .where(Client.nickname.ilike(search_term))
+            )
             conditions.append(
                 or_(
                     WaterMitigationJob.property_address.ilike(search_term),
                     WaterMitigationJob.homeowner_name.ilike(search_term),
-                    WaterMitigationJob.claim_number.ilike(search_term)
+                    WaterMitigationJob.claim_number.ilike(search_term),
+                    WaterMitigationJob.claim_id.in_(nicknamed_claims),
                 )
             )
 

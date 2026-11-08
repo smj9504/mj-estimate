@@ -326,6 +326,9 @@ def list_jobs(
         from .supplement_link import supplements_for_jobs
         supplements = supplements_for_jobs(service.session, jobs)
 
+        from .client_nickname import client_nicknames_for_jobs
+        nicknames = client_nicknames_for_jobs(service.session, jobs)
+
         # Convert to response
         job_dicts = []
         for job in jobs:
@@ -333,6 +336,7 @@ def list_jobs(
             job_dict['photo_count'] = getattr(job, 'photo_count', 0)
             job_dict['approved_amount_auto'] = insurance_amounts.get(str(job.id))
             job_dict['supplements'] = supplements.get(str(job.id), [])
+            job_dict['client_nickname'] = nicknames.get(str(job.id))
             job_dicts.append(job_dict)
 
         total_pages = math.ceil(total / page_size) if total > 0 else 0

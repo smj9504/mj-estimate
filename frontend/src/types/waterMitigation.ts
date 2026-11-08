@@ -139,6 +139,8 @@ export interface WaterMitigationJob {
 
   // Supplement requests on the linked claim, open ones first (list only)
   supplements?: JobSupplement[];
+  // What staff call the claim's client ("아이스크림집"), when it has one (list only)
+  client_nickname?: string | null;
 }
 
 export interface JobSupplement {

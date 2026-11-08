@@ -45,6 +45,7 @@ import type {
 import { JOB_STATUS_OPTIONS } from '../types/waterMitigation';
 import { PageHeader, Pill } from '../components/common/ui';
 import { WMStatusPill } from '../components/water-mitigation/wmStatus';
+import { ClientNickname } from '../components/client/ClientNickname';
 import { SUPPLEMENT_STATUS_TONES, supplementStatusLabel } from '../components/supplement/supplementUi';
 import { useAuth } from '../contexts/AuthContext';
 import JobFormModal from '../components/water-mitigation/JobFormModal';
@@ -454,7 +455,16 @@ const WaterMitigationList: React.FC = () => {
       dataIndex: 'homeowner_name',
       key: 'homeowner_name',
       width: 150,
-      ellipsis: true
+      ellipsis: true,
+      render: (name: string | undefined, record) => (
+        <>
+          {name}
+          <ClientNickname
+            nickname={record.client_nickname}
+            style={name ? { display: 'block', fontSize: 12 } : { fontSize: 12 }}
+          />
+        </>
+      )
     },
     {
       title: 'Insurance Company',
@@ -522,8 +532,13 @@ const WaterMitigationList: React.FC = () => {
           <a className="ui-ink-link" onClick={() => navigate(`/water-mitigation/${record.id}`)}>
             {address}
           </a>
-          {record.homeowner_name && (
-            <div><Text type="secondary" style={{ fontSize: 12 }}>{record.homeowner_name}</Text></div>
+          {(record.homeowner_name || record.client_nickname) && (
+            <div>
+              {record.homeowner_name && (
+                <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>{record.homeowner_name}</Text>
+              )}
+              <ClientNickname nickname={record.client_nickname} style={{ fontSize: 12 }} />
+            </div>
           )}
         </div>
       )
@@ -608,7 +623,15 @@ const WaterMitigationList: React.FC = () => {
         <span className="ui-row-title">{job.property_address}</span>
         <div className="ui-row-meta">
           {job.company && <CompanyTag company={job.company} />}
-          {job.homeowner_name && <span>{job.homeowner_name}</span>}
+          {(job.homeowner_name || job.client_nickname) && (
+            <span>
+              {job.homeowner_name}
+              <ClientNickname
+                nickname={job.client_nickname}
+                style={job.homeowner_name ? { marginLeft: 6 } : undefined}
+              />
+            </span>
+          )}
           {job.claim_number && <span>Claim: {job.claim_number}</span>}
           {(job.photo_count ?? 0) > 0 && <span>Photos: {job.photo_count}</span>}
         </div>
@@ -700,7 +723,7 @@ const WaterMitigationList: React.FC = () => {
       {/* Filters */}
       <div className="ui-toolbar">
         <Search
-          placeholder="Search address, homeowner, claim..."
+          placeholder="Search address, homeowner, nickname, claim..."
           allowClear
           onSearch={handleSearch}
           style={{ width: isMobile ? '100%' : 320, minWidth: 0 }}

@@ -302,6 +302,8 @@ class JobResponse(JobBase):
     approved_amount_auto: Optional[float] = None
     # Supplement requests on the linked claim, open ones first. Only the list fills it.
     supplements: Optional[List[JobSupplementBrief]] = None
+    # What staff call the claim's client ("아이스크림집"), when it has one. Only the list fills it.
+    client_nickname: Optional[str] = None
 
     @field_serializer(
         'date_of_loss', 'mitigation_start_date', 'mitigation_end_date',
