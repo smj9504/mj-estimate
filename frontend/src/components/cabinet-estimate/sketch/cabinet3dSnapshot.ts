@@ -16,6 +16,7 @@ import {
   modelBounds,
   wallSolids,
 } from './cabinet3dModel';
+import { backsplashLayout, faceKeeps, splashPieces } from './cabinetBacksplash';
 import { buildCabinetScene, cutAwayWalls, disposeScene } from './cabinet3dScene';
 import {
   addLights,
@@ -89,6 +90,12 @@ export async function renderKitchenViews(
     surfaces,
     crown: input.crownMolding,
     archedDoors: input.archedDoors,
+    // The finish's tile on the faces the sketch gives backsplash, as far as it runs there.
+    backsplash: {
+      tileIn: null,
+      counter: false,
+      faces: faceKeeps(backsplashLayout(splashPieces(solids, applianceModels, wallModels), wallModels, input.backsplash)),
+    },
   });
   scene.add(content);
 
