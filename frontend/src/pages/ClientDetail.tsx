@@ -32,8 +32,9 @@ import {
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
-  ArrowLeftOutlined,
   EditOutlined,
+  EnvironmentOutlined,
+  PushpinOutlined,
   PlusOutlined,
   DeleteOutlined,
   FileTextOutlined,
@@ -65,7 +66,8 @@ import {
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
-import { PageHeader, Pill, PropertyList, humanize, toneFromKey, useSheetModal, type TagTone } from '../components/common/ui';
+import { Pill, PropertyList, humanize, toneFromKey, useSheetModal, type TagTone } from '../components/common/ui';
+import '../components/client/clientRecord.css';
 import { tagTones } from '../styles/tokens';
 import ClaimSection from '../components/client/ClaimSection';
 import ClaimStagePill from '../components/client/ClaimStagePill';
@@ -228,6 +230,129 @@ const ClaimActivityTimeline: React.FC<{ clientId: string; claimId: string }> = (
 
 const primaryOwner = (owners: OwnerInfo[]) =>
   owners.find((o) => o.is_primary) ?? owners[0];
+
+// ─────────────────────────────────────────────
+// Record header: who the client is and how to reach them, then the facts
+// staff look for first, the way a CRM record opens
+// ─────────────────────────────────────────────
+
+const OPEN_CLAIM_STATUSES: ClaimStatus[] = ['open', 'negotiating', 'appraisal'];
+
+/** Up to two initials for the avatar: the first and last words that start with a letter */
+const initialsOf = (name: string) => {
+  const words = name.split(/\s+/).filter((w) => /^[A-Za-z]/.test(w));
+  if (words.length === 0) return name.trim().slice(0, 1).toUpperCase() || '?';
+  return (words[0][0] + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+};
+
+const telHref = (phone: string) => `tel:${phone.split(/ext/i)[0].replace(/[^\d+]/g, '')}`;
+const mapsHref = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+
+interface RecordContact {
+  name?: string;
+  primary?: boolean;
+  phone?: string;
+  email?: string;
+}
+
+/** The people to reach: each owner, then the client's own phone or email when no owner has it */
+const recordContacts = (client: Client): RecordContact[] => {
+  const owners: RecordContact[] = client.owners.map((o) => ({
+    name: o.name,
+    primary: o.is_primary && client.owners.length > 1,
+    phone: o.phone,
+    email: o.email,
+  }));
+  const phone = client.phone && !owners.some((o) => o.phone === client.phone) ? client.phone : undefined;
+  const email = client.email && !owners.some((o) => o.email === client.email) ? client.email : undefined;
+  return phone || email ? [...owners, { phone, email }] : owners;
+};
+
+const ClientRecordHeader: React.FC<{ client: Client; claims: Claim[]; actions: React.ReactNode }> = ({
+  client,
+  claims,
+  actions,
+}) => {
+  const address = [client.address, client.city, client.state, client.zipcode].filter(Boolean).join(', ');
+  const tone = tagTones[toneFromKey(client.id)];
+  const contacts = recordContacts(client);
+  const insurance = claims.filter((c) => !isCashJob(c));
+  const open = insurance.filter((c) => OPEN_CLAIM_STATUSES.includes(c.status)).length;
+  const rcv = insurance.reduce((sum, c) => sum + (c.current_rcv || 0), 0);
+  const paid = insurance.reduce((sum, c) => sum + (c.total_insurance_paid || 0), 0);
+  const facts: { label: string; value?: string | null }[] = [
+    { label: 'Insurance', value: client.insurance_company },
+    { label: 'Policy #', value: client.insurance_policy_number },
+    { label: 'Open claims', value: insurance.length ? `${open} of ${insurance.length}` : 'None' },
+    { label: 'RCV', value: formatCurrency(rcv) },
+    { label: 'Insurance paid', value: formatCurrency(paid) },
+    { label: 'Added', value: client.created_at ? dayjs(client.created_at).format('MMM D, YYYY') : null },
+  ];
+
+  return (
+    <header className="clr">
+      <div className="clr-top">
+        <span className="clr-avatar" aria-hidden="true" style={{ background: tone.bg, color: tone.text }}>
+          {initialsOf(client.display_name)}
+        </span>
+        <div className="clr-titles">
+          <div className="clr-title-row">
+            <h1 className="ui-page-title">{client.display_name}</h1>
+            <Pill tone={client.is_active ? 'green' : 'gray'}>{client.is_active ? 'Active' : 'Inactive'}</Pill>
+          </div>
+          {address && (
+            <a className="clr-link clr-address" href={mapsHref(address)} target="_blank" rel="noopener noreferrer">
+              <EnvironmentOutlined className="clr-link-icon" aria-hidden="true" />
+              <span>{address}</span>
+            </a>
+          )}
+        </div>
+        <div className="ui-page-actions clr-actions">{actions}</div>
+      </div>
+
+      {contacts.length > 0 && (
+        <ul className="clr-contacts" aria-label="Contacts">
+          {contacts.map((c, i) => (
+            <li key={i} className="clr-contact">
+              <span className="clr-contact-name">
+                {c.name}
+                {c.primary && <span className="clr-contact-role">Primary</span>}
+              </span>
+              {c.phone ? (
+                <a className="clr-link" href={telHref(c.phone)}>
+                  <PhoneOutlined className="clr-link-icon" aria-hidden="true" />
+                  <span>{c.phone}</span>
+                </a>
+              ) : <span />}
+              {c.email ? (
+                <a className="clr-link" href={`mailto:${c.email}`}>
+                  <MailOutlined className="clr-link-icon" aria-hidden="true" />
+                  <span>{c.email}</span>
+                </a>
+              ) : <span />}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <dl className="clr-facts">
+        {facts.map((f) => (
+          <div key={f.label} className="clr-fact">
+            <dt>{f.label}</dt>
+            <dd className={f.value ? undefined : 'is-empty'}>{f.value || 'Empty'}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {client.notes && (
+        <div className="clr-note">
+          <PushpinOutlined className="clr-note-icon" aria-hidden="true" />
+          <p>{client.notes}</p>
+        </div>
+      )}
+    </header>
+  );
+};
 
 // ─────────────────────────────────────────────
 // Edit Client Modal
@@ -2178,36 +2303,73 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
 
 const isCashJob = (claim?: Pick<Claim, 'claim_type'> | null) => claim?.claim_type === 'cash';
 
-const ClaimRowHead: React.FC<{ claim: Claim; showAmounts?: 'rcv' | 'both' }> = ({ claim, showAmounts = 'rcv' }) => {
-  const hasAmounts = claim.current_acv > 0 || claim.current_rcv > 0;
+/**
+ * Claims list as columns, the way a CRM lists related records: the claim,
+ * its stage, carrier, date of loss and money, lined up under one header
+ * row (ClaimColumnsHead). Phones stack it: the claim and its stage, then
+ * the rest as a grey line, each figure named.
+ */
+type ClaimAmounts = 'rcv' | 'both';
+
+const CLAIM_COLUMNS: Record<ClaimAmounts, string[]> = {
+  rcv: ['Claim', 'Stage', 'Carrier', 'Date of loss', 'RCV', 'Paid'],
+  both: ['Claim', 'Stage', 'Carrier', 'Date of loss', 'ACV', 'RCV', 'Paid'],
+};
+
+const claimGridClass = (amounts: ClaimAmounts) => `clr-claim-grid${amounts === 'both' ? ' clr-claim-grid--acv' : ''}`;
+
+const ClaimColumnsHead: React.FC<{ amounts?: ClaimAmounts }> = ({ amounts = 'rcv' }) => (
+  <div className={`${claimGridClass(amounts)} clr-claim-cols`}>
+    {CLAIM_COLUMNS[amounts].map((name, i) => (
+      <span key={name} className={i >= 4 ? 'is-money' : undefined}>{name}</span>
+    ))}
+  </div>
+);
+
+const ClaimRowHead: React.FC<{ claim: Claim; showAmounts?: ClaimAmounts; action?: React.ReactNode }> = ({
+  claim,
+  showAmounts = 'rcv',
+  action,
+}) => {
   const cash = isCashJob(claim);
   // A cash job without a number goes by what the job is
-  const cashTitle = claim.claim_number || claim.loss_description || 'Cash job';
-  const meta = cash ? [
-    claim.claim_number && claim.loss_description,
-    claim.created_at && `Started ${formatDate(claim.created_at)}`,
-  ].filter(Boolean) : [
-    claim.insurance_company,
-    claim.date_of_loss && `Loss ${formatDate(claim.date_of_loss)}`,
-    hasAmounts && (showAmounts === 'both'
-      ? `ACV ${formatCurrency(claim.current_acv)} · RCV ${formatCurrency(claim.current_rcv)}`
-      : `RCV ${formatCurrency(claim.current_rcv)}`),
-  ].filter(Boolean);
+  const title = cash ? (claim.claim_number || claim.loss_description || 'Cash job') : (claim.claim_number || 'No claim #');
+  const money = (label: string, amount: number) => (
+    <span className={`clr-cell clr-cell--money${amount > 0 ? '' : ' is-empty'}`} data-label={label}>
+      {amount > 0 ? formatCurrency(amount) : '—'}
+    </span>
+  );
   return (
-    <div className="cl-claim-head">
-      <div className="cl-claim-title">
+    <div className={claimGridClass(showAmounts)}>
+      <span className="clr-cell clr-cell--claim">
+        <span className={`cl-claim-num${claim.claim_number || cash ? '' : ' is-missing'}`}>{title}</span>
         {cash && <Pill tone="purple">Cash Job</Pill>}
-        <span className="cl-claim-num">
-          {cash ? cashTitle : (claim.claim_number || 'No claim #')}
-        </span>
+        {cash && claim.claim_number && claim.loss_description && (
+          <span className="clr-claim-desc">{claim.loss_description}</span>
+        )}
+      </span>
+      <span className="clr-cell clr-cell--stage">
         <ClaimStagePill
           stage={claim.stage}
           detail={claim.stage_detail}
           source={claim.stage_source}
           construction={claim.construction}
         />
-      </div>
-      {meta.length > 0 && <div className="cl-meta">{meta.join(' · ')}</div>}
+      </span>
+      {action && <span className="clr-cell clr-cell--act">{action}</span>}
+      <span className="clr-cell-break" aria-hidden="true" />
+      <span
+        className={`clr-cell clr-cell--text${!cash && claim.insurance_company ? '' : ' is-empty'}`}
+        title={!cash ? claim.insurance_company : undefined}
+      >
+        {!cash && claim.insurance_company ? claim.insurance_company : '—'}
+      </span>
+      <span className={`clr-cell clr-cell--date${claim.date_of_loss ? '' : ' is-empty'}`} data-label="Loss">
+        {formatDate(claim.date_of_loss)}
+      </span>
+      {showAmounts === 'both' && money('ACV', claim.current_acv)}
+      {money('RCV', claim.current_rcv)}
+      {money('Paid', claim.total_insurance_paid)}
     </div>
   );
 };
@@ -2965,6 +3127,8 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
           </div>
         </>
       ) : (
+        <>
+        <ClaimColumnsHead />
         <Collapse
           ghost
           className="ui-collapse-rows cl-claims"
@@ -2973,21 +3137,25 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
           onChange={changeOpenClaim}
           items={claims.map((claim) => ({
             key: claim.id,
-            label: <ClaimRowHead claim={claim} />,
-            extra: (
-              <Tooltip title="Send Email">
-                <Button
-                  type="text"
-                  size="small"
-                  className="cl-touch-icon ui-icon-btn"
-                  aria-label="Send email"
-                  icon={<MailOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEmailDrawerClaim(claim);
-                  }}
-                />
-              </Tooltip>
+            label: (
+              <ClaimRowHead
+                claim={claim}
+                action={
+                  <Tooltip title="Send Email">
+                    <Button
+                      type="text"
+                      size="small"
+                      className="cl-touch-icon ui-icon-btn"
+                      aria-label="Send email"
+                      icon={<MailOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEmailDrawerClaim(claim);
+                      }}
+                    />
+                  </Tooltip>
+                }
+              />
             ),
             children: (
               <ClaimPanel
@@ -3003,6 +3171,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
             ),
           }))}
         />
+        </>
       )}
 
       <ClaimPhotoViewer
@@ -3475,6 +3644,8 @@ const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
   }
 
   return (
+    <>
+    <ClaimColumnsHead amounts="both" />
     <Collapse
       ghost
       className="ui-collapse-rows cl-claims"
@@ -3508,6 +3679,7 @@ const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
         ),
       }))}
     />
+    </>
   );
 };
 
@@ -3543,6 +3715,13 @@ const ClientDetail: React.FC = () => {
     queryKey: ['acculynx-archive-jobs', id],
     queryFn: () => acculynxArchiveService.listClientJobs(id!),
     enabled: !!id && seesAccuLynx,
+  });
+
+  // The client's claims, for the figures in the header (the Claims tab reads the same query)
+  const { data: claimsData } = useQuery({
+    queryKey: ['claims', id],
+    queryFn: () => claimService.listByClient(id!),
+    enabled: !!id,
   });
 
   const updateMutation = useMutation({
@@ -3583,12 +3762,6 @@ const ClientDetail: React.FC = () => {
       />
     );
   }
-
-  // ── Derived values ─────────────────────────
-  const owner = primaryOwner(client.owners);
-  const fullAddress = [client.address, client.city, client.state, client.zipcode]
-    .filter(Boolean)
-    .join(', ');
 
   // A client created by the AccuLynx import leads with its AccuLynx history;
   // a client the import matched to an existing one keeps it at the end
@@ -3663,24 +3836,9 @@ const ClientDetail: React.FC = () => {
 
   return (
     <div className="cl-page">
-      {/* Back navigation */}
-      <Button
-        icon={<ArrowLeftOutlined />}
-        type="text"
-        onClick={() => navigate('/clients')}
-        style={{ marginBottom: 16, paddingLeft: 0 }}
-      >
-        Back to Clients
-      </Button>
-
-      {/* Name and actions; on phones the actions drop under the name */}
-      <PageHeader
-        title={client.display_name}
-        meta={
-          <Pill tone={client.is_active ? 'green' : 'gray'}>
-            {client.is_active ? 'Active' : 'Inactive'}
-          </Pill>
-        }
+      <ClientRecordHeader
+        client={client}
+        claims={claimsData?.claims ?? client.claims ?? []}
         actions={
           <>
             {createDocumentItems.length > 0 && (
@@ -3696,49 +3854,6 @@ const ClientDetail: React.FC = () => {
           </>
         }
       />
-
-      {/* Client facts: contact on the left, insurance and notes on the right */}
-      <div className="cl-facts">
-        <PropertyList
-          labelWidth={120}
-          items={[
-            {
-              key: 'owners',
-              label: client.owners.length > 1 ? 'Owners' : 'Owner',
-              value: client.owners.length === 0 ? null : (
-                <div className="cl-owners">
-                  {client.owners.map((o, i) => (
-                    <div key={i} className="cl-owner">
-                      <span className="cl-owner-name">
-                        {o.name}
-                        {o.is_primary && client.owners.length > 1 && <Pill tone="gray">Primary</Pill>}
-                      </span>
-                      {(o.phone || o.email) && (
-                        <span className="cl-meta">{[o.phone, o.email].filter(Boolean).join(' · ')}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ),
-            },
-            { key: 'address', label: 'Address', icon: <HomeOutlined />, value: fullAddress || null },
-            { key: 'phone', label: 'Phone', icon: <PhoneOutlined />, value: client.phone || owner?.phone || null },
-            { key: 'email', label: 'Email', icon: <MailOutlined />, value: client.email || owner?.email || null },
-          ]}
-        />
-        <PropertyList
-          labelWidth={120}
-          items={[
-            { key: 'ins', label: 'Insurance', value: client.insurance_company || null },
-            { key: 'policy', label: 'Policy #', value: client.insurance_policy_number || null },
-            {
-              key: 'notes',
-              label: 'Notes',
-              value: client.notes ? <span className="cl-notes-text">{client.notes}</span> : null,
-            },
-          ]}
-        />
-      </div>
 
       <UnassignedContracts clientId={client.id} claims={client.claims} />
 

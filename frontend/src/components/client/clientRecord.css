@@ -1,0 +1,379 @@
+/* ============================================================
+   Client page (/clients/:id) as a CRM record: the header says who the
+   client is and how to reach them, a strip of the facts staff look for
+   first, then the claims as lined-up columns. White Sheet tokens only;
+   the claim panels inside stay the cl-* block in notion.css.
+   ============================================================ */
+
+/* ---------- Record header ---------- */
+
+.clr {
+  margin: 4px 0 24px;
+}
+.clr-top {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+}
+.clr-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.clr-titles {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.clr-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.clr-address {
+  margin-top: 4px;
+}
+.clr-actions {
+  margin-top: 2px;
+}
+
+/* Address, phone and email: ink until pointed at, then the link blue */
+.clr-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.clr-link > span {
+  overflow-wrap: anywhere;
+}
+.clr-link:hover {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+.clr-link:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+  border-radius: var(--radius-xs);
+}
+.clr-link-icon {
+  font-size: 12px;
+  color: var(--color-placeholder);
+}
+.clr-link:hover .clr-link-icon {
+  color: inherit;
+}
+
+/* Contacts: one line each, name, phone and email lined up under the title */
+.clr-contacts {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px 28px;
+  margin: 14px 0 0 58px;
+  padding: 0;
+  list-style: none;
+}
+.clr-contact {
+  display: contents;
+}
+.clr-contact-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.clr-contact-role {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+
+/* The facts strip: label over an ink value, between two hairlines */
+.clr-facts {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px 24px;
+  margin: 18px 0 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-neutral-200);
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.clr-fact {
+  min-width: 0;
+}
+.clr-fact dt {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.clr-fact dd {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.clr-fact dd.is-empty {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+
+/* The client's notes, pinned: a callout on Sidebar Paper */
+.clr-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--color-neutral-50);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  line-height: 1.5714;
+  color: var(--color-neutral-900);
+}
+.clr-note p {
+  margin: 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.clr-note-icon {
+  flex: none;
+  margin-top: 4px;
+  color: var(--tag-brown-text);
+}
+
+@media (max-width: 1199.98px) {
+  .clr-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767.98px) {
+  .clr {
+    margin: 0 0 20px;
+  }
+  .clr-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 15px;
+  }
+  .clr-titles {
+    flex-basis: calc(100% - 54px);
+  }
+  .clr-actions {
+    flex-basis: 100%;
+    margin-top: 0;
+  }
+  .clr-contacts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    margin-left: 0;
+  }
+  .clr-contact {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 16px;
+  }
+  .clr-contact-name {
+    flex-basis: 100%;
+  }
+  .clr-contact-name:empty {
+    display: none;
+  }
+  /* Thumb-sized: a call or an email is a tap */
+  .clr-contact .clr-link {
+    align-items: center;
+    min-height: 32px;
+    font-size: 14px;
+  }
+  .clr-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---------- Claims as columns ---------- */
+
+/* The tab body is the container the claim columns fit themselves to */
+.cl-page .cl-tabs > .ant-tabs-content-holder {
+  container: cltab / inline-size;
+}
+
+.clr-claim-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 1.1fr) minmax(150px, 1.4fr) minmax(96px, 1fr)
+    96px 112px 112px 32px;
+  align-items: center;
+  gap: 0 16px;
+  min-width: 0;
+}
+.clr-claim-grid--acv {
+  grid-template-columns:
+    minmax(120px, 1.1fr) minmax(150px, 1.4fr) minmax(96px, 1fr)
+    96px 112px 112px 112px 32px;
+}
+
+/* Column names, lined up with the cells under the open arrow */
+.clr-claim-cols {
+  padding: 8px 4px 8px 28px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-600);
+}
+.clr-claim-cols .is-money {
+  text-align: right;
+}
+
+.clr-cell {
+  min-width: 0;
+}
+.clr-cell--claim {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+.cl-claim-num.is-missing {
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.clr-claim-desc {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.clr-cell--text,
+.clr-cell--date {
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--color-neutral-900);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.clr-cell--date,
+.clr-cell--money {
+  font-variant-numeric: tabular-nums;
+}
+.clr-cell--money {
+  font-size: 14px;
+  color: var(--color-neutral-900);
+  text-align: right;
+  white-space: nowrap;
+}
+.clr-cell.is-empty {
+  color: var(--color-neutral-600);
+}
+.clr-cell--act {
+  order: 99;
+  justify-self: end;
+}
+.clr-cell-break {
+  display: none;
+}
+
+/* One line per claim, the open arrow level with it */
+.cl-page .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+  flex-wrap: nowrap;
+  padding: 10px 4px;
+}
+.cl-page .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header > .ant-collapse-header-text {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.cl-page .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header .ant-collapse-expand-icon {
+  align-self: center;
+  margin-top: 0;
+}
+
+/* ---------- Empty sections in an open claim ---------- */
+
+/* An empty section is its heading with a grey "None" beside it, the way a
+   CRM shows an empty related list, not a heading over a line saying so.
+   Kept as a line: a guide that teaches the section (packing), the email
+   views, whose line says which view is empty. A section with its own
+   composer (notes) just drops the line. */
+.cl-page .cl-section--claim:not(:has(.cl-view-tabs)) > .cl-empty:not(.cl-empty--guide):last-child,
+.cl-page .cl-section--claim:has(> .cl-table .ant-table-empty) > .cl-table {
+  display: none;
+}
+.cl-page .cl-section--claim:not(:has(.cl-view-tabs)):not(:has(.cl-note-composer)):has(> .cl-empty:not(.cl-empty--guide):last-child) > .ui-section-head .ui-section-title::after,
+.cl-page .cl-section--claim:has(> .cl-table .ant-table-empty) > .ui-section-head .ui-section-title::after {
+  content: 'None';
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+
+/* Too narrow for columns: the claim and its stage, then the rest as a grey line */
+@container cltab (max-width: 860px) {
+  .clr-claim-grid.clr-claim-cols {
+    display: none;
+  }
+  .clr-claim-grid,
+  .clr-claim-grid--acv {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+  }
+  .clr-cell--claim {
+    order: 1;
+  }
+  .clr-cell--stage {
+    order: 2;
+  }
+  .clr-cell--act {
+    order: 3;
+    margin-left: auto;
+  }
+  .clr-cell-break {
+    display: block;
+    order: 4;
+    flex-basis: 100%;
+    height: 0;
+  }
+  .clr-cell--text,
+  .clr-cell--date,
+  .clr-cell--money {
+    order: 5;
+    font-size: 13px;
+    color: var(--color-neutral-600);
+  }
+  .clr-cell.is-empty {
+    display: none;
+  }
+  .clr-cell--date::before,
+  .clr-cell--money::before {
+    content: attr(data-label) ' ';
+  }
+  .cl-page .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+    padding: 12px 4px;
+  }
+  .cl-page .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header .ant-collapse-expand-icon {
+    align-self: flex-start;
+    margin-top: 4px;
+  }
+}

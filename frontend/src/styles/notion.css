@@ -3591,34 +3591,6 @@ mark.fu-tpl-missing {
   padding: 4px 0;
 }
 
-/* Client facts under the page title: two property columns, no box */
-.cl-facts {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0 48px;
-  margin-bottom: 28px;
-}
-.cl-owners {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.cl-owner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 10px;
-}
-.cl-owner-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-}
-.cl-notes-text {
-  white-space: pre-wrap;
-}
-
 /* Tabs straight on the sheet; the count sits quietly after the label */
 .cl-tabs > .ant-tabs-nav {
   margin-bottom: 16px;
@@ -3636,31 +3608,20 @@ mark.fu-tpl-missing {
   margin-bottom: 4px;
 }
 
-/* Claims: one hairline row per claim (ui-collapse-rows), the claim number
-   with its status, insurer and figures on a grey line under it */
+/* Claims: one hairline row per claim (ui-collapse-rows). The row itself,
+   its columns and the header over them are clr-* in
+   components/client/clientRecord.css. */
 .cl-claims.ant-collapse > .ant-collapse-item:first-child {
   border-top: 1px solid var(--color-neutral-200);
 }
 .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header {
-  padding: 12px 4px;
   align-items: center;
 }
 .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header .ant-collapse-expand-icon {
   padding-top: 0;
-  align-self: flex-start;
-  margin-top: 4px;
 }
 .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
   padding: 4px 4px 28px 28px;
-}
-.cl-claim-head {
-  min-width: 0;
-}
-.cl-claim-title {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
 }
 .cl-claim-num {
   font-size: 15px;
@@ -3674,10 +3635,6 @@ mark.fu-tpl-missing {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-}
-.cl-claim-head .cl-meta {
-  margin-top: 2px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* An open claim: the work in a wide column, facts and follow-ups beside it */

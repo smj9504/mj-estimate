@@ -127,7 +127,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
       )}
     >
       {!isLoading && rooms.length === 0 && (
-        <div className="cl-empty">
+        <div className="cl-empty cl-empty--guide">
           No photos picked for packing yet. In Photos below, select the photos of the contents, choose Use for packing, then pick their room.
         </div>
       )}
