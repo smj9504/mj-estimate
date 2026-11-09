@@ -101,6 +101,11 @@ function WaitGone($prefix, $ms = 4000) {
 }
 function Front {
   # Bring Xactimate's topmost window (the open dialog, if any) to the front.
+  if (-not (XWindows | Select-Object -First 1)) {
+    # Xactimate was closed and opened again: follow the new process.
+    $np = Get-Process -Name $Proc -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($np -and [uint32]$np.Id -ne $xpid) { $script:xp = $np; $script:xpid = [uint32]$np.Id; Log "Xactimate was reopened - following the new one (pid $xpid)" }
+  }
   if ([X]::IsIconic($xp.MainWindowHandle)) { [X]::ShowWindow($xp.MainWindowHandle, 9) | Out-Null }
   $top = (XWindows | Select-Object -First 1).H
   if (-not $top) { throw "no Xactimate window" }

@@ -66,7 +66,8 @@ failed items twice) with `pause.ps1` / `resume.ps1` / `status.ps1`. Nothing is
 fetched twice: items marked ok or skipped in `index.tsv` and complete PDFs
 already on disk are skipped, and only one runner and one supervisor run at a
 time. Three failures in a row (Xactimate logged off after ~9 hours) pause the
-run until `resume.ps1`. Never `tail -f` the run's files: an open handle made
+run until `resume.ps1`; if Xactimate was closed and opened again in the
+meantime, the running reader follows the new one. Never `tail -f` the run's files: an open handle made
 the runner's log writes fail once.
 
 Then, from `backend/`:
