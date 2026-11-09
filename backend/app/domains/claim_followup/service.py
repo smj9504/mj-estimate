@@ -1473,48 +1473,12 @@ class ClaimFollowUpService:
 
     def _auto_create_rebuild_project(self, session, claim, property_address: str):
         """Auto-create a Rebuild Project when insurance estimate is received"""
-        try:
-            from app.domains.rebuild.models import RebuildProject
-            from app.domains.client.models import ClaimActivity
-
-            # Check if rebuild project already exists for this claim
-            existing = session.query(RebuildProject).filter(
-                RebuildProject.claim_id == str(claim.id)
-            ).first()
-            if existing:
-                logger.info(f"Rebuild project already exists for claim {claim.id}")
-                return
-
-            claim_number = claim.claim_number or ''
-            address = property_address or (
-                getattr(claim, 'client', None) and
-                getattr(claim.client, 'address', '')
-            ) or ''
-
-            project = RebuildProject(
-                claim_id=str(claim.id),
-                title=f"Rebuild - {address or claim_number}",
-                property_address=address,
-                status='pending',
-                insurance_estimate_amount=float(claim.current_rcv or 0),
-                priority='normal',
-            )
-            session.add(project)
-            session.flush()
-
-            # Log activity
-            session.add(ClaimActivity(
-                claim_id=str(claim.id),
-                activity_type='rebuild_created',
-                title='Rebuild project created',
-                description=f'Auto-created rebuild project after insurance estimate received.',
-                related_entity_type='rebuild_project',
-                related_entity_id=project.id,
-            ))
-
-            logger.info(f"Auto-created rebuild project for claim {claim.id}")
-        except Exception as e:
-            logger.error(f"Error auto-creating rebuild project: {e}")
+        from app.domains.rebuild.auto_create import ensure_rebuild_project
+        ensure_rebuild_project(
+            session, claim,
+            reason='insurance estimate received',
+            property_address=property_address,
+        )
 
     def delete_task(self, task_id: str) -> bool:
         """Delete a follow-up task"""

@@ -315,6 +315,7 @@ def get_active_rebuilds(db=Depends(get_db), current_staff=Depends(get_current_st
     service = RebuildService()
     items, _ = service.get_projects({
         "status": "in_progress",
+        "customer_managed": False,
         "page": 1,
         "page_size": 50,
     }, scope=claim_condition(db, current_staff, RebuildProject.claim_id))

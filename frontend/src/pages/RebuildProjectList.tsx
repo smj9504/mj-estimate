@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   Table, List, Button, Modal, Form, Input, InputNumber,
-  Select, message, Row, Col, DatePicker, Skeleton, Tooltip,
+  Select, message, Row, Col, DatePicker, Skeleton, Tooltip, Checkbox,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, TeamOutlined, CheckOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { rebuildService } from '../services/rebuildService';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import RebuildProjectDetailModal from '../components/rebuild/RebuildProjectDetailModal';
 import {
   REBUILD_STATUSES, REBUILD_STATUS_TONES, RebuildStatusPill, rebuildStatusLabel, formatCurrency,
@@ -44,6 +45,12 @@ const RebuildProjectList: React.FC = () => {
   // Phones get thumb-sized controls at 16px, which also keeps iOS from zooming on focus
   const formSize = isPhone ? 'large' : 'small';
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  // Our builds by default; the customer's own builds only when asked for
+  const [customerView, setCustomerView] = useState(false);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search.trim(), 300);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [contractorModalOpen, setContractorModalOpen] = useState(false);
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
@@ -56,10 +63,31 @@ const RebuildProjectList: React.FC = () => {
     queryKey: ['rebuild-stats'],
     queryFn: () => rebuildService.getStats(),
   });
-  const { data: projects = [], isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['rebuild-projects', statusFilter],
-    queryFn: () => rebuildService.listProjects({ status: statusFilter, page_size: 100 }),
+  // Server pages and searches; the last page stays on screen while the next loads
+  const { data: projectPage, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ['rebuild-projects', customerView, statusFilter, debouncedSearch, page, pageSize],
+    queryFn: () => rebuildService.listProjects({
+      status: statusFilter,
+      search: debouncedSearch || undefined,
+      customer_managed: customerView || undefined,
+      page,
+      page_size: pageSize,
+    }),
+    placeholderData: keepPreviousData,
   });
+  const projects = projectPage?.items ?? [];
+  const total = projectPage?.total ?? 0;
+
+  // A new filter or search starts again from page 1
+  const pickStatus = (key?: string) => { setStatusFilter(key); setCustomerView(false); setPage(1); };
+  const pickCustomerView = () => { setCustomerView(true); setStatusFilter(undefined); setPage(1); };
+  const changeSearch = (value: string) => { setSearch(value); setPage(1); };
+  // Deleting the last row of the last page steps back to the page before it
+  useEffect(() => {
+    if (!projectPage) return;
+    const lastPage = Math.max(1, Math.ceil(projectPage.total / pageSize));
+    if (page > lastPage) setPage(lastPage);
+  }, [projectPage, page, pageSize]);
   const { data: contractors = [] } = useQuery({
     queryKey: ['rebuild-contractors'],
     queryFn: () => rebuildService.listContractors(),
@@ -126,6 +154,10 @@ const RebuildProjectList: React.FC = () => {
       render: (_, r) => <span className="rb-list-address">{r.property_address || r.title}</span>,
     },
     {
+      title: 'Client', key: 'client', width: 180, ellipsis: true,
+      render: (_, r) => r.client_name || '-',
+    },
+    {
       title: 'Claim', key: 'claim', width: 160,
       render: (_, r) => <span className="rb-list-claim">{r.claim_number || '-'}</span>,
     },
@@ -147,7 +179,7 @@ const RebuildProjectList: React.FC = () => {
     },
   ];
 
-  // Phone row: status first, then the address, then claim, contractor and money
+  // Phone row: status first, then the address, then client, claim, contractor and money
   const renderMobileItem = (r: RebuildProject) => (
     <div
       className="ui-row"
@@ -162,6 +194,7 @@ const RebuildProjectList: React.FC = () => {
         </div>
         <span className="ui-row-title">{r.property_address || r.title}</span>
         <div className="ui-row-meta">
+          {r.client_name && <span>{r.client_name}</span>}
           {r.claim_number && <span>{r.claim_number}</span>}
           <span>{r.contractor_name || 'Unassigned'}</span>
         </div>
@@ -180,8 +213,42 @@ const RebuildProjectList: React.FC = () => {
     { label: 'Contractors', value: String(stats?.total_contractors ?? 0) },
   ];
 
-  const statusText = statusFilter ? rebuildStatusLabel(statusFilter).toLowerCase() : '';
-  const emptyText = statusFilter ? `No ${statusText} projects` : 'No rebuild projects yet';
+  const statusText = customerView
+    ? "customer's contractor"
+    : statusFilter ? rebuildStatusLabel(statusFilter).toLowerCase() : '';
+  const emptyText = debouncedSearch
+    ? `No ${statusFilter ? `${statusText} ` : ''}projects match "${debouncedSearch}"`
+    : customerView ? 'No projects where the customer hires their own contractor'
+      : statusFilter ? `No ${statusText} projects` : 'No rebuild projects yet';
+
+  // Builds the customer arranges themselves: off the other tabs, here on their own
+  const customerTab = (
+    <>
+      <span className="rb-tabs-divider" aria-hidden="true" />
+      <Tooltip title="The customer hires their own contractor and we don't build it">
+        <Button
+          type="text"
+          size="small"
+          aria-pressed={customerView}
+          className={`ui-view-tab rb-customer-tab${customerView ? ' is-selected' : ''}`}
+          onClick={pickCustomerView}
+        >
+          Customer's contractor
+          {!!stats?.customer_managed && <span className="ui-tab-count">{stats.customer_managed}</span>}
+        </Button>
+      </Tooltip>
+    </>
+  );
+
+  const pagination = {
+    current: page,
+    pageSize,
+    total,
+    onChange: (p: number, ps: number) => {
+      // A new page size starts from page 1
+      if (ps !== pageSize) { setPageSize(ps); setPage(1); } else setPage(p);
+    },
+  };
 
   return (
     <div>
@@ -189,8 +256,9 @@ const RebuildProjectList: React.FC = () => {
         title="Rebuild Projects"
         meta={isLoading ? undefined : (
           <span>
-            {projects.length} {projects.length === 1 ? 'project' : 'projects'}
+            {total} {total === 1 ? 'project' : 'projects'}
             {statusText ? ` · ${statusText}` : ''}
+            {debouncedSearch ? ` · matching "${debouncedSearch}"` : ''}
           </span>
         )}
         actions={
@@ -204,7 +272,7 @@ const RebuildProjectList: React.FC = () => {
         }
       />
 
-      {/* Totals across every project, whatever the status filter */}
+      {/* Totals across all our builds, whatever the filter; the customer's own builds never count */}
       <dl className="rb-figures">
         {figures.map(f => (
           <div className="rb-figure" key={f.label}>
@@ -218,34 +286,51 @@ const RebuildProjectList: React.FC = () => {
         ))}
       </dl>
 
-      {/* Status filter: one quiet view tab per status, its colour kept as a dot */}
-      <div className="ui-status-tabs" role="group" aria-label="Filter by status">
-        <Button
-          type="text"
-          size="small"
-          aria-pressed={!statusFilter}
-          className={`ui-view-tab${!statusFilter ? ' is-selected' : ''}`}
-          onClick={() => setStatusFilter(undefined)}
-        >
-          All
-        </Button>
-        {REBUILD_STATUSES.map(key => (
+      {/* Status filter: one quiet view tab per status, its colour kept as a dot; search shares the row */}
+      <div className="ui-toolbar rb-toolbar">
+        <div className="ui-status-tabs rb-status-tabs" role="group" aria-label="Filter by status">
           <Button
-            key={key}
             type="text"
             size="small"
-            aria-pressed={statusFilter === key}
-            className={`ui-view-tab${statusFilter === key ? ' is-selected' : ''}`}
-            onClick={() => setStatusFilter(key)}
+            aria-pressed={!customerView && !statusFilter}
+            className={`ui-view-tab${!customerView && !statusFilter ? ' is-selected' : ''}`}
+            onClick={() => pickStatus(undefined)}
           >
-            <span
-              className="ui-filter-chip-dot"
-              style={{ background: tagTones[REBUILD_STATUS_TONES[key]].text }}
-              aria-hidden="true"
-            />
-            {rebuildStatusLabel(key)}
+            All
           </Button>
-        ))}
+          {REBUILD_STATUSES.map(key => (
+            <Button
+              key={key}
+              type="text"
+              size="small"
+              aria-pressed={!customerView && statusFilter === key}
+              className={`ui-view-tab${!customerView && statusFilter === key ? ' is-selected' : ''}`}
+              onClick={() => pickStatus(key)}
+            >
+              <span
+                className="ui-filter-chip-dot"
+                style={{ background: tagTones[REBUILD_STATUS_TONES[key]].text }}
+                aria-hidden="true"
+              />
+              {rebuildStatusLabel(key)}
+            </Button>
+          ))}
+          {/* Phones: the tab row scrolls, so it ends the row */}
+          {isPhone && customerTab}
+        </div>
+        {/* Desktop: kept out of the scrolling tabs so it never slides out of sight */}
+        {!isPhone && customerTab}
+        <div className="ui-toolbar-end" style={isPhone ? { width: '100%' } : undefined}>
+          <Input.Search
+            placeholder="Search address, client, claim #..."
+            allowClear
+            value={search}
+            onChange={e => changeSearch(e.target.value)}
+            size={isPhone ? 'large' : undefined}
+            style={{ width: isPhone ? '100%' : 260 }}
+            aria-label="Search rebuild projects"
+          />
+        </div>
       </div>
 
       {isPhone ? (
@@ -255,13 +340,21 @@ const RebuildProjectList: React.FC = () => {
           loading={isLoading}
           renderItem={renderMobileItem}
           locale={{ emptyText }}
-          pagination={projects.length > 20 ? { pageSize: 20, size: 'small', align: 'center' } : false}
+          pagination={total > pageSize
+            ? { ...pagination, size: 'small', align: 'center', showSizeChanger: false }
+            : false}
         />
       ) : (
         <Table dataSource={projects} columns={columns} rowKey="id" loading={isLoading}
-          size="middle" scroll={{ x: 800 }}
+          size="middle" scroll={{ x: 980 }}
           locale={{ emptyText }}
-          pagination={{ pageSize: 20, hideOnSinglePage: true, showTotal: t => `${t} projects` }}
+          pagination={{
+            ...pagination,
+            hideOnSinglePage: true,
+            showSizeChanger: true,
+            pageSizeOptions: [20, 50, 100],
+            showTotal: t => `${t} projects`,
+          }}
           onRow={(record) => ({
             onClick: () => setDetailProjectId(record.id),
             style: { cursor: 'pointer' },
@@ -371,6 +464,7 @@ const RebuildProjectList: React.FC = () => {
             start_date: p.start_date ? dayjs(p.start_date) : undefined,
             estimated_completion: p.estimated_completion ? dayjs(p.estimated_completion) : undefined,
             notes: p.notes,
+            customer_managed: !!p.customer_managed,
           });
           setEditProject(p);
         }}
@@ -414,6 +508,11 @@ const RebuildProjectList: React.FC = () => {
           <Form.Item name="contractor_id" label="Contractor">
             <Select allowClear placeholder="Select contractor"
               options={contractors.map((c: RebuildContractor) => ({ value: c.id, label: c.company_name }))} />
+          </Form.Item>
+          {/* Moves the project off the list into the "Customer's own contractor" tab */}
+          <Form.Item name="customer_managed" valuePropName="checked"
+            extra="We don't build it. It moves off the main list and out of the totals, into the Customer's contractor tab.">
+            <Checkbox>Customer hires their own contractor</Checkbox>
           </Form.Item>
           <Form.Item name="property_address" label="Property Address">
             <AddressAutocomplete fillFullAddress />

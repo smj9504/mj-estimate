@@ -27,6 +27,7 @@ from app.domains.rebuild.schemas import (
     RebuildContractorUpdate,
     RebuildDashboardStats,
     RebuildProjectCreate,
+    RebuildProjectListResponse,
     RebuildProjectResponse,
     RebuildProjectUpdate,
 )
@@ -107,11 +108,15 @@ def delete_contractor(contractor_id: str, current_staff=Depends(get_current_staf
 # Projects
 # ============================================================
 
-@router.get("/rebuild/projects", response_model=List[RebuildProjectResponse])
+@router.get("/rebuild/projects", response_model=RebuildProjectListResponse)
 def list_projects(
     status: Optional[str] = Query(None),
     contractor_id: Optional[str] = Query(None),
     claim_id: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, description="Address, title, client, claim # or contractor"),
+    customer_managed: bool = Query(
+        False, description="true lists only the projects the customer builds with their own contractor"
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db=Depends(get_db),
@@ -119,9 +124,11 @@ def list_projects(
 ):
     items, total = _get_service().get_projects({
         "status": status, "contractor_id": contractor_id,
-        "claim_id": claim_id, "page": page, "page_size": page_size,
+        "claim_id": claim_id, "search": search,
+        "customer_managed": customer_managed,
+        "page": page, "page_size": page_size,
     }, scope=claim_condition(db, current_staff, RebuildProject.claim_id))
-    return items
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/rebuild/projects/stats", response_model=RebuildDashboardStats)

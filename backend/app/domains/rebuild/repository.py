@@ -5,7 +5,7 @@ Rebuild domain repository implementations.
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
@@ -46,6 +46,8 @@ class RebuildProjectRepository(SQLAlchemyRepository):
         status: Optional[str] = None,
         contractor_id: Optional[str] = None,
         claim_id: Optional[str] = None,
+        search: Optional[str] = None,
+        customer_managed: Optional[bool] = None,
         page: int = 1,
         page_size: int = 20,
         scope: Any = None,
@@ -59,6 +61,29 @@ class RebuildProjectRepository(SQLAlchemyRepository):
             query = query.filter(RebuildProject.contractor_id == contractor_id)
         if claim_id:
             query = query.filter(RebuildProject.claim_id == claim_id)
+        # None = both; the Rebuild list asks for ours unless told otherwise
+        if customer_managed is not None:
+            query = query.filter(RebuildProject.customer_managed == customer_managed)
+        search = (search or '').strip()
+        if search:
+            # Address, title, client, claim number and contractor — what the
+            # list shows. Each project has one claim, client and contractor,
+            # so the joins never repeat a row.
+            from app.domains.client.models import Claim, Client
+            term = f"%{search}%"
+            query = (
+                query
+                .outerjoin(Claim, Claim.id == RebuildProject.claim_id)
+                .outerjoin(Client, Client.id == Claim.client_id)
+                .outerjoin(RebuildContractor, RebuildContractor.id == RebuildProject.contractor_id)
+                .filter(or_(
+                    RebuildProject.property_address.ilike(term),
+                    RebuildProject.title.ilike(term),
+                    Client.display_name.ilike(term),
+                    Claim.claim_number.ilike(term),
+                    RebuildContractor.company_name.ilike(term),
+                ))
+            )
 
         total = query.count()
         query = query.order_by(RebuildProject.created_at.desc())
@@ -74,18 +99,23 @@ class RebuildProjectRepository(SQLAlchemyRepository):
         return [self._convert_to_dict(p) for p in items]
 
     def get_dashboard_stats(self, scope: Any = None) -> Dict[str, Any]:
+        # The figures are our builds; the customer's own builds are only counted
+        ours = RebuildProject.customer_managed.is_(False)
         total = scoped(
-            self.db_session.query(func.count(RebuildProject.id)), scope
+            self.db_session.query(func.count(RebuildProject.id)).filter(ours), scope
+        ).scalar() or 0
+        customer_managed = scoped(
+            self.db_session.query(func.count(RebuildProject.id)).filter(~ours), scope
         ).scalar() or 0
 
         status_counts = scoped(self.db_session.query(
             RebuildProject.status, func.count(RebuildProject.id)
-        ), scope).group_by(RebuildProject.status).all()
+        ).filter(ours), scope).group_by(RebuildProject.status).all()
         counts = {s: c for s, c in status_counts}
 
         total_contract = scoped(self.db_session.query(
             func.sum(RebuildProject.contract_amount)
-        ).filter(RebuildProject.status.in_(['in_progress', 'completed', 'invoiced'])), scope).scalar() or 0
+        ).filter(ours, RebuildProject.status.in_(['in_progress', 'completed', 'invoiced'])), scope).scalar() or 0
 
         # The contractor directory isn't per claim, so this count isn't scoped
         total_contractors = self.db_session.query(func.count(RebuildContractor.id)).filter(
@@ -101,6 +131,7 @@ class RebuildProjectRepository(SQLAlchemyRepository):
             "docs_sent": counts.get('docs_sent', 0),
             "total_contract_amount": float(total_contract),
             "total_contractors": total_contractors,
+            "customer_managed": customer_managed,
         }
 
 

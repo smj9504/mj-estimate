@@ -315,6 +315,7 @@ class SupplementService:
             self._recalculate_supplement_amount(session, str(data['supplement_id']))
             # Auto-advance status from 'identified' to 'in_progress' when bid item is added
             self._auto_advance_status(session, str(data['supplement_id']))
+            self._rebuild_project_on_bid_pdf(session, result)
             session.commit()
             from app.domains.supplement.pa_access import mark_added_by_public_adjuster
             mark_added_by_public_adjuster(session, [result])
@@ -324,6 +325,16 @@ class SupplementService:
             raise
         finally:
             session.close()
+
+    @staticmethod
+    def _rebuild_project_on_bid_pdf(session, item: Optional[Dict[str, Any]]):
+        """A contractor bid PDF prices the rebuild, so the claim gets its Rebuild project"""
+        if item and item.get('custom_document_file_id'):
+            from app.domains.rebuild.auto_create import ensure_rebuild_project_for_supplement
+            ensure_rebuild_project_for_supplement(
+                session, str(item['supplement_id']),
+                reason='a contractor bid was uploaded',
+            )
 
     def update_bid_item(self, item_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         session = self._get_session()
@@ -335,6 +346,9 @@ class SupplementService:
             result = repo.update(item_id, data)
             if result:
                 self._recalculate_supplement_amount(session, str(result['supplement_id']))
+                # Only a PDF attached now counts, not other edits to the item
+                if data.get('custom_document_file_id'):
+                    self._rebuild_project_on_bid_pdf(session, result)
             session.commit()
             if result:
                 from app.domains.supplement.pa_access import mark_added_by_public_adjuster

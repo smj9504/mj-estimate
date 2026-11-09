@@ -6,6 +6,7 @@ import api from './api';
 import type {
   RebuildContractor,
   RebuildProject,
+  RebuildProjectPage,
   RebuildProjectCreate,
   RebuildCompletionDoc,
   RebuildDashboardStats,
@@ -37,9 +38,11 @@ export const rebuildService = {
 
   // Projects
   async listProjects(params?: {
-    status?: string; contractor_id?: string; claim_id?: string;
+    status?: string; contractor_id?: string; claim_id?: string; search?: string;
+    /** true lists only the customer's own builds; left out, only ours */
+    customer_managed?: boolean;
     page?: number; page_size?: number;
-  }): Promise<RebuildProject[]> {
+  }): Promise<RebuildProjectPage> {
     const { data } = await api.get(`${BASE}/projects`, { params });
     return data;
   },

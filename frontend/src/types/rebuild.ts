@@ -44,18 +44,29 @@ export interface RebuildProject {
   docs_sent_date?: string;
   docs_acknowledged: boolean;
   docs_acknowledged_date?: string;
+  /** The customer hires their own contractor; we don't build it */
+  customer_managed: boolean;
   priority: string;
   notes?: string;
   created_at?: string;
   // Enriched
   claim_number?: string;
   insurance_company?: string;
+  client_name?: string;
   contractor_name?: string;
   rebuild_company_id?: string;
   rebuild_company_name?: string;
   completion_doc_count: number;
   contractor?: RebuildContractor;
   completion_docs: RebuildCompletionDoc[];
+}
+
+/** One page of the project list and how many match in all */
+export interface RebuildProjectPage {
+  items: RebuildProject[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface RebuildProjectCreate {
@@ -95,6 +106,8 @@ export interface RebuildDashboardStats {
   docs_sent: number;
   total_contract_amount: number;
   total_contractors: number;
+  /** Projects the customer builds with their own contractor; the figures above leave them out */
+  customer_managed?: number;
 }
 
 export const PROJECT_STATUS_COLORS: Record<ProjectStatus, string> = {

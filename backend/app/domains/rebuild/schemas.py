@@ -97,6 +97,7 @@ class RebuildProjectUpdate(BaseModel):
     docs_acknowledged_date: Optional[datetime] = None
     priority: Optional[str] = None
     notes: Optional[str] = None
+    customer_managed: Optional[bool] = None
 
 
 class RebuildProjectResponse(RebuildProjectBase):
@@ -117,12 +118,14 @@ class RebuildProjectResponse(RebuildProjectBase):
     docs_sent_date: Optional[datetime] = None
     docs_acknowledged: bool = False
     docs_acknowledged_date: Optional[datetime] = None
+    customer_managed: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     # Enriched
     claim_number: Optional[str] = None
     insurance_company: Optional[str] = None
+    client_name: Optional[str] = None
     contractor_name: Optional[str] = None
     rebuild_company_id: Optional[str] = None
     rebuild_company_name: Optional[str] = None
@@ -177,6 +180,14 @@ class RebuildCompletionDocResponse(BaseModel):
         from_attributes = True
 
 
+class RebuildProjectListResponse(BaseModel):
+    """One page of projects and how many match in all"""
+    items: List[RebuildProjectResponse] = []
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+
+
 # ============================================================
 # Dashboard
 # ============================================================
@@ -190,3 +201,6 @@ class RebuildDashboardStats(BaseModel):
     docs_sent: int = 0
     total_contract_amount: float = 0
     total_contractors: int = 0
+    # Projects the customer builds with their own contractor; none of the
+    # figures above count them
+    customer_managed: int = 0

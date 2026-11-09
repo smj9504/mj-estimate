@@ -487,6 +487,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
           popupMatchSelectWidth={false}
           aria-label="Project status"
         />
+        {project.customer_managed && <Pill tone="gray">Customer's own contractor</Pill>}
         {project.claim_number && <span>Claim {project.claim_number}</span>}
         {project.insurance_company && <span>{project.insurance_company}</span>}
       </div>

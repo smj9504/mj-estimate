@@ -430,6 +430,16 @@ def upload_insurance_estimate(
                     }
                     followup_service._auto_create_supplement(session, claim, estimate_data)
 
+                    # The carrier priced the rebuild, so it gets its Rebuild
+                    # project (a WM-only estimate prices no rebuild)
+                    if neg_data.get('estimate_category') != 'water_mitigation':
+                        from app.domains.rebuild.auto_create import ensure_rebuild_project
+                        ensure_rebuild_project(
+                            session, claim,
+                            reason='the carrier estimate was uploaded',
+                            insurance_estimate_amount=rcv,
+                        )
+
                     # Auto-create SupplementFollowUp for all supplements on this claim
                     from app.domains.supplement.models import SupplementRequest, SupplementFollowUp
                     supplements = (

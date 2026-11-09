@@ -246,6 +246,9 @@ class RebuildService:
             if claim:
                 item['claim_number'] = claim.claim_number
                 item['insurance_company'] = claim.insurance_company
+                item['client_name'] = session.query(Client.display_name).filter(
+                    Client.id == claim.client_id
+                ).scalar()
             if item.get('contractor_id'):
                 contractor = session.query(RebuildContractor).filter(
                     RebuildContractor.id == item['contractor_id']

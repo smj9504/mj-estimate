@@ -150,6 +150,13 @@ class RebuildProject(Base, BaseModel):
     priority = Column(String(20), default='normal')
     notes = Column(Text)
 
+    # The customer hires their own contractor and we don't build it. The list
+    # leaves these out unless asked for them, and the figures never count them.
+    customer_managed = Column(
+        Boolean, nullable=False, default=False, server_default='false',
+        comment="Customer hires their own contractor; not our build",
+    )
+
     # Audit
     created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 

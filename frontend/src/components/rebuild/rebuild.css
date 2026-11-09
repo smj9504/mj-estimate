@@ -326,6 +326,31 @@
   white-space: nowrap;
 }
 
+/* List: status tabs share the toolbar row with search */
+.rb-status-tabs.ui-status-tabs {
+  margin: 0;
+  min-width: 0;
+  align-items: center;
+}
+/* Desktop keeps tabs, the customer tab and search on one row; the status
+   tabs give way and scroll first */
+@media (min-width: 768px) {
+  .rb-toolbar.ui-toolbar {
+    flex-wrap: nowrap;
+  }
+}
+.rb-toolbar .ant-btn.rb-customer-tab {
+  flex-shrink: 0;
+}
+/* Sets the customer's own builds apart from the status tabs */
+.rb-tabs-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  background: var(--color-neutral-200);
+}
+
 /* List: the address is the record title */
 .rb-list-address {
   font-weight: 500;
