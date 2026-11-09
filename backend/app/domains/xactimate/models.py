@@ -60,7 +60,11 @@ class XactimateItem(Base):
     item_code = Column(String(50), nullable=False)
     category_code = Column(String(3), ForeignKey("xactimate_categories.category_code"), nullable=False)
     description = Column(Text, nullable=False)
-    
+    unit = Column(String(10))          # EA, SF, LF...
+    activity = Column(String(2))       # the selector's default activity: &, +, ...
+    price_list = Column(String(30))    # Xactimate price list it was read from, e.g. VAAR8X_NOV26
+    is_green = Column(Boolean)
+
     # Date fields (month/year only)
     price_year = Column(Integer, nullable=False)
     price_month = Column(Integer, nullable=False)
@@ -72,6 +76,16 @@ class XactimateItem(Base):
     labor_burden = Column(DECIMAL(10, 2), default=0)
     market_conditions = Column(DECIMAL(10, 2), default=0)
     untaxed_unit_price = Column(DECIMAL(10, 2), nullable=False, default=0)
+    # Price of each activity on its own: an & item's untaxed_unit_price is
+    # remove + replace; a + item has only a replace price, a - item only remove.
+    replace_price = Column(DECIMAL(10, 2))
+    remove_price = Column(DECIMAL(10, 2))
+    # From Xactimate's Item Activity Information window, per activity
+    replace_phase = Column(String(60))      # e.g. 06 Finish Carpentry
+    remove_phase = Column(String(60))       # e.g. 02 Demolition
+    replace_market_conditions = Column(DECIMAL(10, 2))
+    remove_market_conditions = Column(DECIMAL(10, 2))
+    minimum_group = Column(String(20))      # labor minimum it counts toward, e.g. CABMN-A
     
     # Life expectancy fields
     life_expectancy_years = Column(Integer)
@@ -141,6 +155,10 @@ class XactimateItem(Base):
             'item_code': self.item_code,
             'category_code': self.category_code,
             'description': self.description,
+            'unit': self.unit,
+            'activity': self.activity,
+            'price_list': self.price_list,
+            'is_green': self.is_green,
             'price_year': self.price_year,
             'price_month': self.price_month,
             'labor_cost': float(self.labor_cost) if self.labor_cost else None,
@@ -149,6 +167,13 @@ class XactimateItem(Base):
             'labor_burden': float(self.labor_burden) if self.labor_burden else None,
             'market_conditions': float(self.market_conditions) if self.market_conditions else None,
             'untaxed_unit_price': float(self.untaxed_unit_price) if self.untaxed_unit_price else None,
+            'replace_price': float(self.replace_price) if self.replace_price is not None else None,
+            'remove_price': float(self.remove_price) if self.remove_price is not None else None,
+            'replace_phase': self.replace_phase,
+            'remove_phase': self.remove_phase,
+            'replace_market_conditions': float(self.replace_market_conditions) if self.replace_market_conditions is not None else None,
+            'remove_market_conditions': float(self.remove_market_conditions) if self.remove_market_conditions is not None else None,
+            'minimum_group': self.minimum_group,
             'life_expectancy_years': self.life_expectancy_years,
             'depreciation_rate': float(self.depreciation_rate) if self.depreciation_rate else None,
             'max_depreciation': float(self.max_depreciation) if self.max_depreciation else None,
@@ -183,7 +208,10 @@ class XactimateComponent(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     item_id = Column(Integer, ForeignKey("xactimate_items.id", ondelete="CASCADE"), nullable=False)
     component_type = Column(String(10), nullable=False)  # 'lab', 'mat', 'equ', 'burden', 'market'
+    activity = Column(String(1))  # '+' replace, '-' remove
     component_code = Column(String(50))
+    description = Column(Text)              # e.g. Carpenter - Finish, Trim/Cabinet
+    supporting_event = Column(String(30))   # e.g. CAB-LAB; its text is in xactimate_supporting_events
     cost = Column(DECIMAL(10, 3), default=0)
     direct_yield = Column(DECIMAL(10, 3), default=0)
     yield_unit = Column(String(20))
@@ -215,7 +243,10 @@ class XactimateComponent(Base):
             'id': self.id,
             'item_id': self.item_id,
             'component_type': self.component_type,
+            'activity': self.activity,
             'component_code': self.component_code,
+            'description': self.description,
+            'supporting_event': self.supporting_event,
             'cost': float(self.cost) if self.cost else None,
             'direct_yield': float(self.direct_yield) if self.direct_yield else None,
             'yield_unit': self.yield_unit,
@@ -226,3 +257,20 @@ class XactimateComponent(Base):
     
     def __repr__(self):
         return f"<XactimateComponent(id={self.id}, type={self.component_type}, code={self.component_code})>"
+
+class XactimateSupportingEvent(Base):
+    """A supporting event's text (labor assumptions, material waste), once per code.
+
+    Components name their event in xactimate_components.supporting_event; the
+    event's percentage is the component's spt_event_percent.
+    """
+    __tablename__ = "xactimate_supporting_events"
+    __table_args__ = {'extend_existing': True}
+
+    code = Column(String(30), primary_key=True)     # e.g. CAB-LAB, DRY-I
+    description = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {'code': self.code, 'description': self.description}

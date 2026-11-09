@@ -38,7 +38,10 @@ import {
   convertXactimateToLineItem, 
   formatXactimateForTable,
   getXactimateCostBreakdown,
-  XactimateLineItemData 
+  XactimateLineItemData,
+  XactimateActivity,
+  XACTIMATE_ACTIVITY_LABEL,
+  xactimateActivityPrices,
 } from '../../utils/xactimateTransform';
 
 const { Text, Title } = Typography;
@@ -54,6 +57,7 @@ interface XactimateTableRow {
   item_code: string;
   category: string;
   description: string;
+  unit: string;
   unit_price: string;
   labor: string;
   material: string;
@@ -74,6 +78,8 @@ const XactimateInputMode: React.FC<XactimateInputModeProps> = ({
   const [items, setItems] = useState<XactimateItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<XactimateItem[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  // Activity picked per item (R&R / Replace / Remove); unset = the item's own
+  const [activityById, setActivityById] = useState<Record<number, XactimateActivity>>({});
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedDetailItem, setSelectedDetailItem] = useState<XactimateItem | null>(null);
   const [pagination, setPagination] = useState({
@@ -165,11 +171,48 @@ const XactimateInputMode: React.FC<XactimateInputModeProps> = ({
       ellipsis: true,
     },
     {
-      title: 'Unit Price',
-      dataIndex: 'unit_price',
+      title: 'Unit',
+      dataIndex: 'unit',
+      key: 'unit',
+      width: 60,
+    },
+    {
+      title: 'Activity / Price',
       key: 'unit_price',
-      width: 100,
+      width: 190,
       align: 'right' as const,
+      render: (_: any, record: XactimateTableRow) => {
+        const item = record.rawItem;
+        const options = xactimateActivityPrices(item);
+        if (options.length > 1) {
+          return (
+            <Select
+              size="small"
+              style={{ width: 175 }}
+              value={activityById[item.id] ?? options[0].activity}
+              onChange={(value: XactimateActivity) =>
+                setActivityById(prev => ({ ...prev, [item.id]: value }))
+              }
+              onClick={(e) => e.stopPropagation()}
+              options={options.map(o => ({
+                value: o.activity as XactimateActivity,
+                label: `${XACTIMATE_ACTIVITY_LABEL[o.activity as XactimateActivity]} $${o.price.toFixed(2)}`,
+              }))}
+            />
+          );
+        }
+        const only = options[0];
+        return (
+          <span>
+            {only.activity && only.activity !== '&' && (
+              <Text type="secondary" style={{ marginRight: 6 }}>
+                {XACTIMATE_ACTIVITY_LABEL[only.activity]}
+              </Text>
+            )}
+            {record.unit_price}
+          </span>
+        );
+      },
     },
     {
       title: 'Lab',
@@ -230,7 +273,7 @@ const XactimateInputMode: React.FC<XactimateInputModeProps> = ({
 
     // Convert selected Xactimate items to EstimateLineItem format
     const lineItems = selectedItems.map(item => {
-      const lineItem = convertXactimateToLineItem(item, 1, 'EA');
+      const lineItem = convertXactimateToLineItem(item, 1, undefined, activityById[item.id]);
       console.log('XactimateInputMode: Converted item:', {
         itemCode: item.item_code,
         category: item.category,
@@ -444,12 +487,19 @@ const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                 <Descriptions.Item label="Description" span={2}>
                   {item.description}
                 </Descriptions.Item>
-                <Descriptions.Item label="Unit Price">
-                  ${safeToFixed(item.untaxed_unit_price)}
-                </Descriptions.Item>
+                <Descriptions.Item label="Unit">{item.unit || 'EA'}</Descriptions.Item>
                 <Descriptions.Item label="Price Date">
                   {item.price_month}/{item.price_year}
+                  {item.price_list ? ` (${item.price_list})` : ''}
                 </Descriptions.Item>
+                {xactimateActivityPrices(item).map(o => (
+                  <Descriptions.Item
+                    key={o.activity ?? 'price'}
+                    label={o.activity ? `${XACTIMATE_ACTIVITY_LABEL[o.activity]} Price` : 'Unit Price'}
+                  >
+                    ${safeToFixed(o.price)}
+                  </Descriptions.Item>
+                ))}
               </Descriptions>
             )
           },
@@ -484,12 +534,16 @@ const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                       <Table
                         dataSource={item.components.map((comp, idx) => ({
                           key: idx,
+                          activity: comp.activity === '+' ? 'Replace' : comp.activity === '-' ? 'Remove' : '',
                           type: comp.component_type,
                           code: comp.component_code,
                           cost: comp.cost,
                           unit_price: comp.unit_price,
                         }))}
                         columns={[
+                          ...(item.components.some(c => c.activity)
+                            ? [{ title: 'Part', dataIndex: 'activity', key: 'activity' }]
+                            : []),
                           { title: 'Type', dataIndex: 'type', key: 'type' },
                           { title: 'Code', dataIndex: 'code', key: 'code' },
                           { title: 'Cost', dataIndex: 'cost', key: 'cost', render: (val: number) => `$${safeToFixed(val, 3)}` },

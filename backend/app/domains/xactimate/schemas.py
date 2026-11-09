@@ -11,7 +11,10 @@ from datetime import datetime
 class XactimateComponentBase(BaseModel):
     """Base schema for Xactimate components"""
     component_type: str = Field(..., pattern="^(lab|mat|equ|burden|market)$")
+    activity: Optional[str] = Field(None, pattern=r"^[+\-]$")  # + replace, - remove
     component_code: Optional[str] = Field(None, max_length=50)
+    description: Optional[str] = None
+    supporting_event: Optional[str] = Field(None, max_length=30)
     cost: Optional[Decimal] = Field(None, ge=0)
     direct_yield: Optional[Decimal] = Field(None, ge=0)
     yield_unit: Optional[str] = Field(None, max_length=20)
@@ -77,6 +80,17 @@ class XactimateItemBase(BaseModel):
     item_code: str = Field(..., max_length=50)
     category_code: str = Field(..., max_length=3)
     description: str = Field(..., min_length=1)
+    unit: Optional[str] = Field(None, max_length=10)
+    activity: Optional[str] = Field(None, max_length=2)
+    price_list: Optional[str] = Field(None, max_length=30)
+    is_green: Optional[bool] = None
+    replace_price: Optional[Decimal] = None  # an & item's price split: replace + remove
+    remove_price: Optional[Decimal] = None
+    replace_phase: Optional[str] = Field(None, max_length=60)
+    remove_phase: Optional[str] = Field(None, max_length=60)
+    replace_market_conditions: Optional[Decimal] = None
+    remove_market_conditions: Optional[Decimal] = None
+    minimum_group: Optional[str] = Field(None, max_length=20)
     price_year: int = Field(..., ge=2020, le=2100)
     price_month: int = Field(..., ge=1, le=12)
     labor_cost: Optional[Decimal] = Field(None, ge=0)

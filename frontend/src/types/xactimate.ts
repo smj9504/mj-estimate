@@ -11,6 +11,7 @@ export interface XactimateComponent {
   id: number;
   item_id: number;
   component_type: 'lab' | 'mat' | 'equ' | 'burden' | 'market';
+  activity?: '+' | '-' | null; // + part of replacing, - part of removing
   component_code?: string;
   cost?: number;
   direct_yield?: number;
@@ -25,6 +26,10 @@ export interface XactimateItem {
   item_code: string;
   category_code: string;
   description: string;
+  unit?: string | null;
+  activity?: string | null; // Xactimate's default activity: & (remove and replace), + (replace), - (remove)
+  price_list?: string | null;
+  is_green?: boolean | null;
   price_year: number;
   price_month: number;
   labor_cost?: number;
@@ -33,6 +38,8 @@ export interface XactimateItem {
   labor_burden?: number;
   market_conditions?: number;
   untaxed_unit_price: number;
+  replace_price?: number | null; // an & item's price split; replace + remove = untaxed_unit_price
+  remove_price?: number | null;
   life_expectancy_years?: number;
   depreciation_rate?: number;
   max_depreciation?: number;

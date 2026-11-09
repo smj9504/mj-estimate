@@ -413,7 +413,7 @@ class XactimateUnifiedRepository:
                     item_code as item,
                     description,
                     includes_description as includes,
-                    'EA' as unit,
+                    COALESCE(unit, 'EA') as unit,
                     untaxed_unit_price,
                     labor_cost as lab,
                     material_cost as mat,

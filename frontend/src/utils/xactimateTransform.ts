@@ -24,7 +24,54 @@ export interface XactimateLineItemData extends EstimateLineItem {
   note_description?: string;
   quality_description?: string;
   reference_description?: string;
+  xactimate_activity?: XactimateActivity; // which of the item's activities this line is priced as
 }
+
+/** Xactimate activities: & remove and replace (R&R), + replace, - remove. */
+export type XactimateActivity = '&' | '+' | '-';
+
+export const XACTIMATE_ACTIVITY_LABEL: Record<XactimateActivity, string> = {
+  '&': 'R&R',
+  '+': 'Replace',
+  '-': 'Remove',
+};
+
+const toNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return isNaN(n) ? null : n;
+};
+
+const isActivity = (value: unknown): value is XactimateActivity =>
+  value === '&' || value === '+' || value === '-';
+
+/**
+ * The activities an item can be added as, each with its price. An & item
+ * whose price has been split offers R&R, Replace and Remove; any other item
+ * only its own activity (or none, for items without Xactimate activity data).
+ */
+export const xactimateActivityPrices = (
+  item: XactimateItem
+): { activity: XactimateActivity | null; price: number }[] => {
+  const total = toNumber(item.untaxed_unit_price) ?? 0;
+  const replace = toNumber(item.replace_price);
+  const remove = toNumber(item.remove_price);
+  if (item.activity === '&' && replace !== null && remove !== null) {
+    return [
+      { activity: '&', price: total },
+      { activity: '+', price: replace },
+      { activity: '-', price: remove },
+    ];
+  }
+  return [{ activity: isActivity(item.activity) ? item.activity : null, price: total }];
+};
+
+/** How Xactimate words a line by activity: "R&R ...", "Remove ...", plain for replace. */
+const describeActivity = (description: string, activity: XactimateActivity | null): string => {
+  if (activity === '&') return `R&R ${description}`;
+  if (activity === '-') return `Remove ${description}`;
+  return description;
+};
 
 /**
  * Convert XactimateItem to EstimateLineItem format
@@ -32,23 +79,29 @@ export interface XactimateLineItemData extends EstimateLineItem {
 export const convertXactimateToLineItem = (
   xactimateItem: XactimateItem,
   quantity: number = 1,
-  unit: string = 'EA'
+  unit?: string,
+  activity?: XactimateActivity
 ): XactimateLineItemData => {
-  // Ensure unit price is a number
-  const unitPrice = typeof xactimateItem.untaxed_unit_price === 'number'
-    ? xactimateItem.untaxed_unit_price
-    : parseFloat(String(xactimateItem.untaxed_unit_price)) || 0;
+  const options = xactimateActivityPrices(xactimateItem);
+  const chosen = options.find(o => o.activity === activity) ?? options[0];
+  const unitPrice = chosen.price;
   const total = unitPrice * quantity;
+  // Items whose activity is split say which part the line is; others keep
+  // Xactimate's description as it is.
+  const description = options.length > 1
+    ? describeActivity(xactimateItem.description, chosen.activity)
+    : xactimateItem.description;
 
   return {
     // EstimateLineItem base properties
     id: `xact_${xactimateItem.id}_${Date.now()}`, // Unique ID for this line item
     name: xactimateItem.item_code, // Xactimate item code for reference
-    description: xactimateItem.description, // Actual description
+    description,
     note: formatXactimateNote(xactimateItem), // Convert to rich text HTML
     quantity,
-    unit,
+    unit: unit || xactimateItem.unit || 'EA',
     unit_price: unitPrice,
+    xactimate_activity: chosen.activity ?? undefined,
     total,
     
     // Grouping - use category name as primary group, fallback to category code
@@ -94,7 +147,13 @@ const formatXactimateNote = (item: XactimateItem): string => {
   parts.push(`<strong>Xactimate Code:</strong> ${item.item_code}`);
   parts.push(`<strong>Category:</strong> ${item.category_code}`);
   parts.push(`<strong>Price Date:</strong> ${item.price_month}/${item.price_year}`);
-  
+  const activityPrices = xactimateActivityPrices(item);
+  if (activityPrices.length > 1) {
+    parts.push(`<strong>Prices:</strong> ${activityPrices
+      .map(o => `${XACTIMATE_ACTIVITY_LABEL[o.activity as XactimateActivity]} $${safeToFixed(o.price)}`)
+      .join(', ')}`);
+  }
+
   // Cost breakdown
   if (item.labor_cost || item.material_cost || item.equipment_cost) {
     const costParts: string[] = [];
@@ -160,6 +219,7 @@ export const formatXactimateForTable = (item: XactimateItem) => {
     item_code: item.item_code,
     category: item.category_code,
     description: item.description,
+    unit: item.unit || 'EA',
     unit_price: `$${safeToFixed(item.untaxed_unit_price)}`,
     labor: item.labor_cost ? `$${safeToFixed(item.labor_cost)}` : '-',
     material: item.material_cost ? `$${safeToFixed(item.material_cost)}` : '-',
