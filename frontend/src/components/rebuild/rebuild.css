@@ -1,54 +1,43 @@
 /*
- * Rebuild project detail (rb-*): facts and the completion checklist beside
+ * Rebuild project page (rb-*): facts and the completion checklist beside
  * the PDF they are checked against. Built from the White Sheet tokens.
  */
 
-/* Header: address as the title, status pill + claim facts as the meta line */
-.rb-head {
-  padding-right: 32px; /* clear the modal close button */
-}
-.rb-head-title {
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--color-neutral-900);
+.rb-page .ui-page-title {
   overflow-wrap: anywhere;
 }
-.rb-head-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 6px;
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--color-neutral-600);
-}
-.rb-status-select.ant-select {
-  width: auto;
-  margin-left: -7px; /* align the pill, not the select border, with the title */
-}
-.rb-status-select .ant-select-selector {
-  padding-right: 26px !important;
-}
-.rb-status-select:not(.ant-select-focused):not(:hover) .ant-select-selector {
-  border-color: transparent !important;
-  box-shadow: none !important;
-}
 
-/* Desktop: facts + checklist on the left, the PDF on the right */
-.rb-split {
+/* Desktop: facts + checklist on the left, the PDF on the right, held in view
+   below the app header while the left column scrolls with the page */
+.rb-page-split {
   display: grid;
-  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
-  gap: 24px;
-  height: min(74vh, 820px);
-  margin-top: 4px;
+  grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
 }
-.rb-split-main {
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 6px;
-  scrollbar-width: thin;
+.rb-page-main {
+  min-width: 0;
+}
+.rb-page-main > .ui-section:first-child {
+  margin-top: 0;
+}
+.rb-page-viewer {
+  position: sticky;
+  top: 68px; /* the 52px app header and a little air */
+  display: flex;
+  height: calc(100vh - 92px);
+  height: calc(100dvh - 92px);
+  min-height: 480px;
+}
+.rb-page-viewer > .rb-viewer {
+  flex: 1;
+}
+.rb-page-missing {
+  height: auto;
+  padding: 64px 24px;
+}
+.rb-page-missing .ant-btn {
+  margin-top: 12px;
 }
 
 /* Viewer: a flat sheet with a hairline; only the modal around it floats */
@@ -308,20 +297,16 @@
   white-space: pre-wrap;
 }
 
-/* Phone sheet: the sheet header already clears the close button */
-.ui-sheet .rb-head {
-  padding-right: 0;
-}
 /* "1 of 3 sent" drops under the heading as one piece, never mid-phrase,
    so the heading can narrow beside its action on a 320px phone */
-.rb-modal .ui-section-head .ui-section-title {
+.rb-page .ui-section-head .ui-section-title {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   column-gap: 8px;
   min-width: 0;
 }
-.rb-modal .ui-section-title .sup-section-count {
+.rb-page .ui-section-title .sup-section-count {
   margin-left: 0;
   white-space: nowrap;
 }
@@ -407,10 +392,161 @@
 }
 
 /* Photos to PDF: type and title side by side, stacked on phones */
+.rb-photo-pdf {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 .rb-photo-fields {
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
   gap: 12px;
+}
+
+/* Where photos come from: the client's photos, or this device */
+.rb-photo-sources {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.rb-photo-source {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-neutral-400);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  font: inherit;
+  text-align: left;
+  color: var(--color-neutral-900);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+button.rb-photo-source:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  button.rb-photo-source:hover {
+    border-color: var(--color-primary);
+    background: var(--color-ink-hover);
+  }
+}
+.rb-photo-source-icon {
+  margin-top: 2px;
+  font-size: 18px;
+  color: var(--color-primary);
+}
+.rb-photo-source-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rb-photo-source-title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.rb-photo-source-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+}
+/* The device card is a drop zone: dashed, and the source card fills it */
+.rb-photo-drop.ant-upload-wrapper .ant-upload-drag {
+  height: 100%;
+  border: 1px dashed var(--color-neutral-400);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.rb-photo-drop.ant-upload-wrapper .ant-upload-drag:hover,
+.rb-photo-drop.ant-upload-wrapper .ant-upload-drag.ant-upload-drag-hover {
+  border-color: var(--color-primary);
+  background: var(--color-ink-hover);
+}
+.rb-photo-drop.ant-upload-wrapper .ant-upload-drag .ant-upload-btn {
+  display: block;
+  height: 100%;
+  padding: 0;
+}
+.rb-photo-drop .rb-photo-source {
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.rb-photo-pages-head {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-600);
+}
+.rb-photo-warn {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-warning-light);
+  font-size: 13px;
+  color: var(--color-neutral-900);
+}
+
+/* Client photo picker: the photo sets as tabs, CompanyCam beside them */
+.rb-picker-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.rb-picker-sets {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rb-picker-sets .ui-view-tab {
+  flex-shrink: 0;
+}
+.rb-picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.rb-picker-hint {
+  margin: 6px 0 12px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.rb-picker-gallery {
+  min-height: 320px;
+}
+/* Picking, not managing: no preview/download/delete bar over the photos */
+.rb-picker-gallery .file-overlay {
+  display: none !important;
+}
+.rb-picker-gallery .file-grid-item {
+  cursor: pointer;
+}
+.rb-picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.rb-picker-count {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--color-neutral-600);
 }
 .rb-photos {
   margin: 0;
@@ -473,7 +609,8 @@
   gap: 2px;
 }
 @media (max-width: 575.98px) {
-  .rb-photo-fields {
+  .rb-photo-fields,
+  .rb-photo-sources {
     grid-template-columns: minmax(0, 1fr);
   }
   .rb-photo {
@@ -488,5 +625,147 @@
   }
   .rb-photo-actions {
     margin-left: -10px;
+  }
+}
+
+/* Generate document (rbg-*): template, the values it prints, the signature */
+.rbg {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.rbg-section + .rbg-section {
+  padding-top: 20px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.rbg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.rbg-head-meta {
+  flex-basis: 100%;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.rbg-optional {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.rbg-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 16px;
+}
+.rbg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rbg-field--wide {
+  grid-column: 1 / -1;
+}
+.rbg-label {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.rbg-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rbg-option-meta {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+/* The printed values: label beside its box, one hairline row each */
+.rbg-values {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.rbg-value {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.rbg-value-label {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  overflow-wrap: anywhere;
+}
+.rbg-value .ant-input:not(:hover):not(:focus) {
+  border-color: transparent;
+  box-shadow: none;
+}
+.rbg-note {
+  margin-top: 16px;
+}
+.rbg-muted {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rbg-sign-as {
+  max-width: 320px;
+  margin-bottom: 12px;
+}
+
+.rbg-empty {
+  padding: 32px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rbg-empty .anticon {
+  margin-bottom: 12px;
+  font-size: 24px;
+}
+.rbg-empty p {
+  max-width: 420px;
+  margin: 0 auto 4px;
+}
+.rbg-empty .rbg-empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+
+.rbg-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.rbg-foot-note {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
+@media (max-width: 575.98px) {
+  .rbg-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rbg-value {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 8px 0;
+  }
+  .rbg-value .ant-input:not(:hover):not(:focus) {
+    border-color: var(--color-neutral-400);
+  }
+  .rbg-sign-as {
+    max-width: none;
   }
 }

@@ -727,7 +727,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
     emptyText: 'No active projects',
     rows: rebuilds,
     rowKey: 'id',
-    pathOf: p => `/rebuild-projects?project=${p.id}`,
+    pathOf: p => `/rebuild-projects/${p.id}`,
     scrollX: 680,
     loading: rebuildsQ.isLoading,
     error: rebuildsQ.isError,
@@ -737,7 +737,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
         title: 'Project', key: 'project', ellipsis: true,
         render: (_, p) => (
           <>
-            <TitleLink to={`/rebuild-projects?project=${p.id}`}>{p.title}</TitleLink>
+            <TitleLink to={`/rebuild-projects/${p.id}`}>{p.title}</TitleLink>
             <CellMeta parts={[p.property_address, p.claim_number]} />
           </>
         ),
@@ -757,7 +757,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
     ],
     renderRow: p => (
       <PhoneRow
-        to={`/rebuild-projects?project=${p.id}`}
+        to={`/rebuild-projects/${p.id}`}
         title={p.title}
         lines={[
           [p.contractor_name || 'Unassigned', p.claim_number],

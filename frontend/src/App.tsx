@@ -161,6 +161,7 @@ const SupplementDetail = lazyWithRetry(() => import('./pages/SupplementDetail'))
 
 // Rebuild Projects
 const RebuildProjectList = lazyWithRetry(() => import('./pages/RebuildProjectList'));
+const RebuildProjectDetail = lazyWithRetry(() => import('./pages/RebuildProjectDetail'));
 
 // Claims Lifecycle Dashboard
 const ClaimsLifecycleDashboard = lazyWithRetry(() => import('./pages/ClaimsLifecycleDashboard'));
@@ -1207,6 +1208,18 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <RebuildProjectList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/rebuild-projects/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RebuildProjectDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>

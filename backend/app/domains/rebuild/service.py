@@ -135,9 +135,31 @@ class RebuildService:
                 doc_repo = get_completion_doc_repository(session)
                 result['completion_docs'] = doc_repo.get_by_project(pid)
                 result['completion_doc_count'] = len(result['completion_docs'])
+                result['wm_jobs'] = self._claim_wm_jobs(session, result.get('claim_id'))
             return result
         finally:
             session.close()
+
+    @staticmethod
+    def _claim_wm_jobs(session, claim_id) -> List[Dict[str, Any]]:
+        """The claim's water mitigation jobs, oldest first, as the client page
+        lists them: each is one of the claim's photo sets"""
+        from app.domains.company.models import Company
+        from app.domains.water_mitigation.models import WaterMitigationJob
+
+        if not claim_id:
+            return []
+        rows = session.query(WaterMitigationJob, Company.name).outerjoin(
+            Company, WaterMitigationJob.company_id == Company.id
+        ).filter(
+            WaterMitigationJob.claim_id == str(claim_id)
+        ).order_by(WaterMitigationJob.created_at).all()
+        return [{
+            'id': str(job.id),
+            'property_address': job.property_address,
+            'company_name': company_name,
+            'companycam_project_id': job.companycam_project_id,
+        } for job, company_name in rows]
 
     def get_projects(self, params: Dict[str, Any], scope: Any = None) -> Tuple[List[Dict[str, Any]], int]:
         """scope: company condition from auth.company_scope (None = all)"""
@@ -246,6 +268,7 @@ class RebuildService:
             if claim:
                 item['claim_number'] = claim.claim_number
                 item['insurance_company'] = claim.insurance_company
+                item['client_id'] = str(claim.client_id) if claim.client_id else None
                 item['client_name'] = session.query(Client.display_name).filter(
                     Client.id == claim.client_id
                 ).scalar()
@@ -464,20 +487,52 @@ class RebuildService:
         finally:
             session.close()
 
-    def photos_to_pdf(self, project_id: str, photos: list, rotations: Dict[int, int],
-                      doc_type: str, title: str) -> Dict[str, Any]:
-        """Convert uploaded photos to a multi-page PDF.
+    # A photo page: the photo's long side and JPEG quality. 1600px fills a
+    # letter page at about 170 dpi and keeps a 100-page PDF to some 40MB, on a
+    # server with 512MB in all.
+    PDF_PHOTO_PX = 1600
+    PDF_PHOTO_QUALITY = 85
+    MAX_PDF_PHOTOS = 100
 
-        photos: list of (filename, bytes) tuples
-        rotations: {index: degrees} e.g. {0: 90, 2: 180}
-        doc_type: completion doc type
-        title: document title
+    @classmethod
+    def _photo_page_jpeg(cls, photo_bytes: bytes, rotation: int):
+        """One photo as the JPEG its page draws, upright as the browser showed
+        it (EXIF orientation), then turned by the person's rotation"""
+        from PIL import Image, ImageOps
+
+        try:
+            # iPhone HEIC uploads
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError:  # pragma: no cover
+            pass
+
+        with Image.open(BytesIO(photo_bytes)) as opened:
+            opened.draft('RGB', (cls.PDF_PHOTO_PX, cls.PDF_PHOTO_PX))  # JPEG: decode at a smaller scale
+            img = ImageOps.exif_transpose(opened)
+            if rotation:
+                img = img.rotate(-rotation, expand=True)  # PIL turns counter-clockwise
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            img.thumbnail((cls.PDF_PHOTO_PX, cls.PDF_PHOTO_PX))
+            out = BytesIO()
+            img.save(out, format='JPEG', quality=cls.PDF_PHOTO_QUALITY, optimize=True)
+            size = img.size
+        out.seek(0)
+        return out, size
+
+    def photos_to_pdf(self, project_id: str, pages: list, rotations: Dict[int, int],
+                      doc_type: str, title: str) -> Dict[str, Any]:
+        """Photos as a PDF, one per letter page, saved as a completion doc.
+
+        pages: (name, load) per page in order; load() returns the photo's bytes.
+            Each is loaded when its page is drawn, so one photo is in memory at a time.
+        rotations: {page index: degrees clockwise} e.g. {0: 90, 2: 180}
         """
         session = self._s()
         try:
             from app.domains.rebuild.models import RebuildProject
             from app.domains.rebuild.repository import get_completion_doc_repository
-            from PIL import Image
             from reportlab.pdfgen import canvas as rl_canvas
             from reportlab.lib.pagesizes import letter
 
@@ -485,52 +540,39 @@ class RebuildService:
             if not project:
                 raise ValueError("Project not found")
 
-            if not photos:
+            if not pages:
                 raise ValueError("No photos provided")
+            if len(pages) > self.MAX_PDF_PHOTOS:
+                raise ValueError(f"A PDF takes up to {self.MAX_PDF_PHOTOS} photos; split them into two documents")
 
-            # Generate PDF from photos
             pdf_buffer = BytesIO()
             c = rl_canvas.Canvas(pdf_buffer, pagesize=letter)
             page_w, page_h = letter
             margin = 36  # 0.5 inch
+            max_w = page_w - 2 * margin
+            max_h = page_h - 2 * margin
 
-            for idx, (filename, photo_bytes) in enumerate(photos):
-                img = Image.open(BytesIO(photo_bytes))
+            for idx, (name, load) in enumerate(pages):
+                try:
+                    jpeg, (img_w, img_h) = self._photo_page_jpeg(load(), rotations.get(idx, 0))
+                except Exception as e:
+                    logger.warning(f"Photo {idx + 1} ({name}) for project {project_id} could not be read: {e}")
+                    raise ValueError(f"Photo {idx + 1} ({name}) could not be read")
 
-                # Apply rotation
-                rotation = rotations.get(idx, 0)
-                if rotation:
-                    img = img.rotate(-rotation, expand=True)  # PIL rotates counter-clockwise
-
-                # Convert RGBA to RGB for PDF
-                if img.mode in ('RGBA', 'P'):
-                    img = img.convert('RGB')
-
-                # Calculate fit within page (maintaining aspect ratio)
-                max_w = page_w - 2 * margin
-                max_h = page_h - 2 * margin
-                img_w, img_h = img.size
+                # Fit the page, centred, keeping its shape
                 ratio = min(max_w / img_w, max_h / img_h)
                 draw_w = img_w * ratio
                 draw_h = img_h * ratio
-
-                # Center on page
-                x = (page_w - draw_w) / 2
-                y = (page_h - draw_h) / 2
-
-                # Save image to temp buffer
-                img_buffer = BytesIO()
-                img.save(img_buffer, format='JPEG', quality=90)
-                img_buffer.seek(0)
-
-                from reportlab.lib.utils import ImageReader
-                c.drawImage(ImageReader(img_buffer), x, y, width=draw_w, height=draw_h)
-
-                if idx < len(photos) - 1:
+                c.drawImage(
+                    ImageReader(jpeg), (page_w - draw_w) / 2, (page_h - draw_h) / 2,
+                    width=draw_w, height=draw_h,
+                )
+                if idx < len(pages) - 1:
                     c.showPage()
 
             c.save()
             pdf_bytes = pdf_buffer.getvalue()
+            del pdf_buffer
 
             # Upload to cloud storage
             from app.common.utils.storage_helpers import upload_bytes_to_storage

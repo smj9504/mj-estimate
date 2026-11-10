@@ -27,6 +27,10 @@ describe('screenForPath', () => {
     expect(screenForPath('/clients/1#claims')).toBe('clients');
   });
 
+  it('keeps a rebuild project page under Rebuild Projects', () => {
+    expect(screenForPath('/rebuild-projects/0b9c6f2e-1d1e-4c4a-9f3a-2f6a7c1d2e3f')).toBe('rebuild_projects');
+  });
+
   it('puts the Product Library under its own screen', () => {
     expect(screenForPath('/product-library')).toBe('product_library');
     expect(screenForPath('/product-library?import=1')).toBe('product_library');

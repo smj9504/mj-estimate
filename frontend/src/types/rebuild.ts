@@ -53,12 +53,22 @@ export interface RebuildProject {
   claim_number?: string;
   insurance_company?: string;
   client_name?: string;
+  client_id?: string;
   contractor_name?: string;
   rebuild_company_id?: string;
   rebuild_company_name?: string;
   completion_doc_count: number;
   contractor?: RebuildContractor;
   completion_docs: RebuildCompletionDoc[];
+  /** Project page only: the claim's WM jobs, each one of the claim's photo sets */
+  wm_jobs?: RebuildWMJob[];
+}
+
+export interface RebuildWMJob {
+  id: string;
+  property_address?: string;
+  company_name?: string;
+  companycam_project_id?: string;
 }
 
 /** One page of the project list and how many match in all */

@@ -1,21 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   Table, List, Button, Modal, Form, Input, InputNumber,
-  Select, message, Row, Col, DatePicker, Skeleton, Tooltip, Checkbox,
+  Select, message, Row, Col, DatePicker, Skeleton, Tooltip,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, TeamOutlined, CheckOutlined,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import { rebuildService } from '../services/rebuildService';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import RebuildProjectDetailModal from '../components/rebuild/RebuildProjectDetailModal';
 import {
   REBUILD_STATUSES, REBUILD_STATUS_TONES, RebuildStatusPill, rebuildStatusLabel, formatCurrency,
 } from '../components/rebuild/rebuildUi';
-import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
 import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
 import { tagTones } from '../styles/tokens';
@@ -39,25 +36,49 @@ const DocsSent: React.FC<{ sent: number; prefix?: string }> = ({ sent, prefix })
 
 const wholeDollars = (v?: number | null) => `$${Math.round(v || 0).toLocaleString('en-US')}`;
 
+const PAGE_SIZES = [20, 50, 100];
+
 const RebuildProjectList: React.FC = () => {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { isPhone, sheetProps } = useSheetModal();
   // Phones get thumb-sized controls at 16px, which also keeps iOS from zooming on focus
   const formSize = isPhone ? 'large' : 'small';
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+
+  // Filters, search and page live in the address, so coming back from a
+  // project finds the list as it was left
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = REBUILD_STATUSES.find(s => s === searchParams.get('status'));
   // Our builds by default; the customer's own builds only when asked for
-  const [customerView, setCustomerView] = useState(false);
-  const [search, setSearch] = useState('');
+  const customerView = searchParams.get('view') === 'customer';
+  const page = Math.max(1, Number(searchParams.get('page')) || 1);
+  const pageSize = PAGE_SIZES.find(n => n === Number(searchParams.get('size'))) ?? PAGE_SIZES[0];
+  const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+
+  /** Writes the given params into the address (undefined removes one); a filter change starts at page 1 */
+  const setParams = (changes: Record<string, string | undefined>) => setSearchParams(prev => {
+    const next = new URLSearchParams(prev);
+    Object.entries(changes).forEach(([key, value]) => {
+      if (value) next.set(key, value); else next.delete(key);
+    });
+    return next;
+  }, { replace: true });
+  const setPage = (p: number) => setParams({ page: p > 1 ? String(p) : undefined });
+
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [contractorModalOpen, setContractorModalOpen] = useState(false);
-  const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
-  const [editProject, setEditProject] = useState<RebuildProject | null>(null);
   const [createForm] = Form.useForm();
-  const [editForm] = Form.useForm();
   const [contractorForm] = Form.useForm();
+
+  // The search box writes the address once typing settles
+  useEffect(() => {
+    if ((searchParams.get('q') ?? '') === debouncedSearch) return;
+    setParams({ q: debouncedSearch || undefined, page: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+
+  const openProject = (id: string) => navigate(`/rebuild-projects/${id}`, { state: { fromList: true } });
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['rebuild-stats'],
@@ -78,32 +99,26 @@ const RebuildProjectList: React.FC = () => {
   const projects = projectPage?.items ?? [];
   const total = projectPage?.total ?? 0;
 
-  // A new filter or search starts again from page 1
-  const pickStatus = (key?: string) => { setStatusFilter(key); setCustomerView(false); setPage(1); };
-  const pickCustomerView = () => { setCustomerView(true); setStatusFilter(undefined); setPage(1); };
-  const changeSearch = (value: string) => { setSearch(value); setPage(1); };
+  // A new filter starts again from page 1
+  const pickStatus = (key?: string) => setParams({ status: key, view: undefined, page: undefined });
+  const pickCustomerView = () => setParams({ view: 'customer', status: undefined, page: undefined });
   // Deleting the last row of the last page steps back to the page before it
   useEffect(() => {
     if (!projectPage) return;
     const lastPage = Math.max(1, Math.ceil(projectPage.total / pageSize));
     if (page > lastPage) setPage(lastPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPage, page, pageSize]);
   const { data: contractors = [] } = useQuery({
     queryKey: ['rebuild-contractors'],
     queryFn: () => rebuildService.listContractors(),
   });
 
-  // ?project=<id> 로 진입하면 해당 프로젝트 상세를 자동으로 연다 (다른 화면에서 행 클릭 시)
-  const [searchParams, setSearchParams] = useSearchParams();
-  const openedProjectParam = useRef<string | null>(null);
+  // Older links (?project=<id>) open the project's own page
   const projectParam = searchParams.get('project');
   useEffect(() => {
-    if (!projectParam || openedProjectParam.current === projectParam) return;
-    openedProjectParam.current = projectParam;
-    setDetailProjectId(projectParam);
-    searchParams.delete('project');
-    setSearchParams(searchParams, { replace: true });
-  }, [projectParam, searchParams, setSearchParams]);
+    if (projectParam) navigate(`/rebuild-projects/${projectParam}`, { replace: true });
+  }, [projectParam, navigate]);
 
   const createProjectMutation = useMutation({
     mutationFn: (data: RebuildProjectCreate) => rebuildService.createProject(data),
@@ -115,27 +130,6 @@ const RebuildProjectList: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['rebuild-stats'] });
     },
     onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed'),
-  });
-
-  const updateProjectMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<RebuildProject> }) =>
-      rebuildService.updateProject(id, data),
-    onSuccess: (_, { id }) => {
-      message.success('Updated');
-      queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
-      queryClient.invalidateQueries({ queryKey: ['rebuild-stats'] });
-      queryClient.invalidateQueries({ queryKey: ['rebuild-project', id] });
-    },
-    onError: (err: any) => message.error(err?.response?.data?.detail || 'Could not update the project'),
-  });
-
-  const deleteProjectMutation = useMutation({
-    mutationFn: (id: string) => rebuildService.deleteProject(id),
-    onSuccess: () => {
-      message.success('Deleted');
-      queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
-      queryClient.invalidateQueries({ queryKey: ['rebuild-stats'] });
-    },
   });
 
   const createContractorMutation = useMutation({
@@ -185,8 +179,8 @@ const RebuildProjectList: React.FC = () => {
       className="ui-row"
       role="button"
       tabIndex={0}
-      onClick={() => setDetailProjectId(r.id)}
-      onKeyDown={e => { if (e.key === 'Enter') setDetailProjectId(r.id); }}
+      onClick={() => openProject(r.id)}
+      onKeyDown={e => { if (e.key === 'Enter') openProject(r.id); }}
     >
       <div className="ui-row-body">
         <div className="ui-row-tags">
@@ -246,7 +240,8 @@ const RebuildProjectList: React.FC = () => {
     total,
     onChange: (p: number, ps: number) => {
       // A new page size starts from page 1
-      if (ps !== pageSize) { setPageSize(ps); setPage(1); } else setPage(p);
+      if (ps !== pageSize) setParams({ size: ps !== PAGE_SIZES[0] ? String(ps) : undefined, page: undefined });
+      else setPage(p);
     },
   };
 
@@ -325,7 +320,7 @@ const RebuildProjectList: React.FC = () => {
             placeholder="Search address, client, claim #..."
             allowClear
             value={search}
-            onChange={e => changeSearch(e.target.value)}
+            onChange={e => setSearch(e.target.value)}
             size={isPhone ? 'large' : undefined}
             style={{ width: isPhone ? '100%' : 260 }}
             aria-label="Search rebuild projects"
@@ -352,11 +347,11 @@ const RebuildProjectList: React.FC = () => {
             ...pagination,
             hideOnSinglePage: true,
             showSizeChanger: true,
-            pageSizeOptions: [20, 50, 100],
+            pageSizeOptions: PAGE_SIZES,
             showTotal: t => `${t} projects`,
           }}
           onRow={(record) => ({
-            onClick: () => setDetailProjectId(record.id),
+            onClick: () => openProject(record.id),
             style: { cursor: 'pointer' },
           })} />
       )}
@@ -439,126 +434,6 @@ const RebuildProjectList: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-
-      {/* Project Detail Modal */}
-      <RebuildProjectDetailModal
-        projectId={detailProjectId}
-        open={!!detailProjectId}
-        onClose={() => setDetailProjectId(null)}
-        onChanged={() => {
-          queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
-          queryClient.invalidateQueries({ queryKey: ['rebuild-stats'] });
-        }}
-        onEdit={(p) => {
-          editForm.setFieldsValue({
-            title: p.title,
-            description: p.description,
-            scope_of_work: p.scope_of_work,
-            property_address: p.property_address,
-            status: p.status,
-            priority: p.priority,
-            contractor_id: p.contractor_id,
-            insurance_estimate_amount: p.insurance_estimate_amount,
-            contract_amount: p.contract_amount,
-            final_invoice_amount: p.final_invoice_amount,
-            start_date: p.start_date ? dayjs(p.start_date) : undefined,
-            estimated_completion: p.estimated_completion ? dayjs(p.estimated_completion) : undefined,
-            notes: p.notes,
-            customer_managed: !!p.customer_managed,
-          });
-          setEditProject(p);
-        }}
-      />
-
-      {/* Edit Project Modal */}
-      <Modal title="Edit Project" open={!!editProject} width={600} {...sheetProps}
-        okText="Save"
-        onOk={() => editForm.validateFields().then(values => {
-          if (editProject) {
-            const payload = {
-              ...values,
-              start_date: values.start_date?.toISOString() || null,
-              estimated_completion: values.estimated_completion?.toISOString() || null,
-            };
-            updateProjectMutation.mutate({ id: editProject.id, data: payload });
-            setEditProject(null);
-          }
-        })}
-        onCancel={() => { setEditProject(null); editForm.resetFields(); }}
-        confirmLoading={updateProjectMutation.isPending}>
-        <Form form={editForm} layout="vertical" size={formSize}>
-          <Form.Item name="title" label="Title" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="status" label="Status">
-                <Select options={REBUILD_STATUSES.map(s => ({ value: s, label: rebuildStatusLabel(s) }))} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="priority" label="Priority">
-                <Select options={[
-                  { value: 'low', label: 'Low' }, { value: 'normal', label: 'Normal' },
-                  { value: 'high', label: 'High' }, { value: 'urgent', label: 'Urgent' },
-                ]} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="contractor_id" label="Contractor">
-            <Select allowClear placeholder="Select contractor"
-              options={contractors.map((c: RebuildContractor) => ({ value: c.id, label: c.company_name }))} />
-          </Form.Item>
-          {/* Moves the project off the list into the "Customer's own contractor" tab */}
-          <Form.Item name="customer_managed" valuePropName="checked"
-            extra="We don't build it. It moves off the main list and out of the totals, into the Customer's contractor tab.">
-            <Checkbox>Customer hires their own contractor</Checkbox>
-          </Form.Item>
-          <Form.Item name="property_address" label="Property Address">
-            <AddressAutocomplete fillFullAddress />
-          </Form.Item>
-          {/* Three amounts share a row on desktop; phones take two per row */}
-          <Row gutter={12}>
-            <Col xs={12} sm={8}>
-              <Form.Item name="insurance_estimate_amount" label="Insurance $">
-                <InputNumber min={0} step={0.01} prefix="$" inputMode="decimal" style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col xs={12} sm={8}>
-              <Form.Item name="contract_amount" label="Contract $">
-                <InputNumber min={0} step={0.01} prefix="$" inputMode="decimal" style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col xs={12} sm={8}>
-              <Form.Item name="final_invoice_amount" label="Final Invoice $">
-                <InputNumber min={0} step={0.01} prefix="$" inputMode="decimal" style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="start_date" label="Start Date">
-                <DatePicker inputReadOnly={isPhone} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="estimated_completion" label="Est. Completion">
-                <DatePicker inputReadOnly={isPhone} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="scope_of_work" label="Scope of Work">
-            <TextArea rows={3} />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <TextArea rows={2} />
-          </Form.Item>
-          <Form.Item name="notes" label="Notes">
-            <TextArea rows={2} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
     </div>
   );
 };

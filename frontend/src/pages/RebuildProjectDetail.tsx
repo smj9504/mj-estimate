@@ -1,11 +1,12 @@
 /**
- * Rebuild project detail: facts and the completion-document checklist on the
+ * Rebuild project page: facts and the completion-document checklist on the
  * left, the claim's latest insurance estimate PDF open on the right so the
  * scope can be checked without leaving the project. Phones get one column and
  * open PDFs in a new tab, since mobile browsers do not render PDFs in frames.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Modal, Button, Select, Dropdown, Skeleton, Form, Input, Upload, message, Tooltip,
@@ -13,34 +14,29 @@ import {
 import type { MenuProps } from 'antd';
 import {
   FilePdfOutlined, CameraOutlined, UploadOutlined, PlusOutlined, MoreOutlined,
-  CheckCircleFilled, ExportOutlined, ArrowLeftOutlined, SwapOutlined, InboxOutlined,
+  CheckCircleFilled, ExportOutlined, ArrowLeftOutlined, SwapOutlined, InboxOutlined, EditOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { Pill, PropertyList, humanize, toneFromKey, useSheetModal } from '../common/ui';
-import { tagTones } from '../../styles/tokens';
-import { rebuildService } from '../../services/rebuildService';
-import { supplementService } from '../../services/supplementService';
-import { fileService } from '../../services/fileService';
-import RebuildDocGenerator from './RebuildDocGenerator';
-import RebuildPhotoToPdf from './RebuildPhotoToPdf';
+import { PageHeader, Pill, PropertyList, humanize, toneFromKey, useSheetModal } from '../components/common/ui';
+import { tagTones } from '../styles/tokens';
+import { useAuth } from '../contexts/AuthContext';
+import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
+import { rebuildService } from '../services/rebuildService';
+import { supplementService } from '../services/supplementService';
+import { fileService } from '../services/fileService';
+import RebuildDocGenerator from '../components/rebuild/RebuildDocGenerator';
+import RebuildPhotoToPdf from '../components/rebuild/RebuildPhotoToPdf';
+import RebuildProjectEditModal from '../components/rebuild/RebuildProjectEditModal';
 import {
   REBUILD_STATUSES, REQUIRED_DOCS, DOC_TYPE_LABELS, RebuildStatusPill, rebuildStatusLabel,
   formatCurrency, completionDocPdfUrl, fileInlineUrl,
-} from './rebuildUi';
-import type { RebuildProject, RebuildCompletionDoc } from '../../types/rebuild';
-import type { ClaimNegotiation } from '../../types/client';
-import './rebuild.css';
+} from '../components/rebuild/rebuildUi';
+import type { RebuildProject, RebuildCompletionDoc } from '../types/rebuild';
+import type { ClaimNegotiation } from '../types/client';
+import '../components/rebuild/rebuild.css';
 
 type EstimateVersion = ClaimNegotiation & { file_download_id?: string | null };
 type Viewing = { kind: 'estimate'; id: string } | { kind: 'doc'; id: string };
-
-interface Props {
-  projectId: string | null;
-  open: boolean;
-  onClose: () => void;
-  onEdit: (project: RebuildProject) => void;
-  onChanged: () => void;
-}
 
 const REQUIRED_TYPES: string[] = REQUIRED_DOCS.map(d => d.type);
 
@@ -70,9 +66,13 @@ const CompanyMonogram: React.FC<{ id: string; name: string }> = ({ id, name }) =
   );
 };
 
-const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, onEdit, onChanged }) => {
+const RebuildProjectDetail: React.FC = () => {
+  const { id: projectId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
-  const { isPhone, sheetProps } = useSheetModal('tall');
+  const { canAccessPath } = useAuth();
+  const { isPhone } = useSheetModal();
   const { sheetProps: uploadSheetProps } = useSheetModal();
   // Touch gets 32px controls; desktop keeps the compact 24px ones
   const ctlSize = isPhone ? 'middle' : 'small';
@@ -80,6 +80,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
   const [viewing, setViewing] = useState<Viewing | null>(null);
   const [docGeneratorOpen, setDocGeneratorOpen] = useState(false);
   const [photoToPdfOpen, setPhotoToPdfOpen] = useState(false);
+  const [editing, setEditing] = useState<RebuildProject | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -88,7 +89,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
   const { data: project, isLoading, isError } = useQuery({
     queryKey: ['rebuild-project', projectId],
     queryFn: () => rebuildService.getProject(projectId as string),
-    enabled: open && !!projectId,
+    enabled: !!projectId,
     retry: false,
   });
 
@@ -98,8 +99,10 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
       const list = await supplementService.listInsuranceEstimates(project!.claim_id);
       return [...list].sort((a, b) => receivedAt(b) - receivedAt(a));
     },
-    enabled: open && !!project?.claim_id,
+    enabled: !!project?.claim_id,
   });
+
+  useBreadcrumbTitle(project ? project.property_address || project.title : null);
 
   const latestEstimate = useMemo(() => pickLatestEstimate(versions), [versions]);
 
@@ -113,9 +116,17 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
   const viewedEstimate = viewing?.kind === 'estimate' ? versions.find(v => v.id === viewing.id) || null : null;
   const viewedDoc = viewing?.kind === 'doc' ? docs.find(d => d.id === viewing.id) || null : null;
 
+  // Back to the list as it was left (its filters live in the address); opened
+  // from elsewhere, to the list itself
+  const backToList = () => {
+    if ((location.state as { fromList?: boolean } | null)?.fromList) navigate(-1);
+    else navigate('/rebuild-projects');
+  };
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['rebuild-project', projectId] });
-    onChanged();
+    queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
+    queryClient.invalidateQueries({ queryKey: ['rebuild-stats'] });
   };
 
   const updateProject = async (data: Partial<RebuildProject>) => {
@@ -471,85 +482,100 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
     </section>
   );
 
-  const header = project ? (
-    <div className="rb-head">
-      <div className="rb-head-title">{project.property_address || project.title}</div>
-      <div className="rb-head-meta">
-        <Select
-          size={ctlSize}
-          className="sup-status-select rb-status-select"
-          value={project.status}
-          onChange={v => updateProject({ status: v })}
-          options={REBUILD_STATUSES.map(s => ({ value: s, label: rebuildStatusLabel(s) }))}
-          labelRender={({ value }) => <RebuildStatusPill status={value as string} />}
-          optionRender={option => <RebuildStatusPill status={option.value as string} />}
-          suffixIcon={<SwapOutlined />}
-          popupMatchSelectWidth={false}
-          aria-label="Project status"
-        />
-        {project.customer_managed && <Pill tone="gray">Customer's own contractor</Pill>}
-        {project.claim_number && <span>Claim {project.claim_number}</span>}
-        {project.insurance_company && <span>{project.insurance_company}</span>}
+  const back = (
+    <Tooltip title="Back to rebuild projects">
+      <Button type="text" className="ui-icon-btn" icon={<ArrowLeftOutlined />}
+        aria-label="Back to rebuild projects" onClick={backToList} />
+    </Tooltip>
+  );
+
+  if (isError) {
+    return (
+      <div className="rb-page">
+        <PageHeader leading={back} title="Project not found" />
+        <div className="rb-viewer-empty rb-page-missing">
+          <p className="rb-viewer-empty-title">This project could not be loaded</p>
+          <p>It may have been deleted, or it is on a claim you can't see.</p>
+          <Button onClick={() => navigate('/rebuild-projects')}>Go to Rebuild Projects</Button>
+        </div>
       </div>
-    </div>
-  ) : null;
+    );
+  }
+
+  if (isLoading || !project) {
+    return (
+      <div className="rb-page">
+        <PageHeader leading={back} title={<Skeleton.Input active size="small" style={{ width: 280 }} />} />
+        <Skeleton active paragraph={{ rows: 8 }} />
+      </div>
+    );
+  }
+
+  const clientLink = project.client_name && (project.client_id && canAccessPath('/clients')
+    ? <Link to={`/clients/${project.client_id}`}>{project.client_name}</Link>
+    : <span>{project.client_name}</span>);
 
   return (
-    <>
-      <Modal
-        open={open}
-        title={header}
-        onCancel={onClose}
-        width={1180}
-        style={isPhone ? undefined : { top: 24, maxWidth: '96vw' }}
-        className="rb-modal"
-        destroyOnClose
-        {...sheetProps}
-        footer={[
-          <Button key="close" onClick={onClose}>Close</Button>,
-          <Button key="edit" type="primary" disabled={!project} onClick={() => project && onEdit(project)}>Edit</Button>,
-        ]}
-      >
-        {isError ? (
-          <div className="rb-viewer-empty">
-            <p className="rb-viewer-empty-title">This project could not be loaded</p>
-            <p>It may have been deleted. Close this and pick it again from the list.</p>
-          </div>
-        ) : isLoading || !project ? (
-          <Skeleton active paragraph={{ rows: 8 }} />
-        ) : isPhone ? (
-          <div className="rb-stack">
-            {renderEstimateRow()}
+    <div className="rb-page">
+      <PageHeader
+        leading={back}
+        title={project.property_address || project.title}
+        meta={
+          <>
+            {project.customer_managed && <Pill tone="gray">Customer's own contractor</Pill>}
+            {clientLink}
+            {project.claim_number && <span>Claim {project.claim_number}</span>}
+            {project.insurance_company && <span>{project.insurance_company}</span>}
+          </>
+        }
+        actions={
+          <>
+            <Select
+              className="sup-status-select"
+              value={project.status}
+              onChange={v => updateProject({ status: v })}
+              options={REBUILD_STATUSES.map(s => ({ value: s, label: rebuildStatusLabel(s) }))}
+              labelRender={({ value }) => <RebuildStatusPill status={value as string} />}
+              optionRender={option => <RebuildStatusPill status={option.value as string} />}
+              suffixIcon={<SwapOutlined />}
+              popupMatchSelectWidth={false}
+              style={{ minWidth: 150 }}
+              aria-label="Project status"
+            />
+            <Button icon={<EditOutlined />} onClick={() => setEditing(project)}>Edit</Button>
+          </>
+        }
+      />
+
+      {isPhone ? (
+        <div className="rb-stack">
+          {renderEstimateRow()}
+          {renderFacts(project)}
+          {renderChecklist(project)}
+        </div>
+      ) : (
+        <div className="rb-page-split">
+          <div className="rb-page-main">
             {renderFacts(project)}
             {renderChecklist(project)}
           </div>
-        ) : (
-          <div className="rb-split">
-            <div className="rb-split-main">
-              {renderFacts(project)}
-              {renderChecklist(project)}
-            </div>
-            {renderViewer()}
-          </div>
-        )}
-      </Modal>
-
-      {project && (
-        <>
-          <RebuildDocGenerator
-            open={docGeneratorOpen}
-            project={project}
-            onClose={() => setDocGeneratorOpen(false)}
-            onSuccess={onDocCreated}
-          />
-          <RebuildPhotoToPdf
-            open={photoToPdfOpen}
-            project={project}
-            onClose={() => setPhotoToPdfOpen(false)}
-            onSuccess={onDocCreated}
-          />
-        </>
+          <div className="rb-page-viewer">{renderViewer()}</div>
+        </div>
       )}
+
+      <RebuildDocGenerator
+        open={docGeneratorOpen}
+        project={project}
+        onClose={() => setDocGeneratorOpen(false)}
+        onSuccess={onDocCreated}
+      />
+      <RebuildPhotoToPdf
+        open={photoToPdfOpen}
+        project={project}
+        onClose={() => setPhotoToPdfOpen(false)}
+        onSuccess={onDocCreated}
+      />
+      <RebuildProjectEditModal project={editing} onClose={() => setEditing(null)} />
 
       <Modal
         title="Add completion document"
@@ -592,8 +618,8 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
           </Form.Item>
         </Form>
       </Modal>
-    </>
+    </div>
   );
 };
 
-export default RebuildProjectDetailModal;
+export default RebuildProjectDetail;

@@ -1,24 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Modal, Steps, Select, Form, Input, Button, Descriptions, Spin,
-  message, Typography, Alert, Divider,
-} from 'antd';
-import {
-  FileTextOutlined, EditOutlined, FormOutlined, CheckCircleOutlined,
-} from '@ant-design/icons';
+/**
+ * Generate a completion document (the certificate of completion, a lien
+ * waiver...) from the company's contract template: pick the template, check
+ * the values it prints, sign in place, generate. One dialog, no steps: the
+ * signature is drawn or typed right here instead of in a second dialog.
+ */
+
+import React, { useEffect, useMemo, useState } from 'react';
+import { Modal, Select, Input, Button, Skeleton, message } from 'antd';
+import { CheckCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { rebuildService } from '../../services/rebuildService';
 import { humanize, useSheetModal } from '../common/ui';
-import WMSignaturePad from '../water-mitigation/pdf-annotator/WMSignaturePad';
+import SignatureField, { type SignatureValue } from '../common/SignatureField';
 import type { RebuildProject, RebuildCompletionDoc } from '../../types/rebuild';
-
-const { Text } = Typography;
-const { TextArea } = Input;
 
 interface Props {
   open: boolean;
   project: RebuildProject;
   onClose: () => void;
   onSuccess: (doc: RebuildCompletionDoc) => void;
+}
+
+interface FieldMapping {
+  fieldKey?: string;
+  label?: string;
 }
 
 interface TemplateInfo {
@@ -28,10 +32,10 @@ interface TemplateInfo {
   /** Completion doc type this template produces (certificate_of_completion -> coc) */
   doc_type: string;
   requires_signature: boolean;
-  field_mappings: any[];
+  field_mappings: FieldMapping[];
 }
 
-// Boxes filled from the signature step, not typed values
+// Boxes filled from the signature, not typed values
 const SIGNATURE_PREFIXES = ['signature.', 'initial.', 'date_signed.'];
 const isSignatureKey = (key: string) => SIGNATURE_PREFIXES.some(p => key.startsWith(p));
 
@@ -44,100 +48,110 @@ const DOC_TYPE_OPTIONS = [
   { value: 'other', label: 'Other' },
 ];
 
+/** One entry per mapped field (a box repeated on several pages counts once) */
+const uniqueBy = (mappings: FieldMapping[], keep: (key: string) => boolean) =>
+  mappings.reduce((acc: { key: string; label: string }[], m) => {
+    const key = m.fieldKey || '';
+    if (key && keep(key) && !acc.some(a => a.key === key)) acc.push({ key, label: m.label || key });
+    return acc;
+  }, []);
+
 const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSuccess }) => {
-  const { isPhone, sheetProps } = useSheetModal();
-  const formSize = isPhone ? 'large' : 'small';
-  const [step, setStep] = useState(0);
+  const { isPhone, sheetProps } = useSheetModal('tall');
+  const size = isPhone ? 'large' : 'middle';
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateInfo | null>(null);
+  const [templateId, setTemplateId] = useState<string | undefined>();
   const [prefillData, setPrefillData] = useState<Record<string, any>>({});
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [docType, setDocType] = useState('coc');
   const [title, setTitle] = useState('');
-  const [additionalText, setAdditionalText] = useState('');
-  const [signatureImage, setSignatureImage] = useState('');
-  const [signatureName, setSignatureName] = useState('');
+  const [note, setNote] = useState('');
+  const [signature, setSignature] = useState<SignatureValue | null>(null);
   const [signatureFieldKey, setSignatureFieldKey] = useState<string | undefined>();
-  const [signaturePadOpen, setSignaturePadOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
 
-  useEffect(() => {
-    if (open && project) {
-      setLoading(true);
-      Promise.all([
-        rebuildService.getAvailableTemplates(project.id),
-        rebuildService.getPrefillData(project.id),
-      ]).then(([tmpl, prefill]) => {
-        setTemplates(tmpl);
-        setPrefillData(prefill);
-      }).catch(() => {
-        message.error('Failed to load templates');
-      }).finally(() => setLoading(false));
-    }
-  }, [open, project]);
+  const template = templates.find(t => t.id === templateId) || null;
+  const fields = useMemo(() => uniqueBy(template?.field_mappings || [], k => !isSignatureKey(k)), [template]);
+  const signatureBoxes = useMemo(
+    () => uniqueBy(template?.field_mappings || [], k => k.startsWith('signature.')),
+    [template],
+  );
 
-  const handleClose = () => {
-    setStep(0);
-    setSelectedTemplate(null);
+  const pickTemplate = (id: string, list: TemplateInfo[] = templates) => {
+    const tmpl = list.find(t => t.id === id);
+    if (!tmpl) return;
+    setTemplateId(tmpl.id);
+    setTitle(tmpl.name);
+    setDocType(tmpl.doc_type || 'coc');
+    setOverrides({});
+    setSignatureFieldKey(uniqueBy(tmpl.field_mappings || [], k => k.startsWith('signature.'))[0]?.key);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    let stale = false;
+    setLoading(true);
+    Promise.all([
+      rebuildService.getAvailableTemplates(project.id),
+      rebuildService.getPrefillData(project.id),
+    ]).then(([tmpl, prefill]) => {
+      if (stale) return;
+      setTemplates(tmpl);
+      setPrefillData(prefill);
+      // Certificates come first; start on the first so most people only check and sign
+      if (tmpl.length) pickTemplate(tmpl[0].id, tmpl);
+    }).catch(() => {
+      if (!stale) message.error('Could not load the templates');
+    }).finally(() => {
+      if (!stale) setLoading(false);
+    });
+    return () => { stale = true; };
+    // pickTemplate only sets state
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, project.id]);
+
+  const reset = () => {
+    setTemplates([]);
+    setTemplateId(undefined);
     setOverrides({});
     setDocType('coc');
     setTitle('');
-    setAdditionalText('');
-    setSignatureImage('');
-    setSignatureName('');
+    setNote('');
+    setSignature(null);
     setSignatureFieldKey(undefined);
+  };
+
+  const handleClose = () => {
+    reset();
     onClose();
   };
 
-  /** One option per signature box the template maps (a box repeated on several pages counts once) */
-  const signatureBoxes = (tmpl: TemplateInfo | null) =>
-    (tmpl?.field_mappings || []).reduce((acc: { key: string; label: string }[], m: any) => {
-      if (m.fieldKey?.startsWith('signature.') && !acc.some(a => a.key === m.fieldKey)) {
-        acc.push({ key: m.fieldKey, label: m.label || m.fieldKey });
-      }
-      return acc;
-    }, []);
-
-  const handleTemplateSelect = (templateId: string) => {
-    const tmpl = templates.find(t => t.id === templateId);
-    if (tmpl) {
-      setSelectedTemplate(tmpl);
-      setTitle(tmpl.name);
-      setDocType(tmpl.doc_type || 'coc');
-      setSignatureFieldKey(signatureBoxes(tmpl)[0]?.key);
-    }
-  };
-
-  const handleOverride = (fieldKey: string, value: string) => {
-    setOverrides(prev => ({ ...prev, [fieldKey]: value }));
-  };
-
-  const resolveFieldValue = (fieldKey: string): string => {
+  const valueOf = (fieldKey: string): string => {
     if (overrides[fieldKey] !== undefined) return overrides[fieldKey];
     const [cat, key] = fieldKey.split('.');
     return prefillData?.[cat]?.[key] || '';
   };
 
-  const handleGenerate = async () => {
-    if (!selectedTemplate) return;
+  const generate = async () => {
+    if (!template) return;
     setGenerating(true);
     try {
       const result = await rebuildService.generateDocument(project.id, {
-        template_id: selectedTemplate.id,
+        template_id: template.id,
         doc_type: docType,
         title,
         overrides,
-        additional_text: additionalText,
-        signature_image: signatureImage || undefined,
-        signature_name: signatureName || undefined,
-        signature_field_key: signatureImage ? signatureFieldKey : undefined,
+        additional_text: note,
+        signature_image: signature?.image || undefined,
+        signature_name: signature?.name || undefined,
+        signature_field_key: signature ? signatureFieldKey : undefined,
       });
       message.success('Document generated');
       onSuccess(result);
       handleClose();
     } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Failed to generate');
+      message.error(err?.response?.data?.detail || 'Could not generate the document');
     } finally {
       setGenerating(false);
     }
@@ -145,198 +159,155 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
 
   // Templates come from the contractor's company, else the claim's reconstruction company
   const templateCompany = project.contractor_id ? project.contractor_name : project.rebuild_company_name;
+  const noTemplates = !loading && templates.length === 0;
 
-  const renderStep0 = () => (
-    <div>
-      {templates.length === 0 && !loading && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={templateCompany
-            ? `${templateCompany} has no completion template yet`
-            : 'No company to take templates from'}
-          description={templateCompany
-            ? 'Add a "Certificate of Completion (Recon)" template for this company in Contract Templates, then map its fields.'
-            : "Assign a contractor, or set the claim's reconstruction company, to use that company's templates."}
-        />
-      )}
-      <Form layout="vertical" size={formSize}>
-        <Form.Item label="Contract Template" required>
-          <Select
-            placeholder="Select a template..."
-            value={selectedTemplate?.id}
-            onChange={handleTemplateSelect}
-            options={templates.map(t => ({
-              value: t.id,
-              label: `${t.name} (${humanize(t.document_type || 'other')})`,
-            }))}
-            disabled={templates.length === 0}
-          />
-        </Form.Item>
-        <Form.Item label="Document Type">
-          <Select value={docType} onChange={setDocType} options={DOC_TYPE_OPTIONS} />
-        </Form.Item>
-        <Form.Item label="Document Title">
-          <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Document title" />
-        </Form.Item>
-      </Form>
-    </div>
-  );
+  const signatureWhere = signatureBoxes.length
+    ? "It goes in the template's signature box, with today's date in its date box."
+    : 'This template has no signature box, so it goes at the bottom right of the last page.';
 
-  const renderStep1 = () => {
-    const mappings = selectedTemplate?.field_mappings || [];
-    const uniqueFields = mappings.reduce((acc: any[], m: any) => {
-      if (!isSignatureKey(m.fieldKey || '') && !acc.find((a: any) => a.fieldKey === m.fieldKey)) acc.push(m);
-      return acc;
-    }, []);
-
+  const renderBody = () => {
+    if (loading) return <Skeleton active paragraph={{ rows: 8 }} />;
+    if (noTemplates) {
+      return (
+        <div className="rbg-empty">
+          <InfoCircleOutlined aria-hidden="true" />
+          <p className="rbg-empty-title">
+            {templateCompany ? `${templateCompany} has no completion template yet` : 'No company to take templates from'}
+          </p>
+          <p>
+            {templateCompany
+              ? 'Add a "Certificate of Completion (Recon)" template for this company in Contract Templates, then map its fields.'
+              : "Assign a contractor, or set the claim's reconstruction company, to use that company's templates."}
+          </p>
+        </div>
+      );
+    }
     return (
-      <div>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          Review auto-filled values. {isPhone ? 'Tap' : 'Click'} any value to override it.
-        </Text>
-        {uniqueFields.length === 0 ? (
-          <Alert type="info" message="This template has no field mappings. The original PDF will be used as-is." showIcon />
-        ) : isPhone ? (
-          // Phones: one labelled field per row, so long values get the full width
-          <Form layout="vertical" size={formSize}>
-            {uniqueFields.map((field: any) => (
-              <Form.Item key={field.fieldKey} label={field.label || field.fieldKey} style={{ marginBottom: 12 }}>
-                <Input
-                  value={resolveFieldValue(field.fieldKey)}
-                  onChange={e => handleOverride(field.fieldKey, e.target.value)}
-                  placeholder="(empty)"
-                />
-              </Form.Item>
-            ))}
-          </Form>
-        ) : (
-          <Descriptions size="small" column={1} bordered>
-            {uniqueFields.map((field: any) => (
-              <Descriptions.Item key={field.fieldKey} label={field.label || field.fieldKey}>
-                <Input
-                  size="small"
-                  value={resolveFieldValue(field.fieldKey)}
-                  onChange={e => handleOverride(field.fieldKey, e.target.value)}
-                  placeholder="(empty)"
-                  variant="borderless"
-                  style={{ padding: 0 }}
-                />
-              </Descriptions.Item>
-            ))}
-          </Descriptions>
-        )}
+      <div className="rbg">
+        <section className="rbg-section" aria-labelledby="rbg-template">
+          <h3 className="rbg-head" id="rbg-template">
+            Template
+            {templateCompany && <span className="rbg-head-meta">{templateCompany}'s contract templates</span>}
+          </h3>
+          <div className="rbg-grid">
+            <div className="rbg-field rbg-field--wide">
+              <Select
+                size={size}
+                value={templateId}
+                onChange={id => pickTemplate(id)}
+                options={templates.map(t => ({ value: t.id, label: t.name }))}
+                optionRender={o => {
+                  const t = templates.find(x => x.id === o.value);
+                  return (
+                    <span className="rbg-option">
+                      <span>{t?.name}</span>
+                      <span className="rbg-option-meta">{humanize(t?.document_type || 'other')}</span>
+                    </span>
+                  );
+                }}
+                aria-label="Template"
+              />
+            </div>
+            <div className="rbg-field">
+              <span className="rbg-label">Saved as</span>
+              <Select size={size} value={docType} onChange={setDocType} options={DOC_TYPE_OPTIONS} aria-label="Document type" />
+            </div>
+            <label className="rbg-field">
+              <span className="rbg-label">Title</span>
+              <Input size={size} value={title} onChange={e => setTitle(e.target.value)} placeholder="Document title" aria-label="Document title" />
+            </label>
+          </div>
+        </section>
 
-        <Divider style={{ margin: '16px 0 12px' }} />
-        <Form layout="vertical" size={formSize}>
-          <Form.Item label="Additional Notes (printed on document)">
-            <TextArea
-              rows={3}
-              value={additionalText}
-              onChange={e => setAdditionalText(e.target.value)}
-              placeholder="Optional additional text to include..."
+        <section className="rbg-section" aria-labelledby="rbg-fields">
+          <h3 className="rbg-head" id="rbg-fields">
+            Printed on it
+            <span className="rbg-head-meta">Filled in from the claim. Change anything that's wrong.</span>
+          </h3>
+          {fields.length === 0 ? (
+            <p className="rbg-muted">This template has no mapped fields, so it prints as it is.</p>
+          ) : (
+            <div className="rbg-values">
+              {fields.map(f => (
+                <label key={f.key} className="rbg-value">
+                  <span className="rbg-value-label">{f.label}</span>
+                  <Input
+                    size={size}
+                    value={valueOf(f.key)}
+                    onChange={e => setOverrides(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    placeholder="Empty"
+                    aria-label={f.label}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+          <label className="rbg-field rbg-note">
+            <span className="rbg-label">Note printed on the document <span className="rbg-optional">optional</span></span>
+            <Input.TextArea
+              rows={2}
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="e.g. All work completed per the insurance scope"
             />
-          </Form.Item>
-        </Form>
+          </label>
+        </section>
+
+        <section className="rbg-section" aria-labelledby="rbg-sign">
+          <h3 className="rbg-head" id="rbg-sign">
+            Signature <span className="rbg-optional">optional</span>
+            <span className="rbg-head-meta">{signatureWhere}</span>
+          </h3>
+          {signatureBoxes.length > 1 && (
+            <div className="rbg-field rbg-sign-as">
+              <span className="rbg-label">Sign as</span>
+              <Select size={size} value={signatureFieldKey} onChange={setSignatureFieldKey}
+                options={signatureBoxes.map(b => ({ value: b.key, label: b.label }))} aria-label="Sign as" />
+            </div>
+          )}
+          <SignatureField
+            value={signature}
+            onChange={setSignature}
+            defaultName={prefillData?.client?.name || project.client_name}
+            large={isPhone}
+          />
+        </section>
       </div>
     );
   };
 
-  const renderStep2 = () => {
-    const boxes = signatureBoxes(selectedTemplate);
-    return (
-    <div>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        {boxes.length
-          ? 'The signature is placed in the template\'s signature box, with today\'s date in its date box.'
-          : 'This template has no signature box, so the signature goes at the bottom right of the last page.'}
-      </Text>
-      {boxes.length > 1 && (
-        <Form layout="vertical" size={formSize}>
-          <Form.Item label="Sign as">
-            <Select value={signatureFieldKey} onChange={setSignatureFieldKey}
-              options={boxes.map(b => ({ value: b.key, label: b.label }))} />
-          </Form.Item>
-        </Form>
-      )}
-      {signatureImage ? (
-        <div style={{ textAlign: 'center', padding: 16, border: '1px solid var(--color-neutral-200)', borderRadius: 8, marginBottom: 12 }}>
-          <img src={signatureImage} alt="Signature" style={{ maxHeight: 80 }} />
-          <div style={{ marginTop: 8 }}>
-            <Text>{signatureName}</Text>
-          </div>
-          <Button size="small" style={{ marginTop: 8 }} onClick={() => { setSignatureImage(''); setSignatureName(''); }}>
-            Clear
-          </Button>
-        </div>
-      ) : (
-        <div style={{ textAlign: 'center', padding: 24, border: '1px dashed var(--color-neutral-400)', borderRadius: 8, marginBottom: 12 }}>
-          <Button type="primary" onClick={() => setSignaturePadOpen(true)}>
-            Add Signature
-          </Button>
-        </div>
-      )}
-      <Alert type="info" message="Signature is optional. You can generate the document without signing." showIcon />
-      <WMSignaturePad
-        open={signaturePadOpen}
-        onClose={() => setSignaturePadOpen(false)}
-        onSave={(imageData, _type, typedName) => {
-          setSignatureImage(imageData);
-          setSignatureName(typedName || '');
-          setSignaturePadOpen(false);
-        }}
-      />
-    </div>
-    );
-  };
-
-  const steps = [
-    { title: 'Template', icon: <FileTextOutlined /> },
-    { title: 'Fields', icon: <EditOutlined /> },
-    { title: 'Sign', icon: <FormOutlined /> },
-  ];
-
-  const canNext = () => {
-    if (step === 0) return !!selectedTemplate && !!title;
-    return true;
-  };
-
   return (
     <Modal
-      title="Generate Document"
+      title="Generate document"
       open={open}
-      width={650}
+      width={720}
+      style={isPhone ? undefined : { top: 32 }}
+      // Desktop: the body scrolls between a fixed title and footer, so Generate stays in reach
+      styles={isPhone ? undefined : { body: { maxHeight: 'calc(100vh - 190px)', overflowY: 'auto', margin: '0 -24px', padding: '0 24px' } }}
       onCancel={handleClose}
       {...sheetProps}
       footer={
-        <>
-          <Button onClick={handleClose}>Cancel</Button>
-          {step > 0 && <Button onClick={() => setStep(s => s - 1)}>Back</Button>}
-          {step < 2 ? (
-            <Button type="primary" disabled={!canNext()} onClick={() => setStep(s => s + 1)}>
-              Next
-            </Button>
-          ) : (
-            <Button
-              type="primary"
-              icon={<CheckCircleOutlined />}
-              loading={generating}
-              onClick={handleGenerate}
-            >
-              Generate PDF
-            </Button>
+        <div className="rbg-foot">
+          {!isPhone && (
+            <span className="rbg-foot-note">
+              {template ? (signature ? 'Signed' : 'Not signed') : ''}
+            </span>
           )}
-        </>
+          <Button size={size} onClick={handleClose}>Cancel</Button>
+          <Button
+            size={size}
+            type="primary"
+            icon={<CheckCircleOutlined />}
+            loading={generating}
+            disabled={!template || !title.trim()}
+            onClick={generate}
+          >
+            Generate PDF
+          </Button>
+        </div>
       }
     >
-      <Spin spinning={loading}>
-        {/* Stays a single row on phones instead of stacking into a tall vertical list */}
-        <Steps current={step} size="small" items={steps} responsive={false} style={{ marginBottom: 20 }} />
-        {step === 0 && renderStep0()}
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-      </Spin>
+      {renderBody()}
     </Modal>
   );
 };

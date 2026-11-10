@@ -278,31 +278,164 @@ def generate_document(
         raise HTTPException(status_code=500, detail=f"Failed to generate document: {e}")
 
 
+def _upload_loader(upload: UploadFile):
+    def load() -> bytes:
+        upload.file.seek(0)
+        return upload.file.read()
+    return load
+
+
+def _wm_photo_loader(photo):
+    """A WM job photo's stored copy (storage keeps up to 1920px); a CompanyCam
+    photo never copied there comes from CompanyCam's own URLs"""
+    def load() -> bytes:
+        from app.domains.water_mitigation.api import _stored_photo_bytes
+
+        try:
+            return _stored_photo_bytes({
+                'file_path': photo.file_path,
+                'storage_file_id': photo.storage_file_id,
+                'storage_provider': photo.storage_provider,
+            })
+        except Exception:
+            import httpx
+
+            # The original first; the web size (400px) only as a last resort
+            for url in (photo.file_path, photo.storage_web_url):
+                if url and url.startswith('http'):
+                    resp = httpx.get(url, timeout=20, follow_redirects=True)
+                    if resp.status_code == 200 and resp.content:
+                        return resp.content
+            raise
+    return load
+
+
+def _claim_file_loader(record):
+    def load() -> bytes:
+        from app.domains.pack_calculation.packing_photos import _stored_file_bytes
+
+        data = _stored_file_bytes(record)
+        if not data:
+            raise FileNotFoundError(record.url)
+        return data
+    return load
+
+
+def _claim_photo_pages(db, claim_id: str, refs: List[Dict[str, str]]) -> Dict[tuple, tuple]:
+    """(source, id) -> (name, load) for the claim's photos among refs: its WM
+    jobs' photos not in the trash, and its own image files"""
+    from app.domains.file.models import File as FileRecord
+    from app.domains.water_mitigation.models import WaterMitigationJob, WMPhoto
+
+    def ids(source):
+        out = []
+        for ref in refs:
+            if ref['source'] == source:
+                try:
+                    out.append(str(uuid.UUID(ref['id'])))
+                except ValueError:
+                    pass
+        return out
+
+    found: Dict[tuple, tuple] = {}
+    wm_ids = ids('wm')
+    if wm_ids:
+        rows = db.query(WMPhoto).join(
+            WaterMitigationJob, WMPhoto.job_id == WaterMitigationJob.id
+        ).filter(
+            WMPhoto.id.in_(wm_ids),
+            WaterMitigationJob.claim_id == str(claim_id),
+            WMPhoto.is_trashed.isnot(True),
+        ).all()
+        for p in rows:
+            if not (p.mime_type or '').startswith('video/'):
+                found[('wm', str(p.id))] = (p.file_name or 'photo', _wm_photo_loader(p))
+    file_ids = ids('claim')
+    if file_ids:
+        rows = db.query(FileRecord).filter(
+            FileRecord.id.in_(file_ids),
+            FileRecord.context == 'claim',
+            FileRecord.context_id == str(claim_id),
+            FileRecord.is_active.isnot(False),
+        ).all()
+        for f in rows:
+            if (f.content_type or '').startswith('image/'):
+                found[('claim', str(f.id))] = (f.original_name or 'photo', _claim_file_loader(f))
+    return found
+
+
 @router.post("/rebuild/projects/{project_id}/photos-to-pdf", response_model=RebuildCompletionDocResponse)
-async def photos_to_pdf(
+def photos_to_pdf(
     project_id: str,
-    photos: List[UploadFile] = File(...),
-    rotations: str = Form(default="{}"),
+    photos: Optional[List[UploadFile]] = File(None),
+    pages: str = Form(default="", description=(
+        'Page order as JSON: {"upload": n} is the nth uploaded photo, {"source": "wm"|"claim", '
+        '"id": ...} a photo of the claim\'s (a WM job photo, or a claim photo). Left out, the uploads in order.'
+    )),
+    rotations: str = Form(default="{}", description="{page index: degrees clockwise}"),
     doc_type: str = Form(default="completion_photo"),
     title: str = Form(default="Completion Photos"),
     db=Depends(get_db),
     current_staff=Depends(get_current_staff),
 ):
-    """Convert uploaded photos to a multi-page PDF."""
+    """Photos to a multi-page PDF: uploaded ones and ones already on the claim
+    (the client page's photo sets). A plain def, so the work runs off the event loop."""
     _require_project(db, current_staff, project_id)
     try:
         rotation_map = json.loads(rotations)
         rotation_map = {int(k): int(v) for k, v in rotation_map.items()}
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError, AttributeError):
         rotation_map = {}
 
-    photo_list = []
-    for photo in photos:
-        content = await photo.read()
-        photo_list.append((photo.filename or "photo.jpg", content))
+    uploads = list(photos or [])
+    try:
+        order = json.loads(pages) if pages.strip() else [{'upload': i} for i in range(len(uploads))]
+        if not isinstance(order, list):
+            raise ValueError
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="pages must be a JSON list")
+
+    refs = []
+    for entry in order:
+        if not isinstance(entry, dict):
+            raise HTTPException(status_code=400, detail="Each page must be an object")
+        if 'upload' in entry:
+            n = entry['upload']
+            if not isinstance(n, int) or not 0 <= n < len(uploads):
+                raise HTTPException(status_code=400, detail="A page points at a photo that wasn't uploaded")
+        elif entry.get('source') in ('wm', 'claim') and entry.get('id'):
+            refs.append({'source': entry['source'], 'id': str(entry['id'])})
+        else:
+            raise HTTPException(status_code=400, detail="A page is neither an upload nor a claim photo")
+
+    claim_photos = {}
+    if refs:
+        claim_id = db.query(RebuildProject.claim_id).filter(RebuildProject.id == project_id).scalar()
+        claim_photos = _claim_photo_pages(db, str(claim_id), refs)
+
+    page_list = []
+    missing = 0
+    for entry in order:
+        if 'upload' in entry:
+            upload = uploads[entry['upload']]
+            page_list.append((upload.filename or 'photo.jpg', _upload_loader(upload)))
+        else:
+            page = claim_photos.get((entry['source'], str(entry['id'])))
+            if page is None:
+                missing += 1
+            else:
+                page_list.append(page)
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{missing} chosen photo{'s are' if missing > 1 else ' is'} no longer on this claim "
+                "(trashed or deleted). Remove it from the list and try again."
+            ),
+        )
 
     try:
-        return _get_service().photos_to_pdf(project_id, photo_list, rotation_map, doc_type, title)
+        return _get_service().photos_to_pdf(project_id, page_list, rotation_map, doc_type, title)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

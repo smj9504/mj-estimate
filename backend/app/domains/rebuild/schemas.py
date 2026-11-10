@@ -100,6 +100,14 @@ class RebuildProjectUpdate(BaseModel):
     customer_managed: Optional[bool] = None
 
 
+class RebuildWMJobRef(BaseModel):
+    """A water mitigation job on the project's claim: one of the claim's photo sets"""
+    id: str
+    property_address: Optional[str] = None
+    company_name: Optional[str] = None
+    companycam_project_id: Optional[str] = None
+
+
 class RebuildProjectResponse(RebuildProjectBase):
     id: UUID
     claim_id: UUID
@@ -126,10 +134,13 @@ class RebuildProjectResponse(RebuildProjectBase):
     claim_number: Optional[str] = None
     insurance_company: Optional[str] = None
     client_name: Optional[str] = None
+    client_id: Optional[str] = None
     contractor_name: Optional[str] = None
     rebuild_company_id: Optional[str] = None
     rebuild_company_name: Optional[str] = None
     completion_doc_count: int = 0
+    # Detail only: the claim's WM jobs, whose photos the completion PDF can use
+    wm_jobs: List[RebuildWMJobRef] = []
 
     # Nested
     contractor: Optional[RebuildContractorResponse] = None
