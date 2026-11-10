@@ -133,6 +133,18 @@ export const contractInstanceService = {
     return data as ContractInstance;
   },
 
+  /** Sign the client's lines with their signature on file, the client not there */
+  async signOnFile(contractId: string, payload: {
+    authorized: boolean;
+    authorization_text: string;
+    today: string;
+  }) {
+    const { data } = await api.post(`/api/contracts/contracts/${contractId}/sign-on-file`, payload, {
+      suppressErrorNotification: true,
+    });
+    return data as ContractInstance;
+  },
+
   async listByClaim(claimId: string) {
     const { data } = await api.get(`/api/contracts/claims/${claimId}/contracts`);
     return data as { contracts: ContractInstance[]; total: number };
@@ -362,6 +374,9 @@ export const onsiteSigningService = {
     signer_name: string;
     consent_agreed: boolean;
     consent_text: string;
+    /** The customer ticked keeping what they drew on file, and what the box said */
+    keep_signature_on_file?: boolean;
+    keep_on_file_text?: string;
   }) {
     const { data } = await api.post('/api/onsite-signing/contracts', payload);
     return data as OnsiteSignedContract;

@@ -28,6 +28,7 @@ from app.domains.claim_followup.models import CommunicationLog, FollowUpTask, Se
 from app.domains.client import client_delete  # noqa: E402
 from app.domains.client.models import (  # noqa: E402
     Claim, ClaimActivity, ClaimExpense, ClaimNegotiation, ClaimNote, ClaimPayment, ClaimTodo, ClaimTodoAssignee, Client,
+    ClientSignature,
 )
 from app.domains.contract.models import ClaimCompany, ContractInstance, ContractSignature, ContractTemplate  # noqa: E402
 from app.domains.credit.models import AppliedDiscount, CreditTransaction, CustomerCredit  # noqa: E402
@@ -226,6 +227,8 @@ def seed_client(session, label, shared_report_id=None):
     )
     add(ContractSignature, contract_instance_id=contract.id)
     add(ContractInstance, client_id=client.id)
+    # The signature on file, kept from that contract
+    add(ClientSignature, client_id=client.id, kind='signature', contract_id=contract.id)
 
     # Todos: on a contract, on a claim, and on the client with no claim
     add(ClaimTodo, claim_id=claim.id, contract_id=contract.id)
@@ -457,6 +460,7 @@ def test_preview_says_what_goes(world, api, storage):
     assert items['Work orders'] == 1
     assert items['AccuLynx archived jobs'] == 1
     assert items['Field visits'] == 1
+    assert items['Signature and initials on file'] == 1
     # Sent on the claim, plus received on the client and on the job
     assert items['Emails'] == 3
 

@@ -408,7 +408,7 @@ class RebuildService:
         finally:
             session.close()
 
-    def generate_document(self, project_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def generate_document(self, project_id: str, data: Dict[str, Any], staff_id: Any = None) -> Dict[str, Any]:
         """Generate a filled PDF from contract template with optional signature.
 
         data = {
@@ -420,6 +420,10 @@ class RebuildService:
             signature_image: str,  # base64 PNG
             signature_name: str,
             signature_field_key: str,  # e.g. signature.homeowner; defaults to the template's first
+            # Or the client's signature on file, applied by the office:
+            signature_on_file: bool,
+            authorized: bool,  # the person confirmed the client allowed it
+            authorization_text: str,
         }
         """
         session = self._s()
@@ -453,12 +457,21 @@ class RebuildService:
                         prefill[cat] = {}
                     prefill[cat][field] = value
 
+            mappings = self._parse_mappings(template.field_mappings)
+            signing = {
+                'signature_image': data.get('signature_image'),
+                'signature_name': data.get('signature_name'),
+                'signature_field_key': data.get('signature_field_key'),
+            }
+            on_file = None
+            if data.get('signature_on_file'):
+                on_file = self._signature_on_file(session, project, mappings, data)
+                signing = on_file['signing']
+
             filled_pdf_url = self._generate_filled_pdf(
-                project_id, template, self._parse_mappings(template.field_mappings), prefill,
-                signature_image=data.get('signature_image'),
-                signature_name=data.get('signature_name'),
-                signature_field_key=data.get('signature_field_key'),
+                project_id, template, mappings, prefill,
                 additional_text=data.get('additional_text'),
+                **signing,
             )
 
             # Build file name
@@ -477,7 +490,11 @@ class RebuildService:
                 'mime_type': 'application/pdf',
                 'status': 'final',
             }
+            if staff_id:
+                doc_data['created_by_id'] = staff_id
             result = get_completion_doc_repository(session).create(doc_data)
+            if on_file:
+                self._log_signed_on_file(session, project, on_file, doc_data['title'], result, staff_id)
             session.commit()
             return result
         except Exception as e:
@@ -486,6 +503,65 @@ class RebuildService:
             raise
         finally:
             session.close()
+
+    def _signature_on_file(self, session, project, mappings: list, data: Dict[str, Any]) -> Dict[str, Any]:
+        """The client's signature (and initials) on file, for the client's own
+        boxes, put on by the office with the client not there (the user's
+        choice, as on contracts). The stored images are used, never one sent
+        from the browser. ValueError says why it can't be done."""
+        from app.domains.client import client_signatures
+        from app.domains.client.models import Claim
+        from app.domains.contract.signature_on_file import CUSTOMER_ROLE
+
+        if not data.get('authorized'):
+            raise ValueError("Confirm the client allowed us to use their signature on file")
+        claim = session.query(Claim).filter(Claim.id == project.claim_id).first()
+        if not claim or not claim.client_id:
+            raise ValueError("This project's claim has no client")
+        kept = client_signatures.on_file(session, claim.client_id)
+        signature = kept.get('signature')
+        if not signature:
+            raise ValueError("This client has no signature on file")
+
+        # A template with signature boxes takes it in the client's; one with
+        # none takes it at the bottom of the last page, as a drawn one does
+        sig_keys = {m.get('fieldKey') for m in mappings if (m.get('fieldKey') or '').startswith('signature.')}
+        target = f'signature.{CUSTOMER_ROLE}'
+        if sig_keys and target not in sig_keys:
+            raise ValueError("This template has no line for the client's signature")
+        initial = kept.get('initial')
+        signer = signature.signer_name or 'The client'
+        return {
+            'signing': {
+                'signature_image': signature.image,
+                'signature_name': signature.signer_name,
+                'signature_field_key': target if sig_keys else None,
+                'initial_image': initial.image if initial else None,
+            },
+            'signer': signer,
+            'authorization_text': (data.get('authorization_text') or '').strip()
+            or f"{signer} allowed us to sign this document with their signature on file.",
+        }
+
+    @staticmethod
+    def _log_signed_on_file(session, project, on_file: Dict[str, Any], title: str,
+                            doc: Dict[str, Any], staff_id: Any) -> None:
+        """The claim's activity log says who put the client's signature on file
+        on which document, with what they confirmed"""
+        from app.domains.client import client_signatures
+        from app.domains.client.models import ClaimActivity
+
+        applied_by = (client_signatures.staff_name(session, staff_id) if staff_id else None) or 'Staff'
+        session.add(ClaimActivity(
+            claim_id=project.claim_id,
+            activity_type='signed_on_file',
+            title=f"{title} signed with {on_file['signer']}'s signature on file"[:500],
+            description=f"{applied_by} applied it. {on_file['authorization_text']}",
+            related_entity_type='rebuild_project',
+            related_entity_id=project.id,
+            created_by_id=staff_id,
+        ))
+        logger.info(f"Rebuild doc {doc.get('id')} on project {project.id} signed with the signature on file by {staff_id}")
 
     # A photo page: the photo's long side and JPEG quality. 1600px fills a
     # letter page at about 170 dpi and keeps a 100-page PDF to some 40MB, on a
@@ -701,13 +777,15 @@ class RebuildService:
 
     def _generate_filled_pdf(self, project_id: str, template, mappings: list,
                              prefill: dict, signature_image: str = None, signature_name: str = None,
-                             signature_field_key: str = None, additional_text: str = None) -> str:
+                             signature_field_key: str = None, additional_text: str = None,
+                             initial_image: str = None) -> str:
         """Overlay field values and an optional signature on the template PDF.
 
         The signature goes into the template's mapped signature box (the one
         named by signature_field_key, else the first) and that signer's
         date_signed box gets today's date. Templates without a signature box
-        get it at the bottom right of the last page.
+        get it at the bottom right of the last page. initial_image, when
+        given, goes in that signer's initials boxes.
 
         Returns the stored file_url.
         """
@@ -727,6 +805,7 @@ class RebuildService:
         ]
         sig_boxes: list = []
         date_boxes: list = []
+        initial_boxes: list = []
         if signature_image:
             sig_keys = [m.get('fieldKey') for m in mappings if m.get('fieldKey', '').startswith('signature.')]
             target_key = signature_field_key if signature_field_key in sig_keys else (sig_keys[0] if sig_keys else None)
@@ -734,7 +813,10 @@ class RebuildService:
                 role = target_key.split('.', 1)[1]
                 sig_boxes = [m for m in mappings if m.get('fieldKey') == target_key]
                 date_boxes = [m for m in mappings if m.get('fieldKey') == f'date_signed.{role}']
+                if initial_image:
+                    initial_boxes = [m for m in mappings if m.get('fieldKey') == f'initial.{role}']
         sig_bytes = base64.b64decode(signature_image.split(',', 1)[-1]) if signature_image else None
+        initial_bytes = base64.b64decode(initial_image.split(',', 1)[-1]) if initial_boxes else None
 
         def _box(m, pw, ph, default_w=0.25, default_h=0.03):
             fw = m.get('width', default_w) * pw
@@ -760,9 +842,10 @@ class RebuildService:
             page_texts = [m for m in text_fields if m.get('pageIndex', 0) == page_num]
             page_sigs = [m for m in sig_boxes if m.get('pageIndex', 0) == page_num]
             page_dates = [m for m in date_boxes if m.get('pageIndex', 0) == page_num]
+            page_initials = [m for m in initial_boxes if m.get('pageIndex', 0) == page_num]
             loose_signature = is_last_page and sig_bytes and not sig_boxes
             loose_text = is_last_page and additional_text
-            if not (page_texts or page_sigs or page_dates or loose_signature or loose_text):
+            if not (page_texts or page_sigs or page_dates or page_initials or loose_signature or loose_text):
                 writer.add_page(page)
                 continue
 
@@ -780,6 +863,11 @@ class RebuildService:
             for m in page_sigs:
                 fx, fy, fw, fh = _box(m, pw, ph, 0.2, 0.06)
                 c.drawImage(ImageReader(BytesIO(sig_bytes)), fx, fy, fw, fh,
+                            mask='auto', preserveAspectRatio=True, anchor='c')
+
+            for m in page_initials:
+                fx, fy, fw, fh = _box(m, pw, ph, 0.08, 0.04)
+                c.drawImage(ImageReader(BytesIO(initial_bytes)), fx, fy, fw, fh,
                             mask='auto', preserveAspectRatio=True, anchor='c')
 
             for m in page_dates:

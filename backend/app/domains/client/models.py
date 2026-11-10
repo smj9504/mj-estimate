@@ -84,6 +84,33 @@ class Client(Base, BaseModel):
     # WM Job's existing client_id FK points to companies.id (legacy), not clients.id
 
 
+class ClientSignature(Base, BaseModel):
+    """A client's signature or initials kept on file (client/client_signatures.py).
+    The office signs the client's lines on a contract with it. One of each kind
+    per client; keeping a new one replaces it. A table of its own so the client
+    lists never load the images."""
+    __tablename__ = "client_signatures"
+    __table_args__ = (
+        Index('ux_client_signatures_client_kind', 'client_id', 'kind', unique=True),
+        {'extend_existing': True}
+    )
+
+    client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String(20), nullable=False, comment="signature | initial")
+    signer_name = Column(String(255), nullable=False, comment="Whose signature it is")
+    image = Column(Text, nullable=False, comment="PNG or JPEG data URL")
+    source = Column(
+        String(20), nullable=False,
+        comment="onsite (the customer kept it while signing) | drawn | typed | uploaded (by staff)",
+    )
+    # What the customer agreed to when they kept it on site; NULL when staff added it
+    consent_text = Column(Text)
+    # The contract it was first signed on, for one kept on site
+    contract_id = Column(UUIDType(), ForeignKey("contract_instances.id", ondelete="SET NULL"), nullable=True)
+    saved_by_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
+    saved_by_name = Column(String(255))
+
+
 class Claim(Base, BaseModel):
     """Insurance claim or cash job - one client can have several of each"""
     __tablename__ = "claims"

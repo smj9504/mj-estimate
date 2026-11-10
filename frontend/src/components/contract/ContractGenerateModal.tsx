@@ -1,20 +1,27 @@
 /**
  * ContractGenerateModal - Generate a contract instance from a template for a claim.
  * 4-step wizard: Select Company → Choose Template → Preview Data → Finalize
+ *
+ * The client signs from a link, or, when they have a signature on file, the
+ * office signs their lines with it right away (contract/signature_on_file.py on
+ * the server). The company's own lines stay for "Sign for company".
  */
 
 import React, { useState } from 'react';
+import dayjs from 'dayjs';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Descriptions,
   Divider,
   Form,
   Input,
   InputNumber,
   Modal,
+  Radio,
   Select,
   Space,
   Spin,
@@ -26,6 +33,7 @@ import {
 import {
   CheckCircleOutlined,
   CopyOutlined,
+  FilePdfOutlined,
   FileTextOutlined,
   SendOutlined,
 } from '@ant-design/icons';
@@ -33,9 +41,12 @@ import {
   contractTemplateService,
   contractInstanceService,
 } from '../../services/contractService';
+import api from '../../services/api';
 import { companyService } from '../../services/companyService';
-import type { ContractTemplate, PrefillPreviewData } from '../../types/contract';
+import type { ContractInstance, ContractTemplate, PrefillPreviewData } from '../../types/contract';
 import { useSheetModal } from '../common/ui';
+import { keptLine, useSignaturesOnFile } from '../client/ClientSignatureOnFile';
+import { onFileAuthorization } from './signatureLines';
 
 const { Text, Paragraph, Title } = Typography;
 const { Option } = Select;
@@ -63,7 +74,23 @@ interface CreatedResult {
   contractId: string;
   signingUrl: string;
   signingToken: string;
+  /** Signed with the client's signature on file */
+  signed?: ContractInstance | null;
+  /** Why signing with the file failed after the contract was made */
+  signError?: string | null;
 }
+
+type SignMode = 'link' | 'on_file';
+
+const isSignatureKey = (k: string) =>
+  k.startsWith('signature.') || k.startsWith('initial.') || k.startsWith('date_signed.');
+
+const errorText = (err: any, fallback: string) => {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map((d: any) => d?.msg || JSON.stringify(d)).join('; ');
+  return fallback;
+};
 
 // ── Signing Link Display ──────────────────────────────────────────────────────
 
@@ -122,6 +149,12 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
   const [prefillData, setPrefillData] = useState<PrefillPreviewData | null>(null);
   const [prefillOverrides, setPrefillOverrides] = useState<Record<string, Record<string, string | null>>>({});
   const [prefillLoading, setPrefillLoading] = useState(false);
+  const [signMode, setSignMode] = useState<SignMode>('link');
+  const [authorized, setAuthorized] = useState(false);
+
+  const { data: onFile } = useSignaturesOnFile(clientId, open);
+  const keptName = onFile?.signature?.signer_name || '';
+  const authorizationText = onFileAuthorization(keptName);
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
@@ -142,8 +175,8 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
   // ── Mutation ─────────────────────────────────────────────────────────────────
 
   const createMutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      contractInstanceService.create(claimId, {
+    mutationFn: async (values: FormValues) => {
+      const data = await contractInstanceService.create(claimId, {
         template_id: values.template_id,
         claim_id: claimId,
         client_id: clientId,
@@ -152,27 +185,33 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         notes: values.notes || undefined,
         token_expires_days: values.token_expires_days,
         prefill_overrides: Object.keys(prefillOverrides).length > 0 ? prefillOverrides : undefined,
-      }),
-    onSuccess: (data) => {
+      });
+      if (signMode !== 'on_file') return { data, signed: null, signError: null };
+      // The contract stands either way; a failure here leaves it to sign from its link
+      try {
+        const signed = await contractInstanceService.signOnFile(data?.contract?.id ?? data?.id, {
+          authorized: true,
+          authorization_text: authorizationText,
+          today: dayjs().format('MM/DD/YYYY'),
+        });
+        return { data, signed, signError: null };
+      } catch (err: any) {
+        return { data, signed: null, signError: errorText(err, "Couldn't sign it with the signature on file.") };
+      }
+    },
+    onSuccess: ({ data, signed, signError }) => {
       const token = data?.signing_token ?? data?.contract?.signing_token;
       const backendUrl = data?.signing_url;
       const signingUrl =
         backendUrl || (token ? `${window.location.origin}/sign/${token}` : '');
       const contractId = data?.contract?.id ?? data?.id ?? '';
 
-      setCreated({ contractId, signingUrl, signingToken: token ?? '' });
+      setCreated({ contractId, signingUrl, signingToken: token ?? '', signed, signError });
       setCurrentStep(4); // success step
       onSuccess();
     },
     onError: (err: any) => {
-      const detail = err?.response?.data?.detail;
-      let errorMsg = 'Failed to generate contract.';
-      if (typeof detail === 'string') {
-        errorMsg = detail;
-      } else if (Array.isArray(detail)) {
-        errorMsg = detail.map((d: any) => d?.msg || JSON.stringify(d)).join('; ');
-      }
-      message.error(errorMsg);
+      message.error(errorText(err, 'Failed to generate contract.'));
     },
   });
 
@@ -187,6 +226,8 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
     setCreated(null);
     setPrefillData(null);
     setPrefillOverrides({});
+    setSignMode('link');
+    setAuthorized(false);
     form.resetFields();
   };
 
@@ -248,6 +289,35 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       },
     }));
   };
+
+  // Resolve value for a mapped text field: what was typed here, else what's on record
+  const resolveValue = (fieldKey: string): string => {
+    const parts = fieldKey.split('.', 2);
+    if (parts.length !== 2 || !prefillData) return '';
+    const [cat, key] = parts;
+    const override = prefillOverrides[cat]?.[key];
+    if (override !== undefined) return override || '';
+    const catData = (prefillData as any)[cat] as Record<string, string | null> | undefined;
+    return catData?.[key] || '';
+  };
+
+  // ── Signing with the signature on file ───────────────────────────────────────
+
+  const mappings = prefillData?.field_mappings ?? [];
+  const clientLines = mappings.filter((m) => /^(signature|initial)\.homeowner$/.test(m.fieldKey || ''));
+  const signerInputs = mappings.filter((m) => !isSignatureKey(m.fieldKey || '') && m.inputMode === 'signer');
+  // Why the file can't sign this template, if it can't
+  const onFileProblem = (() => {
+    if (!onFile?.signature) return 'No signature on file for this client. Add one from the client page.';
+    if (!clientLines.some((m) => m.fieldKey === 'signature.homeowner')) {
+      return "This template has no line for the client's signature.";
+    }
+    if (clientLines.some((m) => m.fieldKey === 'initial.homeowner') && !onFile.initial) {
+      return 'This template has initials lines, and there are no initials on file.';
+    }
+    return null;
+  })();
+  const signingOnFile = signMode === 'on_file' && !onFileProblem;
 
   // ── Step content ──────────────────────────────────────────────────────────────
 
@@ -338,27 +408,13 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       <div style={{ marginTop: 8, color: '#8c8c8c' }}>Loading data...</div>
     </div>
   ) : prefillData ? (() => {
-    const isSigKey = (k: string) =>
-      k.startsWith('signature.') || k.startsWith('initial.') || k.startsWith('date_signed.');
-
-    const textMappings = prefillData.field_mappings.filter((m) => !isSigKey(m.fieldKey || ''));
-    const sigMappings = prefillData.field_mappings.filter((m) => isSigKey(m.fieldKey || ''));
+    const textMappings = prefillData.field_mappings.filter((m) => !isSignatureKey(m.fieldKey || ''));
+    const sigMappings = prefillData.field_mappings.filter((m) => isSignatureKey(m.fieldKey || ''));
 
     // Separate by inputMode
     const autoFields = textMappings.filter((m) => !m.inputMode || m.inputMode === 'prefilled');
     const creatorFields = textMappings.filter((m) => m.inputMode === 'creator');
     const signerFields = textMappings.filter((m) => m.inputMode === 'signer');
-
-    // Resolve value for a mapped text field
-    const resolveValue = (fieldKey: string): string => {
-      const parts = fieldKey.split('.', 2);
-      if (parts.length !== 2) return '';
-      const [cat, key] = parts;
-      const override = prefillOverrides[cat]?.[key];
-      if (override !== undefined) return override || '';
-      const catData = (prefillData as any)[cat] as Record<string, string | null> | undefined;
-      return catData?.[key] || '';
-    };
 
     const renderFieldTable = (fields: typeof textMappings, editable: boolean) => (
       <Descriptions column={1} size="small" bordered>
@@ -475,6 +531,80 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
 
   const StepFinalize = (
     <>
+      <Form.Item label={<Text strong>Client signature</Text>}>
+        <Radio.Group
+          value={signingOnFile ? 'on_file' : 'link'}
+          onChange={(e) => {
+            setSignMode(e.target.value);
+            setAuthorized(false);
+          }}
+        >
+          <Space direction="vertical">
+            <Radio value="link">Send a link for the client to sign</Radio>
+            <Radio value="on_file" disabled={!!onFileProblem}>
+              Sign now with {keptName ? `${keptName}'s` : 'the'} signature on file
+            </Radio>
+          </Space>
+        </Radio.Group>
+        {onFileProblem && (
+          <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 13 }}>
+            {onFileProblem}
+          </Text>
+        )}
+      </Form.Item>
+
+      {signingOnFile && onFile?.signature && (
+        <Card size="small" style={{ background: '#f9f9f9', borderRadius: 8, marginBottom: 24 }}>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space size={16} wrap align="end">
+              <img
+                src={onFile.signature.image}
+                alt={`${keptName}'s signature on file`}
+                style={{ height: 48, maxWidth: 220, objectFit: 'contain' }}
+              />
+              {onFile.initial && clientLines.some((m) => m.fieldKey === 'initial.homeowner') && (
+                <img
+                  src={onFile.initial.image}
+                  alt={`${keptName}'s initials on file`}
+                  style={{ height: 40, maxWidth: 96, objectFit: 'contain' }}
+                />
+              )}
+            </Space>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {keptLine(onFile.signature)}. It goes on the client&apos;s lines only; the company signs its own.
+            </Text>
+            {signerInputs.length > 0 && (
+              <div>
+                <Text strong style={{ fontSize: 13 }}>The client fills these in when they sign. Fill them in now:</Text>
+                <Descriptions column={1} size="small" bordered style={{ marginTop: 6 }}>
+                  {signerInputs.map((m) => {
+                    const parts = m.fieldKey.split('.', 2);
+                    return (
+                      <Descriptions.Item key={m.id} label={<Text style={{ fontSize: 12 }}>{m.label || m.fieldKey}</Text>}>
+                        <Input
+                          size="small"
+                          aria-label={m.label || m.fieldKey}
+                          value={resolveValue(m.fieldKey)}
+                          onChange={(e) => {
+                            if (parts.length === 2) handlePrefillEdit(parts[0], parts[1], e.target.value);
+                          }}
+                          style={{ fontSize: 12 }}
+                          variant="borderless"
+                          placeholder="(empty)"
+                        />
+                      </Descriptions.Item>
+                    );
+                  })}
+                </Descriptions>
+              </div>
+            )}
+            <Checkbox checked={authorized} onChange={(e) => setAuthorized(e.target.checked)}>
+              {authorizationText}
+            </Checkbox>
+          </Space>
+        </Card>
+      )}
+
       <Form.Item name="title" label={<Text strong>Title Override</Text>}>
         <Input
           placeholder={selectedTemplate?.name ?? 'Leave blank to use template name'}
@@ -494,6 +624,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         name="token_expires_days"
         label={<Text strong>Link Expires In (days)</Text>}
         rules={[{ required: true, message: 'Please specify expiry days.' }]}
+        hidden={signingOnFile}
       >
         <InputNumber
           min={1}
@@ -506,12 +637,48 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
     </>
   );
 
-  const StepSuccess = created ? (
+  const signedPdfUrl = created ? `${api.defaults.baseURL || ''}/api/contracts/contracts/${created.contractId}/pdf` : '';
+
+  const StepSigned = created?.signed ? (
+    <div style={{ textAlign: 'center' }}>
+      <CheckCircleOutlined style={{ fontSize: 56, color: '#52c41a', marginBottom: 12 }} />
+      <Title level={4} style={{ marginBottom: 4 }}>
+        Contract Signed
+      </Title>
+      <Paragraph type="secondary" style={{ marginBottom: 24 }}>
+        {created.signed.contract_number} was signed with {keptName ? `${keptName}'s` : 'the client\'s'} signature on file.
+      </Paragraph>
+      {created.signed.open_company_lines && created.signed.open_company_lines.length > 0 && (
+        <Alert
+          type="info"
+          style={{ marginBottom: 16, textAlign: 'left' }}
+          message="It still needs the company's signature. Use Sign for company on the contract, or the todo the admins got."
+        />
+      )}
+      {created.signed.signed_pdf_url ? (
+        <Button icon={<FilePdfOutlined />} href={signedPdfUrl} target="_blank" rel="noopener noreferrer" block>
+          Open signed PDF
+        </Button>
+      ) : (
+        <Alert type="warning" message="It's signed, but the PDF couldn't be made. Let the office know." />
+      )}
+    </div>
+  ) : null;
+
+  const StepSuccess = created?.signed ? StepSigned : created ? (
     <div style={{ textAlign: 'center' }}>
       <CheckCircleOutlined style={{ fontSize: 56, color: '#52c41a', marginBottom: 12 }} />
       <Title level={4} style={{ marginBottom: 4 }}>
         Contract Generated
       </Title>
+      {created.signError && (
+        <Alert
+          type="warning"
+          style={{ marginBottom: 16, textAlign: 'left' }}
+          message="It wasn't signed with the signature on file"
+          description={created.signError}
+        />
+      )}
       <Paragraph type="secondary" style={{ marginBottom: 24 }}>
         Share the link below with the client to collect their signature.
       </Paragraph>
@@ -538,9 +705,10 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         type="primary"
         onClick={handleNext}
         loading={createMutation.isPending || prefillLoading}
+        disabled={currentStep === 3 && signingOnFile && !authorized}
         icon={currentStep === 3 ? <SendOutlined /> : undefined}
       >
-        {currentStep === 3 ? 'Generate Contract' : 'Next'}
+        {currentStep === 3 ? (signingOnFile ? 'Generate and Sign' : 'Generate Contract') : 'Next'}
       </Button>
     </>
   );

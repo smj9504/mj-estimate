@@ -21,7 +21,9 @@ from app.domains.acculynx_archive.models import AccuLynxArchivedJob
 from app.domains.bathroom_estimate.models import BathroomEstimate
 from app.domains.cabinet_estimate.models import CabinetEstimate
 from app.domains.claim_followup.models import FollowUpTask, SentEmail
-from app.domains.client.models import Claim, ClaimExpense, ClaimPayment, ClaimNegotiation, ClaimTodo, Client
+from app.domains.client.models import (
+    Claim, ClaimExpense, ClaimPayment, ClaimNegotiation, ClaimTodo, Client, ClientSignature,
+)
 from app.domains.contract.models import ContractInstance, ContractTemplate
 from app.domains.credit.models import AppliedDiscount, CreditTransaction, CustomerCredit
 from app.domains.crew_upload.models import UploadLink
@@ -349,6 +351,9 @@ def linked_counts(db: Any, client_id: str) -> Optional[List[Dict[str, Any]]]:
         ('Rebuild projects', len(linked.rebuild_projects)),
         ('Follow-up tasks', len(linked.followup_tasks)),
         ('Field visits', len(linked.field_visits)),
+        ('Signature and initials on file', _count_rows(
+            db, ClientSignature.id, ClientSignature.client_id == client_id
+        )),
         ('Emails', (
             _count_rows(db, SentEmail.id, SentEmail.claim_id.in_(linked.claims))
             + _count_rows(db, ReceivedEmail.id, *_received_email_conditions(client_id, linked))
@@ -405,6 +410,9 @@ def delete_client_and_everything(db: Any, client_id: str) -> Optional[List[Store
         (DocumentTransfer.document_type == 'invoice') & DocumentTransfer.source_id.in_(linked.invoices),
     )
     _delete_work_order_records(db, linked.work_orders)
+
+    # Before the contracts it may point at
+    _remove_rows(db, ClientSignature, ClientSignature.client_id == client_id)
 
     for model, ids in (
         (ContractInstance, linked.contracts),

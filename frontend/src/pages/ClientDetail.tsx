@@ -82,6 +82,7 @@ import { useAuth } from '../contexts/AuthContext';
 import CompanyMultiSelect from '../components/company/CompanyMultiSelect';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import UnassignedContracts from '../components/contract/UnassignedContracts';
+import { ClientSignatureFact } from '../components/client/ClientSignatureOnFile';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
@@ -190,6 +191,8 @@ const ACTIVITY_ICONS: Record<string, React.ReactNode> = {
   supplement_created: <FileAddOutlined />,
   payment_received: <DollarOutlined />,
   status_changed: <SwapOutlined />,
+  // A document signed with the client's signature on file, by the office
+  signed_on_file: <EditOutlined />,
   note: <FormOutlined />,
 };
 
@@ -344,6 +347,7 @@ const ClientRecordHeader: React.FC<{ client: Client; claims: Claim[]; actions: R
             <dd className={f.value ? undefined : 'is-empty'}>{f.value || 'Empty'}</dd>
           </div>
         ))}
+        <ClientSignatureFact clientId={client.id} clientName={client.display_name} />
       </dl>
 
       {client.notes && (

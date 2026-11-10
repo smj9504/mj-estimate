@@ -721,6 +721,59 @@ button.rb-photo-source:focus-visible {
   margin-bottom: 12px;
 }
 
+/* The client's signature on file: offered above the pad, shown in its place once used */
+.rbg-onfile-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-neutral-50);
+}
+.rbg-onfile-offer img {
+  height: 32px;
+  max-width: 120px;
+  object-fit: contain;
+}
+.rbg-onfile-offer-text {
+  flex: 1 1 180px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.rbg-onfile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-neutral-400);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.rbg-onfile-marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+.rbg-onfile-sig {
+  height: 64px;
+  max-width: 280px;
+  object-fit: contain;
+}
+.rbg-onfile-initials {
+  height: 40px;
+  max-width: 96px;
+  object-fit: contain;
+}
+.rbg-onfile-switch.ant-btn {
+  padding: 0;
+  height: auto;
+}
+
 .rbg-empty {
   padding: 32px 16px;
   text-align: center;

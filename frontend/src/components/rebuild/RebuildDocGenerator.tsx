@@ -3,14 +3,21 @@
  * waiver...) from the company's contract template: pick the template, check
  * the values it prints, sign in place, generate. One dialog, no steps: the
  * signature is drawn or typed right here instead of in a second dialog.
+ *
+ * Or, when the client has a signature on file, the office signs the client's
+ * box with it (the user's choice, as on contracts): the person confirms the
+ * client allowed it, the server takes the stored image, and the claim's
+ * activity log names who did it.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Select, Input, Button, Skeleton, message } from 'antd';
+import { Modal, Select, Input, Button, Checkbox, Skeleton, message } from 'antd';
 import { CheckCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { rebuildService } from '../../services/rebuildService';
 import { humanize, useSheetModal } from '../common/ui';
 import SignatureField, { type SignatureValue } from '../common/SignatureField';
+import { keptLine, useSignaturesOnFile } from '../client/ClientSignatureOnFile';
+import { onFileAuthorization } from '../contract/signatureLines';
 import type { RebuildProject, RebuildCompletionDoc } from '../../types/rebuild';
 
 interface Props {
@@ -38,6 +45,10 @@ interface TemplateInfo {
 // Boxes filled from the signature, not typed values
 const SIGNATURE_PREFIXES = ['signature.', 'initial.', 'date_signed.'];
 const isSignatureKey = (key: string) => SIGNATURE_PREFIXES.some(p => key.startsWith(p));
+
+// The client's boxes, the ones their signature on file goes in
+const CLIENT_SIGNATURE_KEY = 'signature.homeowner';
+const CLIENT_INITIAL_KEY = 'initial.homeowner';
 
 const DOC_TYPE_OPTIONS = [
   { value: 'coc', label: 'Certificate of Completion' },
@@ -68,8 +79,11 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
   const [note, setNote] = useState('');
   const [signature, setSignature] = useState<SignatureValue | null>(null);
   const [signatureFieldKey, setSignatureFieldKey] = useState<string | undefined>();
+  const [withFile, setWithFile] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const { data: onFile } = useSignaturesOnFile(project.client_id, open);
 
   const template = templates.find(t => t.id === templateId) || null;
   const fields = useMemo(() => uniqueBy(template?.field_mappings || [], k => !isSignatureKey(k)), [template]);
@@ -77,6 +91,17 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
     () => uniqueBy(template?.field_mappings || [], k => k.startsWith('signature.')),
     [template],
   );
+
+  const kept = onFile?.signature || null;
+  const keptName = kept?.signer_name || project.client_name || 'The client';
+  // Boxes for someone else only (the contractor's): the client's signature has nowhere to go
+  const fileProblem = kept && signatureBoxes.length && !signatureBoxes.some(b => b.key === CLIENT_SIGNATURE_KEY)
+    ? "This template has no box for the client's signature, so the one on file can't go on it."
+    : null;
+  const usingFile = withFile && !!kept && !fileProblem;
+  const keptInitials = onFile?.initial && template?.field_mappings.some(m => m.fieldKey === CLIENT_INITIAL_KEY)
+    ? onFile.initial
+    : null;
 
   const pickTemplate = (id: string, list: TemplateInfo[] = templates) => {
     const tmpl = list.find(t => t.id === id);
@@ -86,6 +111,13 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
     setDocType(tmpl.doc_type || 'coc');
     setOverrides({});
     setSignatureFieldKey(uniqueBy(tmpl.field_mappings || [], k => k.startsWith('signature.'))[0]?.key);
+    // The client allowed it for a document, so another one asks again
+    setAuthorized(false);
+  };
+
+  const signWithFile = (on: boolean) => {
+    setWithFile(on);
+    setAuthorized(false);
   };
 
   useEffect(() => {
@@ -120,6 +152,8 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
     setNote('');
     setSignature(null);
     setSignatureFieldKey(undefined);
+    setWithFile(false);
+    setAuthorized(false);
   };
 
   const handleClose = () => {
@@ -136,6 +170,14 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
   const generate = async () => {
     if (!template) return;
     setGenerating(true);
+    // The server puts the stored signature on; nothing drawn here is sent with it
+    const signing = usingFile
+      ? { signature_on_file: true, authorized, authorization_text: onFileAuthorization(keptName) }
+      : {
+        signature_image: signature?.image || undefined,
+        signature_name: signature?.name || undefined,
+        signature_field_key: signature ? signatureFieldKey : undefined,
+      };
     try {
       const result = await rebuildService.generateDocument(project.id, {
         template_id: template.id,
@@ -143,9 +185,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
         title,
         overrides,
         additional_text: note,
-        signature_image: signature?.image || undefined,
-        signature_name: signature?.name || undefined,
-        signature_field_key: signature ? signatureFieldKey : undefined,
+        ...signing,
       });
       message.success('Document generated');
       onSuccess(result);
@@ -161,9 +201,15 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
   const templateCompany = project.contractor_id ? project.contractor_name : project.rebuild_company_name;
   const noTemplates = !loading && templates.length === 0;
 
-  const signatureWhere = signatureBoxes.length
-    ? "It goes in the template's signature box, with today's date in its date box."
-    : 'This template has no signature box, so it goes at the bottom right of the last page.';
+  const signatureWhere = !signatureBoxes.length
+    ? 'This template has no signature box, so it goes at the bottom right of the last page.'
+    : usingFile
+      ? `It goes in the client's signature box, with today's date in its date box${keptInitials ? ', and the initials in their initials boxes' : ''}.`
+      : "It goes in the template's signature box, with today's date in its date box.";
+
+  const footNote = !template ? ''
+    : usingFile ? (authorized ? 'Signed with the signature on file' : 'Confirm the client allowed it')
+      : signature ? 'Signed' : 'Not signed';
 
   const renderBody = () => {
     if (loading) return <Skeleton active paragraph={{ rows: 8 }} />;
@@ -258,19 +304,50 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
             Signature <span className="rbg-optional">optional</span>
             <span className="rbg-head-meta">{signatureWhere}</span>
           </h3>
-          {signatureBoxes.length > 1 && (
-            <div className="rbg-field rbg-sign-as">
-              <span className="rbg-label">Sign as</span>
-              <Select size={size} value={signatureFieldKey} onChange={setSignatureFieldKey}
-                options={signatureBoxes.map(b => ({ value: b.key, label: b.label }))} aria-label="Sign as" />
+          {kept && usingFile ? (
+            <div className="rbg-onfile">
+              <div className="rbg-onfile-marks">
+                <img className="rbg-onfile-sig" src={kept.image} alt={`${keptName}'s signature on file`} />
+                {keptInitials && (
+                  <img className="rbg-onfile-initials" src={keptInitials.image} alt={`${keptName}'s initials on file`} />
+                )}
+              </div>
+              <p className="rbg-muted">{keptLine(kept)}</p>
+              <Checkbox checked={authorized} onChange={e => setAuthorized(e.target.checked)}>
+                {onFileAuthorization(keptName)}
+              </Checkbox>
+              <Button type="link" size="small" className="rbg-onfile-switch" onClick={() => signWithFile(false)}>
+                Sign here instead
+              </Button>
             </div>
+          ) : (
+            <>
+              {kept && (
+                <div className="rbg-onfile-offer">
+                  <img src={kept.image} alt="" aria-hidden="true" />
+                  <span className="rbg-onfile-offer-text">
+                    {fileProblem || `${keptName}'s signature is on file.`}
+                  </span>
+                  <Button size={size} disabled={!!fileProblem} onClick={() => signWithFile(true)}>
+                    Use signature on file
+                  </Button>
+                </div>
+              )}
+              {signatureBoxes.length > 1 && (
+                <div className="rbg-field rbg-sign-as">
+                  <span className="rbg-label">Sign as</span>
+                  <Select size={size} value={signatureFieldKey} onChange={setSignatureFieldKey}
+                    options={signatureBoxes.map(b => ({ value: b.key, label: b.label }))} aria-label="Sign as" />
+                </div>
+              )}
+              <SignatureField
+                value={signature}
+                onChange={setSignature}
+                defaultName={prefillData?.client?.name || project.client_name}
+                large={isPhone}
+              />
+            </>
           )}
-          <SignatureField
-            value={signature}
-            onChange={setSignature}
-            defaultName={prefillData?.client?.name || project.client_name}
-            large={isPhone}
-          />
         </section>
       </div>
     );
@@ -288,18 +365,14 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
       {...sheetProps}
       footer={
         <div className="rbg-foot">
-          {!isPhone && (
-            <span className="rbg-foot-note">
-              {template ? (signature ? 'Signed' : 'Not signed') : ''}
-            </span>
-          )}
+          {!isPhone && <span className="rbg-foot-note">{footNote}</span>}
           <Button size={size} onClick={handleClose}>Cancel</Button>
           <Button
             size={size}
             type="primary"
             icon={<CheckCircleOutlined />}
             loading={generating}
-            disabled={!template || !title.trim()}
+            disabled={!template || !title.trim() || (usingFile && !authorized)}
             onClick={generate}
           >
             Generate PDF

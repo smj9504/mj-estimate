@@ -87,6 +87,9 @@ const DoneStep: React.FC<{
             ),
           },
           { key: 'signer', label: 'Signed by', value: signerName },
+          ...(result.signature_kept
+            ? [{ key: 'kept', label: 'Signature', value: 'Kept on file for their next documents' }]
+            : []),
           ...contracts.map((contract, index) => ({
             key: contract.contract_id,
             label: several ? `Contract ${index + 1}` : 'Contract',

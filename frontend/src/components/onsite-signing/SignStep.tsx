@@ -14,17 +14,25 @@
  * the pad, and every other line of that signer's, on any contract, then takes
  * the same mark with a tap. Lines are grouped by who signs them, since the
  * device is in the customer's hands.
+ *
+ * A client with a signature on file can sign their own lines with it: one tap
+ * puts it on every one of their lines of that kind, and the server takes the
+ * image from the file, not from this page. The customer can also keep what
+ * they draw on file for next time.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, Input, Skeleton } from 'antd';
 import { CheckOutlined } from '@ant-design/icons';
 import ContractSignatureOverlay from '../contract/ContractSignatureOverlay';
-import { CONSENT_TEXT, initialsOf, lineLabel, slotOf } from '../contract/signatureLines';
+import {
+  CONSENT_TEXT, KEEP_ON_FILE_TEXT, ON_FILE, ON_FILE_CONSENT_TEXT, initialsOf, lineLabel, slotOf,
+} from '../contract/signatureLines';
 import { usePdfRenderer } from '../contract/usePdfRenderer';
 import { PageHeader, humanize, useSheetModal } from '../common/ui';
 import WMSignaturePad from '../water-mitigation/pdf-annotator/WMSignaturePad';
 import { onsiteSigningService } from '../../services/contractService';
+import type { SignatureOnFileKind } from '../../types/client';
 import type {
   OnsiteAddress, OnsiteDocument, OnsiteForm, OnsiteSignedContract, SignatureFieldPlacement,
 } from '../../types/contract';
@@ -46,6 +54,12 @@ interface Slot {
   isInitials: boolean;
   label: string;
 }
+
+/** The kind on file a slot can take: only the customer's own lines take theirs */
+const fileKind = (slot: Slot): SignatureOnFileKind | null => {
+  if (slot.role !== 'homeowner') return null;
+  return slot.isInitials ? 'initial' : 'signature';
+};
 
 type PreviewState = 'loading' | 'ready' | 'failed';
 
@@ -174,8 +188,7 @@ const SignStep: React.FC<SignStepProps> = ({
   const current = Math.min(Math.max(docIndex, 0), documents.length - 1);
   const currentDoc = documents[current];
   const isLast = current === documents.length - 1;
-  // What the signer agrees to is stored as shown
-  const consentText = several ? `${CONSENT_TEXT} This covers all ${documents.length} contracts.` : CONSENT_TEXT;
+  const onFile = form.signature_on_file;
 
   const [states, setStates] = useState<Record<string, PreviewState>>({});
   const [signerName, setSignerName] = useState(answers['client.display_name'] ?? '');
@@ -183,6 +196,9 @@ const SignStep: React.FC<SignStepProps> = ({
   // Each signer's mark, drawn once, and the lines it has been placed on
   const [marks, setMarks] = useState<Record<string, string>>({});
   const [placed, setPlaced] = useState<Record<string, boolean>>({});
+  // Slots whose mark is the client's signature on file, not drawn here
+  const [fromFile, setFromFile] = useState<Record<string, boolean>>({});
+  const [keepOnFile, setKeepOnFile] = useState(false);
   const [pad, setPad] = useState<{ slot: Slot; line?: string } | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -202,6 +218,19 @@ const SignStep: React.FC<SignStepProps> = ({
     return [...seen.values()];
   }, [documents]);
   const slotByKey = useMemo(() => new Map(slots.map(slot => [slot.key, slot])), [slots]);
+
+  const fileImage = (slot: Slot) => {
+    const kind = fileKind(slot);
+    return kind ? onFile?.[kind]?.image : undefined;
+  };
+  const usedFile = slots.some(slot => marks[slot.key] && fromFile[slot.key]);
+  // What the customer drew on their own lines, which they can keep on file
+  const drewOwn = slots.some(slot => fileKind(slot) && marks[slot.key] && !fromFile[slot.key]);
+  // What the signer agrees to is stored as shown
+  const baseConsent = usedFile ? ON_FILE_CONSENT_TEXT : CONSENT_TEXT;
+  const consentText = several ? `${baseConsent} This covers all ${documents.length} contracts.` : baseConsent;
+  // A tick given to other words doesn't count for these
+  useEffect(() => setConsent(false), [usedFile]);
 
   // What each document still needs, in page order
   const left = (document: OnsiteDocument) => signLines(document).filter(f => !placed[lineKey(document, f)]);
@@ -243,6 +272,23 @@ const SignStep: React.FC<SignStepProps> = ({
     }
   };
 
+  // The file signs every one of the customer's lines of its kind, on every contract
+  const signWithFile = (slot: Slot) => {
+    const image = fileImage(slot);
+    if (!image) return;
+    setMarks(prev => ({ ...prev, [slot.key]: image }));
+    setFromFile(prev => ({ ...prev, [slot.key]: true }));
+    setPlaced(prev => {
+      const next = { ...prev };
+      documents.forEach(document => signLines(document)
+        .filter(field => slotOf(field) === slot.key)
+        .forEach(field => { next[lineKey(document, field)] = true; }));
+      return next;
+    });
+    const kept = onFile?.signature?.signer_name || onFile?.initial?.signer_name;
+    if (!signerName.trim() && kept) setSignerName(kept);
+  };
+
   const flashTimer = useRef<number>();
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
   const showLine = (key: string) => {
@@ -264,7 +310,8 @@ const SignStep: React.FC<SignStepProps> = ({
           template_id: document.template_id,
           signature_fields: Object.fromEntries(document.signature_fields.map(field => [
             field.id,
-            isDate(field.fieldType) ? today : marks[slotOf(field)],
+            // The server signs with the file itself, never an image sent from here
+            isDate(field.fieldType) ? today : (fromFile[slotOf(field)] ? ON_FILE : marks[slotOf(field)]),
           ])),
         })),
         answers,
@@ -272,6 +319,8 @@ const SignStep: React.FC<SignStepProps> = ({
         signer_name: signerName.trim(),
         consent_agreed: true,
         consent_text: consentText,
+        keep_signature_on_file: keepOnFile && drewOwn,
+        keep_on_file_text: keepOnFile && drewOwn ? KEEP_ON_FILE_TEXT : undefined,
       });
       onSigned(signed, signerName.trim());
     } catch (err: any) {
@@ -358,6 +407,9 @@ const SignStep: React.FC<SignStepProps> = ({
           {several
             ? 'Tap a marked line to sign. After the first one, tapping any line on any of the contracts puts the same signature on it.'
             : 'Tap a marked line to sign. After the first one, tapping a line puts the same signature on it.'}
+          {(onFile?.signature || onFile?.initial) && (
+            <> A signature is on file for this client: &ldquo;Use signature on file&rdquo; below signs every one of their lines with it.</>
+          )}
         </p>
       )}
 
@@ -391,22 +443,30 @@ const SignStep: React.FC<SignStepProps> = ({
                 const lines = signLines(currentDoc).filter(f => slotOf(f) === slot.key);
                 const done = lines.filter(f => placed[lineKey(currentDoc, f)]).length;
                 const firstOpen = lines.find(f => !placed[lineKey(currentDoc, f)]);
+                const kept = fileImage(slot);
                 return (
                   <div key={slot.key} className="os-sign-row">
                     <span className="os-sign-label">
                       {slot.isInitials ? 'Initials' : 'Signature'}
                       <span className="os-sign-meta">
                         {done} of {lines.length} {lines.length === 1 ? 'line' : 'lines'} signed
+                        {mark && fromFile[slot.key] ? ', from the file' : ''}
                       </span>
                     </span>
                     {mark && <img className="os-sign-image" src={mark} alt={`${slot.label} as signed`} />}
                     <span className="os-sign-actions">
+                      {!mark && kept && (
+                        <Button disabled={submitting} onClick={() => signWithFile(slot)}>
+                          {slot.isInitials ? 'Use initials on file' : 'Use signature on file'}
+                        </Button>
+                      )}
                       {!mark && (
                         <Button
+                          type={kept ? 'text' : 'default'}
                           disabled={submitting}
                           onClick={() => setPad({ slot, line: firstOpen && lineKey(currentDoc, firstOpen) })}
                         >
-                          Sign
+                          {kept ? 'Sign instead' : 'Sign'}
                         </Button>
                       )}
                       {mark && (
@@ -448,6 +508,19 @@ const SignStep: React.FC<SignStepProps> = ({
               >
                 {consentText}
               </Checkbox>
+              {drewOwn && (
+                <Checkbox
+                  className="os-consent"
+                  checked={keepOnFile}
+                  onChange={e => setKeepOnFile(e.target.checked)}
+                  disabled={submitting}
+                >
+                  {KEEP_ON_FILE_TEXT}
+                  {(onFile?.signature || onFile?.initial) && (
+                    <span className="os-sign-meta"> It replaces the one on file now.</span>
+                  )}
+                </Checkbox>
+              )}
             </section>
           )}
 
@@ -472,6 +545,7 @@ const SignStep: React.FC<SignStepProps> = ({
         onSave={image => {
           if (pad) {
             setMarks(prev => ({ ...prev, [pad.slot.key]: image }));
+            setFromFile(prev => ({ ...prev, [pad.slot.key]: false }));
             const { line } = pad;
             if (line) setPlaced(prev => ({ ...prev, [line]: true }));
           }

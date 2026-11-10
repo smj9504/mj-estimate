@@ -2,6 +2,8 @@
  * Contract, ContractTemplate, ClaimCompany types
  */
 
+import type { SignaturesOnFile } from './client';
+
 // ============================================================
 // ContractTemplate
 // ============================================================
@@ -108,7 +110,8 @@ export interface ContractSignature {
   signer_role: string;
   signed_at: string;
   signature_image?: string;
-  signature_type?: 'drawn' | 'typed';
+  /** on_file: the client's signature on file, put there by staff */
+  signature_type?: 'drawn' | 'typed' | 'on_file';
   typed_name?: string;
 }
 
@@ -313,6 +316,8 @@ export interface OnsiteDocument {
 export interface OnsiteForm {
   documents: OnsiteDocument[];
   questions: OnsiteQuestion[];
+  /** The client's signature and initials on file, which can sign their lines */
+  signature_on_file?: SignaturesOnFile;
 }
 
 export interface OnsiteSignedDocument {
@@ -331,6 +336,8 @@ export interface OnsiteSignedContract {
   client_created: boolean;
   client_email: string;
   office_notified: boolean;
+  /** The customer asked to keep what they drew on file, and it was */
+  signature_kept?: boolean;
   /** One per document, in the order they were signed */
   contracts: OnsiteSignedDocument[];
 }

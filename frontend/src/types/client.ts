@@ -743,6 +743,27 @@ export interface ClientAllDocumentsResponse {
   claims: { id: string; claim_number: string }[];
 }
 
+/** Signature and initials kept on file for a client (backend client/client_signatures.py) */
+export type SignatureOnFileKind = 'signature' | 'initial';
+
+/** onsite: the customer kept it while signing; the rest are staff on the client page */
+export type SignatureOnFileSource = 'onsite' | 'drawn' | 'typed' | 'uploaded';
+
+export interface SignatureOnFile {
+  kind: SignatureOnFileKind;
+  /** PNG or JPEG data URL */
+  image: string;
+  signer_name: string;
+  source: SignatureOnFileSource;
+  kept_at: string | null;
+  saved_by_name: string | null;
+  /** The contract it was first signed on, for one kept on site */
+  contract_id: string | null;
+}
+
+/** Each kind on file, or null for a kind there is none of */
+export type SignaturesOnFile = Record<SignatureOnFileKind, SignatureOnFile | null>;
+
 export interface ClientListItem {
   id: string;
   display_name: string;

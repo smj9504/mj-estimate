@@ -27,7 +27,7 @@ from app.common.base_repository import SQLAlchemyRepository
 from app.core import database_factory
 from app.core.database_factory import Base, SQLiteDatabase, get_db_session
 from app.domains.auth.dependencies import get_current_staff
-from app.domains.client.models import Claim, ClaimTodo, ClaimTodoAssignee, Client
+from app.domains.client.models import Claim, ClaimTodo, ClaimTodoAssignee, Client, ClientSignature
 from app.domains.company.models import Company, CompanyContact
 from app.domains.contract import api as contract_api
 from app.domains.contract import onsite_signing_api
@@ -48,7 +48,7 @@ def jsonb_as_json(type_, compiler, **kw):
 
 
 TABLES = [
-    Staff, StaffCompany, Company, Client, Claim, ClaimTodo, ClaimTodoAssignee, ClaimCompany,
+    Staff, StaffCompany, Company, Client, ClientSignature, Claim, ClaimTodo, ClaimTodoAssignee, ClaimCompany,
     ContractTemplate, ContractInstance, ContractSignature,
     Conversation, ConversationParticipant, Message,
     CompanyContact, WaterMitigationJob, WMSheetPAMapping,

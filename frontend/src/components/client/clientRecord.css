@@ -104,7 +104,7 @@
 /* The facts strip: label over an ink value, between two hairlines */
 .clr-facts {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px 24px;
   margin: 18px 0 0;
   padding: 12px 0;
@@ -134,6 +134,111 @@
   font-weight: 400;
   color: var(--color-neutral-600);
 }
+/* A fact that opens something: reads as the value, underlines on hover */
+.clr-fact-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.clr-fact-button:hover {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+.clr-fact-button:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+  border-radius: var(--radius-xs);
+}
+
+/* The signature on file sheet */
+.csig-lead {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5714;
+  color: var(--color-neutral-700);
+}
+.csig-field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.csig-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.csig-field-help {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.csig-kind {
+  padding: 16px 0;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.csig-kind-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+.csig-kind-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.csig-kind-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+/* Like the line it goes on: the mark over a rule, on paper */
+.csig-image,
+.csig-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-50);
+}
+.csig-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-bottom: 1px solid var(--color-neutral-400);
+}
+.csig-image.is-pending {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+}
+.csig-empty {
+  font-size: 14px;
+  color: var(--color-neutral-600);
+}
+.csig-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.csig-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--tag-red-bg);
+  color: var(--tag-red-text);
+}
 
 /* The client's notes, pinned: a callout on Sidebar Paper */
 .clr-note {
@@ -162,7 +267,7 @@
 
 @media (max-width: 1199.98px) {
   .clr-facts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -207,6 +312,16 @@
   }
   .clr-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* The seventh fact, on a row of its own across both columns */
+  .clr-fact--signature {
+    grid-column: 1 / -1;
+  }
+  .clr-fact-button {
+    min-height: 32px;
+  }
+  .csig-actions .ant-btn {
+    flex: 1 1 auto;
   }
 }
 

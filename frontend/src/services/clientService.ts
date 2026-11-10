@@ -26,6 +26,8 @@ import type {
   ClaimTodo,
   ClaimTodoCreate,
   ClaimTodoDashboard,
+  SignatureOnFileKind,
+  SignaturesOnFile,
 } from '../types/client';
 
 // ============================================================
@@ -83,6 +85,29 @@ export const clientService = {
   async update(id: string, payload: Partial<ClientCreate>) {
     const { data } = await api.put(`/api/clients/${id}`, payload);
     return data;
+  },
+
+  /** The client's signature and initials on file */
+  async getSignatures(id: string) {
+    const { data } = await api.get(`/api/clients/${id}/signatures`);
+    return data as SignaturesOnFile;
+  },
+
+  /** Keep a signature or initials on file, replacing any there; the sheet shows errors itself */
+  async keepSignature(id: string, kind: SignatureOnFileKind, payload: {
+    image: string;
+    signer_name: string;
+    source: 'drawn' | 'typed' | 'uploaded';
+  }) {
+    const { data } = await api.put(`/api/clients/${id}/signatures/${kind}`, payload, {
+      suppressErrorNotification: true,
+    });
+    return data as SignaturesOnFile;
+  },
+
+  async deleteSignature(id: string, kind: SignatureOnFileKind) {
+    const { data } = await api.delete(`/api/clients/${id}/signatures/${kind}`);
+    return data as SignaturesOnFile;
   },
 
   async getDeletePreview(id: string) {

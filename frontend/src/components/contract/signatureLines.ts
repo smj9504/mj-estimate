@@ -12,6 +12,22 @@ export const CONSENT_TEXT =
   'I have reviewed the document and agree to sign it electronically. '
   + 'My electronic signature has the same legal effect as a handwritten signature.';
 
+/** Consent when some of the customer's lines take their signature on file */
+export const ON_FILE_CONSENT_TEXT =
+  'I have reviewed the document and agree to sign it electronically, using my signature on file '
+  + 'where it is shown. My electronic signature has the same legal effect as a handwritten signature.';
+
+/** What the customer agrees to by keeping the signature they drew on file */
+export const KEEP_ON_FILE_TEXT =
+  'Keep my signature on file, so it can be used to sign my future documents for this property.';
+
+/** Sent for a line the client's signature on file is to fill (backend contract/signature_on_file.py) */
+export const ON_FILE = 'on_file';
+
+/** What staff confirm before signing a client's lines with their signature on file, the client not there */
+export const onFileAuthorization = (name: string) =>
+  `${name || 'The client'} allowed us to sign this document with their signature on file.`;
+
 /** The same signer's line of the same kind takes the same mark */
 export const slotOf = (line: Line) => `${line.fieldType}.${line.signerRole}`;
 

@@ -48,8 +48,10 @@ from app.domains.contract.onsite_signing import (
     period_error,
     signature_mappings,
 )
+from app.domains.client import client_signatures
 from app.domains.contract.service import ContractInstanceService
 from app.domains.contract.signature_lines import TASK_ASSIGN_CLAIM, signature_placement
+from app.domains.contract.signature_on_file import ON_FILE, kind_for
 from app.domains.staff.models import Staff
 
 logger = logging.getLogger(__name__)
@@ -92,12 +94,17 @@ class OnsiteDocumentSignatures(BaseModel):
 
 
 class OnsiteContractCreate(OnsiteSubject):
+    # A homeowner signature or initials line may say ON_FILE instead of an image,
+    # to be signed with the client's signature on file
     documents: List[OnsiteDocumentSignatures]
     answers: Dict[str, Optional[str]] = {}
     today: Optional[str] = None
     signer_name: str
     consent_agreed: bool = False
     consent_text: Optional[str] = None
+    # The customer ticked keeping what they drew on file, and what the box said
+    keep_signature_on_file: bool = False
+    keep_on_file_text: Optional[str] = None
 
 
 class OnsiteEmail(BaseModel):
@@ -258,8 +265,11 @@ def _is_image(value: str) -> bool:
 
 def _signature_fields(
     mappings: List[Dict[str, Any]], given: Dict[str, str], today: str, document: str = '',
+    on_file: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
-    """Every signature and initials line must be signed; dates fill themselves"""
+    """Every signature and initials line must be signed; dates fill themselves.
+    A homeowner line marked ON_FILE takes the client's signature on file (images
+    by kind in on_file)."""
     on = f" on {document}" if document else ''
     fields: Dict[str, str] = {}
     for mapping in signature_mappings(mappings):
@@ -267,6 +277,8 @@ def _signature_fields(
         value = given.get(field_id, '')
         if key.startswith('date_signed.'):
             fields[field_id] = value.strip() or today
+        elif value == ON_FILE and (on_file or {}).get(kind_for(mapping)):
+            fields[field_id] = on_file[kind_for(mapping)]
         elif _is_image(value):
             fields[field_id] = value
         else:
@@ -274,13 +286,25 @@ def _signature_fields(
     return fields
 
 
-def _primary_signature(mappings: List[Dict[str, Any]], signatures: Dict[str, str]) -> str:
-    """The image kept on the signature record: the customer's, if the template has one"""
+def _kept_on_file(mappings: List[Dict[str, Any]], given: Dict[str, str]) -> Dict[str, str]:
+    """What the customer drew on their own lines, by kind, to keep on file. A
+    kind signed with the signature on file is already there."""
+    drawn: Dict[str, str] = {}
+    for mapping in signature_mappings(mappings):
+        kind = kind_for(mapping)
+        value = given.get(mapping.get('id', ''), '')
+        if kind and kind not in drawn and value != ON_FILE and _is_image(value):
+            drawn[kind] = value
+    return drawn
+
+
+def _primary_line(mappings: List[Dict[str, Any]]) -> str:
+    """The line whose image is kept on the signature record: the customer's, if the template has one"""
     lines = [m for m in signature_mappings(mappings) if m.get('fieldKey', '').startswith('signature.')]
     lines.sort(key=lambda m: m.get('fieldKey') != 'signature.homeowner')
     if not lines:
         raise HTTPException(status_code=400, detail="This template has no signature line")
-    return signatures[lines[0].get('id', '')]
+    return lines[0].get('id', '')
 
 
 def find_client_at_address(db: Any, staff: Any, street: str, zipcode: Optional[str]) -> Optional[Client]:
@@ -414,9 +438,13 @@ def _sign_document(
     signer: Dict[str, Any],
     actor_name: Optional[str],
     made: List[Dict[str, Any]],
+    on_file: Tuple[bool, bool] = (False, False),
 ) -> Dict[str, Any]:
     """Make one document's contract and sign it, closed to its link. The contract
-    goes on `made` as soon as it exists, so a failure after can void it."""
+    goes on `made` as soon as it exists, so a failure after can void it.
+    on_file: whether the record's own signature, and any line, came from the
+    client's signature on file."""
+    primary_on_file, any_on_file = on_file
     contract = service.create_onsite_contract(
         {
             'template_id': str(template.id),
@@ -437,7 +465,7 @@ def _sign_document(
             'signer_name': signer['name'],
             'signer_role': 'homeowner',
             'signature_image': primary_signature,
-            'signature_type': 'drawn',
+            'signature_type': 'on_file' if primary_on_file else 'drawn',
             'signed_at': datetime.utcnow(),
             'ip_address': ip,
             'user_agent': user_agent,
@@ -449,6 +477,9 @@ def _sign_document(
     signed = service.get_by_token(token)
     contract_id = str(signed['id'])
     detail = {'signer_name': signer['name'], 'signer_role': 'homeowner', 'source': 'onsite_signing'}
+    if any_on_file:
+        # Who put it there, since the customer didn't draw it
+        detail = {**detail, 'signature_on_file': True, 'applied_by': actor_name}
     service.append_audit_log(contract_id, action='signer_name_entered', ip=ip, user_agent=user_agent, detail=detail)
     service.append_audit_log(
         contract_id, action='signed', ip=ip, user_agent=user_agent,
@@ -457,6 +488,27 @@ def _sign_document(
     service.append_audit_log(contract_id, action='agreement_completed', ip=ip, user_agent=user_agent)
     service.close_signing_link(contract_id)
     return signed
+
+
+def _keep_on_file(
+    db: Any, staff: Any, client: Client, drawn: Dict[str, str], signer_name: str,
+    actor_name: Optional[str], consent_text: Optional[str], contract: Dict[str, Any],
+) -> bool:
+    """Keep what the customer drew on file, as they asked, replacing what was
+    there. Their contracts are signed by now, so a failure is reported, not raised."""
+    try:
+        for kind, image in drawn.items():
+            client_signatures.keep(
+                db, client.id, kind, image, signer_name, 'onsite',
+                saved_by_id=staff.id, saved_by_name=actor_name,
+                consent_text=consent_text, contract_id=contract.get('id'),
+            )
+        db.commit()
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Could not keep the signature on file for client {client.id}: {e}", exc_info=True)
+        return False
 
 
 def _void_unfinished(service: ContractInstanceService, contracts: List[Dict[str, Any]]) -> None:
@@ -553,6 +605,8 @@ def get_form(
             for t in templates
         ],
         'questions': build_questions(all_mappings, known, _is_water_mitigation(templates)),
+        # The client's signature and initials on file, which can sign their lines
+        'signature_on_file': client_signatures.describe_all(client_signatures.on_file(db, data.client_id)),
     }
 
 
@@ -613,12 +667,19 @@ def create_signed_contract(
 
     today = _today(data.today)
     given = {str(document.template_id): document.signature_fields for document in data.documents}
+    on_file = {kind: row.image for kind, row in client_signatures.on_file(db, data.client_id).items()}
     signing = []
+    to_keep: Dict[str, str] = {}
     for template in templates:
         mappings = parse_mappings(template.field_mappings)
         name = template.name if len(templates) > 1 else ''
-        signatures = _signature_fields(mappings, given[str(template.id)], today, name)
-        signing.append((template, mappings, signatures, _primary_signature(mappings, signatures)))
+        lines = given[str(template.id)]
+        signatures = _signature_fields(mappings, lines, today, name, on_file)
+        primary = _primary_line(mappings)
+        from_file = (lines.get(primary) == ON_FILE, ON_FILE in lines.values())
+        signing.append((template, mappings, signatures, signatures[primary], from_file))
+        for kind, image in _kept_on_file(mappings, lines).items():
+            to_keep.setdefault(kind, image)
 
     known = _known_values(db, company, data.client_id, data.address)
     allowed = set(_allowed_answers(templates, known))
@@ -650,19 +711,22 @@ def create_signed_contract(
     made: List[Dict[str, Any]] = []
     signed_contracts: List[Dict[str, Any]] = []
     try:
-        for template, _, signatures, primary_signature in signing:
+        for template, _, signatures, primary_signature, from_file in signing:
             signed_contracts.append(_sign_document(
                 service, template, company, client, answers, today,
-                signatures, primary_signature, signer, actor_name, made,
+                signatures, primary_signature, signer, actor_name, made, from_file,
             ))
     except Exception:
         _void_unfinished(service, made)
         raise
 
     office_notified = _tell_the_office(staff, signed_contracts, client)
+    signature_kept = bool(data.keep_signature_on_file and to_keep) and _keep_on_file(
+        db, staff, client, to_keep, signer_name, actor_name, data.keep_on_file_text, signed_contracts[0],
+    )
 
     contracts = []
-    for signed, (_, mappings, _, _) in zip(signed_contracts, signing):
+    for signed, (_, mappings, _, _, _) in zip(signed_contracts, signing):
         contract_id = str(signed['id'])
         contracts.append({
             'contract_id': contract_id,
@@ -678,6 +742,7 @@ def create_signed_contract(
         'client_created': client_created,
         'client_email': known_value(_prefill_of(signed_contracts[0]), 'client.email'),
         'office_notified': office_notified,
+        'signature_kept': signature_kept,
         'contracts': contracts,
     }
 

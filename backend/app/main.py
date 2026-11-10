@@ -203,6 +203,7 @@ from app.domains.water_mitigation.sketch_models import (
     WMFloorProtection,
 )
 from app.domains.client.api import router as client_router, todo_dashboard_router, todo_router
+from app.domains.client.client_signatures import router as client_signature_router
 from app.domains.acculynx_archive.api import router as acculynx_archive_router
 from app.domains.address.api import router as address_router
 from app.domains.contract.api import router as contract_router
@@ -1021,6 +1022,7 @@ app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 # New domain-driven endpoints
 app.include_router(company_router, prefix="/api/companies", tags=["Companies"])
 app.include_router(client_router, prefix="/api/clients", tags=["Clients"])
+app.include_router(client_signature_router, prefix="/api/clients", tags=["Clients"])
 app.include_router(acculynx_archive_router, prefix="/api/acculynx-archive", tags=["AccuLynx Archive"])
 app.include_router(todo_dashboard_router, prefix="/api/claim-todos", tags=["Claim Todos"])
 app.include_router(todo_router, prefix="/api/todos", tags=["Todos"])

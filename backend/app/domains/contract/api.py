@@ -362,6 +362,108 @@ def add_company_signature(
     return signed
 
 
+class SignOnFileRequest(BaseModel):
+    # Whoever applies it says the client allowed their signature on file to be used here
+    authorized: bool = False
+    authorization_text: Optional[str] = None
+    # The device's date, so an evening signing isn't dated tomorrow (UTC)
+    today: Optional[str] = None
+
+
+@router.post("/contracts/{contract_id}/sign-on-file")
+def sign_with_signature_on_file(
+    contract_id: str,
+    data: SignOnFileRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    service: ContractInstanceService = Depends(_get_instance_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """Sign the client's lines with the signature they have on file, with the
+    client not there. The company's lines stay open for "Sign for company". The
+    audit log records it as the signature on file, applied by this person."""
+    from app.domains.client import client_signatures
+    from app.domains.contract.onsite_signing import parse_mappings
+    from app.domains.contract.onsite_signing_api import _today
+    from app.domains.contract.signature_on_file import CUSTOMER_ROLE, fields_from_file
+
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
+    contract = service.get_by_id_enriched(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    if contract.get('status') == 'voided':
+        raise HTTPException(status_code=409, detail="This contract has been voided")
+    if contract.get('signatures') or contract.get('status') == 'signed':
+        raise HTTPException(status_code=409, detail="This contract has already been signed")
+    client_id = contract.get('client_id')
+    token = contract.get('signing_token')
+    if not client_id or not token:
+        raise HTTPException(status_code=400, detail="This contract has no client to sign for")
+    require_client(db, current_staff, client_id)
+    if not data.authorized:
+        raise HTTPException(
+            status_code=400, detail="Confirm the client allowed their signature on file to be used",
+        )
+
+    kept = client_signatures.on_file(db, client_id)
+    mappings = parse_mappings(contract.get('field_mappings'))
+    try:
+        fields = fields_from_file(mappings, {kind: row.image for kind, row in kept.items()}, _today(data.today))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    signature = kept['signature']
+    applied_by = client_signatures.staff_name(db, current_staff.id)
+    ip = request.client.host if request.client else None
+    user_agent = request.headers.get('user-agent', '')
+
+    # Fields the client fills in when signing were filled in by the office when
+    # it made the contract; draw them with the rest
+    if any(m.get('inputMode') == 'signer' for m in mappings):
+        service.update_prefill_and_regenerate(token, {})
+    try:
+        service.sign_contract(
+            token,
+            {
+                'signer_name': signature.signer_name,
+                'signer_role': CUSTOMER_ROLE,
+                'signature_image': signature.image,
+                'signature_type': 'on_file',
+                'signed_at': datetime.utcnow(),
+                'ip_address': ip,
+                'user_agent': user_agent,
+                # The client agreed to nothing on this document just now
+                'consent_agreed': False,
+                'consent_text': data.authorization_text,
+            },
+            signature_fields=fields,
+            ignore_expiry=True,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    service.append_audit_log(
+        contract_id, action='signed', ip=ip, user_agent=user_agent,
+        detail={
+            'signer_name': signature.signer_name,
+            'signer_role': CUSTOMER_ROLE,
+            'signature_type': 'on_file',
+            'applied_by': applied_by,
+            'authorization': data.authorization_text,
+            'on_file_source': signature.source,
+            'on_file_kept_at': (signature.updated_at or signature.created_at).isoformat()
+            if (signature.updated_at or signature.created_at) else None,
+            'source': 'signature_on_file',
+        },
+        actor_name=applied_by,
+    )
+    service.append_audit_log(contract_id, action='agreement_completed', ip=ip, user_agent=user_agent)
+    # Nobody signs from the link now; it would only show a signed contract
+    service.close_signing_link(contract_id)
+    background_tasks.add_task(service.ask_for_company_signature, token)
+    return service.get_by_id_enriched(contract_id)
+
+
 @router.get("/claims/{claim_id}/contracts")
 def list_contracts(
     claim_id: str,

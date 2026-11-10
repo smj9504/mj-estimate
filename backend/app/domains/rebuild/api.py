@@ -267,10 +267,16 @@ def generate_document(
     db=Depends(get_db),
     current_staff=Depends(get_current_staff),
 ):
-    """Generate a filled PDF from a contract template."""
+    """Generate a filled PDF from a contract template.
+
+    signature_on_file: true signs the client's boxes with their signature on
+    file (client/client_signatures.py) instead of an image sent here, once
+    `authorized` says the client allowed it; the claim's activity log names
+    who did.
+    """
     _require_project(db, current_staff, project_id)
     try:
-        return _get_service().generate_document(project_id, data)
+        return _get_service().generate_document(project_id, data, staff_id=getattr(current_staff, 'id', None))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

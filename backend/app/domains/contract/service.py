@@ -1182,10 +1182,13 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
     def sign_contract(
         self, token: str, sig_data: Dict[str, Any],
         signature_fields: Optional[Dict[str, str]] = None,
+        ignore_expiry: bool = False,
     ) -> Dict[str, Any]:
         """Add signature to contract via public token.
         If signature_fields is provided, generate a signed PDF
         with signatures overlaid at mapped positions.
+        ignore_expiry: the office signing with a signature on file, which never
+        went through the link, so the link's age doesn't matter.
         """
         try:
             session = self.database.get_session()
@@ -1202,7 +1205,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                     raise ValueError("This contract has already been signed")
 
                 # Check token expiry (timezone-safe)
-                expires = contract.get('token_expires_at')
+                expires = None if ignore_expiry else contract.get('token_expires_at')
                 if expires:
                     if isinstance(expires, str):
                         expires = datetime.fromisoformat(expires)
