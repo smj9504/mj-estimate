@@ -170,6 +170,29 @@ def _require_links(db, staff, claim_id, followup_task_id=None, wm_job_id=None) -
         require_document(db, staff, WaterMitigationJob, wm_job_id, "Water mitigation job")
 
 
+def _client_files(db, staff, claim_id, refs) -> list:
+    """The client's stored files an email attaches, found the way the
+    client page's Document Hub finds them, so a person attaches only what
+    they could open there. 404 naming nothing when one isn't."""
+    if not refs:
+        return []
+    from app.domains.client import document_files
+    from app.domains.client.models import Claim
+
+    client_id = db.query(Claim.client_id).filter(Claim.id == str(claim_id)).scalar()
+    if not client_id:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    claim_ids, own_companies = document_files.visible_scope(db, staff, str(client_id))
+    pairs = list(dict.fromkeys((r.source, r.id) for r in refs))
+    entries = document_files.find_hub_files(db, str(client_id), claim_ids, own_companies, pairs)
+    if any(e is None for e in entries):
+        raise HTTPException(
+            status_code=404,
+            detail="A document you picked is no longer on this client. Pick the documents again.",
+        )
+    return entries
+
+
 # ============================================================
 # Follow-Up Tasks
 # ============================================================
@@ -1058,9 +1081,11 @@ def send_email(
 ):
     """Send an email directly"""
     _require_links(db, current_staff, data.claim_id, data.followup_task_id, data.wm_job_id)
+    payload = data.dict()
+    payload['client_files'] = _client_files(db, current_staff, data.claim_id, data.client_documents)
     service = _get_service()
     try:
-        return service.send_email(data.dict())
+        return service.send_email(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

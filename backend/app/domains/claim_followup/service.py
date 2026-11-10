@@ -90,6 +90,46 @@ def _with_open_tracking_pixel(body_html: str, email_id: str) -> tuple:
     return body_html + pixel_tag, True
 
 
+def _client_file_attachments(
+    entries: List[Dict[str, Any]], held: List[Dict[str, Any]], budget: int,
+) -> List[Dict[str, Any]]:
+    """The client's stored files (client/document_files.find_hub_files
+    entries) as attachments with their bytes. Each download is bounded by
+    what is left of budget after the attachments already in memory, so a
+    pick too large for one email stops before the next file is fetched.
+    Raises ValueError naming the file when one can't be attached."""
+    from app.common.services.document_resources import MIB, DocumentResourceError
+    from app.domains.client import document_files
+
+    in_memory = sum(len(a['data']) for a in held if isinstance(a.get('data'), bytes))
+    attachments: List[Dict[str, Any]] = []
+    for entry in entries:
+        room = budget - in_memory
+        too_large = (
+            f"The documents you picked come to more than {budget // MIB} MB with "
+            f"{entry['filename']}, too much for one email. Email was NOT sent. "
+            f"Send some of them in a separate email."
+        )
+        if room <= 0:
+            raise ValueError(too_large)
+        try:
+            att = document_files.email_attachment(entry, max_bytes=room)
+        except DocumentResourceError as e:
+            # check_size's refusal; the server running short of memory
+            # keeps its own message
+            if 'exceeds' in str(e):
+                raise ValueError(too_large)
+            raise
+        except Exception as e:
+            logger.warning(f"Client document {entry['source']}/{entry['id']} could not be read: {e}")
+            raise ValueError(
+                f"Couldn't read {entry['filename']} from storage. Email was NOT sent."
+            )
+        in_memory += att['size']
+        attachments.append(att)
+    return attachments
+
+
 class ClaimFollowUpService:
     """Service for managing claim follow-up tasks and communications"""
 
@@ -1986,10 +2026,11 @@ class ClaimFollowUpService:
 
     def send_email(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Send an email and record it"""
-        if data.get('wm_job_id') and data.get('wm_documents'):
-            # Collecting WM documents downloads and may render them; hold the
-            # document lock through the send so they never stack with other
-            # document work.
+        if (data.get('wm_job_id') and data.get('wm_documents')) or data.get('client_files'):
+            # Collecting WM documents downloads and may render them, and the
+            # client's stored files are downloaded too; hold the document
+            # lock through the send so they never stack with other document
+            # work.
             from app.common.services.document_resources import document_guard
             with document_guard():
                 return self._send_email(data)
@@ -2024,14 +2065,17 @@ class ClaimFollowUpService:
             raw_attachments = list(data.get('attachments', []))
             wm_job_id = data.get('wm_job_id')
             wm_documents = data.get('wm_documents')
+            client_files = data.get('client_files') or []
+            collects_documents = bool(wm_job_id and wm_documents) or bool(client_files)
+            if collects_documents:
+                from app.domains.water_mitigation.adjuster_email_service import AdjusterEmailService
+                wm_service = AdjusterEmailService(self.database)
             if wm_job_id and wm_documents:
                 # Any failure here stops the send: an email that silently
                 # went out without the documents the user picked is worse
                 # than one that was not sent.
-                from app.domains.water_mitigation.adjuster_email_service import AdjusterEmailService
                 from app.domains.water_mitigation.models import WaterMitigationJob
 
-                wm_service = AdjusterEmailService(self.database)
                 job = session.query(WaterMitigationJob).filter(
                     WaterMitigationJob.id == str(wm_job_id)
                 ).first()
@@ -2052,9 +2096,26 @@ class ClaimFollowUpService:
                     f"Attached {len(wm_attachments)} WM documents "
                     f"from job {wm_job_id} for follow-up email"
                 )
-                # Compress if total size exceeds email limit
-                raw_attachments = wm_service._compress_attachments_if_needed(raw_attachments)
                 timer.lap("wm documents")
+
+            if client_files:
+                # Files stored on the client, already checked by the API.
+                # Same rule as above: one that can't be read stops the send.
+                raw_attachments.extend(
+                    _client_file_attachments(client_files, raw_attachments, wm_service._MAX_COMPRESSIBLE_SIZE)
+                )
+                timer.lap("client documents")
+
+            if collects_documents:
+                # Compress if total size exceeds email limit. Only what is
+                # in memory: uploaded files carry a file_id, not bytes, and
+                # are counted by SmtpService's own size check. It swaps each
+                # attachment's bytes in place.
+                in_memory = [a for a in raw_attachments if isinstance(a.get('data'), bytes)]
+                wm_service._compress_attachments_if_needed(in_memory)
+                for att in in_memory:
+                    if 'size' in att:
+                        att['size'] = len(att['data'])
 
             # Separate binary attachment data from metadata for DB storage.
             # Store only JSON-safe metadata in the DB (strip binary 'data'),

@@ -3209,6 +3209,111 @@ button.fu-step--extra:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.fu-attach-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fu-meta, 13px);
+}
+.fu-compose-attach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Client documents picker (attach files stored on the client) */
+.fu-docpick-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+.fu-docpick-search {
+  flex: 1 1 220px;
+}
+.fu-docpick-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+}
+.fu-docpick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 2px 0;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.fu-docpick-row:first-child {
+  border-top: 0;
+}
+.fu-docpick-row.is-checked {
+  background: var(--color-neutral-50, rgba(55, 53, 47, 0.04));
+}
+.fu-docpick-check.ant-checkbox-wrapper {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  padding: 8px 0 8px 12px;
+  font-size: inherit;
+}
+.fu-docpick-check.ant-checkbox-wrapper > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.fu-docpick-icon {
+  flex: 0 0 auto;
+  color: var(--color-neutral-600);
+}
+.fu-docpick-icon .fu-pdf-icon {
+  color: var(--tag-red-text);
+}
+.fu-docpick-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.fu-docpick-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.fu-docpick-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fu-docpick-meta {
+  color: var(--color-neutral-600);
+  font-size: var(--fu-meta, 13px);
+}
+.fu-docpick-preview {
+  flex: 0 0 auto;
+}
+.fu-docpick-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--color-neutral-600);
+}
+.fu-docpick-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fu-docpick-count {
+  margin-right: auto;
+}
 .fu-compose-foot {
   display: flex;
   align-items: center;
@@ -3231,6 +3336,16 @@ button.fu-step--extra:hover {
   }
   .fu-wm-docs {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .fu-attach-meta {
+    display: none;
+  }
+  .fu-docpick-check.ant-checkbox-wrapper {
+    padding-block: 12px;
+  }
+  .fu-docpick-preview.ant-btn {
+    width: 44px;
+    height: 44px;
   }
   .fu-compose-foot .ant-btn {
     height: 44px;

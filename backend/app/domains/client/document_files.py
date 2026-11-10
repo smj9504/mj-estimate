@@ -13,6 +13,9 @@ The hub reads them only through GET /api/clients/{id}/document-files/{source}/{i
 which takes a login and checks the claim is one the person may see. The older
 download URLs open without either, so the hub doesn't use them.
 
+The client page's email composer attaches the same files by (source, id);
+the send checks them the same way (claim_followup/api.py send_email).
+
 Photos and videos stay out: the claim's photo viewer has them.
 """
 
@@ -252,55 +255,90 @@ def file_row(entry: Dict[str, Any], claim_map: Dict[str, str]) -> Dict[str, Any]
     }
 
 
+def visible_scope(session, staff, client_id: str) -> Tuple[List[str], Optional[List[str]]]:
+    """The client's claim ids this person may see, and their company ids
+    (None when they see everything) - what find_hub_files checks against."""
+    from app.domains.auth import company_scope
+    from app.domains.client.models import Claim
+
+    claim_ids = [str(c.id) for c in company_scope.scoped(
+        session.query(Claim.id).filter(Claim.client_id == client_id),
+        company_scope.claim_condition(session, staff, Claim.id),
+    )]
+    return claim_ids, company_scope.company_ids(session, staff)
+
+
+def _find_contract(session, client_id: str, claim_ids: List[str], own_companies, contract_id: str):
+    import uuid
+
+    from app.domains.contract.models import ContractInstance
+
+    try:
+        uuid.UUID(contract_id)
+    except ValueError:
+        return None
+    contract = session.query(ContractInstance).filter(
+        ContractInstance.id == contract_id, ContractInstance.client_id == client_id,
+    ).first()
+    if contract is None:
+        return None
+    on_claim = contract.claim_id and str(contract.claim_id) in claim_ids
+    own_company = own_companies is None or (
+        contract.company_id and str(contract.company_id) in own_companies
+    )
+    if not (on_claim or (not contract.claim_id and own_company)):
+        return None
+    return contract_file(contract)
+
+
+def find_hub_files(
+    session, client_id: str, claim_ids: List[str], own_companies,
+    refs: List[Tuple[str, str]],
+) -> List[Optional[Dict[str, Any]]]:
+    """Each file (source, id) in refs if the hub would show it to this
+    person, else None in its place: on one of the claims they may see, or on
+    a client-level contract of their company."""
+    found: Dict[Tuple[str, str], Optional[Dict[str, Any]]] = {}
+    wanted = [(s, i) for s, i in refs if s in SOURCES]
+    for source, file_id in wanted:
+        if source == "contract" and (source, file_id) not in found:
+            found[(source, file_id)] = _find_contract(
+                session, client_id, claim_ids, own_companies, file_id,
+            )
+
+    if any(s != "contract" for s, _ in wanted):
+        if any(s == "file" for s, _ in wanted) and claim_ids:
+            # Insurance-estimate PDFs: the hub opens them from their own rows
+            from app.domains.client.models import ClaimNegotiation
+
+            negotiations = session.query(ClaimNegotiation).filter(
+                ClaimNegotiation.claim_id.in_(claim_ids)
+            ).all()
+            claim_of = {str(n.id): str(n.claim_id) for n in negotiations}
+            for neg_id, f in negotiation_files(session, negotiations).items():
+                found.setdefault(
+                    ("file", str(f.id)), _file_entry(f, claim_of[neg_id], "Insurance estimate"),
+                )
+        for entry in claim_files(session, claim_ids):
+            found.setdefault((entry["source"], entry["id"]), entry)
+    return [found.get((s, i)) for s, i in refs]
+
+
 def find_hub_file(
     session, client_id: str, claim_ids: List[str], own_companies, source: str, file_id: str,
 ) -> Optional[Dict[str, Any]]:
-    """The file (source, file_id) if the hub would show it to this person:
-    on one of the claims they may see, or on a client-level contract of
-    their company."""
-    if source not in SOURCES:
-        return None
-    if source == "contract":
-        import uuid
-
-        from app.domains.contract.models import ContractInstance
-
-        try:
-            uuid.UUID(file_id)
-        except ValueError:
-            return None
-        contract = session.query(ContractInstance).filter(
-            ContractInstance.id == file_id, ContractInstance.client_id == client_id,
-        ).first()
-        if contract is None:
-            return None
-        on_claim = contract.claim_id and str(contract.claim_id) in claim_ids
-        own_company = own_companies is None or (
-            contract.company_id and str(contract.company_id) in own_companies
-        )
-        if not (on_claim or (not contract.claim_id and own_company)):
-            return None
-        return contract_file(contract)
-
-    if source == "file":
-        from app.domains.client.models import ClaimNegotiation
-
-        negotiations = session.query(ClaimNegotiation).filter(
-            ClaimNegotiation.claim_id.in_(claim_ids)
-        ).all() if claim_ids else []
-        for neg_id, f in negotiation_files(session, negotiations).items():
-            if str(f.id) == file_id:
-                neg = next(n for n in negotiations if str(n.id) == neg_id)
-                return _file_entry(f, str(neg.claim_id), "Insurance estimate")
-    return next(
-        (e for e in claim_files(session, claim_ids)
-         if e["source"] == source and e["id"] == file_id),
-        None,
-    )
+    """The file (source, file_id) if the hub would show it to this person"""
+    return find_hub_files(session, client_id, claim_ids, own_companies, [(source, file_id)])[0]
 
 
-def read_hub_file(entry: Dict[str, Any]) -> bytes:
-    """The file's bytes from wherever it is stored. Raises FileNotFoundError."""
+def read_hub_file(entry: Dict[str, Any], max_bytes: Optional[int] = None) -> bytes:
+    """The file's bytes from wherever it is stored. Raises FileNotFoundError,
+    or DocumentResourceError when max_bytes is given and the file is larger."""
+    from app.common.services.document_resources import DocumentResourceError, check_size, read_bounded
+
+    def read_local(path: Path) -> bytes:
+        return read_bounded(path, max_bytes) if max_bytes is not None else path.read_bytes()
+
     kind, location, provider = entry["read"]
     if not location:
         raise FileNotFoundError("No stored file")
@@ -312,6 +350,8 @@ def read_hub_file(entry: Dict[str, Any]) -> bytes:
         data = _resolve_contract_pdf(location, provider)
         if not data:
             raise FileNotFoundError("Contract PDF not found")
+        if max_bytes is not None:
+            check_size(len(data), max_bytes)
         return data
 
     if kind == "rebuild_doc":
@@ -319,12 +359,14 @@ def read_hub_file(entry: Dict[str, Any]) -> bytes:
         # older ones sit under /uploads/
         if not location.startswith("/uploads/"):
             try:
-                return StorageFactory.get_instance().download(location)
+                return StorageFactory.get_instance().download(location, max_bytes=max_bytes)
+            except DocumentResourceError:
+                raise
             except Exception as e:
                 logger.warning(f"Rebuild doc not in storage ({location}): {e}")
         local = Path(__file__).resolve().parents[3] / location.lstrip("/")
         if local.exists():
-            return local.read_bytes()
+            return read_local(local)
         raise FileNotFoundError("Rebuild document not found")
 
     if provider:
@@ -335,8 +377,27 @@ def read_hub_file(entry: Dict[str, Any]) -> bytes:
         # one is local
         in_cloud = kind == "file" and location.startswith(("gs://", "b2://", "https://", "http://"))
     if in_cloud:
-        return StorageFactory.get_instance(provider).download(location)
+        return StorageFactory.get_instance(provider).download(location, max_bytes=max_bytes)
     local = Path(location)
     if local.exists():
-        return local.read_bytes()
+        return read_local(local)
     raise FileNotFoundError("File not found on disk")
+
+
+def email_attachment(entry: Dict[str, Any], max_bytes: int) -> Dict[str, Any]:
+    """The file as an email attachment, its bytes in "data". Raises like
+    read_hub_file. A name without an extension gets one from its type, so
+    the recipient's mail app can open it."""
+    data = read_hub_file(entry, max_bytes=max_bytes)
+    filename = entry["filename"]
+    if not Path(filename).suffix:
+        filename += mimetypes.guess_extension(entry["mime_type"]) or ""
+    return {
+        "filename": filename,
+        "data": data,
+        "mime_type": entry["mime_type"],
+        "size": len(data),
+        # Which hub file it was; the sent email keeps no copy of the bytes
+        "source": entry["source"],
+        "document_id": entry["id"],
+    }

@@ -36,6 +36,7 @@ import {
   DownOutlined,
   SettingOutlined,
   SaveOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
 import { emailIngestionService } from '../../services/emailIngestionService';
@@ -45,6 +46,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import RichTextEditor from '../editor/RichTextEditor';
 import { Pill, type TagTone } from '../common/ui';
 import EmailTemplateManager, { type TemplateDraft } from './EmailTemplateManager';
+import ClientDocumentPicker, { type PickedClientDocument } from '../client/ClientDocumentPicker';
 import {
   fieldLabel, fillTemplate, findPlaceholders, isBlankHtml, placeholderOf,
   templateTypesForTask, toEditorHtml, type TemplateValues,
@@ -141,6 +143,8 @@ export interface ClaimContact {
 
 interface EmailComposerProps {
   claimId: string;
+  /** The claim's client: lets the sender attach files stored on it */
+  clientId?: string;
   followupTaskId?: string;
   taskType?: string;
   wmJobId?: string;
@@ -158,6 +162,7 @@ interface EmailComposerProps {
 
 const EmailComposer: React.FC<EmailComposerProps> = ({
   claimId,
+  clientId,
   followupTaskId,
   taskType,
   wmJobId,
@@ -178,6 +183,8 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
   const [previewMode, setPreviewMode] = useState(false);
   const [selectedWmDocs, setSelectedWmDocs] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [clientDocs, setClientDocs] = useState<PickedClientDocument[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showCc, setShowCc] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
@@ -336,6 +343,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
       message.success('Email sent successfully');
       form.resetFields();
       setAttachedFiles([]);
+      setClientDocs([]);
       setSelectedTemplate(undefined);
       onSent?.();
     },
@@ -486,6 +494,9 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
       body_html: values.body_html,
       template_id: selectedTemplate,
       attachments: fileAttachments.length > 0 ? fileAttachments : undefined,
+      client_documents: clientDocs.length > 0
+        ? clientDocs.map(d => ({ source: d.file.source, id: d.file.id }))
+        : undefined,
     };
 
     // Attach WM documents if selected
@@ -539,6 +550,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
 
   const totalAttachments =
     attachedFiles.length +
+    clientDocs.length +
     (isWmFollowUp ? selectedWmDocs.length : 0);
 
   const isSending = sendMutation.isPending || uploading;
@@ -872,19 +884,43 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
         <div className="fu-compose-block-head">
           <span className="fu-compose-block-title">
             Attachments
-            {attachedFiles.length > 0 && <span className="fu-count">{attachedFiles.length}</span>}
+            {attachedFiles.length + clientDocs.length > 0 && (
+              <span className="fu-count">{attachedFiles.length + clientDocs.length}</span>
+            )}
           </span>
-          <Upload
-            multiple
-            showUploadList={false}
-            beforeUpload={handleFileAdd}
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.txt,.csv,.zip"
-          >
-            <Button icon={<PaperClipOutlined />}>Add File</Button>
-          </Upload>
+          <span className="fu-compose-attach-actions">
+            {clientId && (
+              <Button icon={<FolderOpenOutlined />} onClick={() => setPickerOpen(true)}>
+                Client documents
+              </Button>
+            )}
+            <Upload
+              multiple
+              showUploadList={false}
+              beforeUpload={handleFileAdd}
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.txt,.csv,.zip"
+            >
+              <Button icon={<PaperClipOutlined />}>Add File</Button>
+            </Upload>
+          </span>
         </div>
-        {attachedFiles.length > 0 && (
+        {attachedFiles.length + clientDocs.length > 0 && (
           <ul className="fu-attach-list">
+            {clientDocs.map(doc => (
+              <li key={doc.key} className="fu-attach">
+                {getFileIcon(doc.file.mime_type)}
+                <span className="fu-attach-name" title={doc.file.filename}>{doc.file.filename}</span>
+                <span className="fu-muted fu-attach-meta" title={doc.kind}>{doc.kind}</span>
+                <Button
+                  type="text"
+                  size="small"
+                  className="ui-icon-btn ui-icon-btn--danger"
+                  icon={<DeleteOutlined />}
+                  aria-label={`Remove ${doc.file.filename}`}
+                  onClick={() => setClientDocs(prev => prev.filter(d => d.key !== doc.key))}
+                />
+              </li>
+            ))}
             {attachedFiles.map((file, index) => (
               <li key={`${file.name}-${file.size}`} className="fu-attach">
                 {getFileIcon(file.type)}
@@ -919,12 +955,26 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           loading={isSending}
           disabled={!selectedAccountId}
         >
-          Send{totalAttachments > 0 ? ` (${totalAttachments} files)` : ''}
+          Send{totalAttachments > 0 ? ` (${totalAttachments} file${totalAttachments === 1 ? '' : 's'})` : ''}
         </Button>
         {onCancel && <Button onClick={onCancel}>Cancel</Button>}
         <span className="fu-compose-foot-spacer" />
         <Button type="text" icon={<SaveOutlined />} onClick={saveAsTemplate}>Save as template</Button>
       </div>
+
+      {clientId && (
+        <ClientDocumentPicker
+          open={pickerOpen}
+          clientId={clientId}
+          claimId={claimId}
+          value={clientDocs}
+          onDone={(docs) => {
+            setClientDocs(docs);
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
 
       <EmailTemplateManager
         open={managerOpen}

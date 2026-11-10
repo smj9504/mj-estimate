@@ -3232,6 +3232,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
         {emailDrawerClaim && (
           <EmailComposer
             claimId={emailDrawerClaim.id}
+            clientId={client.id}
             contacts={buildClaimContacts(emailDrawerClaim, client)}
             templateValues={{
               claim_number: emailDrawerClaim.claim_number,

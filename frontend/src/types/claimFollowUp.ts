@@ -284,6 +284,8 @@ export interface SendEmailRequest {
   // Water mitigation document re-attachment for follow-up emails
   wm_job_id?: string;
   wm_documents?: string[];
+  /** Files stored on the claim's client, as the client page's Document Hub names them */
+  client_documents?: { source: string; id: string }[];
 }
 
 export interface SendFromTemplateRequest {

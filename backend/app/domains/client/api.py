@@ -1387,7 +1387,7 @@ def get_document_file(
     from starlette.responses import Response
 
     from app.core.database_factory import get_database
-    from app.domains.client.models import Client, Claim
+    from app.domains.client.models import Client
 
     if source not in document_files.SOURCES:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1399,13 +1399,9 @@ def get_document_file(
             raise HTTPException(status_code=404, detail="Client not found")
         if not session.query(Client.id).filter(Client.id == client_id).first():
             raise HTTPException(status_code=404, detail="Client not found")
-        claim_ids = [str(c.id) for c in company_scope.scoped(
-            session.query(Claim.id).filter(Claim.client_id == client_id),
-            company_scope.claim_condition(session, current_staff, Claim.id),
-        )]
+        claim_ids, own_companies = document_files.visible_scope(session, current_staff, client_id)
         entry = document_files.find_hub_file(
-            session, client_id, claim_ids,
-            company_scope.company_ids(session, current_staff), source, file_id,
+            session, client_id, claim_ids, own_companies, source, file_id,
         )
     finally:
         # Storage can take a while; don't sit on a connection meanwhile

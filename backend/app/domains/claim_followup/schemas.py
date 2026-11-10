@@ -286,6 +286,12 @@ class EmailAttachment(BaseModel):
     size: Optional[int] = None
 
 
+class ClientDocumentRef(BaseModel):
+    """A stored file from the client page's Document Hub (client/document_files.py)"""
+    source: str
+    id: str
+
+
 class SendEmailRequest(BaseModel):
     """Request to send an email"""
     claim_id: UUID
@@ -305,6 +311,9 @@ class SendEmailRequest(BaseModel):
         None,
         description="WM document types to attach: photo_report, invoice, w9, cos, ewa, sketch"
     )
+    # Files stored on the claim's client, picked from the composer on the
+    # client page; each must be one the sender may open there
+    client_documents: List[ClientDocumentRef] = Field(default_factory=list, max_length=30)
 
 
 class SendFromTemplateRequest(BaseModel):
