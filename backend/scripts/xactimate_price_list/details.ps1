@@ -177,7 +177,11 @@ $done = @{}
 # Done: read ok, or read with something to check - unless what went wrong was passing
 # (a missed copy, a window that didn't open): those are read again.
 $Passing = "copied|no window|details did not open|tabs not found"
-if (Test-Path $index) { Get-Content $index -Encoding UTF8 | ForEach-Object { $f = $_ -split "`t"; if ($f[2] -like 'ok*' -or ($f[2] -like 'check*' -and $f[2] -notmatch $Passing)) { $done["$($f[0])`t$($f[1])"] = 1 } } }
+# An item whose Quick Entry price came out the same wrong way twice is its own (LIT RCT, FCW LAMQ):
+# left as failed for review instead of being tried again on every start.
+$priceFail = @{}
+if (Test-Path $index) { Get-Content $index -Encoding UTF8 | ForEach-Object { $f = $_ -split "`t"; if ($f[2] -like 'ok*' -or ($f[2] -like 'check*' -and $f[2] -notmatch $Passing)) { $done["$($f[0])`t$($f[1])"] = 1 }
+  elseif ($f[2] -like 'error: Quick Entry shows*') { $k = "$($f[0])`t$($f[1])`t$($f[2])"; $priceFail[$k]++; if ($priceFail[$k] -ge 2) { $done["$($f[0])`t$($f[1])"] = 1 } } } }
 # (category, side, component, SPT%) -> supporting event code, and event code -> text, across runs
 $eventOf = @{}; $eventText = @{}
 $evFile = "$Out\details_events.tsv"; $txFile = "$Out\details_event_texts.tsv"

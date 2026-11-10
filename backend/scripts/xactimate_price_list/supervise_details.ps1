@@ -13,7 +13,9 @@ function Note($m) {
 function Unread {
   $done = @{}
   if (Test-Path "$Out\details_index.tsv") {
-    foreach ($l in [System.IO.File]::ReadAllLines("$Out\details_index.tsv")) { $f = $l -split "`t"; if ($f.Count -ge 3 -and ($f[2] -like 'ok*' -or ($f[2] -like 'check*' -and $f[2] -notmatch 'copied|no window|details did not open|tabs not found'))) { $done["$($f[0])`t$($f[1])"] = 1 } }
+    $pf = @{}
+    foreach ($l in [System.IO.File]::ReadAllLines("$Out\details_index.tsv")) { $f = $l -split "`t"; if ($f.Count -ge 3 -and ($f[2] -like 'ok*' -or ($f[2] -like 'check*' -and $f[2] -notmatch 'copied|no window|details did not open|tabs not found'))) { $done["$($f[0])`t$($f[1])"] = 1 }
+      elseif ($f.Count -ge 3 -and $f[2] -like 'error: Quick Entry shows*') { $k = "$($f[0])`t$($f[1])`t$($f[2])"; $pf[$k]++; if ($pf[$k] -ge 2) { $done["$($f[0])`t$($f[1])"] = 1 } } }   # same wrong price twice: the item's own, left for review
   }
   $n = 0
   foreach ($l in [System.IO.File]::ReadAllLines("$Out\details_items.tsv")) { $f = $l -split "`t"; if ($f.Count -ge 2 -and -not $done.ContainsKey("$($f[0])`t$($f[1])")) { $n++ } }
