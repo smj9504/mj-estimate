@@ -142,9 +142,22 @@ _SCOPE_LINE_ITEM_ALIASES: Dict[str, Tuple[List[str], List[str]]] = {
         ["zipper"],
         ["containment barrier"],
     ),
-    # --- Floor Protection (Stairs) ---
+    # --- Floor Protection: paper / plastic, floor / stairs ---
+    # Each kind bills its own line item; keep one from landing on another's.
+    "floor protection": (
+        ["floor", "protection"],
+        ["plastic", "stair"],
+    ),
     "floor protection (stairs)": (
         ["floor", "protection", "stair"],
+        ["plastic"],
+    ),
+    "floor protection - plastic": (
+        ["floor", "protection", "plastic"],
+        ["stair"],
+    ),
+    "floor protection - plastic (stairs)": (
+        ["floor", "protection", "plastic", "stair"],
         [],
     ),
 }

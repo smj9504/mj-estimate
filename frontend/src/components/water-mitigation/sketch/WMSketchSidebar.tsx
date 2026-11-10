@@ -71,11 +71,19 @@ const { Text } = Typography;
 export interface WMSketchSidebarProps {
   overlayData: WMOverlayData;
   selection: WMSketchSelection | null;
+  /** Every selected element (Ctrl-click / drag-box); `selection` is the last of these. */
+  selections?: WMSketchSelection[];
   materialTypes: DemoMaterialType[];
   summary: WMFloorSummary;
   /** Floor sketch ID — required for creating list-only wall/baseboard zones */
   floorSketchId: string;
   onUpdateDemolitionZone: (id: string, updates: Partial<WMDemolitionZone>) => void;
+  /** Patch several tear-out zones at once (one undo step). Enables bulk edit. */
+  onUpdateDemolitionZones?: (patches: Array<Partial<WMDemolitionZone> & { id: string }>) => void;
+  /** Select these tear-out zones together (the list's "Select all"). */
+  onSelectDemolitionZones?: (ids: string[]) => void;
+  /** Delete several tear-out zones in one undo step (bulk form). */
+  onDeleteDemolitionZones?: (ids: string[]) => void;
   onDeleteDemolitionZone: (id: string) => void;
   onAddDemolitionZone: (zone: WMDemolitionZone) => void;
   onUpdateEquipment: (id: string, updates: Partial<WMEquipmentPlacement>) => void;
@@ -173,10 +181,14 @@ const AreaBadge: React.FC<{ sqft: number; unit?: string; color?: string }> = ({
 const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   overlayData,
   selection,
+  selections,
   materialTypes,
   summary,
   floorSketchId,
   onUpdateDemolitionZone,
+  onUpdateDemolitionZones,
+  onSelectDemolitionZones,
+  onDeleteDemolitionZones,
   onDeleteDemolitionZone,
   onAddDemolitionZone,
   onUpdateEquipment,
@@ -228,6 +240,13 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   // Derived selection IDs by type
   const selectedDemoId =
     selection?.element_type === 'demolition' ? selection.element_id : null;
+  const selectedDemoIds = useMemo(
+    () =>
+      (selections ?? (selection ? [selection] : []))
+        .filter((s) => s.element_type === 'demolition')
+        .map((s) => s.element_id),
+    [selections, selection]
+  );
   const selectedEquipId =
     selection?.element_type === 'equipment' ? selection.element_id : null;
   const selectedContainId =
@@ -275,9 +294,13 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
         <WMDemolitionPanel
           zones={overlayData.demolition_zones}
           selectedZoneId={selectedDemoId}
+          selectedZoneIds={selectedDemoIds}
           materialTypes={materialTypes}
           floorSketchId={floorSketchId}
           onUpdateZone={onUpdateDemolitionZone}
+          onUpdateZones={onUpdateDemolitionZones}
+          onSelectZones={onSelectDemolitionZones}
+          onDeleteZones={onDeleteDemolitionZones}
           onDeleteZone={onDeleteDemolitionZone}
           onSelectZone={(id) => onSelectElement(id, 'demolition')}
           onAddZone={onAddDemolitionZone}

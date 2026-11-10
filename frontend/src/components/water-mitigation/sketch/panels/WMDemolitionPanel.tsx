@@ -2,6 +2,9 @@
  * WMDemolitionPanel - Sidebar panel for managing demolition zones.
  *
  * When a zone is selected: shows an editable properties form.
+ * When two or more zones are selected (Ctrl-click, drag-box, or a group's
+ *   "Select all"): shows WMDemolitionBulkForm, which changes every shared
+ *   setting (material, sub-types, height, add-ons, label) on all of them.
  * When nothing is selected: shows a grouped summary table plus
  *   "Add Wall Demo" / "Add Baseboard" quick-add buttons for types
  *   that cannot be drawn on the 2D canvas.
@@ -44,20 +47,29 @@ import {
 import type { WMDemolitionZone, DemoMaterialType } from '../../../../types/wmSketch';
 import { WOOD_FLOOR_SUB_TYPES, WALL_MATERIAL_SUB_TYPES, WALL_MATERIAL_IDS, TRIM_SIZE_SUB_TYPES, TRIM_SIZE_MATERIAL_IDS, EA_ITEM_PIXEL_SIZES, TRIM_REMOVAL_MATERIAL_IDS, calcTrimLF } from '../../../../types/wmSketch';
 import type { TrimRemovalExtent } from '../../../../types/wmSketch';
-import { calcDemoZoneSqft } from '../utils/wmCalculations';
+import { calcDemoZoneSqft, demoZoneQuantity } from '../utils/wmCalculations';
 import DimensionInput from './DimensionInput';
+import WMDemolitionBulkForm from './WMDemolitionBulkForm';
 
 const { Text } = Typography;
 
 export interface WMDemolitionPanelProps {
   zones: WMDemolitionZone[];
   selectedZoneId: string | null;
+  /** Every selected tear-out zone. Two or more opens the bulk edit form. */
+  selectedZoneIds?: string[];
   materialTypes: DemoMaterialType[];
   /** The floor sketch ID — needed when creating new zones from the panel */
   floorSketchId: string;
   onUpdateZone: (id: string, updates: Partial<WMDemolitionZone>) => void;
+  /** Patch several zones in one undo step. Without it there is no bulk edit. */
+  onUpdateZones?: (patches: Array<Partial<WMDemolitionZone> & { id: string }>) => void;
   onDeleteZone: (id: string) => void;
+  /** Delete several zones in one undo step (the bulk form's Delete). */
+  onDeleteZones?: (ids: string[]) => void;
   onSelectZone: (id: string) => void;
+  /** Select several zones together (a group's "Select all"). */
+  onSelectZones?: (ids: string[]) => void;
   onAddZone: (zone: WMDemolitionZone) => void;
 }
 
@@ -651,6 +663,20 @@ const ZoneEditForm: React.FC<{
   );
 };
 
+/**
+ * Whether a zone still needs its measurements typed in — the same rule the
+ * single-zone form warns on. Trim, doors and lights are placed, not measured.
+ */
+function needsDimensions(zone: WMDemolitionZone, unit: 'SF' | 'LF' | 'EA', surface?: string): boolean {
+  if ((zone.polygon_points?.length ?? 0) >= 3) return false;
+  if (unit === 'EA') return zone.material_type === 'stair_demo' && zone.dimension1_ft === 0;
+  if (unit === 'LF' || surface === 'wall') return zone.dimension1_ft === 0;
+  return zone.dimension1_ft === 0 || zone.dimension2_ft === 0;
+}
+
+const formatQty = (quantity: number, unit: 'SF' | 'LF' | 'EA') =>
+  `${unit === 'EA' ? Math.round(quantity) : quantity.toFixed(2)} ${unit}`;
+
 // Grouped summary row
 interface GroupState {
   [materialType: string]: boolean;
@@ -660,26 +686,31 @@ const SummaryView: React.FC<{
   zones: WMDemolitionZone[];
   materialTypes: DemoMaterialType[];
   onSelectZone: (id: string) => void;
-}> = ({ zones, materialTypes, onSelectZone }) => {
+  /** When given, groups of two or more zones get a "Select all" link. */
+  onSelectZones?: (ids: string[]) => void;
+}> = ({ zones, materialTypes, onSelectZone, onSelectZones }) => {
   const [expandedGroups, setExpandedGroups] = useState<GroupState>({});
 
   // Group zones by materialType
   const groups = useMemo(() => {
     const map = new Map<
       string,
-      { material: DemoMaterialType | undefined; zones: WMDemolitionZone[]; totalSqft: number }
+      {
+        material: DemoMaterialType | undefined;
+        zones: WMDemolitionZone[];
+        total: number;
+        unit: 'SF' | 'LF' | 'EA';
+      }
     >();
     for (const zone of zones) {
+      const material = materialTypes.find((m) => m.id === zone.material_type);
+      const { quantity, unit } = demoZoneQuantity(zone, material?.unit);
       const existing = map.get(zone.material_type);
       if (existing) {
         existing.zones.push(zone);
-        existing.totalSqft += zone.calculated_sqft;
+        existing.total += quantity;
       } else {
-        map.set(zone.material_type, {
-          material: materialTypes.find((m) => m.id === zone.material_type),
-          zones: [zone],
-          totalSqft: zone.calculated_sqft,
-        });
+        map.set(zone.material_type, { material, zones: [zone], total: quantity, unit });
       }
     }
     return Array.from(map.values());
@@ -702,10 +733,12 @@ const SummaryView: React.FC<{
       {groups.map((group) => {
         const materialId = group.zones[0].material_type;
         const isExpanded = expandedGroups[materialId] ?? false;
-        const unit = group.material?.unit ?? 'SF';
+        const { unit } = group;
         const color = group.material?.color ?? group.zones[0].color;
         const name = group.material?.name ?? materialId;
-        const needsCount = group.zones.filter((z) => z.dimension1_ft === 0 && !(z.polygon_points && z.polygon_points.length >= 3)).length;
+        const zoneNeedsDims = (z: WMDemolitionZone) =>
+          needsDimensions(z, group.material?.unit ?? 'SF', group.material?.surface);
+        const needsCount = group.zones.filter(zoneNeedsDims).length;
 
         return (
           <div key={materialId}>
@@ -737,9 +770,25 @@ const SummaryView: React.FC<{
                   <WarningOutlined style={{ color: '#fa8c16', fontSize: 11 }} />
                 </Tooltip>
               )}
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {group.zones.length} zone{group.zones.length !== 1 ? 's' : ''}
-              </Text>
+              {onSelectZones && group.zones.length > 1 ? (
+                <Tooltip title={`Select all ${group.zones.length} to change them together`}>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ fontSize: 11, padding: 0, height: 'auto' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectZones(group.zones.map((z) => z.id));
+                    }}
+                  >
+                    Select all {group.zones.length}
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {group.zones.length} zone{group.zones.length !== 1 ? 's' : ''}
+                </Text>
+              )}
               <Text
                 strong
                 style={{
@@ -749,7 +798,7 @@ const SummaryView: React.FC<{
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                {unit === 'EA' ? Math.round(group.totalSqft) : group.totalSqft.toFixed(2)} {unit}
+                {formatQty(group.total, unit)}
               </Text>
             </div>
 
@@ -757,7 +806,7 @@ const SummaryView: React.FC<{
             {isExpanded && (
               <div style={{ paddingLeft: 22 }}>
                 {group.zones.map((zone, i) => {
-                  const needsDims = zone.dimension1_ft === 0 && !(zone.polygon_points && zone.polygon_points.length >= 3);
+                  const needsDims = zoneNeedsDims(zone);
                   return (
                     <div
                       key={zone.id}
@@ -824,7 +873,7 @@ const SummaryView: React.FC<{
                           color: needsDims ? '#fa8c16' : undefined,
                         }}
                       >
-                        {needsDims ? 'needs dims' : unit === 'EA' ? `${Math.round(zone.calculated_sqft)} ${unit}` : `${zone.calculated_sqft.toFixed(2)} ${unit}`}
+                        {needsDims ? 'needs dims' : formatQty(demoZoneQuantity(zone, group.material?.unit).quantity, unit)}
                       </Text>
                     </div>
                   );
@@ -836,14 +885,9 @@ const SummaryView: React.FC<{
       })}
 
       {zones.length > 0 && (() => {
-        const sfTotal = zones.filter((z) => {
-          const m = materialTypes.find((mt) => mt.id === z.material_type);
-          return !m || m.unit === 'SF';
-        }).reduce((sum, z) => sum + z.calculated_sqft, 0);
-        const lfTotal = zones.filter((z) => materialTypes.find((mt) => mt.id === z.material_type)?.unit === 'LF')
-          .reduce((sum, z) => sum + z.calculated_sqft, 0);
-        const eaTotal = zones.filter((z) => materialTypes.find((mt) => mt.id === z.material_type)?.unit === 'EA')
-          .reduce((sum, z) => sum + z.calculated_sqft, 0);
+        const byUnit = { SF: 0, LF: 0, EA: 0 };
+        for (const g of groups) byUnit[g.unit] += g.total;
+        const { SF: sfTotal, LF: lfTotal, EA: eaTotal } = byUnit;
         const parts: string[] = [];
         if (sfTotal > 0) parts.push(`${sfTotal.toFixed(2)} SF`);
         if (lfTotal > 0) parts.push(`${lfTotal.toFixed(2)} LF`);
@@ -869,18 +913,34 @@ const SummaryView: React.FC<{
 const WMDemolitionPanel: React.FC<WMDemolitionPanelProps> = ({
   zones,
   selectedZoneId,
+  selectedZoneIds,
   materialTypes,
   floorSketchId,
   onUpdateZone,
+  onUpdateZones,
   onDeleteZone,
+  onDeleteZones,
   onSelectZone,
+  onSelectZones,
   onAddZone,
 }) => {
   const selectedZone = selectedZoneId ? zones.find((z) => z.id === selectedZoneId) : null;
+  const bulkZones = useMemo(() => {
+    if (!onUpdateZones || !selectedZoneIds || selectedZoneIds.length < 2) return [];
+    const ids = new Set(selectedZoneIds);
+    return zones.filter((z) => ids.has(z.id));
+  }, [zones, selectedZoneIds, onUpdateZones]);
 
   return (
     <div style={{ padding: '8px 0' }}>
-      {selectedZone ? (
+      {onUpdateZones && bulkZones.length >= 2 ? (
+        <WMDemolitionBulkForm
+          zones={bulkZones}
+          materialTypes={materialTypes}
+          onUpdateZones={onUpdateZones}
+          onDeleteZones={onDeleteZones}
+        />
+      ) : selectedZone ? (
         <>
           {/* Header with back-to-list hint */}
           <div
@@ -917,6 +977,7 @@ const WMDemolitionPanel: React.FC<WMDemolitionPanelProps> = ({
           zones={zones}
           materialTypes={materialTypes}
           onSelectZone={onSelectZone}
+          onSelectZones={onUpdateZones ? onSelectZones : undefined}
         />
       )}
     </div>

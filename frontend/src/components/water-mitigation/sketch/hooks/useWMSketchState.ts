@@ -62,6 +62,7 @@ type WMSketchAction =
   | { type: 'SET_TOOL'; payload: WMSketchTool }
   | { type: 'SELECT_ELEMENT'; payload: WMSketchSelection }
   | { type: 'TOGGLE_SELECT_ELEMENT'; payload: WMSketchSelection }
+  | { type: 'SELECT_ELEMENTS'; payload: WMSketchSelection[] }
   | { type: 'DESELECT' }
   | { type: 'SET_ACTIVE_MATERIAL_TYPE'; payload: string | null }
   | { type: 'SET_ACTIVE_EQUIPMENT_TYPE'; payload: EquipmentType | null }
@@ -69,7 +70,9 @@ type WMSketchAction =
   // Demolition zones
   | { type: 'ADD_DEMOLITION_ZONE'; payload: WMDemolitionZone }
   | { type: 'UPDATE_DEMOLITION_ZONE'; payload: Partial<WMDemolitionZone> & { id: string } }
+  | { type: 'UPDATE_DEMOLITION_ZONES'; payload: Array<Partial<WMDemolitionZone> & { id: string }> }
   | { type: 'REMOVE_DEMOLITION_ZONE'; payload: string }
+  | { type: 'REMOVE_DEMOLITION_ZONES'; payload: string[] }
   | { type: 'COMBINE_DEMOLITION_ZONES'; payload: { removeIds: string[]; addZone: WMDemolitionZone } }
   | { type: 'UNGROUP_DEMOLITION_ZONE'; payload: { removeId: string; addZones: WMDemolitionZone[] } }
   | { type: 'GROUP_DEMOLITION_ZONES'; payload: { zoneIds: string[]; groupId: string } }
@@ -263,6 +266,15 @@ function wmSketchReducer(
       };
     }
 
+    case 'SELECT_ELEMENTS': {
+      const newSelections = action.payload;
+      return {
+        ...state,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
+      };
+    }
+
     case 'DESELECT':
       return { ...state, selections: [], selection: null };
 
@@ -303,6 +315,26 @@ function wmSketchReducer(
       };
     }
 
+    // Several zones changed by one edit (sidebar bulk edit) — one undo step.
+    case 'UPDATE_DEMOLITION_ZONES': {
+      if (action.payload.length === 0) return state;
+      const patches = new Map(action.payload.map((p) => [p.id, p]));
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: state.overlayData.demolition_zones.map((z) => {
+            const p = patches.get(z.id);
+            return p ? { ...z, ...p } : z;
+          }),
+        },
+      };
+    }
+
     case 'REMOVE_DEMOLITION_ZONE': {
       const { undoStack, redoStack } = pushUndo(state);
       const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
@@ -318,6 +350,26 @@ function wmSketchReducer(
           demolition_zones: state.overlayData.demolition_zones.filter(
             (z) => z.id !== action.payload
           ),
+        },
+      };
+    }
+
+    // Several zones deleted by one action (sidebar bulk delete) — one undo step.
+    case 'REMOVE_DEMOLITION_ZONES': {
+      if (action.payload.length === 0) return state;
+      const removeSet = new Set(action.payload);
+      const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => !removeSet.has(s.element_id));
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: state.overlayData.demolition_zones.filter((z) => !removeSet.has(z.id)),
         },
       };
     }
@@ -1315,6 +1367,8 @@ export interface WMSketchStateReturn {
   setTool: (tool: WMSketchTool) => void;
   selectElement: (selection: WMSketchSelection) => void;
   toggleSelectElement: (selection: WMSketchSelection) => void;
+  /** Replace the selection with these elements (the last one is the primary). */
+  selectElements: (selections: WMSketchSelection[]) => void;
   deselect: () => void;
   /** Set of currently selected element IDs (for O(1) lookup) */
   selectedIds: Set<string>;
@@ -1348,6 +1402,10 @@ export interface WMSketchStateReturn {
   // Demolition zones
   addDemolitionZone: (zone: WMDemolitionZone) => void;
   updateDemolitionZone: (patch: Partial<WMDemolitionZone> & { id: string }) => void;
+  /** Patch several zones as a single undoable step. */
+  updateDemolitionZones: (patches: Array<Partial<WMDemolitionZone> & { id: string }>) => void;
+  /** Delete several zones as a single undoable step. */
+  removeDemolitionZones: (ids: string[]) => void;
   removeDemolitionZone: (id: string) => void;
   combineDemolitionZones: (removeIds: string[], addZone: WMDemolitionZone) => void;
   ungroupDemolitionZone: (removeId: string, addZones: WMDemolitionZone[]) => void;
@@ -1465,6 +1523,12 @@ export function useWMSketchState(
     []
   );
 
+  const selectElements = useCallback(
+    (selections: WMSketchSelection[]) =>
+      dispatch({ type: 'SELECT_ELEMENTS', payload: selections }),
+    []
+  );
+
   const deselect = useCallback(() => dispatch({ type: 'DESELECT' }), []);
 
   const batchMoveSelected = useCallback(
@@ -1514,8 +1578,19 @@ export function useWMSketchState(
     []
   );
 
+  const updateDemolitionZones = useCallback(
+    (patches: Array<Partial<WMDemolitionZone> & { id: string }>) =>
+      dispatch({ type: 'UPDATE_DEMOLITION_ZONES', payload: patches }),
+    []
+  );
+
   const removeDemolitionZone = useCallback(
     (id: string) => dispatch({ type: 'REMOVE_DEMOLITION_ZONE', payload: id }),
+    []
+  );
+
+  const removeDemolitionZones = useCallback(
+    (ids: string[]) => dispatch({ type: 'REMOVE_DEMOLITION_ZONES', payload: ids }),
     []
   );
 
@@ -1762,6 +1837,7 @@ export function useWMSketchState(
     setTool,
     selectElement,
     toggleSelectElement,
+    selectElements,
     deselect,
     selectedIds,
     batchMoveSelected,
@@ -1771,6 +1847,8 @@ export function useWMSketchState(
     setActiveEquipmentType,
     addDemolitionZone,
     updateDemolitionZone,
+    updateDemolitionZones,
+    removeDemolitionZones,
     removeDemolitionZone,
     combineDemolitionZones,
     ungroupDemolitionZone,

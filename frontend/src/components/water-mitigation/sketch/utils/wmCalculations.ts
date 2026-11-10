@@ -8,6 +8,7 @@
 import type {
   WMOverlayData,
   WMFloorSummary,
+  WMDemolitionZone,
   MaterialTypeSummary,
   EquipmentType,
 } from '../../../../types/wmSketch';
@@ -17,7 +18,35 @@ import {
   WOOD_FLOOR_SUB_TYPES,
   WALL_MATERIAL_SUB_TYPES,
   WALL_MATERIAL_IDS,
+  TRIM_REMOVAL_MATERIAL_IDS,
+  calcTrimLF,
+  floorProtectionColor,
+  floorProtectionMaterial,
+  floorProtectionScopeName,
 } from '../../../../types/wmSketch';
+import type { FloorProtectionMaterial } from '../../../../types/wmSketch';
+
+// ============================================================================
+// Tear-out quantity
+// ============================================================================
+
+/**
+ * What a tear-out zone counts toward a total. Window and door trim are placed
+ * as items (their material unit is EA) but billed by the foot, as the scope
+ * does; every other zone counts its stored quantity in its material's unit.
+ */
+export function demoZoneQuantity(
+  zone: WMDemolitionZone,
+  materialUnit: 'SF' | 'LF' | 'EA' = 'SF',
+): { quantity: number; unit: 'SF' | 'LF' | 'EA' } {
+  if (TRIM_REMOVAL_MATERIAL_IDS.has(zone.material_type)) {
+    return {
+      quantity: calcTrimLF(zone.material_type, zone.sub_type, zone.trim_removal, zone.trim_lf),
+      unit: 'LF',
+    };
+  }
+  return { quantity: zone.calculated_sqft, unit: materialUnit };
+}
 
 // ============================================================================
 // Dimension Parsing
@@ -224,6 +253,36 @@ export function feetToPixels(ft: number, scalePixelsPerFoot: number): number {
 // ============================================================================
 
 /**
+ * Floor protection split the way the scope bills it: paper floor, paper
+ * stairs, plastic floor, plastic stairs — only the kinds present.
+ */
+export function floorProtectionByKind(
+  protections: WMOverlayData['floor_protections'],
+): WMFloorSummary['floor_protection_by_kind'] {
+  const kinds: Array<[FloorProtectionMaterial, boolean]> = [
+    ['paper', false],
+    ['paper', true],
+    ['plastic', false],
+    ['plastic', true],
+  ];
+  return kinds
+    .map(([material, isStair]) => {
+      const strips = protections.filter(
+        (p) => floorProtectionMaterial(p) === material && !!p.is_stair === isStair,
+      );
+      return {
+        material,
+        is_stair: isStair,
+        name: floorProtectionScopeName(material, isStair),
+        color: floorProtectionColor(material, isStair),
+        count: strips.length,
+        total_sqft: strips.reduce((sum, p) => Math.round((sum + p.calculated_sqft) * 100) / 100, 0),
+      };
+    })
+    .filter((k) => k.count > 0);
+}
+
+/**
  * Calculate per-floor totals from overlay data.
  *
  * - Demolition zones are grouped by material_type and sorted by display_order.
@@ -241,13 +300,15 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
     const groupKey = `${zone.material_type}|${zone.sub_type || ''}`;
     const existing = demoByTypeMap.get(groupKey);
 
+    const materialDef = DEFAULT_DEMO_MATERIAL_TYPES.find(
+      (m) => m.id === zone.material_type
+    );
+    const { quantity, unit } = demoZoneQuantity(zone, materialDef?.unit);
+
     if (existing) {
       existing.count += 1;
-      existing.total_sqft = Math.round((existing.total_sqft + zone.calculated_sqft) * 100) / 100;
+      existing.total_sqft = Math.round((existing.total_sqft + quantity) * 100) / 100;
     } else {
-      const materialDef = DEFAULT_DEMO_MATERIAL_TYPES.find(
-        (m) => m.id === zone.material_type
-      );
       let displayName = materialDef?.name ?? zone.material_type;
       let displayColor = zone.color;
 
@@ -271,8 +332,8 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
         surface: zone.surface,
         color: displayColor,
         count: 1,
-        total_sqft: zone.calculated_sqft,
-        unit: materialDef?.unit ?? 'SF',
+        total_sqft: quantity,
+        unit,
       });
     }
   }
@@ -319,6 +380,7 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
     (sum, fp) => Math.round((sum + fp.calculated_sqft) * 100) / 100,
     0
   );
+  const floor_protection_by_kind = floorProtectionByKind(overlayData.floor_protections);
 
   // ------------------------------------------------------------------
   // Content protection totals
@@ -352,6 +414,7 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
       count: stairProtections.length,
       total_sqft: stairFloorProtectionTotalSqft,
     },
+    floor_protection_by_kind,
     content_protection: {
       count: contentProtections.length,
       total_sqft: contentProtectionTotalSqft,

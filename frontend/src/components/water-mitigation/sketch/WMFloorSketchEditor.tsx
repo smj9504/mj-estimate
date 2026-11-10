@@ -96,6 +96,8 @@ import {
   NEW_ROOM_SIDE_FT,
   EA_ITEM_PIXEL_SIZES,
   getEffectiveRenderMode,
+  FLOOR_PROTECTION_MATERIALS,
+  floorProtectionColor,
 } from '../../../types/wmSketch';
 import wmSketchService from '../../../services/wmSketchService';
 import WMBackgroundImageLayer, { type ImageLoadStatus } from './canvas/WMBackgroundImageLayer';
@@ -113,12 +115,12 @@ import {
   calcContainmentSqft,
   calcFloorProtectionSqft,
   calcContentProtectionSqft,
+  demoZoneQuantity,
+  floorProtectionByKind,
 } from './utils/wmCalculations';
 import {
   DEFAULT_CONTAINMENT_COLOR,
   DEFAULT_CONTAINMENT_HEIGHT_FT,
-  DEFAULT_FLOOR_PROTECTION_COLOR,
-  DEFAULT_STAIR_FLOOR_PROTECTION_COLOR,
   DEFAULT_CONTENT_PROTECTION_COLOR,
   DEFAULT_CONTENT_MANIPULATION_COLOR,
   DEFAULT_PAPER_WIDTH_FT,
@@ -376,14 +378,15 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
       const def =
         materialTypes.find((m) => m.id === zone.material_type) ??
         DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
+      const { quantity, unit } = demoZoneQuantity(zone, def?.unit);
       if (existing) {
-        existing.total = Math.round((existing.total + zone.calculated_sqft) * 100) / 100;
+        existing.total = Math.round((existing.total + quantity) * 100) / 100;
       } else {
         map.set(zone.material_type, {
           name: def?.name ?? zone.material_type,
           color: zone.color,
-          total: zone.calculated_sqft,
-          unit: def?.unit ?? 'SF',
+          total: quantity,
+          unit,
         });
       }
     }
@@ -394,10 +397,7 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
   const contentProtections = overlayData.content_protections ?? [];
   const contentManipulations = overlayData.content_manipulations ?? [];
   const containTotal = containment_zones.reduce((s, c) => s + c.calculated_sqft, 0);
-  const regularProts = floor_protections.filter((p) => !p.is_stair);
-  const stairProts = floor_protections.filter((p) => p.is_stair);
-  const protTotal = regularProts.reduce((s, p) => s + p.calculated_sqft, 0);
-  const stairProtTotal = stairProts.reduce((s, p) => s + p.calculated_sqft, 0);
+  const protKinds = floorProtectionByKind(floor_protections);
   const contentProtTotal = contentProtections.reduce((s, cp) => s + cp.calculated_sqft, 0);
   const contentManipTotal = contentManipulations.reduce((s, cm) => s + (cm.hours ?? 0), 0);
   const eqCount = equipment_placements.length;
@@ -453,16 +453,15 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
           Containment: {containTotal.toFixed(1)} SF
         </Tag>
       )}
-      {regularProts.length > 0 && (
-        <Tag color="#FFD700" style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
-          Floor Prot: {protTotal.toFixed(1)} SF
+      {protKinds.map((k) => (
+        <Tag
+          key={k.name}
+          color={k.color}
+          style={{ fontSize: 11, lineHeight: '18px', margin: 0, fontWeight: k.is_stair ? 600 : undefined }}
+        >
+          {k.name.replace('Floor Protection', 'Floor Prot')}: {k.total_sqft.toFixed(1)} SF
         </Tag>
-      )}
-      {stairProts.length > 0 && (
-        <Tag color="#FF8C00" style={{ fontSize: 11, lineHeight: '18px', margin: 0, fontWeight: 600 }}>
-          Stair Prot: {stairProtTotal.toFixed(1)} SF
-        </Tag>
-      )}
+      ))}
       {contentProtections.length > 0 && (
         <Tag color="#8B5CF6" style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
           Content Prot: {contentProtTotal.toFixed(1)} SF
@@ -593,6 +592,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const [activeDoorType, setActiveDoorType] = useState<DoorType>('swing');
   /** When true, new floor protection strips are created as stair type (higher labor cost) */
   const [isStairFloorProtection, setIsStairFloorProtection] = useState(false);
+  // New floor protection strips are plastic & tape instead of paper & tape
+  const [isPlasticFloorProtection, setIsPlasticFloorProtection] = useState(false);
+  // The pointer handlers are built once, so they read both toggles from here.
+  const floorProtModeRef = useRef({ stair: false, plastic: false });
+  floorProtModeRef.current = { stair: isStairFloorProtection, plastic: isPlasticFloorProtection };
 
   // ------------------------------------------------------------------
   // State management
@@ -602,6 +606,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     setTool,
     selectElement,
     toggleSelectElement,
+    selectElements,
     deselect,
     selectedIds,
     batchMoveSelected,
@@ -611,6 +616,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     setActiveEquipmentType,
     addDemolitionZone,
     updateDemolitionZone,
+    updateDemolitionZones,
+    removeDemolitionZones,
     combineDemolitionZones,
     ungroupDemolitionZone,
     groupDemolitionZones,
@@ -1303,7 +1310,27 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       const pointHits = (px: number, py: number) =>
         px >= x1 && px <= x2 && py >= y1 && py <= y2;
 
+      const mats = materialTypesRef.current;
       for (const z of data.demolition_zones) {
+        // Wall / baseboard lines are drawn from (x, y) along their rotation,
+        // so a box around a vertical or slanted line must test its two ends,
+        // not a horizontal strip to the right of its start point.
+        if ((z.polygon_points?.length ?? 0) < 3) {
+          const mat =
+            mats.find((m) => m.id === z.material_type) ??
+            DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === z.material_type);
+          const mode = z.render_mode ?? (mat ? getEffectiveRenderMode(mat) : 'area');
+          if (mode === 'line') {
+            const len = z.dimension1_ft * scale;
+            const rad = ((z.rotation ?? 0) * Math.PI) / 180;
+            const ex = z.x + Math.cos(rad) * len;
+            const ey = z.y + Math.sin(rad) * len;
+            if (boxHits(Math.min(z.x, ex), Math.min(z.y, ey), Math.max(z.x, ex), Math.max(z.y, ey))) {
+              out.push({ element_id: z.id, element_type: 'demolition' });
+            }
+            continue;
+          }
+        }
         const w = z.pixel_width ?? (z.dimension1_ft > 0 ? z.dimension1_ft * scale : 40);
         const h = z.pixel_height ?? (z.dimension2_ft > 0 ? z.dimension2_ft * scale : 40);
         if (boxHits(z.x, z.y, z.x + w, z.y + h)) {
@@ -2549,6 +2576,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         addContainment(zone);
         selectNewElement(containId, 'containment');
       } else if (activeTool === 'floor_protection') {
+        const { stair: isStairStrip, plastic: isPlasticStrip } = floorProtModeRef.current;
         const paperWidth = DEFAULT_PAPER_WIDTH_FT;
         const lengthFt = pixelsToFeet(Math.max(wPx, hPx), scale);
         // Renderer draws width=paperWidth (narrow), height=length (long),
@@ -2558,15 +2586,15 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const prot: WMFloorProtection = {
           id: protId,
           floor_sketch_id: fs.id,
-          protection_type: 'Heavy duty paper & tape',
+          protection_type: FLOOR_PROTECTION_MATERIALS[isPlasticStrip ? 'plastic' : 'paper'].name,
           paper_width_ft: paperWidth,
           x,
           y,
           length_ft: lengthFt,
           rotation,
           calculated_sqft: calcFloorProtectionSqft(paperWidth, lengthFt),
-          color: isStairFloorProtection ? DEFAULT_STAIR_FLOOR_PROTECTION_COLOR : DEFAULT_FLOOR_PROTECTION_COLOR,
-          is_stair: isStairFloorProtection,
+          color: floorProtectionColor(isPlasticStrip ? 'plastic' : 'paper', isStairStrip),
+          is_stair: isStairStrip,
         };
         addFloorProtection(prot);
         selectNewElement(protId, 'floor_protection');
@@ -3303,14 +3331,16 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // ------------------------------------------------------------------
   const activeMaterialColor = React.useMemo(() => {
     if (state.activeTool === 'containment') return DEFAULT_CONTAINMENT_COLOR;
-    if (state.activeTool === 'floor_protection') return isStairFloorProtection ? DEFAULT_STAIR_FLOOR_PROTECTION_COLOR : DEFAULT_FLOOR_PROTECTION_COLOR;
+    if (state.activeTool === 'floor_protection') {
+      return floorProtectionColor(isPlasticFloorProtection ? 'plastic' : 'paper', isStairFloorProtection);
+    }
     if (state.activeTool === 'content_protection') return DEFAULT_CONTENT_PROTECTION_COLOR;
     if (state.activeTool === 'content_manipulation') return DEFAULT_CONTENT_MANIPULATION_COLOR;
     const mat =
       materialTypes.find((m) => m.id === state.activeMaterialTypeId) ??
       DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === state.activeMaterialTypeId);
     return mat?.color ?? '#B8860B';
-  }, [state.activeTool, state.activeMaterialTypeId, materialTypes]);
+  }, [state.activeTool, state.activeMaterialTypeId, materialTypes, isPlasticFloorProtection, isStairFloorProtection]);
 
   /**
    * True while a multi-step drawing is open — a wall chain awaiting its next
@@ -3351,9 +3381,15 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     <WMSketchSidebar
       overlayData={state.overlayData}
       selection={state.selection}
+      selections={state.selections}
       materialTypes={materialTypes}
       summary={floorSummary}
       floorSketchId={floorSketch.id}
+      onUpdateDemolitionZones={updateDemolitionZones}
+      onDeleteDemolitionZones={removeDemolitionZones}
+      onSelectDemolitionZones={(ids) =>
+        selectElements(ids.map((id) => ({ element_id: id, element_type: 'demolition' })))
+      }
       onUpdateDemolitionZone={(id, updates) => {
         // Sync pixel dimensions when real dimensions change
         // so the visual rect resizes smoothly instead of jumping
@@ -3468,6 +3504,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         isDirty={state.isDirty}
         isStairFloorProtection={isStairFloorProtection}
         onStairFloorProtectionChange={setIsStairFloorProtection}
+        isPlasticFloorProtection={isPlasticFloorProtection}
+        onPlasticFloorProtectionChange={setIsPlasticFloorProtection}
       />
 
       {/* Main content: canvas + sidebar */}

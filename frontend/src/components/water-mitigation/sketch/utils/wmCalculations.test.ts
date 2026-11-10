@@ -11,8 +11,17 @@ import {
   pixelsToFeet,
   feetToPixels,
   calcFloorTotals,
+  demoZoneQuantity,
+  floorProtectionByKind,
 } from './wmCalculations';
-import { EA_MATERIAL_IDS, type WMDemolitionZone, type WMOverlayData } from '../../../../types/wmSketch';
+import {
+  EA_MATERIAL_IDS,
+  FLOOR_PROTECTION_MATERIALS,
+  floorProtectionScopeName,
+  type WMDemolitionZone,
+  type WMFloorProtection,
+  type WMOverlayData,
+} from '../../../../types/wmSketch';
 
 /**
  * These functions are the shared vocabulary of the sketch editor: the canvas
@@ -199,5 +208,100 @@ describe('recessed light detach', () => {
       total_sqft: 3,
       unit: 'EA',
     });
+  });
+});
+
+describe('window and door trim totals', () => {
+  const trim = (patch: Partial<WMDemolitionZone>): WMDemolitionZone => ({
+    id: 't',
+    floor_sketch_id: 'floor',
+    material_type: 'window_trim_demo',
+    surface: 'wall',
+    color: '#5B9BD5',
+    x: 0,
+    y: 0,
+    dimension1_ft: 0,
+    dimension2_ft: 0,
+    rotation: 0,
+    calculated_sqft: 1,
+    display_order: 0,
+    ...patch,
+  });
+
+  it('counts trim in the LF the scope bills, not the EA it is placed as', () => {
+    expect(demoZoneQuantity(trim({ sub_type: 'large', trim_removal: 'half' }), 'EA')).toEqual({ quantity: 10, unit: 'LF' });
+    // Placed, no size picked yet: the default window is 9 LF
+    expect(demoZoneQuantity(trim({}), 'EA')).toEqual({ quantity: 9, unit: 'LF' });
+    expect(demoZoneQuantity(trim({ material_type: 'door_trim_demo', trim_removal: 'custom', trim_lf: 7.5 }), 'EA'))
+      .toEqual({ quantity: 7.5, unit: 'LF' });
+  });
+
+  it('leaves everything else in its material unit', () => {
+    expect(demoZoneQuantity(trim({ material_type: 'door_demo' }), 'EA')).toEqual({ quantity: 1, unit: 'EA' });
+  });
+
+  it('floor summary totals trim in LF', () => {
+    const overlay: WMOverlayData = {
+      demolition_zones: [trim({ id: 'a', sub_type: 'large' }), trim({ id: 'b', sub_type: 'large' })],
+      equipment_placements: [],
+      containment_zones: [],
+      floor_protections: [],
+      content_protections: [],
+      content_manipulations: [],
+      text_annotations: [],
+    };
+    expect(calcFloorTotals(overlay).demolition_by_type[0]).toMatchObject({ total_sqft: 40, unit: 'LF' });
+  });
+});
+
+describe('floor protection kinds', () => {
+  const strip = (protection_type: string, is_stair: boolean, sqft: number): WMFloorProtection => ({
+    id: `${protection_type}-${is_stair}-${sqft}`,
+    floor_sketch_id: 'floor',
+    protection_type,
+    paper_width_ft: 3,
+    x: 0,
+    y: 0,
+    length_ft: sqft / 3,
+    rotation: 0,
+    calculated_sqft: sqft,
+    color: '#FFD700',
+    is_stair,
+  });
+  const paper = FLOOR_PROTECTION_MATERIALS.paper.name;
+  const plastic = FLOOR_PROTECTION_MATERIALS.plastic.name;
+
+  it('splits strips the way the scope bills them, in scope order', () => {
+    const kinds = floorProtectionByKind([
+      strip(plastic, true, 21),
+      strip(paper, false, 30),
+      strip(plastic, false, 45),
+      strip(paper, false, 12),
+    ]);
+    expect(kinds.map((k) => [k.name, k.count, k.total_sqft])).toEqual([
+      ['Floor Protection', 2, 42],
+      ['Floor Protection - Plastic', 1, 45],
+      ['Floor Protection - Plastic (Stairs)', 1, 21],
+    ]);
+  });
+
+  it('treats strips saved before plastic existed as paper', () => {
+    const [kind] = floorProtectionByKind([strip('Heavy duty paper & tape', true, 9)]);
+    expect(kind.name).toBe('Floor Protection (Stairs)');
+  });
+
+  it('uses the scope item names the backend gives them', () => {
+    // backend/app/domains/water_mitigation/floor_protection.py
+    expect([
+      floorProtectionScopeName('paper', false),
+      floorProtectionScopeName('paper', true),
+      floorProtectionScopeName('plastic', false),
+      floorProtectionScopeName('plastic', true),
+    ]).toEqual([
+      'Floor Protection',
+      'Floor Protection (Stairs)',
+      'Floor Protection - Plastic',
+      'Floor Protection - Plastic (Stairs)',
+    ]);
   });
 });

@@ -157,41 +157,28 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
           </>
         )}
 
-        {/* Floor Protection section */}
-        {hasFloorProtection && (
+        {/* Floor protection — one row per kind the scope bills (paper / plastic, floor / stairs) */}
+        {summary.floor_protection_by_kind.length > 0 && (
           <>
             {(hasDemolition || hasContainment) && <Divider style={{ margin: '6px 0' }} />}
-            <SummaryRow
-              label={
-                <Text style={{ fontSize: 12 }}>
-                  Floor Protection
-                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
-                    {summary.floor_protection.count}x
-                  </Text>
-                </Text>
-              }
-              value={`${summary.floor_protection.total_sqft.toFixed(0)} SF`}
-              secondary={`${summary.floor_protection.total_sqft.toFixed(2)} SF`}
-            />
-          </>
-        )}
-
-        {/* Stair Floor Protection section */}
-        {hasStairFloorProtection && (
-          <>
-            {(hasDemolition || hasContainment || hasFloorProtection) && <Divider style={{ margin: '6px 0' }} />}
-            <SummaryRow
-              label={
-                <Text style={{ fontSize: 12, color: '#FF8C00', fontWeight: 600 }}>
-                  Floor Prot (Stairs)
-                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
-                    {summary.stair_floor_protection.count}x
-                  </Text>
-                </Text>
-              }
-              value={`${summary.stair_floor_protection.total_sqft.toFixed(0)} SF`}
-              secondary={`${summary.stair_floor_protection.total_sqft.toFixed(2)} SF`}
-            />
+            {summary.floor_protection_by_kind.map((k) => (
+              <SummaryRow
+                key={k.name}
+                label={
+                  <>
+                    <ColorSwatch color={k.color} />
+                    <Text style={{ fontSize: 12, ...(k.is_stair ? { color: k.color, fontWeight: 600 } : {}) }}>
+                      {k.name}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {k.count}x
+                    </Text>
+                  </>
+                }
+                value={`${k.total_sqft.toFixed(0)} SF`}
+                secondary={`${k.total_sqft.toFixed(2)} SF`}
+              />
+            ))}
           </>
         )}
 

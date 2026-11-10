@@ -25,6 +25,11 @@ from uuid import UUID
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import Session
 
+from app.domains.water_mitigation.floor_protection import (
+    FLOOR_PROTECTION_KINDS,
+    floor_protection_color,
+    floor_protection_scope_name,
+)
 from app.domains.water_mitigation.models import WaterMitigationJob
 from app.domains.water_mitigation.sketch_models import (
     WMContainmentZone,
@@ -449,8 +454,9 @@ _DEMO_MATERIAL_UNITS: Dict[str, str] = {
     "baseboard_quarter_round": "LF",
     "quarter_round": "LF",
     "toe_kick": "LF",
-    "window_trim_demo": "EA",
-    "door_trim_demo": "EA",
+    # Placed as items but billed by the foot, as the scope does
+    "window_trim_demo": "LF",
+    "door_trim_demo": "LF",
     "door_demo": "EA",
     "stair_demo": "EA",
     "recessed_light_detach": "EA",
@@ -1987,7 +1993,7 @@ class SketchPdfService:
         if prot_w <= 0 or prot_h <= 0:
             return []
         is_stair = p.get("is_stair", False)
-        color = p.get("color", "#FF8C00" if is_stair else "#FFD700")
+        color = p.get("color") or floor_protection_color(p.get("protection_type"), is_stair)
         rotation = float(p.get("rotation", 0))
         x, y = float(p.get("x", 0)), float(p.get("y", 0))
         rot_part = f" rotate({rotation:.1f})" if abs(rotation) > 0.0001 else ""
@@ -2566,6 +2572,13 @@ class SketchPdfService:
                 }
             demo_by_material[key]["count"] += 1
             qty = float(zone.calculated_sqft or 0)
+            if mt in ("window_trim_demo", "door_trim_demo"):
+                # Same LF the scope bills, whatever the zone stored
+                trim_lf = getattr(zone, "trim_lf", None)
+                qty = SketchService._calc_trim_lf(
+                    mt, st, getattr(zone, "trim_removal", None) or "full",
+                    float(trim_lf) if trim_lf else None,
+                )
             demo_by_material[key]["total_sqft"] += qty
             if unit == "EA":
                 total_demo_ea += qty
@@ -2666,6 +2679,18 @@ class SketchPdfService:
             for p in (floor.floor_protections or [])
             if getattr(p, 'is_stair', False)
         )
+        # One row per billed kind (paper / plastic, floor / stairs), in scope order
+        prot_by_name: Dict[str, float] = {}
+        for fp in (floor.floor_protections or []):
+            name = floor_protection_scope_name(
+                fp.protection_type, bool(getattr(fp, 'is_stair', False)),
+            )
+            prot_by_name[name] = prot_by_name.get(name, 0.0) + float(fp.calculated_sqft or 0)
+        protection_rows = [
+            {"label": name, "sqft": prot_by_name[name], "color": color, "is_stair": stair}
+            for _, stair, name, color in FLOOR_PROTECTION_KINDS
+            if prot_by_name.get(name, 0) > 0
+        ]
         content_prot_sqft = sum(
             float(cp.calculated_sqft or 0)
             for cp in (floor.content_protections or [])
@@ -2683,6 +2708,7 @@ class SketchPdfService:
             "containment_zippers": containment_zippers,
             "protection_sqft": protection_sqft,
             "stair_protection_sqft": stair_protection_sqft,
+            "protection_rows": protection_rows,
             "content_protection_sqft": content_prot_sqft,
             "content_manipulation_hours": content_manip_hours,
             "total_demo_sqft": total_demo_sf,

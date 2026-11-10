@@ -477,6 +477,43 @@ export interface WMContainmentZone {
   width_ft?: number;
 }
 
+/** What a floor protection strip is laid with. Each material bills its own line item. */
+export type FloorProtectionMaterial = 'paper' | 'plastic';
+
+/**
+ * Floor protection materials. `name` is what a strip stores in
+ * protection_type; strips saved before plastic existed say paper.
+ * `color` / `stairColor` tell the four kinds apart on the canvas and the PDF.
+ */
+export const FLOOR_PROTECTION_MATERIALS: Record<
+  FloorProtectionMaterial,
+  { name: string; short: string; color: string; stairColor: string }
+> = {
+  paper: { name: 'Heavy duty paper & tape', short: 'Paper', color: '#FFD700', stairColor: '#FF8C00' },
+  plastic: { name: 'Plastic & tape', short: 'Plastic', color: '#26C6DA', stairColor: '#00838F' },
+};
+
+/** The material a strip is laid with, read from its protection_type. */
+export function floorProtectionMaterial(p: { protection_type?: string | null }): FloorProtectionMaterial {
+  return /plastic/i.test(p.protection_type ?? '') ? 'plastic' : 'paper';
+}
+
+/** Canvas color for a strip of this material, on stairs or not. */
+export function floorProtectionColor(material: FloorProtectionMaterial, isStair: boolean): string {
+  const m = FLOOR_PROTECTION_MATERIALS[material];
+  return isStair ? m.stairColor : m.color;
+}
+
+/**
+ * The scope item a strip rolls up into. Must match the names the backend
+ * gives sketch scope items (sketch_service), which the Standard Scope Items
+ * map to line items.
+ */
+export function floorProtectionScopeName(material: FloorProtectionMaterial, isStair: boolean): string {
+  const base = material === 'plastic' ? 'Floor Protection - Plastic' : 'Floor Protection';
+  return isStair ? `${base} (Stairs)` : base;
+}
+
 /**
  * A strip of floor protection material drawn along a path on the canvas.
  * Square footage is paper_width_ft * length_ft.
@@ -484,7 +521,7 @@ export interface WMContainmentZone {
 export interface WMFloorProtection {
   id: string;
   floor_sketch_id: string;
-  /** E.g. "Heavy duty paper & tape" */
+  /** FLOOR_PROTECTION_MATERIALS[...].name — "Heavy duty paper & tape" or "Plastic & tape" */
   protection_type: string;
   /** Width of the protection material roll in feet (default 3.0) */
   paper_width_ft: number;
@@ -867,6 +904,19 @@ export interface WMFloorSummary {
     count: number;
     total_sqft: number;
   };
+  /**
+   * Floor protection split the way the scope bills it — paper / plastic, on
+   * a floor or on stairs — one entry per kind present, in that order.
+   */
+  floor_protection_by_kind: Array<{
+    material: FloorProtectionMaterial;
+    is_stair: boolean;
+    /** Scope item name, e.g. "Floor Protection - Plastic (Stairs)" */
+    name: string;
+    color: string;
+    count: number;
+    total_sqft: number;
+  }>;
   content_protection: {
     count: number;
     total_sqft: number;

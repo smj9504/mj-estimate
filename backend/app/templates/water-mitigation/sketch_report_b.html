@@ -416,12 +416,12 @@
         <span>Containment</span>
       </div>
       {% endif %}
-      {% if item.summary.protection_sqft > 0 %}
+      {% for r in item.summary.get('protection_rows', []) %}
       <div class="legend-item">
-        <div class="legend-swatch protection"></div>
-        <span>Floor Protection</span>
+        <div class="legend-swatch" style="background:{{ r.color }};opacity:0.5;"></div>
+        <span>{{ r.label }}</span>
       </div>
-      {% endif %}
+      {% endfor %}
       {% if item.summary.content_protection_sqft > 0 %}
       <div class="legend-item">
         <div class="legend-swatch" style="background:#8B5CF6;opacity:0.5;"></div>
@@ -549,7 +549,7 @@
     </div>
 
     <!-- ═══ Section 3: Additional Areas (inline items) ═══ -->
-    {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.content_protection_sqft > 0 or item.summary.content_manipulation_hours > 0 %}
+    {% if item.summary.containment_sqft > 0 or item.summary.get('protection_rows') or item.summary.content_protection_sqft > 0 or item.summary.content_manipulation_hours > 0 %}
     <div class="summary-section">
       <div class="summary-section-title">Additional Areas &amp; Protection</div>
       <div class="areas-row">
@@ -565,12 +565,12 @@
           <span class="area-value">{{ item.summary.containment_zippers }} EA</span>
         </div>
         {% endif %}
-        {% if item.summary.protection_sqft > 0 %}
+        {% for r in item.summary.get('protection_rows', []) %}
         <div class="area-item">
-          <span class="area-label">Floor Protection</span>
-          <span class="area-value">{{ "%.1f"|format(item.summary.protection_sqft) }} SF</span>
+          <span class="area-label">{{ r.label }}</span>
+          <span class="area-value">{{ "%.1f"|format(r.sqft) }} SF</span>
         </div>
-        {% endif %}
+        {% endfor %}
         {% if item.summary.content_protection_sqft > 0 %}
         <div class="area-item">
           <span class="area-label">Content Protection</span>

@@ -13,6 +13,10 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.domains.water_mitigation.floor_protection import (
+    FLOOR_PROTECTION_SCOPE_NAMES,
+    floor_protection_scope_name,
+)
 from app.domains.water_mitigation.sketch_models import WMFloorSketch
 from app.domains.water_mitigation.sketch_repository import SketchRepository
 from app.domains.water_mitigation.sketch_schemas import (
@@ -959,22 +963,25 @@ class SketchService:
                     floor_label=floor_label,
                 ))
 
-            # --- Floor protection: total SF (split regular vs stair) ---
-            total_floor_prot = 0.0
-            total_stair_prot = 0.0
+            # --- Floor protection: total SF per billed kind ---
+            # Paper or plastic, on a floor or on stairs: each has its own
+            # line item, so each is its own scope item.
+            prot_sqft: dict[str, float] = {}
             for fp in (sketch.floor_protections or []):
-                sqft = float(fp.calculated_sqft or 0)
-                if getattr(fp, 'is_stair', False):
-                    total_stair_prot += sqft
-                else:
-                    total_floor_prot += sqft
+                name = floor_protection_scope_name(
+                    fp.protection_type, bool(getattr(fp, "is_stair", False)),
+                )
+                prot_sqft[name] = prot_sqft.get(name, 0.0) + float(fp.calculated_sqft or 0)
 
-            if total_floor_prot > 0:
+            for name in FLOOR_PROTECTION_SCOPE_NAMES:
+                total = prot_sqft.get(name, 0.0)
+                if total <= 0:
+                    continue
                 item = WMScopeItem(
                     location_id=location.id,
                     item_type="standard",
-                    name="Floor Protection",
-                    quantity=Decimal(str(round(total_floor_prot, 2))),
+                    name=name,
+                    quantity=Decimal(str(round(total, 2))),
                     unit="SF",
                     include_in_debris=False,
                     display_order=item_order,
@@ -983,27 +990,8 @@ class SketchService:
                 items_created += 1
                 item_order += 1
                 all_items.append(GeneratedScopeItemSummary(
-                    name="Floor Protection", item_type="standard",
-                    quantity=round(total_floor_prot, 2), unit="SF",
-                    floor_label=floor_label,
-                ))
-
-            if total_stair_prot > 0:
-                item = WMScopeItem(
-                    location_id=location.id,
-                    item_type="standard",
-                    name="Floor Protection (Stairs)",
-                    quantity=Decimal(str(round(total_stair_prot, 2))),
-                    unit="SF",
-                    include_in_debris=False,
-                    display_order=item_order,
-                )
-                self.db.add(item)
-                items_created += 1
-                item_order += 1
-                all_items.append(GeneratedScopeItemSummary(
-                    name="Floor Protection (Stairs)", item_type="standard",
-                    quantity=round(total_stair_prot, 2), unit="SF",
+                    name=name, item_type="standard",
+                    quantity=round(total, 2), unit="SF",
                     floor_label=floor_label,
                 ))
 

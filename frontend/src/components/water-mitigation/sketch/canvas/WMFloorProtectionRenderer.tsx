@@ -1,6 +1,7 @@
 /**
  * WMFloorProtectionRenderer
- * Renders a floor protection strip as a hatched yellow rectangle.
+ * Renders a floor protection strip as a hatched rectangle: yellow for paper,
+ * cyan for plastic, darker with a step pattern on stairs.
  * Width is fixed to paperWidthFt * scale; length is variable.
  * Supports drag and rotation.
  *
@@ -17,7 +18,12 @@
 import React, { useCallback, useRef, useEffect } from 'react';
 import { Group, Rect, Shape, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
-import { WMFloorProtection } from '../../../../types/wmSketch';
+import {
+  FLOOR_PROTECTION_MATERIALS,
+  WMFloorProtection,
+  floorProtectionColor,
+  floorProtectionMaterial,
+} from '../../../../types/wmSketch';
 import { useTouchTargetSizes } from '../hooks/useWMResponsive';
 
 export interface WMFloorProtectionRendererProps {
@@ -31,9 +37,6 @@ export interface WMFloorProtectionRendererProps {
 
 /** Spacing between diagonal hatch lines in pixels */
 const HATCH_SPACING = 10;
-
-/** Default color for stair floor protection (orange) */
-const STAIR_FLOOR_PROTECTION_COLOR = '#FF8C00';
 
 /** Spacing between stair-step lines in pixels */
 const STAIR_STEP_SPACING = 12;
@@ -55,13 +58,19 @@ const WMFloorProtectionRenderer: React.FC<WMFloorProtectionRendererProps> = ({
   const widthPx = protection.paper_width_ft * scalePixelsPerFoot;
   const lengthPx = protection.length_ft * scalePixelsPerFoot;
   const isStair = protection.is_stair ?? false;
-  const effectiveColor = isStair
-    ? (protection.color !== '#FFD700' ? protection.color : STAIR_FLOOR_PROTECTION_COLOR)
-    : (protection.color || '#FFD700');
+  const isPlastic = floorProtectionMaterial(protection) === 'plastic';
+  const kindColor = floorProtectionColor(isPlastic ? 'plastic' : 'paper', isStair);
+  // Strips keep the color they were drawn with, but older stair strips were
+  // saved with the plain paper yellow.
+  const effectiveColor =
+    isStair && protection.color === FLOOR_PROTECTION_MATERIALS.paper.color
+      ? kindColor
+      : protection.color || kindColor;
 
-  const labelText = isStair
-    ? `STR ${protection.calculated_sqft > 0 ? `${protection.calculated_sqft.toFixed(2)} SF` : `${protection.length_ft.toFixed(2)}'`}`
-    : `${protection.calculated_sqft > 0 ? `${protection.calculated_sqft.toFixed(2)} SF` : `${protection.length_ft.toFixed(2)}'`}`;
+  const measure = protection.calculated_sqft > 0
+    ? `${protection.calculated_sqft.toFixed(2)} SF`
+    : `${protection.length_ft.toFixed(2)}'`;
+  const labelText = `${isStair ? 'STR ' : ''}${isPlastic ? 'PL ' : ''}${measure}`;
 
   // Reset Konva node transform state when dimensions change from props
   useEffect(() => {

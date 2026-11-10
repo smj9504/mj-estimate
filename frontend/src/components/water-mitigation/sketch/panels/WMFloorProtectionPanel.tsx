@@ -1,9 +1,9 @@
 /**
  * WMFloorProtectionPanel - Sidebar panel for managing floor protection strips.
  *
- * Total protection area is prominently displayed at the top, split by
- * regular vs stair floor protection. Stair floor protection has higher
- * labor cost and is shown with an orange accent.
+ * Total protection area is prominently displayed at the top, split the way
+ * the scope bills it: paper or plastic, on a floor or on stairs. Each kind
+ * has its own line item; stairs cost more and are shown with a darker accent.
  *
  * Lists each strip showing length and sqft.
  * Width is fixed at paperWidthFt (typically 3 ft) — shown as info, not editable inline.
@@ -13,7 +13,12 @@ import React, { useMemo } from 'react';
 import { Button, Space, Switch, Typography, Divider, Popconfirm, Tooltip, Tag } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { WMFloorProtection } from '../../../../types/wmSketch';
-import { formatDimension } from '../utils/wmCalculations';
+import {
+  FLOOR_PROTECTION_MATERIALS,
+  floorProtectionColor,
+  floorProtectionMaterial,
+} from '../../../../types/wmSketch';
+import { floorProtectionByKind, formatDimension } from '../utils/wmCalculations';
 
 const { Text } = Typography;
 
@@ -67,6 +72,7 @@ const WMFloorProtectionPanel: React.FC<WMFloorProtectionPanelProps> = ({
     () => stairProtections.reduce((sum, p) => sum + p.calculated_sqft, 0),
     [stairProtections]
   );
+  const kinds = useMemo(() => floorProtectionByKind(protections), [protections]);
 
   // Group items by protection_type within a section
   const groupByType = (items: WMFloorProtection[]) => {
@@ -87,7 +93,7 @@ const WMFloorProtectionPanel: React.FC<WMFloorProtectionPanelProps> = ({
       <div style={{ padding: '8px 0' }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
           No floor protection strips added. Select the Floor Protection tool and draw on the
-          canvas. Use the STR button for stair floor protection.
+          canvas. Use the PL button for plastic &amp; tape and STR for stairs.
         </Text>
       </div>
     );
@@ -96,6 +102,8 @@ const WMFloorProtectionPanel: React.FC<WMFloorProtectionPanelProps> = ({
   const renderStrip = (protection: WMFloorProtection, i: number) => {
     const isSelected = protection.id === selectedProtectionId;
     const isStair = protection.is_stair ?? false;
+    const material = floorProtectionMaterial(protection);
+    const isPlastic = material === 'plastic';
     return (
       <div
         key={protection.id}
@@ -132,15 +140,37 @@ const WMFloorProtectionPanel: React.FC<WMFloorProtectionPanelProps> = ({
             {formatDimension(protection.paper_width_ft)} wide
           </Text>
         </div>
+        <Tooltip
+          title={isPlastic ? 'Plastic & tape (switch off for paper)' : 'Paper & tape (switch on for plastic)'}
+          placement="left"
+        >
+          <Switch
+            size="small"
+            checked={isPlastic}
+            aria-label="Plastic"
+            onChange={(checked, e) => {
+              e.stopPropagation();
+              const next = checked ? 'plastic' : 'paper';
+              onUpdateProtection(protection.id, {
+                protection_type: FLOOR_PROTECTION_MATERIALS[next].name,
+                color: floorProtectionColor(next, isStair),
+              });
+            }}
+            style={{ minWidth: 28 }}
+            checkedChildren="PL"
+            unCheckedChildren=""
+          />
+        </Tooltip>
         <Tooltip title={`Toggle stair: ${isStair ? 'ON' : 'OFF'}`} placement="left">
           <Switch
             size="small"
             checked={isStair}
+            aria-label="Stairs"
             onChange={(checked, e) => {
               e.stopPropagation();
               onUpdateProtection(protection.id, {
                 is_stair: checked,
-                color: checked ? '#FF8C00' : '#FFD700',
+                color: floorProtectionColor(material, checked),
               });
             }}
             style={{ minWidth: 28 }}
@@ -248,15 +278,15 @@ const WMFloorProtectionPanel: React.FC<WMFloorProtectionPanelProps> = ({
           {totalSqft.toFixed(2)} exact — {protections.length} strip
           {protections.length !== 1 ? 's' : ''}
         </Text>
-        {/* Breakdown when both types exist */}
-        {regularProtections.length > 0 && stairProtections.length > 0 && (
-          <div style={{ marginTop: 4, display: 'flex', justifyContent: 'center', gap: 12 }}>
-            <Text style={{ fontSize: 10, color: '#D4A000' }}>
-              Regular: {Math.round(regularSqft)} SF
-            </Text>
-            <Text style={{ fontSize: 10, color: '#FF8C00', fontWeight: 600 }}>
-              Stairs: {Math.round(stairSqft)} SF
-            </Text>
+        {/* Breakdown by billed kind when there is more than one */}
+        {kinds.length > 1 && (
+          <div style={{ marginTop: 4, display: 'flex', justifyContent: 'center', flexWrap: 'wrap', columnGap: 12, rowGap: 2 }}>
+            {kinds.map((k) => (
+              <Text key={k.name} style={{ fontSize: 10, color: k.color, fontWeight: k.is_stair ? 600 : undefined }}>
+                {FLOOR_PROTECTION_MATERIALS[k.material].short}
+                {k.is_stair ? ' stairs' : ''}: {Math.round(k.total_sqft)} SF
+              </Text>
+            ))}
           </div>
         )}
       </div>

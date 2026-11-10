@@ -14,6 +14,7 @@ import {
   Badge,
   Divider,
   Popover,
+  Tooltip,
   theme,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -43,7 +44,7 @@ import type {
   ShapePreset,
   DoorType,
 } from '../../../types/wmSketch';
-import { EQUIPMENT_CONFIG, SHAPE_PRESETS, getEffectiveRenderMode } from '../../../types/wmSketch';
+import { EQUIPMENT_CONFIG, FLOOR_PROTECTION_MATERIALS, SHAPE_PRESETS, getEffectiveRenderMode } from '../../../types/wmSketch';
 import { useIsCoarsePointer } from './hooks/useWMResponsive';
 import { DOOR_TYPES, DOOR_TYPE_ORDER } from './utils/doorSymbols';
 import DoorTypeIcon from './DoorTypeIcon';
@@ -132,6 +133,10 @@ export interface WMSketchToolbarProps {
   isStairFloorProtection?: boolean;
   /** Toggle stair floor protection mode */
   onStairFloorProtectionChange?: (isStair: boolean) => void;
+  /** Whether new floor protection strips are plastic & tape (else paper & tape) */
+  isPlasticFloorProtection?: boolean;
+  /** Toggle plastic floor protection mode */
+  onPlasticFloorProtectionChange?: (isPlastic: boolean) => void;
 }
 
 // ============================================================================
@@ -215,6 +220,8 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   isDirty,
   isStairFloorProtection = false,
   onStairFloorProtectionChange,
+  isPlasticFloorProtection = false,
+  onPlasticFloorProtectionChange,
 }) => {
   const { token } = theme.useToken();
   // Touch users need gesture docs, not keyboard shortcuts
@@ -552,7 +559,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           <span className="wm-tb-label">Containment</span>
         </Button>
 
-        {/* Group 5 — Floor Protection (with stair toggle) */}
+        {/* Group 5 — Floor Protection (with plastic and stair toggles) */}
         <SpaceCompact size="small">
           <Button
             type={toolButtonType('floor_protection')}
@@ -563,6 +570,28 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           >
             <span className="wm-tb-label">{isStairFloorProtection ? 'Stair Prot' : 'Floor Prot'}</span>
           </Button>
+          <Tooltip title={isPlasticFloorProtection ? 'Plastic & tape (click for paper)' : 'Paper & tape (click for plastic)'}>
+            <Button
+              type={isPlasticFloorProtection ? 'primary' : 'default'}
+              size="small"
+              aria-label="Plastic floor protection"
+              aria-pressed={isPlasticFloorProtection}
+              onClick={() => {
+                onPlasticFloorProtectionChange?.(!isPlasticFloorProtection);
+                onToolChange('floor_protection');
+              }}
+              style={{
+                padding: '0 6px',
+                fontSize: 11,
+                fontWeight: isPlasticFloorProtection ? 600 : 400,
+                ...(isPlasticFloorProtection
+                  ? { backgroundColor: FLOOR_PROTECTION_MATERIALS.plastic.stairColor, borderColor: FLOOR_PROTECTION_MATERIALS.plastic.stairColor }
+                  : {}),
+              }}
+            >
+              PL
+            </Button>
+          </Tooltip>
           <Button
             type={isStairFloorProtection ? 'primary' : 'default'}
             size="small"
