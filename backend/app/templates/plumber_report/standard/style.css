@@ -115,6 +115,9 @@ body {
 
 .line-item-group {
   border-bottom: 1px solid #f0f0f0;
+  /* Keep an item's row and its description on the same page */
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .line-row {

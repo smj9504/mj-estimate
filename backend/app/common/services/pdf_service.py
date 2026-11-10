@@ -1923,9 +1923,17 @@ print(os.path.getsize(output_path))
             /* Hide the original template footer */
             .report-footer { display: none !important; }
 
-            /* Top/bottom margins with extra bottom room for footer */
+            /* Top/bottom margins with extra bottom room for footer.
+               @page margin is 0 (so the browser prints no URL/date of its
+               own), which leaves this padding as the only page margin.
+               "clone" repeats it on every printed page; without it only
+               page 1 got the top and only the last page the bottom, so
+               page 2 started at the paper's edge and page 1 ran under
+               the footer. */
             .page-wrapper {
                 padding: 0.25in 0.4in 0.45in 0.4in !important;
+                -webkit-box-decoration-break: clone;
+                box-decoration-break: clone;
             }
         }
 
