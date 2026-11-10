@@ -94,12 +94,43 @@ function OcrMoney($s) {
 }
 function SafeName($s) { ($s.ToCharArray() | ForEach-Object { if ('\/:*?"<>|%'.Contains([string]$_)) { '%{0:X2}' -f [int]$_ } else { [string]$_ } }) -join '' }
 function Money($s) { $v = 0.0; if ([double]::TryParse(($s -replace '[\$,\s]', ''), [ref]$v)) { $v } else { $null } }
-function CopyBox($x, $y) { ClearClip; Click $x $y; Start-Sleep -Milliseconds 100; Keys '^a'; Keys '^c'; Start-Sleep -Milliseconds 220; $c = Clip; if ($c -eq '<<empty>>') { '' } else { $c.Trim() } }
+# The clipboard as soon as a copy has landed in it (ClearClip first), or what's there after $maxMs.
+function WaitClip([int]$maxMs = 500) {
+  $t = [Environment]::TickCount
+  do { Start-Sleep -Milliseconds 40; $c = Clip; if ($c -and $c -ne '<<empty>>') { return $c } } while ([Environment]::TickCount - $t -lt $maxMs)
+  Clip
+}
+function CopyBox($x, $y) { ClearClip; Click $x $y; Start-Sleep -Milliseconds 100; Keys '^a'; Keys '^c'; $c = WaitClip 450; if ($c -eq '<<empty>>') { '' } else { $c.Trim() } }
+# A fingerprint of part of the screen, to tell when Xactimate has redrawn it.
+$md5 = [System.Security.Cryptography.MD5]::Create()
+function ScreenSig($area) {
+  $b = New-Object System.Drawing.Bitmap $area[2], $area[3]
+  try {
+    $g = [System.Drawing.Graphics]::FromImage($b); $g.CopyFromScreen($area[0], $area[1], 0, 0, $b.Size); $g.Dispose()
+    $data = $b.LockBits((New-Object System.Drawing.Rectangle 0, 0, $b.Width, $b.Height), [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $n = $data.Stride * $b.Height; $px = New-Object byte[] $n
+    [System.Runtime.InteropServices.Marshal]::Copy($data.Scan0, $px, 0, $n); $b.UnlockBits($data)
+    [Convert]::ToBase64String($md5.ComputeHash($px))
+  } finally { $b.Dispose() }
+}
+# Wait until the area differs from $before and then holds still for $holds more looks;
+# returns the ms it took, or -1 when it gave up after $maxMs.
+function WaitRedraw($area, $before, [int]$maxMs, [int]$holds = 2) {
+  $t = [Environment]::TickCount; $prev = $before; $same = 0
+  while ([Environment]::TickCount - $t -lt $maxMs) {
+    Start-Sleep -Milliseconds 60
+    $s = ScreenSig $area
+    if ($s -ne $before -and $s -eq $prev) { $same++; if ($same -ge $holds) { return [Environment]::TickCount - $t } } else { $same = 0 }
+    $prev = $s
+  }
+  -1
+}
 
 # --- screen positions (Estimate Items, window maximized at 0,0, 2560x1528) ---------------------------
 $QeCancel = @(1507, 607); $QeCat = @(865, 655); $QeSel = @(1045, 657); $QePrice = @(1290, 740)
 $ReplaceBox = @(1745, 690); $RemoveBox = @(1745, 733); $ReplaceI = @(1862, 692); $RemoveI = @(1862, 735)
 $MinGroup = @(2010, 766, 96, 28)           # x, y, w, h on the main window (text only, not the arrow)
+$DescArea = @(836, 689, 728, 22)           # inside Quick Entry's Desc box: every item's text differs
 # Act list: + Replace, - Remove, R Detach & Reset, & Remove and Replace, M Material Only, I Install
 # Only - but an item lists only the activities it has (CAB CTMSB has no R), so the wanted line is
 # found by reading the open list, not by its usual place.
@@ -232,8 +263,8 @@ function ReadSide($cat, $sel, $sideAct, $comps, $iPos) {
   $rows = @(); $needText = @{}
   for ($k = 0; $k -lt $comps.Count; $k++) {
     $c = $comps[$k]
-    ClearClip; Keys '^c'; Start-Sleep -Milliseconds 200
-    $f = (Clip) -split "`t"
+    ClearClip; Keys '^c'
+    $f = (WaitClip 500) -split "`t"
     $row = [ordered]@{ code = $c.Code; kind = $c.Kind; type = $f[0]; description = $(if ($f.Count -gt 1) { $f[1] } else { '' }); price_per_unit = $(if ($f.Count -gt 2) { Money $f[2] } else { $null }) }
     if ($null -eq $row.price_per_unit -or [math]::Abs([math]::Round($row.price_per_unit, 2) - $c.Price) -gt 0.011) {
       $o.checks += "row $($k + 1) $($c.Code): copied '$((Clip) -replace "`t", ' | ')'"
@@ -351,7 +382,12 @@ foreach ($it in $items) {
       Click $QeCancel[0] $QeCancel[1]; Start-Sleep -Milliseconds 300
       Click $QeCat[0] $QeCat[1]; Keys '^a'; Keys (Lit $it.Cat); $curCat = $it.Cat
     }
-    Click $QeSel[0] $QeSel[1]; Keys '^a'; Keys ((Lit $it.Sel) + '{TAB}'); Start-Sleep -Milliseconds 1300
+    # Wait for the item's description to show (and hold still) instead of a fixed 1.3 s.
+    $descBefore = ScreenSig $DescArea
+    Click $QeSel[0] $QeSel[1]; Keys '^a'; Keys ((Lit $it.Sel) + '{TAB}')
+    $loadMs = WaitRedraw $DescArea $descBefore 2500
+    Start-Sleep -Milliseconds $(if ($loadMs -lt 0) { 300 } else { 150 })   # -1: same text as the item before, or slow; the price check decides
+    $looks = 0
     # An & item's panel has a Replace Price row and a Remove Price row; any other item has
     # one row (its own activity's price) and Minimum Group one row higher.
     $both = $it.Sides -eq '+-'
@@ -365,15 +401,21 @@ foreach ($it in $items) {
         if (-not (PickAct $want)) { throw "couldn't pick activity $want" }
         Start-Sleep -Milliseconds 900
       }
-      Click $QePrice[0] $QePrice[1]; Start-Sleep -Milliseconds 800
-      $first = Money (CopyBox $ReplaceBox[0] $ReplaceBox[1])
-      $rec.replace_price = $null; $rec.remove_price = $null
-      if ($both) { $rec.replace_price = $first; $rec.remove_price = Money (CopyBox $RemoveBox[0] $RemoveBox[1]) }
-      elseif ($it.Sides -eq '+') { $rec.replace_price = $first } else { $rec.remove_price = $first }
-      # The prices must be this item's, or Quick Entry didn't load it (or shows another activity).
-      $okPrice = ($it.Sides -notlike '*+*' -or ($null -ne $rec.replace_price -and [math]::Abs($rec.replace_price - $plus) -lt 0.5 + 0.05 * $plus)) -and
-                 ($it.Sides -notlike '*-*' -or ($null -ne $rec.remove_price -and [math]::Abs($rec.remove_price - $minus) -lt 0.5 + 0.05 * $minus))
+      Click $QePrice[0] $QePrice[1]; Start-Sleep -Milliseconds $(if ($try) { 800 } else { 250 })
+      # The price panel may still be drawing: look again (3 looks) before trying another activity.
+      for ($look = 0; $look -lt 3 -and -not $okPrice; $look++) {
+        if ($look) { Start-Sleep -Milliseconds 250 }
+        $looks++
+        $first = Money (CopyBox $ReplaceBox[0] $ReplaceBox[1])
+        $rec.replace_price = $null; $rec.remove_price = $null
+        if ($both) { $rec.replace_price = $first; $rec.remove_price = Money (CopyBox $RemoveBox[0] $RemoveBox[1]) }
+        elseif ($it.Sides -eq '+') { $rec.replace_price = $first } else { $rec.remove_price = $first }
+        # The prices must be this item's, or Quick Entry didn't load it (or shows another activity).
+        $okPrice = ($it.Sides -notlike '*+*' -or ($null -ne $rec.replace_price -and [math]::Abs($rec.replace_price - $plus) -lt 0.5 + 0.05 * $plus)) -and
+                   ($it.Sides -notlike '*-*' -or ($null -ne $rec.remove_price -and [math]::Abs($rec.remove_price - $minus) -lt 0.5 + 0.05 * $minus))
+      }
     }
+    if ($Only) { Log "timing $($it.Cat) $($it.Sel): description ${loadMs} ms, price looks $looks" }
     if (-not $okPrice) { throw "Quick Entry shows replace $($rec.replace_price) / remove $($rec.remove_price), report $plus / $minus" }
     $main = Capture $xp.MainWindowHandle
     $mgY = if ($both) { $MinGroup[1] } else { $MinGroup[1] - 43 }
@@ -401,7 +443,9 @@ foreach ($it in $items) {
   if ($status -notlike 'error*') { Append $Result ($rec | ConvertTo-Json -Depth 8 -Compress) }
   Append $index ("{0}`t{1}`t{2}`t{3}" -f $it.Cat, $it.Sel, $status, (Get-Date -Format s))
   if ($status -ne 'ok') { Log "details $($it.Cat) $($it.Sel) -> $status" }
-  if ($status -like 'error*' -and $status -notlike '*PC was used*') { $streak++ } else { $streak = 0 }
+  # A price that differs from the report is usually that item's own (LIT RCT, FCW LAMQ): it
+  # counts half, so only six of those in a row (or three other failures) pause the run.
+  if ($status -like 'error*' -and $status -notlike '*PC was used*') { $streak += $(if ($status -like '*Quick Entry shows*') { 0.5 } else { 1 }) } else { $streak = 0 }
   if ($streak -ge 3) {
     # Several in a row means Xactimate itself is in trouble (session timed out / logged off).
     New-Item -ItemType File -Force -Path "$Out\PAUSE" | Out-Null

@@ -41,8 +41,12 @@ with Esc): component rows are copied with Ctrl+C one row at a time, the
 greyed-out boxes (phase, component code, supporting event) are read with
 Windows OCR and checked against the report, and each event's text is read
 once. Input `details_items.tsv` comes from `details_list.py`; output is
-`details.jsonl`, `details_events.tsv`, `details_event_texts.tsv`. About 11 s
-an item (two windows for & items), so ~45 hours for the whole list; run it
+`details.jsonl`, `details_events.tsv`, `details_event_texts.tsv`. About 8 s
+an item (two windows for & items), so ~32 hours for the whole list: it waits
+for Quick Entry's description box to redraw and for each copy to reach the
+clipboard instead of fixed pauses (13.0 → 8.9 s on 40 items, same data). An
+item whose Quick Entry price differs from its report (LIT RCT, FCW LAMQ) is
+an error that counts half toward the three-in-a-row pause. Run it
 with `supervise_details.ps1` (`resume.ps1` starts it). Worker's wage / labor
 burden / labor overhead aren't read per item: they're a fixed split of each
 labor trade's rate, and OCR misreads those short grey amounts.
