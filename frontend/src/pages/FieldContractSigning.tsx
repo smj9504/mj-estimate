@@ -34,6 +34,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fieldSigningService, signingService } from '../services/contractService';
+import { withPdfUploadLock } from '../utils/pdfUploadLock';
 import type {
   ContractInstance,
   ContractTemplate,
@@ -979,7 +980,8 @@ const PostSignStep: React.FC<{
     }
     setSending(true);
     try {
-      await fieldSigningService.sendEmail(token, emails);
+      // Locks the page until it lands: Skip would leave with the email still going
+      await withPdfUploadLock(() => fieldSigningService.sendEmail(token, emails), 'Sending email…');
       message.success(`Signed contract sent to ${emails.join(', ')}`);
       setSent(true);
     } catch {

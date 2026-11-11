@@ -13,6 +13,7 @@ import { PageHeader, Pill, PropertyList } from '../common/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { onsiteSigningService } from '../../services/contractService';
+import { withPdfUploadLock } from '../../utils/pdfUploadLock';
 import type { OnsiteSignedContract } from '../../types/contract';
 
 const DoneStep: React.FC<{
@@ -42,7 +43,12 @@ const DoneStep: React.FC<{
     setSending(true);
     setEmailError(null);
     try {
-      const sent = await onsiteSigningService.email(contracts.map(c => c.contract_id), emails);
+      // Locks the page until it lands: Back to visit / Start another would
+      // leave with the email still going
+      const sent = await withPdfUploadLock(
+        () => onsiteSigningService.email(contracts.map(c => c.contract_id), emails),
+        'Sending email…',
+      );
       setSentTo(sent.emails);
       message.success(several ? 'Signed contracts sent' : 'Signed contract sent');
     } catch (err: any) {

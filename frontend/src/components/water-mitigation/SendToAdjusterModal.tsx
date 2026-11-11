@@ -23,6 +23,7 @@ import waterMitigationService, {
   type SendToAdjusterPayload,
   type SlotOverrideDocument,
 } from '../../services/waterMitigationService';
+import { withPdfUploadLock } from '../../utils/pdfUploadLock';
 
 const { Text } = Typography;
 
@@ -191,7 +192,12 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
         selected_documents: selectedDocs,
       };
 
-      const result = await adjusterEmailService.send(jobId, payload);
+      // Locks the app until it lands: closing the dialog wouldn't stop the
+      // send, and a second try would mail the adjuster twice
+      const result = await withPdfUploadLock(
+        () => adjusterEmailService.send(jobId, payload),
+        'Sending email…',
+      );
       message.success(`Email sent with ${result.attachments_count} attachment(s)`);
       onSent?.({ status: result.status, documents_sent_date: result.documents_sent_date });
       onClose();

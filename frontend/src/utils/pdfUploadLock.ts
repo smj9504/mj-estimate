@@ -11,12 +11,18 @@
  * request whose body carries a PDF, so upload call sites need nothing. Use
  * `withPdfUploadLock` only when a flow chains more requests after the upload
  * that must also finish before the user moves on.
+ *
+ * Other waits the user must not walk away from (sending an email, which can
+ * take a while to build and attach PDFs) hold the same lock with a title,
+ * e.g. `withPdfUploadLock(() => send(), 'Sending email…')`.
  */
 
 export interface PdfUploadLockState {
   active: boolean;
   /** Bytes sent across in-flight uploads, 0-100; null until a size is known */
   percent: number | null;
+  /** Shown on the blocker in place of "Uploading PDF…"; the newest titled hold wins */
+  title: string | null;
 }
 
 export interface PdfUploadHold {
@@ -28,31 +34,39 @@ export interface PdfUploadHold {
 interface Hold {
   loaded: number;
   total: number;
+  title?: string;
 }
 
 const holds = new Set<Hold>();
 const listeners = new Set<() => void>();
-let state: PdfUploadLockState = { active: false, percent: null };
+let state: PdfUploadLockState = { active: false, percent: null, title: null };
 
 function publish() {
   let loaded = 0;
   let total = 0;
+  let title: string | null = null;
   holds.forEach(hold => {
     loaded += hold.loaded;
     total += hold.total;
+    if (hold.title) title = hold.title;
   });
   const next: PdfUploadLockState = {
     active: holds.size > 0,
     percent: total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null,
+    title,
   };
   // Progress events fire many times a second; only re-render on a visible change
-  if (next.active === state.active && next.percent === state.percent) return;
+  if (
+    next.active === state.active
+    && next.percent === state.percent
+    && next.title === state.title
+  ) return;
   state = next;
   listeners.forEach(listener => listener());
 }
 
-export function acquirePdfUploadLock(): PdfUploadHold {
-  const hold: Hold = { loaded: 0, total: 0 };
+export function acquirePdfUploadLock(title?: string): PdfUploadHold {
+  const hold: Hold = { loaded: 0, total: 0, title };
   holds.add(hold);
   publish();
   return {
@@ -68,8 +82,8 @@ export function acquirePdfUploadLock(): PdfUploadHold {
   };
 }
 
-export async function withPdfUploadLock<T>(task: () => Promise<T>): Promise<T> {
-  const hold = acquirePdfUploadLock();
+export async function withPdfUploadLock<T>(task: () => Promise<T>, title?: string): Promise<T> {
+  const hold = acquirePdfUploadLock(title);
   try {
     return await task();
   } finally {

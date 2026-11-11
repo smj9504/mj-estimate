@@ -60,7 +60,7 @@ describe('PDF upload lock', () => {
     expect(getPdfUploadLockState().active).toBe(true);
 
     second.release();
-    expect(getPdfUploadLockState()).toEqual({ active: false, percent: null });
+    expect(getPdfUploadLockState()).toEqual({ active: false, percent: null, title: null });
   });
 
   it('reports progress summed over the uploads in flight', () => {
@@ -96,6 +96,23 @@ describe('PDF upload lock', () => {
     hold.release();
     unsubscribe();
     expect(calls).toBe(3);
+  });
+
+  it('shows the newest titled wait, and the PDF wording once titled ones let go', async () => {
+    const upload = acquire();
+    expect(getPdfUploadLockState().title).toBeNull();
+
+    let release: () => void = () => {};
+    const sending = withPdfUploadLock(
+      () => new Promise<void>(resolve => { release = resolve; }),
+      'Sending email…',
+    );
+    expect(getPdfUploadLockState().title).toBe('Sending email…');
+
+    release();
+    await sending;
+    expect(getPdfUploadLockState()).toEqual({ active: true, percent: null, title: null });
+    upload.release();
   });
 
   it('holds the lock for a whole chained flow and lets go when it fails', async () => {

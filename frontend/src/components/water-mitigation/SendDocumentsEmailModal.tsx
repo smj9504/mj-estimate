@@ -20,6 +20,7 @@ import waterMitigationService, {
   type AdjusterEmailInfo,
   type SendDocumentsPayload,
 } from '../../services/waterMitigationService';
+import { withPdfUploadLock } from '../../utils/pdfUploadLock';
 
 const { Text } = Typography;
 
@@ -141,7 +142,11 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
         document_ids: items.map(i => i.id),
       };
 
-      const result = await adjusterEmailService.sendDocuments(jobId, payload);
+      // Locks the app until it lands, as Send to Adjuster does
+      const result = await withPdfUploadLock(
+        () => adjusterEmailService.sendDocuments(jobId, payload),
+        'Sending email…',
+      );
       message.success(`Email sent with ${result.attachments_count} attachment(s)`);
       onSent?.();
       onClose();

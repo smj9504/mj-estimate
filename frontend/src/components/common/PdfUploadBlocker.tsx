@@ -20,13 +20,13 @@ const warnBeforeUnload = (event: BeforeUnloadEvent) => {
 const swallowDrop = (event: React.DragEvent) => event.preventDefault();
 
 /**
- * Covers the app while a PDF uploads (see utils/pdfUploadLock), so nothing
+ * Covers the app while a PDF uploads or an email sends (see utils/pdfUploadLock), so nothing
  * behind it - modal buttons, links, the sidebar - can be clicked, and keys
  * can't press a focused button or close a modal with Escape. Mounted once at
  * the app root.
  */
 const PdfUploadBlocker: React.FC = () => {
-  const { active, percent } = useSyncExternalStore(subscribePdfUploadLock, getPdfUploadLockState);
+  const { active, percent, title } = useSyncExternalStore(subscribePdfUploadLock, getPdfUploadLockState);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -60,7 +60,7 @@ const PdfUploadBlocker: React.FC = () => {
       <div className="pdf-upload-blocker__card">
         <Spin size="large" />
         <div id="pdf-upload-blocker-title" className="pdf-upload-blocker__title" aria-live="polite">
-          {sent ? 'Processing PDF…' : 'Uploading PDF…'}
+          {title ?? (sent ? 'Processing PDF…' : 'Uploading PDF…')}
         </div>
         <div id="pdf-upload-blocker-hint" className="pdf-upload-blocker__hint">
           Keep this page open until it finishes.

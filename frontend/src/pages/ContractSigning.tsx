@@ -33,6 +33,7 @@ import {
   SendOutlined,
 } from '@ant-design/icons';
 import { signingService } from '../services/contractService';
+import { withPdfUploadLock } from '../utils/pdfUploadLock';
 import { publicApi } from '../services/api';
 import type { ContractViewData, SignatureFieldPlacement, SignerEditableField } from '../types/contract';
 import WMSignaturePad from '../components/water-mitigation/pdf-annotator/WMSignaturePad';
@@ -106,7 +107,8 @@ const SendCopyCard: React.FC<{ token: string; clientEmail?: string }> = ({ token
     }
     setSending(true);
     try {
-      await signingService.sendSignedCopy(token, emails);
+      // Locks the page until it lands, so a send in flight isn't walked away from
+      await withPdfUploadLock(() => signingService.sendSignedCopy(token, emails), 'Sending email…');
       message.success(`Signed copy sent to ${emails.join(', ')}`);
       setSent(true);
     } catch {

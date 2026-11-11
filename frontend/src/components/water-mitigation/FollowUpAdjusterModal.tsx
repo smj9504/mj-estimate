@@ -27,6 +27,7 @@ import {
   type FollowUpSuggestion,
   type WMAdjusterInboxCheck,
 } from '../../services/waterMitigationService';
+import { withPdfUploadLock } from '../../utils/pdfUploadLock';
 
 const { Text } = Typography;
 
@@ -204,7 +205,11 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
         selected_documents: reattachDocs ? selectedDocs : [],
       };
 
-      const result = await adjusterEmailService.sendFollowUp(jobId, payload);
+      // Locks the app until it lands, as Send to Adjuster does
+      const result = await withPdfUploadLock(
+        () => adjusterEmailService.sendFollowUp(jobId, payload),
+        'Sending email…',
+      );
       const attachMsg = result.attachments_count > 0
         ? ` with ${result.attachments_count} attachment(s)`
         : '';
