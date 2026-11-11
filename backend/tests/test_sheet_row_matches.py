@@ -169,6 +169,34 @@ def test_a_later_sync_of_that_row_keeps_its_job_and_client(db, sync):
     assert db.query(Client).count() == 1
 
 
+@pytest.mark.parametrize('status', ['Sent to adjuster', 'Insurance reviewing', 'Check received', 'Complete'])
+def test_from_sent_to_adjuster_the_row_stays_linked_but_changes_nothing(db, sync, status):
+    job = sync._process_row(angel_row(phone='555-010-0100', claim='CL-1'), 5, SHEET)['job']
+    job.status = status
+    db.commit()
+    synced_at = job.sheets_last_sync
+
+    again = sync._process_row(angel_row(name='Someone Else', phone='', claim='CL-2'), 5, SHEET)
+
+    assert again == {'job': job, 'created': False, 'updated': False, 'skipped': True}
+    db.refresh(job)
+    assert (job.google_sheet_row_number, job.google_sheet_name) == (5, SHEET)
+    assert (job.homeowner_name, job.homeowner_phone, job.claim_number) == ('Sheet Homeowner', '555-010-0100', 'CL-1')
+    assert job.sheets_last_sync == synced_at
+    assert db.query(WaterMitigationJob).count() == 1
+    assert db.query(WMSheetRowMatch).count() == 0
+
+
+def test_doc_prepping_still_takes_the_rows_values(db, sync):
+    job = sync._process_row(angel_row(), 5, SHEET)['job']
+    job.status = 'Doc prepping'
+    db.commit()
+
+    again = sync._process_row(angel_row(phone='555-010-0100'), 5, SHEET)
+
+    assert again['updated'] and again['job'].homeowner_phone == '555-010-0100'
+
+
 # A row at the address of something entered by hand waits
 
 def test_a_row_at_a_manual_jobs_address_waits_and_changes_nothing(db, sync):

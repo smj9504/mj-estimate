@@ -20,5 +20,9 @@ export const WM_STATUS_TONES: Record<string, TagTone> = {
   'Complete': 'green',
 };
 
+/** The Google Sheet sync fills a job in only until its documents go to the adjuster
+ * (sheet_still_updates on the backend) */
+export const SHEET_UPDATES_STATUSES: ReadonlySet<string> = new Set(['Lead', 'Doc prepping']);
+
 export const WMStatusPill: React.FC<{ status?: JobStatus | string | null }> = ({ status }) =>
   status ? <Pill tone={WM_STATUS_TONES[status] ?? 'gray'}>{status}</Pill> : null;

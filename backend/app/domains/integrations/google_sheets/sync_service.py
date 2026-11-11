@@ -40,8 +40,17 @@ from app.domains.integrations.google_sheets.utils import (
     parse_numeric_value,
 )
 from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetRowMatch, WMSyncLog
+from app.domains.water_mitigation.schemas import JobStatus
 
 logger = logging.getLogger(__name__)
+
+# The sheet fills a job in until its documents go to the adjuster
+SHEET_UPDATES_STATUSES = frozenset({JobStatus.LEAD, JobStatus.DOC_PREPPING})
+
+
+def sheet_still_updates(job: WaterMitigationJob) -> bool:
+    """Whether the sheet's values still go onto this job: only before 'Sent to adjuster'"""
+    return (job.status or JobStatus.LEAD) in SHEET_UPDATES_STATUSES
 
 
 class GoogleSheetsSyncService:
@@ -314,6 +323,9 @@ class GoogleSheetsSyncService:
         4. If still not found, create new job
         5. If row is empty but job exists by row_number + sheet_name, take it off the sheet
 
+        A job found at 'Sent to adjuster' or later keeps its row but takes none of its
+        values (see sheet_still_updates).
+
         Args:
             row: Row data
             row_number: Row number in sheet
@@ -395,6 +407,11 @@ class GoogleSheetsSyncService:
                     f"Skipping update for inactive job {existing_job.id} "
                     f"(row {row_number}, sheet {sheet_name})"
                 )
+                return {"job": existing_job, "created": False, "updated": False, "skipped": True}
+
+            # Once documents have gone to the adjuster the job is kept here, not on the
+            # sheet: the row stays linked to it, but its values aren't read any more
+            if not sheet_still_updates(existing_job):
                 return {"job": existing_job, "created": False, "updated": False, "skipped": True}
 
             # Update existing active job

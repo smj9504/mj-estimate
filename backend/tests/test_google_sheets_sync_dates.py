@@ -99,7 +99,7 @@ def test_a_later_sync_keeps_the_year_the_job_started_with():
     # A job from 2024 is still in 2024 however many syncs later: the year comes
     # from its created_at, not from the day the sync happens to run
     job = SimpleNamespace(
-        created_at=datetime(2024, 10, 14, tzinfo=timezone.utc), active=True, property_address=SHEET_ROW[0],
+        created_at=datetime(2024, 10, 14, tzinfo=timezone.utc), active=True, status='Lead', property_address=SHEET_ROW[0],
         claim_number=None, homeowner_name=None, homeowner_phone=None, homeowner_email=None,
     )
     saved = process_row(job)

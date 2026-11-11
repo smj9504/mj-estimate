@@ -60,7 +60,7 @@ import ReceivedEmailBody from '../components/claim-followup/ReceivedEmailBody';
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
 import { PageHeader, Pill, type TagTone } from '../components/common/ui';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
-import { WMStatusPill, WM_STATUS_TONES } from '../components/water-mitigation/wmStatus';
+import { WMStatusPill, WM_STATUS_TONES, SHEET_UPDATES_STATUSES } from '../components/water-mitigation/wmStatus';
 import { tagTones } from '../styles/tokens';
 import { useWaterMitigationAccess } from '../hooks/useWaterMitigationAccess';
 import { useAuth } from '../contexts/AuthContext';
@@ -1129,6 +1129,9 @@ const WaterMitigationDetail: React.FC = () => {
                           {job.sheets_last_sync
                             ? new Date(job.sheets_last_sync).toLocaleString()
                             : EMPTY}
+                          {job.google_sheet_name && !SHEET_UPDATES_STATUSES.has(job.status || 'Lead') && (
+                            <div className="ui-props-empty">Sent to adjuster: sheet edits no longer update this job</div>
+                          )}
                         </Descriptions.Item>
                       </Descriptions>
                     </Card>
