@@ -779,12 +779,45 @@ def add_negotiation(
     claim_id: str,
     data: ClaimNegotiationCreate,
     service: ClaimNegotiationService = Depends(_get_negotiation_service),
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """Add a new negotiation revision (auto-updates claim amounts, creates supplement for review)"""
+    """Add a new negotiation revision (auto-updates claim amounts, creates supplement for review).
+
+    With email_log_id the revision's document is that emailed PDF (from the
+    claim's received mail), and the attachment counts as reviewed."""
+    neg_dict = data.dict()
+    neg_dict['claim_id'] = claim_id
+    email_log_id = neg_dict.pop('email_log_id', None)
+    email_ingestion = None
+    if email_log_id:
+        from app.domains.email_ingestion.api import require_visible_log
+        from app.domains.email_ingestion.service import EmailIngestionService
+
+        require_visible_log(db, current_staff, email_log_id)
+        db.rollback()
+        email_ingestion = EmailIngestionService()
+        try:
+            neg_dict['file_id'] = email_ingestion.pending_log_file_id(email_log_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     try:
-        neg_dict = data.dict()
-        neg_dict['claim_id'] = claim_id
         result = service.add_negotiation(neg_dict)
+
+        if email_ingestion is not None:
+            from app.domains.client.models import Claim
+
+            try:
+                claim_client = db.query(Claim.client_id).filter(Claim.id == claim_id).scalar()
+                db.rollback()
+                email_ingestion.mark_filed_as_revision(
+                    email_log_id, str(claim_client or client_id), claim_id, str(result['id']),
+                    reviewed_by=getattr(current_staff, 'full_name', None)
+                    or getattr(current_staff, 'email', None),
+                )
+            except Exception as e:
+                # The revision stands; the attachment just stays up for review
+                logger.error(f"Revision {result.get('id')} made, but log {email_log_id} not marked: {e}")
 
         # Auto-create supplement for review (single session to prevent race conditions).
         # A WM-only estimate is not the rebuild estimate a supplement answers.
@@ -1382,10 +1415,6 @@ def get_document_file(
     """One stored file from the Document Hub, shown in the page. Unlike the
     older download URLs this takes a login and serves only a file on a
     claim the person may see (see client/document_files.py)."""
-    from urllib.parse import quote
-
-    from starlette.responses import Response
-
     from app.core.database_factory import get_database
     from app.domains.client.models import Client
 
@@ -1413,17 +1442,7 @@ def get_document_file(
     except Exception as e:
         logger.warning(f"Document {source}/{file_id} could not be read: {e}")
         raise HTTPException(status_code=404, detail="The file could not be read from storage")
-
-    filename = entry["filename"]
-    ascii_name = filename.encode("ascii", "ignore").decode("ascii").replace('"', "").strip() or "document"
-    disposition = f'inline; filename="{ascii_name}"'
-    if ascii_name != filename:
-        disposition += f"; filename*=UTF-8''{quote(filename)}"
-    return Response(
-        content=data,
-        media_type=entry["mime_type"],
-        headers={"Content-Disposition": disposition, "Cache-Control": "private, no-store"},
-    )
+    return document_files.inline_response(data, entry["filename"], entry["mime_type"])
 
 
 # ============================================================

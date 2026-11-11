@@ -105,6 +105,8 @@ import AccuLynxArchiveTab from '../components/client/AccuLynxArchiveTab';
 import { acculynxArchiveService } from '../services/acculynxArchiveService';
 import {  } from '@ant-design/icons';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory, ReceivedEmails, useClaimInboxCheck } from '../components/claim-followup';
+import type { EmailEstimateAttachment } from '../components/claim-followup';
+import { emailIngestionService } from '../services/emailIngestionService';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
 import type {
   AdjusterContact,
@@ -1223,6 +1225,8 @@ interface NegotiationModalProps {
   loading: boolean;
   /** Preselected revision type (an appraisal claim's next estimate is usually the award) */
   defaultRevisionType?: ClaimNegotiation['revision_type'];
+  /** Start from a PDF that came by email (the claim's received mail) instead of an upload */
+  emailAttachment?: EmailEstimateAttachment | null;
 }
 
 const NegotiationModal: React.FC<NegotiationModalProps> = ({
@@ -1233,6 +1237,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
   onSubmit,
   loading,
   defaultRevisionType,
+  emailAttachment,
 }) => {
   const [form] = Form.useForm();
   const { isPhone, sheetProps } = useSheetModal('tall');
@@ -1240,22 +1245,52 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
   const [extracting, setExtracting] = useState(false);
   const [extraction, setExtraction] = useState<PdfExtractionResult | null>(null);
   const [editedSections, setEditedSections] = useState<NegotiationSection[]>([]);
+  // The emailed PDF the revision is made from, until another one is uploaded
+  const [fromEmail, setFromEmail] = useState<EmailEstimateAttachment | null>(null);
+  const [emailReadError, setEmailReadError] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (open) {
-      form.resetFields();
-      if (defaultRevisionType) form.setFieldsValue({ revision_type: defaultRevisionType });
-      setActiveTab('pdf');
-      setExtraction(null);
-      setEditedSections([]);
-      setExtracting(false);
-    }
-  }, [open, form, defaultRevisionType]);
+    if (!open) return undefined;
+    form.resetFields();
+    if (defaultRevisionType) form.setFieldsValue({ revision_type: defaultRevisionType });
+    setActiveTab('pdf');
+    setExtraction(null);
+    setEditedSections([]);
+    setExtracting(false);
+    setEmailReadError(null);
+    setFromEmail(emailAttachment ?? null);
+    if (!emailAttachment) return undefined;
+
+    // "Pat Lee <pat@carrier.com>" is Pat Lee; a bare address stays as it is
+    const senderName = (emailAttachment.sender || '')
+      .replace(/\s*<[^>]*>\s*$/, '').replace(/^"(.*)"$/, '$1').trim();
+    form.setFieldsValue({
+      date_received: emailAttachment.receivedAt ? dayjs(emailAttachment.receivedAt) : undefined,
+      received_from: senderName || emailAttachment.sender || undefined,
+    });
+    let closed = false;
+    setExtracting(true);
+    emailIngestionService.extractLogEstimate(emailAttachment.logId)
+      .then((result) => {
+        if (closed) return;
+        setExtraction(result);
+        setEditedSections(result.sections || []);
+      })
+      .catch((err: any) => {
+        if (closed) return;
+        setEmailReadError(err?.response?.data?.detail || "Couldn't read the amounts from this PDF");
+      })
+      .finally(() => { if (!closed) setExtracting(false); });
+    return () => { closed = true; };
+  }, [open, form, defaultRevisionType, emailAttachment]);
 
   const handlePdfUpload = async (file: File) => {
     setExtracting(true);
     try {
       const result = await negotiationService.extractPdf(clientId, claimId, file);
+      // An uploaded PDF replaces the emailed one
+      setFromEmail(null);
+      setEmailReadError(null);
       setExtraction(result);
       setEditedSections(result.sections || []);
       message.success(`Extracted ${result.sections.length} section(s) from PDF`);
@@ -1290,8 +1325,17 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
         payload.deductible = computedTotals.deductible;
       }
     }
+    // The emailed PDF stays the revision's document with amounts typed by hand too
+    if (fromEmail) payload.email_log_id = fromEmail.logId;
 
     await onSubmit(payload);
+  };
+
+  const pickAnotherPdf = () => {
+    setExtraction(null);
+    setEditedSections([]);
+    setFromEmail(null);
+    setEmailReadError(null);
   };
 
   return (
@@ -1323,6 +1367,20 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
             ),
             children: (
               <div>
+                {fromEmail && emailReadError && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message={`Couldn't read the amounts from ${fromEmail.fileName}`}
+                    description={(
+                      <>
+                        {emailReadError}. Enter them under Manual Entry; the emailed PDF is
+                        still saved with the revision. Or drop another PDF below.
+                      </>
+                    )}
+                  />
+                )}
                 {!extraction && (
                   <Upload.Dragger
                     accept=".pdf"
@@ -1363,12 +1421,13 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
                         {extraction.file_name}
                       </Text>
                       <Tag color="blue" style={{ margin: 0 }}>{editedSections.length} section(s)</Tag>
+                      {fromEmail && <Tag style={{ margin: 0 }}>From email</Tag>}
                       <Button
                         size="small"
                         style={{ marginLeft: 'auto' }}
-                        onClick={() => { setExtraction(null); setEditedSections([]); }}
+                        onClick={pickAnotherPdf}
                       >
-                        Re-upload
+                        {fromEmail ? 'Use another PDF' : 'Re-upload'}
                       </Button>
                     </div>
 
@@ -1725,6 +1784,33 @@ interface NegotiationHistoryProps {
   claim: Claim;
 }
 
+// Adds a revision from the Add revision dialog, wherever it is opened from
+const useCreateNegotiation = (clientId: string, claimId: string, onDone: () => void) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Omit<ClaimNegotiationCreate, 'claim_id'>) =>
+      negotiationService.create(clientId, claimId, { ...payload, claim_id: claimId }),
+    onSuccess: (_result, payload) => {
+      message.success('Negotiation revision added.');
+      queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claimId] });
+      queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['client', clientId] });
+      if (payload.email_log_id) {
+        // The emailed PDF is filed now
+        queryClient.invalidateQueries({ queryKey: ['received-attachments'] });
+        queryClient.invalidateQueries({ queryKey: ['ingested-emails-claim', claimId] });
+        queryClient.invalidateQueries({ queryKey: ['email-ingestion-logs'] });
+        queryClient.invalidateQueries({ queryKey: ['email-ingestion-stats'] });
+        queryClient.invalidateQueries({ queryKey: ['client-all-documents'] });
+      }
+      onDone();
+    },
+    onError: (err: any) => {
+      message.error(err?.response?.data?.detail || 'Failed to add revision.');
+    },
+  });
+};
+
 const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim }) => {
   const [negModalOpen, setNegModalOpen] = useState(false);
   // Kept after the dialog closes so it doesn't empty while animating out
@@ -1747,20 +1833,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
 
   const negotiations = data?.negotiations ?? [];
 
-  const createNegMutation = useMutation({
-    mutationFn: (payload: Omit<ClaimNegotiationCreate, 'claim_id'>) =>
-      negotiationService.create(clientId, claim.id, { ...payload, claim_id: claim.id }),
-    onSuccess: () => {
-      message.success('Negotiation revision added.');
-      queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
-      queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
-      queryClient.invalidateQueries({ queryKey: ['client', clientId] });
-      setNegModalOpen(false);
-    },
-    onError: (err: any) => {
-      message.error(err?.response?.data?.detail || 'Failed to add revision.');
-    },
-  });
+  const createNegMutation = useCreateNegotiation(clientId, claim.id, () => setNegModalOpen(false));
 
   const deleteNegMutation = useMutation({
     mutationFn: (negotiationId: string) =>
@@ -2682,13 +2755,24 @@ const InboxDueDot: React.FC<{ due: 'never' | 'stale' }> = ({ due }) => (
   <span className={`cl-inbox-dot is-${due}`} aria-hidden="true" />
 );
 
-// Sent and received mail for the claim, one view at a time
+// Sent and received mail for the claim, one view at a time. A PDF that came
+// by email can be added to the claim's insurance estimates from here.
 const ClaimEmailSection: React.FC<{
-  claimId: string;
-  inboxCheckedAt?: string | null;
+  claim: Claim;
+  clientId: string;
   onSend: () => void;
-}> = ({ claimId, inboxCheckedAt, onSend }) => {
+}> = ({ claim, clientId, onSend }) => {
+  const claimId = claim.id;
+  const inboxCheckedAt = claim.inbox_checked_at;
   const [view, setView] = useState<'sent' | 'received'>('sent');
+  // Kept after the dialog closes so it doesn't empty while animating out
+  const [estimateFromEmail, setEstimateFromEmail] = useState<EmailEstimateAttachment | null>(null);
+  const [estimateModalOpen, setEstimateModalOpen] = useState(false);
+  const createNegMutation = useCreateNegotiation(clientId, claimId, () => setEstimateModalOpen(false));
+  const addEstimate = (attachment: EmailEstimateAttachment) => {
+    setEstimateFromEmail(attachment);
+    setEstimateModalOpen(true);
+  };
   // A check made here, until the claim reloads with it
   const [checkedNow, setCheckedNow] = useState<{ claimId: string; at: string } | null>(null);
   const inboxCheck = useClaimInboxCheck(claimId);
@@ -2756,9 +2840,25 @@ const ClaimEmailSection: React.FC<{
       )}
     >
       {/* Received: inbound mail matched to this claim, attachment or not -
-          received_emails, plus the stored attachment files that email
-          ingestion logged against the claim. */}
-      {view === 'sent' ? <EmailHistory claimId={claimId} /> : <ReceivedEmails claimId={claimId} />}
+          received_emails, with the files kept from it. */}
+      {view === 'sent' ? <EmailHistory claimId={claimId} /> : (
+        <ReceivedEmails
+          claimId={claimId}
+          clientId={clientId}
+          // A cash job has no carrier estimate
+          onAddEstimate={isCashJob(claim) ? undefined : addEstimate}
+        />
+      )}
+      <NegotiationModal
+        open={estimateModalOpen}
+        clientId={clientId}
+        claimId={claimId}
+        onCancel={() => setEstimateModalOpen(false)}
+        onSubmit={async (vals) => { await createNegMutation.mutateAsync(vals); }}
+        loading={createNegMutation.isPending}
+        defaultRevisionType={claim.status === 'appraisal' ? 'appraisal' : undefined}
+        emailAttachment={estimateFromEmail}
+      />
     </ClaimSection>
   );
 };
@@ -2935,11 +3035,7 @@ const ClaimPanel: React.FC<{
         clientId={client.id}
         clientEmail={client.email || undefined}
       />
-      <ClaimEmailSection
-        claimId={claim.id}
-        inboxCheckedAt={claim.inbox_checked_at}
-        onSend={onEmail}
-      />
+      <ClaimEmailSection claim={claim} clientId={client.id} onSend={onEmail} />
       <div className="cl-claim-pair">
         <ClaimTodos clientId={client.id} claimId={claim.id} />
         <ClaimNotes clientId={client.id} claimId={claim.id} />

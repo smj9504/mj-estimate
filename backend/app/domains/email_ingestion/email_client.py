@@ -382,15 +382,18 @@ class IMAPClient:
         criteria: List[str],
         since_date: Optional[datetime] = None,
         limit: int = 50,
-    ) -> List[FetchedEmail]:
+    ) -> Iterator[FetchedEmail]:
         """Fetch INBOX messages matching any of the search terms (e.g.
         'FROM "adjuster@carrier.com"'), the newest `limit` overall.
 
         One search per term rather than nested ORs, so a term the server
         rejects doesn't sink the others. Read-only and BODY.PEEK, so
         nothing is marked read.
+
+        A generator, like fetch_emails: a claim's mail is kept with its
+        attachments, so only one message's files should be in memory at a
+        time. Finish with each message before asking for the next.
         """
-        results: List[FetchedEmail] = []
         since = f" SINCE {since_date.strftime('%d-%b-%Y')}" if since_date else ""
 
         try:
@@ -407,17 +410,13 @@ class IMAPClient:
                 if status == "OK" and data[0]:
                     msg_nums.update(data[0].split())
 
-            results.extend(
-                self._fetch_each(sorted(msg_nums, key=int)[-limit:], readonly=True)
-            )
+            yield from self._fetch_each(sorted(msg_nums, key=int)[-limit:], readonly=True)
 
         except Exception as e:
             logger.error(f"Error searching emails: {e}")
             raise
         finally:
             self.disconnect()
-
-        return results
 
     def _fetch_each(self, msg_ids: List[bytes], readonly: bool) -> Iterator[FetchedEmail]:
         """The messages one at a time, from the INBOX already selected.

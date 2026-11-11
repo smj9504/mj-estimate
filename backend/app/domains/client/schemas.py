@@ -93,6 +93,9 @@ class ClaimNegotiationCreate(ClaimNegotiationBase):
     claim_id: UUID
     sections_data: Optional[List[NegotiationSectionData]] = None
     file_id: Optional[str] = None
+    # An emailed PDF waiting for review (EmailIngestionLog id): the revision
+    # takes its stored file, and the attachment is marked filed
+    email_log_id: Optional[str] = None
 
 
 class ClaimNegotiationUpdate(BaseModel):

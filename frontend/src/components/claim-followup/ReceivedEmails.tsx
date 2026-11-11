@@ -1,17 +1,14 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Table, Button, Space, Tooltip, Popconfirm, message } from 'antd';
-import {
-  PaperClipOutlined, DownloadOutlined, DisconnectOutlined,
-} from '@ant-design/icons';
+import { PaperClipOutlined, DisconnectOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { emailIngestionService } from '../../services/emailIngestionService';
-import { fileService } from '../../services/fileService';
-import { getClaimDocumentType } from '../../constants/claimDocumentTypes';
 import type { IngestionLog, ReceivedEmail } from '../../types/emailIngestion';
 import type { ColumnsType } from 'antd/es/table';
 import ReceivedEmailBody from './ReceivedEmailBody';
+import ReceivedEmailAttachments, { type EmailEstimateAttachment } from './ReceivedEmailAttachments';
 import { Pill } from '../common/ui';
 
 dayjs.extend(relativeTime);
@@ -19,6 +16,10 @@ dayjs.extend(relativeTime);
 
 interface ReceivedEmailsProps {
   claimId: string;
+  /** The claim's client, for filing an attachment on the claim */
+  clientId?: string;
+  /** Opens Add revision with an emailed PDF; left out where the claim has no carrier */
+  onAddEstimate?: (attachment: EmailEstimateAttachment) => void;
 }
 
 /**
@@ -40,14 +41,6 @@ interface Row {
   /** Every attachment filename on the message, stored or not. */
   attachmentNames: string[];
 }
-
-/** Human-readable file size; sizes come from the `files` row in bytes. */
-const formatSize = (bytes?: number): string => {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
 
 /** Strip the angle-bracket display name so the address stays readable. */
 const senderAddress = (sender?: string): string => {
@@ -80,6 +73,9 @@ export const useClaimInboxCheck = (claimId: string) => {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['received-emails-claim', claimId] });
       queryClient.invalidateQueries({ queryKey: ['received-emails'] });
+      // The check keeps the files of the claim's mail, older mail's too
+      queryClient.invalidateQueries({ queryKey: ['received-attachments'] });
+      queryClient.invalidateQueries({ queryKey: ['ingested-emails-claim', claimId] });
       if (result.skipped_reason) {
         message.info(result.skipped_reason);
         return;
@@ -98,7 +94,7 @@ export const useClaimInboxCheck = (claimId: string) => {
   });
 };
 
-const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
+const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId, clientId, onAddEstimate }) => {
   const queryClient = useQueryClient();
 
   const { data: received, isLoading: emailsLoading } = useQuery({
@@ -239,28 +235,6 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
     },
   ];
 
-  const renderFiles = (files: IngestionLog[]) => files
-    .filter((f) => f.file_id)
-    .map((f) => {
-      const docType = getClaimDocumentType(f.document_type);
-      return (
-        <Space key={f.id} size={6} style={{ display: 'flex', marginTop: 6 }}>
-          <PaperClipOutlined className="cl-meta" />
-          {docType && <Pill tone={docType.tone}>{docType.label}</Pill>}
-          <span>{f.file_name || f.attachment_name}</span>
-          {f.file_size ? <span className="cl-meta">{formatSize(f.file_size)}</span> : null}
-          <Button
-            size="small"
-            type="text"
-            icon={<DownloadOutlined />}
-            onClick={() => window.open(fileService.getInlineUrl(f.file_id!), '_blank')}
-          >
-            Open
-          </Button>
-        </Space>
-      );
-    });
-
   return (
     <Table<Row>
       rowKey="key"
@@ -278,7 +252,17 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
           <div>
             {r.email && <ReceivedEmailBody emailId={r.email.id} />}
             <div style={{ padding: '0 8px 4px' }}>
-              {renderFiles(r.files)}
+              {(r.email ? r.attachmentNames.length > 0 : r.files.length > 0) && (
+                <ReceivedEmailAttachments
+                  claimId={claimId}
+                  clientId={clientId}
+                  emailId={r.email?.id}
+                  logs={r.email ? undefined : r.files.filter((f) => f.file_id)}
+                  receivedAt={r.received_at}
+                  sender={r.sender}
+                  onAddEstimate={onAddEstimate}
+                />
+              )}
               {r.email && (
                 <Popconfirm
                   title="Unlink this email from the claim?"

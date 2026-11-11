@@ -213,3 +213,23 @@ def test_a_pending_attachment_has_no_document_type_yet(env):
     env['add_log']('<packet>', 'estimate.pdf')
 
     assert _by_name(env)['estimate.pdf'].get('document_type') is None
+
+
+def test_an_estimate_confirmed_without_amounts_keeps_the_claims_amounts(env):
+    # Review has no amounts to give; the claim's figures from the last
+    # revision must not drop to $0
+    session = env['session']
+    env['claim'].current_rcv = 48250.0
+    env['claim'].current_acv = 39100.0
+    log = env['add_log']('<packet>', 'estimate.pdf')
+    session.commit()
+
+    env['service'].manual_assign(str(log.id), {
+        'client_id': env['dana'].id, 'claim_id': env['claim'].id,
+        'document_type': 'insurance-estimate',
+    })
+
+    session.expire_all()
+    claim = session.get(Claim, env['claim'].id)
+    assert (float(claim.current_rcv), float(claim.current_acv)) == (48250.0, 39100.0)
+    assert claim.status == 'negotiating'

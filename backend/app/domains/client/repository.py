@@ -630,9 +630,12 @@ class ClaimNegotiationSQLAlchemyRepository(SQLAlchemyRepository):
             # rebuild estimate those amounts and the status describe.
             claim = self.db_session.query(Claim).filter(Claim.id == claim_id).first()
             if claim and category != 'water_mitigation':
-                claim.current_acv = negotiation_data.get('acv_amount', 0)
-                claim.current_rcv = negotiation_data.get('rcv_amount', 0)
-                claim.current_depreciation = negotiation_data.get('depreciation_amount', 0)
+                # An estimate confirmed in Email Ingestion review comes with no
+                # amounts at all; it must not zero the ones the claim has
+                if any(k in negotiation_data for k in ('acv_amount', 'rcv_amount', 'depreciation_amount')):
+                    claim.current_acv = negotiation_data.get('acv_amount', 0)
+                    claim.current_rcv = negotiation_data.get('rcv_amount', 0)
+                    claim.current_depreciation = negotiation_data.get('depreciation_amount', 0)
                 # Estimates uploaded without a deductible send 0 — don't wipe one entered by hand
                 if negotiation_data.get('deductible'):
                     claim.insurance_deductible = negotiation_data['deductible']

@@ -117,6 +117,8 @@ export interface ClaimNegotiationCreate {
   document_name?: string;
   sections_data?: NegotiationSection[];
   file_id?: string;
+  /** An emailed PDF waiting for review: the revision takes its stored file */
+  email_log_id?: string;
 }
 
 // ============================================================

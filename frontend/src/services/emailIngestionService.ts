@@ -18,8 +18,10 @@ import type {
   ReceivedEmail,
   ReceivedEmailDetail,
   ReceivedEmailList,
+  ReceivedAttachment,
   InboxCheckResult,
 } from '../types/emailIngestion';
+import type { PdfExtractionResult } from '../types/client';
 
 const BASE = '/api/email-ingestion';
 
@@ -145,6 +147,35 @@ export const emailIngestionService = {
   async getReceived(id: string) {
     const { data } = await api.get(`${BASE}/received/${id}`);
     return data as ReceivedEmailDetail;
+  },
+
+  /** The files on a received email, stored or not */
+  async listReceivedAttachments(id: string) {
+    const { data } = await api.get(`${BASE}/received/${id}/attachments`);
+    return data as ReceivedAttachment[];
+  },
+
+  /** One of a received email's stored files, with the login */
+  async getReceivedAttachmentBlob(emailId: string, fileId: string): Promise<Blob> {
+    const { data } = await api.get(
+      `${BASE}/received/${emailId}/files/${encodeURIComponent(fileId)}`,
+      { responseType: 'blob', timeout: 120000 },
+    );
+    return data;
+  },
+
+  /** A review log's stored PDF, with the login */
+  async getLogFileBlob(logId: string): Promise<Blob> {
+    const { data } = await api.get(`${BASE}/logs/${logId}/file`, {
+      responseType: 'blob', timeout: 120000,
+    });
+    return data;
+  },
+
+  /** An emailed PDF read as an insurance estimate, for Add revision */
+  async extractLogEstimate(logId: string) {
+    const { data } = await api.post(`${BASE}/logs/${logId}/extract-estimate`, null, { timeout: 180000 });
+    return data as PdfExtractionResult;
   },
 
   /** Link to a claim, or pass null to unlink. */

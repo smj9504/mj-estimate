@@ -3,7 +3,7 @@ Email Ingestion Pydantic schemas for API request/response.
 """
 
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -257,6 +257,37 @@ class ReceivedEmailListResponse(BaseModel):
 class ReceivedEmailAssignRequest(BaseModel):
     # None unlinks the email from its claim
     claim_id: Optional[UUID] = None
+
+
+class ReceivedAttachmentResponse(BaseModel):
+    """One file on a received email (EmailIngestionService.get_received_attachments)"""
+    # pdf: a PDF's review log | file: another file kept with claim mail |
+    # missing: a name with no stored file
+    kind: Literal["pdf", "file", "missing"]
+    name: str
+    log_id: Optional[str] = None
+    # Opens it through /received/{id}/files/{file_id}; null when not stored
+    file_id: Optional[str] = None
+    size: Optional[int] = None
+    content_type: Optional[str] = None
+    # The review log's status (PDFs only)
+    status: Optional[str] = None
+    # What it was filed on the claim as, once filed
+    document_type: Optional[str] = None
+    is_insurance_estimate: Optional[bool] = None
+    note: Optional[str] = None
+    # Waiting for review: can be filed on the claim
+    can_file: bool = False
+
+
+class EstimateExtractionResponse(BaseModel):
+    """A stored attachment read as an insurance estimate, for the claim's
+    Add revision dialog (same shape as its PDF upload's result)"""
+    sections: List[Dict[str, Any]]
+    totals: Dict[str, Any]
+    validation: Dict[str, Any]
+    file_id: str
+    file_name: str
 
 
 class InboxCheckError(BaseModel):

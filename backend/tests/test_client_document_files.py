@@ -66,7 +66,7 @@ def env(tmp_path, monkeypatch):
     stored = {}
 
     class FakeStorage:
-        def download(self, key):
+        def download(self, key, max_bytes=None):
             if key not in stored:
                 raise FileNotFoundError(key)
             return stored[key]

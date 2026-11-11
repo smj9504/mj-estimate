@@ -24,6 +24,24 @@ _ENCRYPTION_KEY = getattr(settings, "EMAIL_ENCRYPTION_KEY", None)
 # this with the document type the reviewer chose.
 PENDING_FILE_CATEGORY = "pending-estimate"
 
+# Mail filed on a claim keeps all its files, so they open from the claim's
+# Received list. PDFs go through the review pipeline (EmailIngestionLog);
+# anything else is stored under this context, keyed by the received_emails
+# row of the inbox it came into.
+RECEIVED_FILE_CONTEXT = "received-email"
+RECEIVED_FILE_CATEGORY = "email-attachment"
+# Larger files stay in the mailbox
+_MAX_RECEIVED_FILE_BYTES = 25 * 1024 * 1024
+
+_KEPT_ON_CLAIM = "Kept: its email is filed on a claim"
+_KEPT_WITH_SIBLING = "Kept: sibling attachment on this email qualified"
+
+# Logged without a stored file because of what the classifier said, or a
+# storage failure: a claim's mail stores these after all. Not our own files
+# coming back, nor duplicates of a file already stored.
+_UPGRADABLE_STATUSES = ("skipped", "failed")
+_OWN_FILE_SKIP_REASON = "Attachment is a file we sent; already on the claim as outbound mail"
+
 
 _BOUNCE_SENDER_PATTERN = re.compile(
     r"(postmaster|mailer-daemon|mail\s*delivery\s*(subsystem|system))",
@@ -55,6 +73,16 @@ def _closing_transaction_between(session, fetched_emails):
     for fetched_email in fetched_emails:
         yield fetched_email
         session.commit()
+
+
+def _attachment_stats() -> Dict[str, int]:
+    """Counters _process_email_attachments adds to, as a poll reports them"""
+    return {
+        key: 0 for key in (
+            "emails_found", "processed", "uploaded", "pending", "skipped",
+            "duplicates", "errors",
+        )
+    }
 
 
 def _load_sent_attachment_index(session) -> Tuple[Set[str], Set[str]]:
@@ -187,6 +215,35 @@ def _received_email_dict(row, include_body: bool) -> Dict[str, Any]:
         data["body_text"] = body_text
         data["body_html"] = row.body_html
     return data
+
+
+def _attachment_note(log, file_id: Optional[str]) -> Optional[str]:
+    """What the claim page says about a PDF it can't file, or can't open"""
+    if log.status == "duplicate":
+        return "Same file as one received before"
+    if log.skip_reason == _OWN_FILE_SKIP_REASON:
+        return "Our own file, sent from the app"
+    if file_id is None:
+        if log.status == "failed":
+            return "Couldn't be stored"
+        return "Not stored in the app"
+    return None
+
+
+def _readable_file(session, file_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """A stored file as client/document_files.read_hub_file reads it"""
+    from app.domains.file.models import File
+
+    if not file_id:
+        return None
+    f = session.query(File).filter(File.id == file_id).first()
+    if f is None or f.is_active is False:
+        return None
+    return {
+        "filename": f.original_name or f.filename or "attachment",
+        "mime_type": f.content_type or "application/octet-stream",
+        "read": ("file", f.url, f.storage_provider),
+    }
 
 
 def _one_copy_per_message(query):
@@ -633,76 +690,17 @@ class EmailIngestionService:
                     )
                     stats["errors"] += 1
 
-                if not fetched_email.attachments:
-                    continue
-                stats["emails_found"] += 1
-
-                # A bounce is our own outbound mail coming back; skip the
-                # whole message rather than filtering its attachments one by
-                # one, since none of them are new inbound documents.
-                if _is_bounce_message(
-                    fetched_email.sender, fetched_email.subject
-                ):
-                    stats["skipped"] += 1
-                    continue
-
-                # Process each PDF attachment. Dedup is per-attachment (not
-                # per-email) so that if one attachment in a multi-PDF email
-                # previously failed, it gets retried here while attachments
-                # that already succeeded are correctly skipped.
-                # Pre-pass: does any attachment on this email look like claim
-                # paperwork? Attachments are judged one at a time, so without
-                # this the first file is evaluated before its siblings exist.
-                # When one qualifies the others are kept too - a claim packet
-                # arrives as estimate + scope + photo report + contract, and
-                # some of those are named only for the property address, which
-                # no filename rule can recognise on its own.
-                sibling_passed = _any_attachment_qualifies(
-                    fetched_email, sent_index
-                )
-
-                for attachment in fetched_email.pdf_attachments:
-                    if log_repo.exists_by_message_id_and_hash(
-                        fetched_email.message_id, attachment.sha256_hash
-                    ):
-                        stats["duplicates"] += 1
-                        continue
-
-                    try:
-                        result = self._process_attachment(
-                            session=session,
-                            log_repo=log_repo,
-                            account=account,
-                            fetched_email=fetched_email,
-                            attachment=attachment,
-                            sibling_passed=sibling_passed,
-                            sent_index=sent_index,
-                        )
-                        stats["processed"] += 1
-                        if result.get("status") == "uploaded":
-                            stats["uploaded"] += 1
-                        elif result.get("status") == "pending":
-                            stats["pending"] += 1
-                        elif result.get("status") == "skipped":
-                            stats["skipped"] += 1
-                        elif result.get("status") == "duplicate":
-                            stats["duplicates"] += 1
-                    except Exception as e:
-                        logger.error(f"Error processing attachment {attachment.filename}: {e}")
-                        stats["errors"] += 1
-                        # Log the error
-                        log_repo.create({
-                            "email_account_id": account_id,
-                            "message_id": fetched_email.message_id,
-                            "subject": fetched_email.subject,
-                            "sender": fetched_email.sender,
-                            "received_at": fetched_email.received_at,
-                            "attachment_name": attachment.filename,
-                            "attachment_hash": attachment.sha256_hash,
-                            "status": "failed",
-                            "error_message": str(e),
-                        })
-                        session.commit()
+                try:
+                    self._process_email_attachments(
+                        session, log_repo, account, fetched_email, sent_index, stats,
+                        filed=self._claim_filing(session, account_id, fetched_email.message_id),
+                    )
+                except Exception as e:
+                    session.rollback()
+                    logger.error(
+                        f"Error keeping the files of {fetched_email.message_id}: {e}"
+                    )
+                    stats["errors"] += 1
 
             # Update last_synced_at
             from app.domains.email_ingestion.models import EmailAccount
@@ -791,24 +789,31 @@ class EmailIngestionService:
         for a check that can't wait for the next poll. Returns how many were
         new.
 
-        Only received_emails is written: attachments still reach the PDF
-        pipeline through the regular poll, which this leaves untouched
-        (last_synced_at included).
+        The files on mail filed on a claim are kept too, as the poll keeps
+        them, so they open from the claim right away. That includes mail
+        stored before: a check is how a claim's older mail gets its files.
+        Everything else the poll does is left to it (last_synced_at
+        included).
         """
         from app.domains.email_ingestion.matcher import ClaimContactIndex
+        from app.domains.email_ingestion.repository import get_email_ingestion_log_repository
         from app.domains.water_mitigation.adjuster_inbox import JobMailIndex
 
         session = self._get_session()
         try:
             imap = self._build_imap_client(account, session)
-            fetched = imap.search_emails(criteria, since_date=since_date, limit=limit)
             wm_index = JobMailIndex.load(session)
             claim_index = ClaimContactIndex.load(session)
+            log_repo = get_email_ingestion_log_repository(session)
+            sent_index = _load_sent_attachment_index(session)
+            account_id = str(account["id"])
+            stats = _attachment_stats()
             saved = 0
-            for fetched_email in fetched:
+            fetched = imap.search_emails(criteria, since_date=since_date, limit=limit)
+            for fetched_email in _closing_transaction_between(session, fetched):
                 try:
                     if self._save_received_email(
-                        session, str(account["id"]), fetched_email,
+                        session, account_id, fetched_email,
                         wm_index=wm_index, own_address=account["email_address"],
                         claim_index=claim_index,
                     ):
@@ -818,6 +823,19 @@ class EmailIngestionService:
                     session.rollback()
                     logger.error(
                         f"Error saving received email {fetched_email.message_id}: {e}"
+                    )
+                try:
+                    filed = self._claim_filing(session, account_id, fetched_email.message_id)
+                    if filed:
+                        self._process_email_attachments(
+                            session, log_repo, account, fetched_email, sent_index, stats,
+                            filed=filed,
+                        )
+                except Exception as e:
+                    # One message's files don't stop the check
+                    session.rollback()
+                    logger.error(
+                        f"Error keeping the files of {fetched_email.message_id}: {e}"
                     )
             return saved
         finally:
@@ -1121,6 +1139,421 @@ class EmailIngestionService:
         finally:
             session.close()
 
+    def get_received_attachments(self, email_id: str) -> Optional[List[Dict[str, Any]]]:
+        """The files on one received email, for opening them from the claim;
+        None for an unknown email.
+
+        - kind "pdf": a PDF's review log. `file_id` opens it; `can_file`
+          means it waits for review and can be filed on the claim.
+        - kind "file": another file kept with mail on a claim.
+        - kind "missing": a name on the email with no stored file - mail
+          stored before files were kept (a Check inbox on the claim fetches
+          them), a large email's non-PDF files, our own files coming back.
+        """
+        session = self._get_readonly_session()
+        try:
+            return self._received_attachments(session, email_id)
+        finally:
+            session.close()
+
+    def _received_attachments(self, session, email_id: str) -> Optional[List[Dict[str, Any]]]:
+        from collections import Counter
+
+        from app.domains.email_ingestion.models import EmailIngestionLog, ReceivedEmail
+        from app.domains.file.models import File
+
+        row = session.query(ReceivedEmail).filter(ReceivedEmail.id == email_id).first()
+        if row is None:
+            return None
+
+        logs = session.query(EmailIngestionLog).filter(
+            EmailIngestionLog.message_id == row.message_id
+        ).order_by(EmailIngestionLog.created_at).all()
+        # A duplicate has no file of its own: it opens the stored copy
+        copy_of: Dict[str, str] = {}
+        missing_hashes = {
+            log.attachment_hash for log in logs if not log.file_id and log.attachment_hash
+        }
+        if missing_hashes:
+            for digest, file_id in session.query(
+                EmailIngestionLog.attachment_hash, EmailIngestionLog.file_id
+            ).filter(
+                EmailIngestionLog.attachment_hash.in_(missing_hashes),
+                EmailIngestionLog.file_id.isnot(None),
+                EmailIngestionLog.file_id != "",
+            ).order_by(EmailIngestionLog.created_at):
+                copy_of.setdefault(digest, file_id)
+
+        copy_ids = [
+            str(i) for (i,) in session.query(ReceivedEmail.id).filter(
+                ReceivedEmail.message_id == row.message_id
+            )
+        ]
+        others = session.query(File).filter(
+            File.context == RECEIVED_FILE_CONTEXT,
+            File.context_id.in_(copy_ids),
+            File.is_active.isnot(False),
+        ).order_by(File.created_at).all()
+
+        log_file_ids = {
+            log.file_id or copy_of.get(log.attachment_hash) for log in logs
+        } - {None}
+        files = {
+            f.id: f for f in session.query(File).filter(File.id.in_(log_file_ids))
+        } if log_file_ids else {}
+
+        items: List[Dict[str, Any]] = []
+        for log in logs:
+            file_id = log.file_id or copy_of.get(log.attachment_hash)
+            stored = files.get(file_id)
+            if stored is None or stored.is_active is False:
+                file_id = None
+            document_type = None
+            if log.status == "uploaded" and stored is not None and stored.category not in (
+                None, PENDING_FILE_CATEGORY,
+            ):
+                document_type = stored.category
+            items.append({
+                "kind": "pdf",
+                "name": log.attachment_name or (stored.original_name if stored else "attachment.pdf"),
+                "log_id": str(log.id),
+                "file_id": file_id,
+                "size": stored.size if stored else None,
+                "content_type": stored.content_type if stored else "application/pdf",
+                "status": log.status,
+                "document_type": document_type,
+                "is_insurance_estimate": log.is_insurance_estimate,
+                "note": _attachment_note(log, file_id),
+                "can_file": log.status == "pending" and bool(log.file_id) and file_id is not None,
+            })
+        for f in others:
+            items.append({
+                "kind": "file",
+                "name": f.original_name,
+                "log_id": None,
+                "file_id": f.id,
+                "size": f.size,
+                "content_type": f.content_type,
+                "status": None,
+                "document_type": None,
+                "is_insurance_estimate": None,
+                "note": None,
+                "can_file": False,
+            })
+
+        unaccounted = Counter(row.attachment_names or []) - Counter(item["name"] for item in items)
+        for name in row.attachment_names or []:
+            if unaccounted[name] > 0:
+                unaccounted[name] -= 1
+                items.append({
+                    "kind": "missing", "name": name, "log_id": None, "file_id": None,
+                    "size": None, "content_type": None, "status": None,
+                    "document_type": None, "is_insurance_estimate": None,
+                    "note": "Not stored in the app", "can_file": False,
+                })
+        return items
+
+    def received_attachment_file(self, email_id: str, file_id: str) -> Optional[Dict[str, Any]]:
+        """Where to read one of a received email's files (see
+        get_received_attachments), or None when it isn't one of them."""
+        session = self._get_readonly_session()
+        try:
+            items = self._received_attachments(session, email_id) or []
+            if not any(item["file_id"] == file_id for item in items):
+                return None
+            return _readable_file(session, file_id)
+        finally:
+            session.close()
+
+    def log_file(self, log_id: str) -> Optional[Dict[str, Any]]:
+        """Where to read a review log's stored PDF (a duplicate's stored
+        copy), or None when there is none."""
+        from app.domains.email_ingestion.models import EmailIngestionLog
+
+        session = self._get_readonly_session()
+        try:
+            log = session.query(EmailIngestionLog).filter(EmailIngestionLog.id == log_id).first()
+            if log is None:
+                return None
+            file_id = log.file_id
+            if not file_id and log.attachment_hash:
+                copy = session.query(EmailIngestionLog.file_id).filter(
+                    EmailIngestionLog.attachment_hash == log.attachment_hash,
+                    EmailIngestionLog.file_id.isnot(None),
+                    EmailIngestionLog.file_id != "",
+                ).order_by(EmailIngestionLog.created_at).first()
+                file_id = copy[0] if copy else None
+            return _readable_file(session, file_id) if file_id else None
+        finally:
+            session.close()
+
+    def pending_log_file_id(self, log_id: str) -> str:
+        """The stored PDF of a log still waiting for review, which is about
+        to become a claim's estimate revision. Raises ValueError otherwise."""
+        from app.domains.email_ingestion.models import EmailIngestionLog
+
+        session = self._get_readonly_session()
+        try:
+            log = session.query(EmailIngestionLog).filter(EmailIngestionLog.id == log_id).first()
+            if log is None:
+                raise ValueError("Email attachment not found")
+            if log.status != "pending" or not log.file_id:
+                raise ValueError("This attachment was already filed or has no stored file")
+            return log.file_id
+        finally:
+            session.close()
+
+    def mark_filed_as_revision(
+        self,
+        log_id: str,
+        client_id: str,
+        claim_id: str,
+        negotiation_id: str,
+        reviewed_by: Optional[str] = None,
+    ) -> None:
+        """Record that a log's PDF became the claim's estimate revision
+        (made on the claim page, amounts and all), as manual_assign records
+        an insurance estimate confirmed in review."""
+        from app.domains.email_ingestion.models import EmailIngestionLog
+        from app.domains.file.models import File
+
+        session = self._get_session()
+        try:
+            log = session.query(EmailIngestionLog).filter(EmailIngestionLog.id == log_id).first()
+            if log is None:
+                raise ValueError("Email attachment not found")
+            stored = session.query(File).filter(File.id == log.file_id).first()
+            if stored is not None:
+                stored.context = "claim-negotiation"
+                stored.context_id = str(claim_id)
+                stored.category = ESTIMATE_DOCUMENT_TYPE
+            log.matched_client_id = client_id
+            log.matched_claim_id = claim_id
+            log.match_method = "manual"
+            log.match_confidence = 100
+            log.reviewed_by = reviewed_by
+            log.reviewed_at = datetime.now(timezone.utc)
+            log.status = "uploaded"
+            log.negotiation_id = negotiation_id
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    # ============================================================
+    # Attachments
+    # ============================================================
+
+    def _claim_filing(self, session, account_id: str, message_id: str):
+        """The received_emails row of this inbox's copy of the message when
+        it is filed on a claim, else None."""
+        from app.domains.email_ingestion.models import ReceivedEmail
+
+        return session.query(ReceivedEmail).filter(
+            ReceivedEmail.email_account_id == account_id,
+            ReceivedEmail.message_id == (message_id or "")[:500],
+            ReceivedEmail.matched_claim_id.isnot(None),
+        ).first()
+
+    def _process_email_attachments(
+        self,
+        session,
+        log_repo,
+        account: Dict[str, Any],
+        fetched_email,
+        sent_index: Tuple[Set[str], Set[str]],
+        stats: Dict[str, int],
+        filed=None,
+    ) -> None:
+        """Run the message's PDFs through the review pipeline, adding to
+        `stats`.
+
+        `filed` is the message's received_emails row when it is filed on a
+        claim. Such mail keeps every PDF whatever the classifier makes of it
+        - a carrier's estimate can be named for nothing but the address -
+        and its other files too, so all of them open from the claim.
+        """
+        if not fetched_email.attachments:
+            return
+        stats["emails_found"] += 1
+
+        # A bounce is our own outbound mail coming back; skip the whole
+        # message rather than filtering its attachments one by one, since
+        # none of them are new inbound documents.
+        if _is_bounce_message(fetched_email.sender, fetched_email.subject):
+            stats["skipped"] += 1
+            return
+
+        account_id = str(account["id"])
+        # Pre-pass: does any attachment on this email look like claim
+        # paperwork? Attachments are judged one at a time, so without this
+        # the first file is evaluated before its siblings exist. When one
+        # qualifies the others are kept too - a claim packet arrives as
+        # estimate + scope + photo report + contract, and some of those are
+        # named only for the property address, which no filename rule can
+        # recognise on its own.
+        if filed is not None:
+            sibling_passed, keep_reason = True, _KEPT_ON_CLAIM
+        else:
+            sibling_passed = _any_attachment_qualifies(fetched_email, sent_index)
+            keep_reason = _KEPT_WITH_SIBLING
+
+        # Dedup is per attachment (not per email), so one that failed before
+        # is looked at again while the ones already logged are left alone.
+        for attachment in fetched_email.pdf_attachments:
+            try:
+                logged = log_repo.get_by_message_id_and_hash(
+                    fetched_email.message_id, attachment.sha256_hash
+                )
+                if logged is not None:
+                    if filed is not None and self._keep_logged_attachment(
+                        session, logged, account_id, attachment, fetched_email
+                    ):
+                        stats["pending"] += 1
+                    else:
+                        stats["duplicates"] += 1
+                    continue
+
+                result = self._process_attachment(
+                    session=session,
+                    log_repo=log_repo,
+                    account=account,
+                    fetched_email=fetched_email,
+                    attachment=attachment,
+                    sibling_passed=sibling_passed,
+                    sent_index=sent_index,
+                    keep_reason=keep_reason,
+                )
+                stats["processed"] += 1
+                status = result.get("status")
+                if status == "uploaded":
+                    stats["uploaded"] += 1
+                elif status == "pending":
+                    stats["pending"] += 1
+                elif status == "skipped":
+                    stats["skipped"] += 1
+                elif status == "duplicate":
+                    stats["duplicates"] += 1
+            except Exception as e:
+                logger.error(f"Error processing attachment {attachment.filename}: {e}")
+                session.rollback()
+                stats["errors"] += 1
+                try:
+                    log_repo.create({
+                        "email_account_id": account_id,
+                        "message_id": fetched_email.message_id,
+                        "subject": fetched_email.subject,
+                        "sender": fetched_email.sender,
+                        "received_at": fetched_email.received_at,
+                        "attachment_name": attachment.filename,
+                        "attachment_hash": attachment.sha256_hash,
+                        "status": "failed",
+                        "error_message": str(e),
+                    })
+                    session.commit()
+                except Exception as log_error:
+                    # e.g. a poll logged the same attachment meanwhile; the
+                    # next message's files still get their turn
+                    session.rollback()
+                    logger.error(f"Couldn't log the failure of {attachment.filename}: {log_error}")
+
+        if filed is not None:
+            self._store_received_files(session, filed, fetched_email, sent_index)
+
+    def _keep_logged_attachment(
+        self, session, log, account_id: str, attachment, fetched_email
+    ) -> bool:
+        """Store a PDF that was logged without its file - the classifier
+        passed it over, or storing it failed - now that its email is filed
+        on a claim, and put it up for review. False when there is nothing
+        to do: it has its file, or it is ours, or a copy of a stored one."""
+        if log.file_id or log.status not in _UPGRADABLE_STATUSES:
+            return False
+        if log.skip_reason == _OWN_FILE_SKIP_REASON:
+            return False
+        file_id = self._store_attachment_file(session, account_id, attachment, fetched_email)
+        if file_id is None:
+            return False
+        log.file_id = file_id
+        log.status = "pending"
+        log.skip_reason = None
+        log.error_message = None
+        reason = log.classification_reason
+        log.classification_reason = f"{reason} | {_KEPT_ON_CLAIM}" if reason else _KEPT_ON_CLAIM
+        session.commit()
+        return True
+
+    def _store_received_files(self, session, filed, fetched_email, sent_index) -> int:
+        """Store the message's files other than PDFs under RECEIVED_FILE_CONTEXT,
+        keyed by `filed` (its received_emails row). Returns how many were new.
+
+        Files we sent ourselves and files over _MAX_RECEIVED_FILE_BYTES are
+        left in the mailbox. A file stored from another inbox's copy of the
+        message isn't stored again. Files are told apart by name - storage
+        may shrink a picture, so its size changes - and a name the message
+        carries twice ("image.jpeg" from a phone) by how many are stored."""
+        from collections import Counter
+
+        from app.domains.email_ingestion.models import ReceivedEmail
+        from app.domains.file.models import File
+        from app.domains.file.service import FileService
+
+        pdfs = {id(att) for att in fetched_email.pdf_attachments}
+        others = [
+            att for att in fetched_email.attachments
+            if id(att) not in pdfs
+            and att.data and len(att.data) <= _MAX_RECEIVED_FILE_BYTES
+            and not _is_own_sent_attachment(att, sent_index)
+        ]
+        if not others:
+            return 0
+
+        copy_ids = [
+            str(row_id) for (row_id,) in session.query(ReceivedEmail.id).filter(
+                ReceivedEmail.message_id == filed.message_id
+            )
+        ]
+        have = Counter(
+            name for (name,) in session.query(File.original_name).filter(
+                File.context == RECEIVED_FILE_CONTEXT,
+                File.context_id.in_(copy_ids),
+                File.is_active.isnot(False),
+            )
+        )
+        context_id = str(filed.id)
+        # Nothing held open while the files upload
+        session.commit()
+
+        seen: Counter = Counter()
+        stored = 0
+        for att in others:
+            name = (att.filename or "attachment")[:255]
+            seen[name] += 1
+            if seen[name] <= have[name]:
+                continue
+            file_service = FileService(self.database)
+            try:
+                self._run_upload(
+                    file_service,
+                    file_data=io.BytesIO(att.data),
+                    original_filename=name,
+                    content_type=att.content_type or "application/octet-stream",
+                    context=RECEIVED_FILE_CONTEXT,
+                    context_id=context_id,
+                    category=RECEIVED_FILE_CATEGORY,
+                    description=f"Received with: {fetched_email.subject or ''}"[:1000],
+                )
+                file_service.repository.session.commit()
+                stored += 1
+            except Exception as e:
+                logger.error(f"Failed to store received file {name}: {e}")
+                file_service.repository.session.rollback()
+            finally:
+                file_service.repository.session.close()
+        return stored
+
     def _process_attachment(
         self,
         session,
@@ -1130,6 +1563,7 @@ class EmailIngestionService:
         attachment,
         sibling_passed: bool = False,
         sent_index: Optional[Tuple[Set[str], Set[str]]] = None,
+        keep_reason: str = _KEPT_WITH_SIBLING,
     ) -> Dict[str, Any]:
         """Process a single PDF attachment through the pipeline.
 
@@ -1163,7 +1597,7 @@ class EmailIngestionService:
                 "attachment_name": attachment.filename,
                 "attachment_hash": attachment.sha256_hash,
                 "status": "skipped",
-                "skip_reason": "Attachment is a file we sent; already on the claim as outbound mail",
+                "skip_reason": _OWN_FILE_SKIP_REASON,
             })
             session.commit()
             return {"status": "skipped"}
@@ -1214,11 +1648,11 @@ class EmailIngestionService:
 
         if not is_estimate:
             # Kept only because a sibling attachment on the same email
-            # qualified. Files named just for the property address
-            # ("6305 Musket Ball Drive Centreville 20121.pdf") carry no
-            # recognisable document type, but arrive in the same packet as
-            # the report that does.
-            reason = f"{reason} | Kept: sibling attachment on this email qualified"
+            # qualified, or the email is filed on a claim. Files named just
+            # for the property address ("6305 Musket Ball Drive Centreville
+            # 20121.pdf") carry no recognisable document type, but arrive in
+            # the same packet as the report that does.
+            reason = f"{reason} | {keep_reason}"
 
         # Step 2.5: Persist the PDF now that it's classified as an estimate, so a
         # reviewer can preview/assign it later even if matching fails below.

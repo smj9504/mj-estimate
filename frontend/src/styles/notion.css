@@ -4117,6 +4117,53 @@ a.cl-contact-line:hover {
   color: var(--color-neutral-900);
 }
 
+/* A received email's files, under its body */
+.cl-mail-files {
+  margin-top: 8px;
+}
+.cl-mail-files-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-neutral-600);
+  margin-bottom: 2px;
+}
+.cl-mail-files-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cl-mail-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.cl-mail-file-icon {
+  display: inline-flex;
+  color: var(--color-neutral-600);
+}
+.cl-mail-file-name.ant-btn {
+  height: auto;
+  padding: 0;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.cl-mail-file-name.is-missing {
+  color: var(--color-neutral-600);
+  overflow-wrap: anywhere;
+}
+.cl-mail-file-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
 /* Lists (contracts, todos, notes): rows divided by hairlines, actions at the end */
 .cl-list {
   margin: 0;

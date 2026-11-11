@@ -384,6 +384,24 @@ def read_hub_file(entry: Dict[str, Any], max_bytes: Optional[int] = None) -> byt
     raise FileNotFoundError("File not found on disk")
 
 
+def inline_response(data: bytes, filename: str, mime_type: str):
+    """The file shown in the page, never cached: what the hub's and other
+    logged-in file endpoints answer with"""
+    from urllib.parse import quote
+
+    from starlette.responses import Response
+
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii").replace('"', "").strip() or "document"
+    disposition = f'inline; filename="{ascii_name}"'
+    if ascii_name != filename:
+        disposition += f"; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=data,
+        media_type=mime_type,
+        headers={"Content-Disposition": disposition, "Cache-Control": "private, no-store"},
+    )
+
+
 def email_attachment(entry: Dict[str, Any], max_bytes: int) -> Dict[str, Any]:
     """The file as an email attachment, its bytes in "data". Raises like
     read_hub_file. A name without an extension gets one from its type, so

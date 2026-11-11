@@ -1,6 +1,33 @@
 import dayjs from 'dayjs';
 import type { CommunicationLog, SentEmail } from '../../types/claimFollowUp';
-import type { ReceivedEmail } from '../../types/emailIngestion';
+import type { IngestionLog, ReceivedAttachment, ReceivedEmail } from '../../types/emailIngestion';
+import { ESTIMATE_DOCUMENT_TYPE, guessClaimDocumentType } from '../../constants/claimDocumentTypes';
+
+/**
+ * An attachment known only from its review log - mail from before every
+ * message was stored - in the shape a stored email's attachments come in.
+ */
+export function attachmentFromLog(log: IngestionLog): ReceivedAttachment {
+  const fileId = log.file_id || null;
+  return {
+    kind: 'pdf',
+    name: log.file_name || log.attachment_name || 'attachment.pdf',
+    log_id: log.id,
+    file_id: fileId,
+    size: log.file_size ?? null,
+    content_type: log.file_content_type ?? 'application/pdf',
+    status: log.status,
+    document_type: log.status === 'uploaded' ? log.document_type ?? null : null,
+    is_insurance_estimate: log.is_insurance_estimate ?? null,
+    note: null,
+    can_file: log.status === 'pending' && !!fileId,
+  };
+}
+
+/** A PDF waiting for review that its name or the classifier says is the carrier's estimate */
+export const looksLikeEstimate = (att: ReceivedAttachment): boolean =>
+  att.can_file
+  && guessClaimDocumentType(att.name, att.is_insurance_estimate ?? undefined) === ESTIMATE_DOCUMENT_TYPE;
 
 /**
  * The stored inbound mail a communication history lists. A copy of our own

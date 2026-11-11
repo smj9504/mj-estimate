@@ -28,11 +28,13 @@ from app.domains.email_ingestion.schemas import (
     EmailAccountResponse,
     EmailAccountTestResponse,
     EmailAccountUpdate,
+    EstimateExtractionResponse,
     InboxCheckResponse,
     IngestionLogResponse,
     IngestionStatsResponse,
     ManualAssignRequest,
     PollResponse,
+    ReceivedAttachmentResponse,
     ReceivedEmailAssignRequest,
     ReceivedEmailDetailResponse,
     ReceivedEmailListResponse,
@@ -109,12 +111,34 @@ def _mail_scope(db, staff, model):
 def _require_mail(db, staff, model, row_id: str, label: str) -> None:
     scope = _mail_scope(db, staff, model)
     if scope is None:
+        if not _is_uuid(row_id):
+            raise HTTPException(status_code=404, detail=f"{label} not found")
         return
     row = db.query(model.id).filter(
         model.id == row_id, scope
     ).first() if _is_uuid(row_id) else None
     if row is None:
         raise HTTPException(status_code=404, detail=f"{label} not found")
+
+
+def require_visible_log(db, staff, log_id: str) -> None:
+    """404 unless the staff member may see this attachment's review log -
+    for filing it on a claim from outside this router"""
+    _require_mail(db, staff, EmailIngestionLog, log_id, "Email attachment")
+
+
+def _serve(entry, label: str):
+    """A stored file, read from storage with no database connection held"""
+    from app.domains.client import document_files
+
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+    try:
+        data = document_files.read_hub_file(entry)
+    except Exception as e:
+        logger.warning(f"{label} could not be read: {e}")
+        raise HTTPException(status_code=404, detail="The file could not be read from storage")
+    return document_files.inline_response(data, entry["filename"], entry["mime_type"])
 
 
 # ============================================================
@@ -501,6 +525,109 @@ def get_received_email(
     if not email:
         raise HTTPException(status_code=404, detail="Received email not found")
     return email
+
+
+@router.get("/received/{email_id}/attachments", response_model=List[ReceivedAttachmentResponse])
+def list_received_attachments(
+    email_id: str,
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """The files on one received email: the ones stored open through
+    /received/{id}/files/{file_id}, and a PDF waiting for review can be
+    filed on the claim."""
+    _require_mail(db, current_staff, ReceivedEmail, email_id, "Received email")
+    items = _get_service().get_received_attachments(email_id)
+    if items is None:
+        raise HTTPException(status_code=404, detail="Received email not found")
+    return items
+
+
+@router.get("/received/{email_id}/files/{file_id}")
+def get_received_attachment_file(
+    email_id: str,
+    file_id: str,
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """One stored file of a received email, shown in the page. Takes a
+    login and serves only a file on an email the person may see, unlike
+    the files router's download URLs."""
+    _require_mail(db, current_staff, ReceivedEmail, email_id, "Received email")
+    db.rollback()
+    return _serve(
+        _get_service().received_attachment_file(email_id, file_id), "Attachment"
+    )
+
+
+@router.get("/logs/{log_id}/file")
+def get_log_file(
+    log_id: str,
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """A review log's stored PDF, with the same login and scope as the log"""
+    _require_mail(db, current_staff, EmailIngestionLog, log_id, "Log")
+    db.rollback()
+    return _serve(_get_service().log_file(log_id), "Attachment")
+
+
+@router.post("/logs/{log_id}/extract-estimate", response_model=EstimateExtractionResponse)
+def extract_log_estimate(
+    log_id: str,
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """Read an emailed PDF as an insurance estimate - its sections and
+    amounts - for the claim's Add revision dialog, as the dialog reads an
+    uploaded one. Nothing is saved: the revision is made when the dialog
+    is saved, with the log's id (see client/api.py add_negotiation).
+
+    A plain def: reading the PDF (and the vision fallback) runs on a worker
+    thread."""
+    import os
+    import tempfile
+
+    from app.domains.client import document_files
+    from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
+
+    _require_mail(db, current_staff, EmailIngestionLog, log_id, "Log")
+    db.rollback()
+    service = _get_service()
+    try:
+        file_id = service.pending_log_file_id(log_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    entry = service.log_file(log_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    try:
+        data = document_files.read_hub_file(entry)
+    except Exception as e:
+        logger.warning(f"Attachment of log {log_id} could not be read: {e}")
+        raise HTTPException(status_code=404, detail="The file could not be read from storage")
+
+    fd, path = tempfile.mkstemp(suffix=".pdf")
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+        del data
+        result = extract_summary_from_pdf(path)
+    except Exception as e:
+        logger.error(f"Estimate extraction failed for log {log_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Couldn't read the estimate: {e}")
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    return {
+        "sections": result["sections"],
+        "totals": result["totals"],
+        "validation": result["validation"],
+        "file_id": file_id,
+        "file_name": entry["filename"],
+    }
 
 
 @router.post("/received/{email_id}/assign", response_model=ReceivedEmailResponse)

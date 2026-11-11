@@ -212,6 +212,28 @@ export interface ReceivedEmailList {
   total: number;
 }
 
+/**
+ * One file on a received email. `pdf`: a PDF's review log; `file`: another
+ * file kept with mail on a claim; `missing`: a name with no stored file.
+ */
+export interface ReceivedAttachment {
+  kind: 'pdf' | 'file' | 'missing';
+  name: string;
+  log_id?: string | null;
+  /** Opens it; null when it isn't stored */
+  file_id?: string | null;
+  size?: number | null;
+  content_type?: string | null;
+  /** The review log's status (PDFs only) */
+  status?: IngestionStatus | null;
+  /** What it was filed on the claim as, once filed */
+  document_type?: string | null;
+  is_insurance_estimate?: boolean | null;
+  note?: string | null;
+  /** Waiting for review: can be filed on the claim */
+  can_file: boolean;
+}
+
 /** An on-demand search of the connected inboxes */
 export interface InboxCheckResult {
   checked_at: string;

@@ -50,10 +50,16 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
         already been logged. Attachment-scoped rather than email-scoped, so
         that if an email has multiple PDFs and only one fails, the others
         aren't reprocessed but the failed one is retried on the next poll."""
+        return self.get_by_message_id_and_hash(message_id, attachment_hash) is not None
+
+    def get_by_message_id_and_hash(
+        self, message_id: str, attachment_hash: Optional[str]
+    ) -> Optional[EmailIngestionLog]:
+        """The log row of this attachment on this message, if there is one"""
         return self.db_session.query(EmailIngestionLog).filter(
             EmailIngestionLog.message_id == message_id,
             EmailIngestionLog.attachment_hash == attachment_hash,
-        ).first() is not None
+        ).first()
 
     def exists_by_attachment_hash(self, attachment_hash: str, claim_id: Optional[str] = None) -> bool:
         """Check if an attachment with this hash has already been uploaded for a claim"""
