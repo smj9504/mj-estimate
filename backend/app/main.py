@@ -131,6 +131,7 @@ if getattr(_early_settings, 'ENABLE_MATERIAL_DETECTION', False):
 from app.core.config import settings
 from app.domains.analytics.api import router as analytics_router
 from app.domains.auth.api import router as auth_router
+from app.domains.auth.login_gate import require_login_unless_public
 from app.domains.company.api import router as company_router
 from app.domains.credit.api import router as credit_router
 from app.domains.dashboard.api import router as dashboard_router
@@ -718,13 +719,24 @@ async def lifespan(app: FastAPI):
             logger.error(f"Error during shutdown: {e}")
 
 
-# Create FastAPI app with lifespan management
+# The route list is a map for anyone probing the API, so production hides it
+# unless ENABLE_API_DOCS=true.
+_show_api_docs = (
+    settings.ENVIRONMENT != "production"
+    or os.getenv("ENABLE_API_DOCS", "").lower() == "true"
+)
+
+# Create FastAPI app with lifespan management.
+# Every route needs a signed-in staff member unless it is listed in
+# app/domains/auth/login_gate.py PUBLIC_ROUTES.
 app = FastAPI(
     title="MJ Estimate API",
     description="API for MJ Estimate Generator with modular database system",
     version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _show_api_docs else None,
+    redoc_url="/redoc" if _show_api_docs else None,
+    openapi_url="/openapi.json" if _show_api_docs else None,
+    dependencies=[Depends(require_login_unless_public)],
     lifespan=lifespan
 )
 

@@ -344,8 +344,9 @@ class AuthService:
         else:
             return None
 
-        admin_exists = session.query(Staff).filter(Staff.role == StaffRole.admin).first()
-        if admin_exists:
+        # Anyone can call this without signing in, so it only ever seeds an
+        # empty staff table; once any account exists it does nothing.
+        if session.query(Staff.id).first() is not None:
             return None
 
         admin_staff = schemas.StaffCreate(
