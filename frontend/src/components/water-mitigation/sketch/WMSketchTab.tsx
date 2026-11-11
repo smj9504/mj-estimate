@@ -41,7 +41,7 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons';
 import wmSketchService from '../../../services/wmSketchService';
-import { magicPlanService } from '../../../services/waterMitigationService';
+import { magicPlanService, waterMitigationService } from '../../../services/waterMitigationService';
 import type {
   WMFloorSketch,
   WMOverlayData,
@@ -574,32 +574,46 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     { value: 'c', label: 'Format C — Modern' },
   ];
 
-  const handleGenerateScope = useCallback(() => {
+  const handleGenerateScope = useCallback(async () => {
+    // Count what a regenerate wipes so the confirm can say it; unknown if the count fails
+    let existingLocations: number | null = null;
+    try {
+      existingLocations = (await waterMitigationService.scope.locations.listByJob(jobId, false)).items.length;
+    } catch {
+      existingLocations = null;
+    }
     Modal.confirm({
-      title: 'Generate Scope of Work',
+      title: existingLocations ? 'Regenerate Scope of Work' : 'Generate Scope of Work',
       content: (
         <div>
-          <p>
-            Sketch 데이터를 기반으로 Scope of Work를 자동 생성합니다.
-          </p>
+          {existingLocations ? (
+            <p>
+              기존 Scope of Work(Location {existingLocations}개와 모든 항목, 직접 추가한
+              Location 포함)를 모두 삭제하고 Sketch 데이터로 다시 생성합니다.
+            </p>
+          ) : (
+            <p>Sketch 데이터를 기반으로 Scope of Work를 자동 생성합니다.</p>
+          )}
           <p style={{ fontSize: 12, color: '#8c8c8c' }}>
             각 Floor별로 Location이 생성되며, Demolition / Equipment /
             Containment / Floor Protection / Content Protection 항목이
             자동으로 추가됩니다.
           </p>
-          <p style={{ fontSize: 12, color: '#8c8c8c' }}>
-            이전에 Sketch에서 생성된 Location은 새로 생성된 항목으로 교체되며,
-            직접 추가한 Location은 유지됩니다. 교체 후 Invoice Configuration은
-            Regenerate가 필요합니다.
-          </p>
+          {existingLocations !== 0 && (
+            <p style={{ fontSize: 12, color: '#8c8c8c' }}>
+              {existingLocations === null && '기존 Scope가 있으면 모두 삭제된 뒤 다시 생성됩니다. '}
+              다시 생성한 뒤에는 Invoice Configuration을 Regenerate해야 합니다.
+            </p>
+          )}
         </div>
       ),
-      okText: 'Generate',
+      okText: existingLocations ? 'Delete All & Regenerate' : 'Generate',
+      okButtonProps: existingLocations ? { danger: true } : undefined,
       cancelText: 'Cancel',
       onOk: async () => {
         setScopeGenerating(true);
         try {
-          const result = await wmSketchService.generateScopeFromSketch(jobId);
+          const result = await wmSketchService.generateScopeFromSketch(jobId, { clear_existing: true });
           if (result.success) {
             message.success(result.message);
             if (result.warnings.length > 0) {

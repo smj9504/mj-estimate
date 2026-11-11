@@ -540,7 +540,7 @@ class SketchService:
         # Replace locations from a previous sketch generation so re-running
         # doesn't stack duplicate floors (which then double every invoice
         # config line). Manually added locations are kept unless the caller
-        # asks to clear everything.
+        # asks to clear everything (the sketch tab's Generate always does).
         replaced_locations = 0
         existing_locations = scope_repo.get_locations_by_job(job_id, include_items=False)
         for loc in existing_locations:
@@ -1065,7 +1065,11 @@ class SketchService:
                 f"Generated {items_created} scope items "
                 f"across {locations_created} locations from sketch data."
                 + (
-                    f" Replaced {replaced_locations} previously generated location(s)."
+                    (
+                        f" Deleted {replaced_locations} existing location(s) first."
+                        if options.clear_existing
+                        else f" Replaced {replaced_locations} previously generated location(s)."
+                    )
                     if replaced_locations
                     else ""
                 )
