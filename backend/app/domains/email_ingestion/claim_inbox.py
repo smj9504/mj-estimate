@@ -4,7 +4,7 @@ Searching the inboxes for one claim's mail now.
 The ingestion poll stores claim mail in received_emails once a morning, so a
 reply that comes in later shows on the claim only the next day. This looks
 for the claim's mail on demand: replies to what we sent about it, and
-anything naming its claim number or its street address. Each message found
+anything naming its claim number, its street address or its street. Each message found
 is filed by the same matching as the poll, so mail about another claim goes
 to that claim, not this one.
 
@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.core.database_factory import get_database
+from app.domains.email_ingestion.matcher import street_name
 from app.domains.water_mitigation.adjuster_inbox import (
     _MIN_CLAIM_NUMBER_LEN,
     _imap_quote,
@@ -55,6 +56,11 @@ def claim_search_terms(
         if quoted:
             terms.append(f"TEXT {quoted}")
     quoted = _imap_quote(street_search_term(address) or "")
+    if quoted:
+        terms.append(f"TEXT {quoted}")
+    # The street alone, as people on the claim write it: "a supplement for
+    # larkspur". Mail from anyone else naming it is fetched but not filed.
+    quoted = _imap_quote(street_name(address) or "")
     if quoted:
         terms.append(f"TEXT {quoted}")
     return terms

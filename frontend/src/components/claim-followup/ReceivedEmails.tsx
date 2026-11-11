@@ -62,6 +62,8 @@ const MATCH_LABELS: Record<string, string> = {
   claim_number: 'Claim #',
   policy_number: 'Policy #',
   address: 'Address',
+  // Someone on the claim naming its street ("a supplement for larkspur")
+  contact_street: 'Street',
   name: 'Name',
   manual: 'Manual',
   same_email: 'Same email',

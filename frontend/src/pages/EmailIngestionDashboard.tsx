@@ -71,7 +71,8 @@ const STATUS_COLORS: Record<string, string> = {
   duplicate: 'purple',
 };
 
-// same_email: unmatched on its own, suggested from another attachment on the email
+// same_email: unmatched on its own, suggested from another attachment on the
+// email or from the claim the email itself was filed on
 const matchLabel = (method: string) => (method === 'same_email' ? 'same email' : method);
 
 /** The filed document type as a tag, or nothing while it is pending. */
@@ -732,7 +733,7 @@ const EmailIngestionDashboard: React.FC = () => {
                     Suggested match: {selectedLog.client_name || 'unknown client'}
                     {selectedLog.claim_number ? ` / ${selectedLog.claim_number}` : ''}
                     {selectedLog.match_method === 'same_email'
-                      ? ' (from another attachment on this email)'
+                      ? ' (from the email it came with)'
                       : ` (${selectedLog.match_method}, ${selectedLog.match_confidence}%)`}
                     {' — check the PDF before confirming.'}
                   </Text>

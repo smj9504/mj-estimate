@@ -282,3 +282,85 @@ def test_a_poll_finishes_each_message_before_downloading_the_next(monkeypatch):
     assert stats['emails_saved'] == 2
     assert stats['processed'] == 1
     assert stats['pending'] == 1
+
+
+def test_a_poll_picks_up_from_the_last_sync(monkeypatch):
+    """The account comes back from the repository with its dates as ISO
+    strings. Passed on as one, last_synced_at failed the IMAP search, and every
+    poll of an account that had synced before ended there."""
+    asked = {}
+
+    def fetch_emails(**kwargs):
+        asked.update(kwargs)
+        return iter(())
+
+    account_repo = MagicMock()
+    account_repo.get_by_id.return_value = {
+        'email_address': 'us@example.com',
+        'last_synced_at': '2026-09-14T10:37:20.834012+00:00',
+    }
+    service = email_service.EmailIngestionService(database=MagicMock())
+    monkeypatch.setattr(service, '_get_session', MagicMock)
+    monkeypatch.setattr(service, '_build_imap_client', lambda account, s: MagicMock(fetch_emails=fetch_emails))
+    monkeypatch.setattr(email_repository, 'get_email_account_repository', lambda s: account_repo)
+    monkeypatch.setattr(email_repository, 'get_email_ingestion_log_repository', lambda s: MagicMock())
+    monkeypatch.setattr(email_service, '_load_sent_attachment_index', lambda s: (set(), set()))
+    monkeypatch.setattr(adjuster_inbox.JobMailIndex, 'load', staticmethod(lambda s: None))
+
+    service.poll_account('account-1')
+
+    since = asked['since_date']
+    assert isinstance(since, datetime)
+    assert since.strftime('%d-%b-%Y') == '14-Sep-2026'
+
+
+def test_a_dropped_connection_is_opened_again_and_the_message_read_again(monkeypatch):
+    """Gmail dropped one inbox's session after 16 of 371 messages; every later
+    fetch on the dead socket failed and was skipped."""
+    import imaplib
+
+    log = []
+    client = imap_client(monkeypatch, [b'1', b'2', b'3'], log)
+    dropped = []
+
+    def fetch_single(msg_id):
+        log.append(f'fetch {msg_id.decode()}')
+        if msg_id == b'2' and not dropped:
+            dropped.append(msg_id)
+            raise imaplib.IMAP4.abort('command: FETCH => socket error: EOF')
+        return FetchedEmail(msg_id.decode(), 'subject', 'sender', None, '', '')
+
+    monkeypatch.setattr(client, '_fetch_single', fetch_single)
+
+    assert [m.message_id for m in client.fetch_emails(limit=50)] == ['1', '2', '3']
+    assert log == [
+        'connect', 'fetch 1', 'fetch 2', 'disconnect', 'connect', 'fetch 2', 'fetch 3', 'disconnect',
+    ]
+
+
+def test_a_connection_that_keeps_dropping_fails_the_poll(monkeypatch):
+    """Rather than skip the rest and move last_synced_at past them"""
+    import imaplib
+
+    client = imap_client(monkeypatch, [b'1', b'2'], [])
+
+    def fetch_single(msg_id):
+        raise imaplib.IMAP4.abort('socket error: EOF occurred in violation of protocol')
+
+    monkeypatch.setattr(client, '_fetch_single', fetch_single)
+
+    with pytest.raises(imaplib.IMAP4.abort):
+        list(client.fetch_emails(limit=50))
+
+
+def test_a_message_that_cant_be_read_is_skipped(monkeypatch):
+    client = imap_client(monkeypatch, [b'1', b'2'], [])
+
+    def fetch_single(msg_id):
+        if msg_id == b'1':
+            raise ValueError('bad MIME')
+        return FetchedEmail(msg_id.decode(), 'subject', 'sender', None, '', '')
+
+    monkeypatch.setattr(client, '_fetch_single', fetch_single)
+
+    assert [m.message_id for m in client.fetch_emails(limit=50)] == ['2']

@@ -33,7 +33,9 @@ from app.domains.email_ingestion.email_client import (  # noqa: E402
     IMAPClient,
     _decode_header_value,
 )
-from app.domains.email_ingestion.models import EmailAccount, ReceivedEmail  # noqa: E402
+from app.domains.email_ingestion.matcher import street_name  # noqa: E402
+from app.domains.email_ingestion.models import EmailAccount, EmailIngestionLog, ReceivedEmail  # noqa: E402
+from app.domains.email_ingestion.service import EmailIngestionService  # noqa: E402
 from app.domains.water_mitigation.models import WaterMitigationJob  # noqa: E402
 
 
@@ -58,7 +60,7 @@ SENT_ID = '<179372152567.1.178@ourco.com>'
 @pytest.fixture
 def env(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'claim_inbox.db'}")
-    for model in (WaterMitigationJob, Client, Claim, SentEmail, FollowUpTask, EmailAccount, ReceivedEmail):
+    for model in (WaterMitigationJob, Client, Claim, SentEmail, FollowUpTask, EmailAccount, ReceivedEmail, EmailIngestionLog):
         model.__table__.create(engine)
     database = FakeDatabase(engine)
     session = database.get_session()
@@ -85,9 +87,10 @@ def env(tmp_path):
     engine.dispose()
 
 
-def mail(message_id, subject, in_reply_to='', references='', body='Thanks!'):
+def mail(message_id, subject, in_reply_to='', references='', body='Thanks!',
+         sender='Pat Lee <pa@advocates.com>'):
     return FetchedEmail(
-        message_id=message_id, subject=subject, sender='Pat Lee <pa@advocates.com>',
+        message_id=message_id, subject=subject, sender=sender,
         received_at=datetime(2026, 11, 4, 22, 59, tzinfo=timezone.utc),
         body_text=body, body_html='', in_reply_to=in_reply_to, references=references,
     )
@@ -108,6 +111,7 @@ def test_terms_cover_replies_claim_number_and_street():
         f'HEADER In-Reply-To "{SENT_ID}"',
         'TEXT "202610020025"',
         'TEXT "6315 Cardinal"',
+        'TEXT "cardinal hill"',
     ]
 
 
@@ -139,6 +143,7 @@ def test_check_files_the_reply_and_the_reply_to_it_on_the_claim(env, monkeypatch
     [(criteria, since, limit)] = searches
     assert criteria == [
         f'HEADER In-Reply-To "{SENT_ID}"', 'TEXT "202610020025"', 'TEXT "6315 Cardinal"',
+        'TEXT "cardinal hill"',
     ]
     assert since is not None and limit == 50
     assert result['accounts_checked'] == 1
@@ -202,6 +207,129 @@ def test_one_inbox_failing_leaves_the_others_and_is_reported(env, monkeypatch):
     assert result['accounts_checked'] == 1
     assert result['saved'] == 1
     assert result['errors'] == [{'account': 'office@ourco.com', 'error': 'connection reset'}]
+
+
+# ---- mail that names the property by its street alone ----
+
+def test_street_name_is_the_street_without_its_number_or_suffix():
+    assert street_name('4821 Larkspur Way, Fairfax, VA 22030') == 'larkspur'
+    assert street_name('6315 Cardinal Hill Pl, Springfield VA 22152') == 'cardinal hill'
+    assert street_name('500 Cedar Hollow pl') == 'cedar hollow'
+    assert street_name('77 Larkspur Dr. Apt 4, Fairfax') == 'larkspur'
+    # Too short to tell from an ordinary word, or nothing but a suffix left
+    assert street_name('12 Elm St, Austin TX') is None
+    assert street_name('100 Main St') is None
+    assert street_name('12 Court St') is None
+    # No house number: not a street address
+    assert street_name('Larkspur Way, Fairfax') is None
+    assert street_name(None) is None
+
+
+PA = 'Robin Hart <robin@advocates.example>'
+
+
+@pytest.fixture
+def larkspur(env):
+    """A claim with no claim number yet, whose public adjuster also has the
+    Cardinal Hill claim."""
+    session = env['session']
+    env['claim'].pa_email = 'robin@advocates.example'
+    client = Client(
+        display_name='Dana Reyes', address='4821 Larkspur Way, Fairfax, VA 22030',
+        email='dana.reyes@example.com',
+    )
+    session.add(client)
+    session.flush()
+    claim = Claim(client_id=client.id, claim_number='', pa_email='robin@advocates.example')
+    session.add(claim)
+    session.commit()
+    return claim
+
+
+def check_with(env, claim, monkeypatch, *found):
+    searches = []
+
+    def fake_search(self, criteria, since_date=None, limit=50):
+        searches.append(criteria)
+        return list(found)
+
+    monkeypatch.setattr(IMAPClient, 'search_emails', fake_search)
+    monkeypatch.setattr('app.domains.email_ingestion.service.decrypt_password', lambda _: 'pw')
+    result = ClaimInboxService(env['database']).check_claim_inbox(str(claim.id))
+    env['session'].expire_all()
+    rows = env['session'].query(ReceivedEmail).all()
+    return searches, result, rows
+
+
+SUPPLEMENT = (
+    'Could you make a supplement for larkspur? Replacement floors of upstairs.\n'
+    '---------- Forwarded message ---------\nFrom: Dana <dana.reyes@example.com>\n'
+    'Subject: Carrier Estimate'
+)
+
+
+def test_the_public_adjuster_naming_the_street_files_it_on_that_claim(env, larkspur, monkeypatch):
+    estimate = mail('<e1@gmail.com>', 'Fwd: Carrier Estimate', body=SUPPLEMENT, sender=PA)
+
+    [criteria], result, rows = check_with(env, larkspur, monkeypatch, estimate)
+
+    # No claim number to look for; the street is searched with and without its number
+    assert criteria == ['TEXT "4821 Larkspur"', 'TEXT "larkspur"']
+    assert result['new_on_claim'] == 1
+    [row] = rows
+    assert (str(row.matched_claim_id), str(row.matched_client_id), row.match_method) == (
+        str(larkspur.id), str(larkspur.client_id), 'contact_street',
+    )
+
+
+def test_the_street_with_its_number_files_it_too(env, larkspur, monkeypatch):
+    reply = mail(
+        '<e2@gmail.com>', "Re: Water mitigation files: 4821 Larkspur Way, Fairfax",
+        body='Thanks for sending these over!', sender=PA,
+    )
+
+    _, _, [row] = check_with(env, larkspur, monkeypatch, reply)
+
+    assert str(row.matched_claim_id) == str(larkspur.id)
+
+
+def test_someone_not_on_the_claim_naming_the_street_is_not_filed(env, larkspur, monkeypatch):
+    stranger = mail(
+        '<s1@news.com>', 'Homes for sale on Larkspur', body='Larkspur open house Sunday',
+        sender='Realtor <deals@homes.com>',
+    )
+
+    _, result, rows = check_with(env, larkspur, monkeypatch, stranger)
+
+    assert (result['saved'], rows) == (0, [])
+
+
+def test_naming_two_of_the_senders_claims_files_it_on_neither(env, larkspur, monkeypatch):
+    both = mail(
+        '<b1@gmail.com>', 'Two supplements',
+        body='Larkspur needs floors, and Cardinal Hill needs drywall.', sender=PA,
+    )
+
+    _, result, rows = check_with(env, larkspur, monkeypatch, both)
+
+    assert (result['saved'], rows) == (0, [])
+
+
+def test_a_pending_attachment_takes_the_claim_its_email_was_filed_on(env, larkspur, monkeypatch):
+    estimate = mail('<e1@gmail.com>', 'Fwd: Carrier Estimate', body=SUPPLEMENT, sender=PA)
+    check_with(env, larkspur, monkeypatch, estimate)
+    session = env['session']
+    account = session.query(EmailAccount).one()
+    # The PDF's own text named no claim number or labelled address
+    session.add(EmailIngestionLog(
+        email_account_id=account.id, message_id='<e1@gmail.com>', subject='Fwd: Carrier Estimate',
+        attachment_name='Carrier Estimate.pdf', attachment_hash='h1', status='pending',
+    ))
+    session.commit()
+
+    [log] = EmailIngestionService(env['database']).get_pending_logs()
+
+    assert (str(log['matched_claim_id']), log['match_method']) == (str(larkspur.id), 'same_email')
 
 
 # ---- when the claim was last checked (the client page's dot) ----

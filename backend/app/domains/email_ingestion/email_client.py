@@ -46,6 +46,11 @@ _MAX_PART_DEPTH = 3
 
 _MESSAGE_SIZE_PATTERN = re.compile(rb"RFC822\.SIZE (\d+)")
 
+# Gmail drops a long session now and then (2026-11-11: after 16 of one
+# inbox's 371 messages). Carrying on over the dead socket failed every message after
+# it one by one, and the poll still moved last_synced_at past them all.
+_MAX_RECONNECTS = 3
+
 
 @dataclass
 class EmailAttachment:
@@ -364,16 +369,7 @@ class IMAPClient:
                     f"reading only the newest {limit}"
                 )
             # Process most recent first, limit count
-            ids = ids[-limit:]
-
-            for msg_id in ids:
-                try:
-                    fetched = self._fetch_single(msg_id)
-                except Exception as e:
-                    logger.warning(f"Failed to fetch email {msg_id}: {e}")
-                    continue
-                if fetched:
-                    yield fetched
+            yield from self._fetch_each(ids[-limit:], readonly=False)
 
         except Exception as e:
             logger.error(f"Error fetching emails: {e}")
@@ -411,14 +407,9 @@ class IMAPClient:
                 if status == "OK" and data[0]:
                     msg_nums.update(data[0].split())
 
-            for msg_num in sorted(msg_nums, key=int)[-limit:]:
-                try:
-                    fetched = self._fetch_single(msg_num)
-                    if fetched:
-                        results.append(fetched)
-                except Exception as e:
-                    logger.warning(f"Failed to fetch email {msg_num}: {e}")
-                    continue
+            results.extend(
+                self._fetch_each(sorted(msg_nums, key=int)[-limit:], readonly=True)
+            )
 
         except Exception as e:
             logger.error(f"Error searching emails: {e}")
@@ -427,6 +418,35 @@ class IMAPClient:
             self.disconnect()
 
         return results
+
+    def _fetch_each(self, msg_ids: List[bytes], readonly: bool) -> Iterator[FetchedEmail]:
+        """The messages one at a time, from the INBOX already selected.
+
+        A message that can't be read is skipped. A dropped connection is
+        opened again and the message tried again, up to _MAX_RECONNECTS times
+        in all; past that the error goes up, so a poll ends without moving
+        last_synced_at and the next one starts from the same day.
+        """
+        reconnects = 0
+        for msg_id in msg_ids:
+            while True:
+                try:
+                    fetched = self._fetch_single(msg_id)
+                    break
+                except (imaplib.IMAP4.abort, OSError) as e:
+                    if reconnects >= _MAX_RECONNECTS:
+                        raise
+                    reconnects += 1
+                    logger.warning(f"IMAP connection lost at email {msg_id}: {e}; reconnecting")
+                    self.disconnect()
+                    self.connect()
+                    self._connection.select("INBOX", readonly=readonly)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch email {msg_id}: {e}")
+                    fetched = None
+                    break
+            if fetched:
+                yield fetched
 
     def _fetch_single(self, msg_id: bytes) -> Optional[FetchedEmail]:
         """Fetch a single email by its IMAP sequence ID"""
@@ -490,6 +510,8 @@ class IMAPClient:
         the server didn't say."""
         try:
             status, data = self._connection.fetch(msg_id, "(RFC822.SIZE)")
+        except imaplib.IMAP4.abort:
+            raise  # connection lost: _fetch_each reads the message again
         except imaplib.IMAP4.error as e:
             logger.debug(f"Size fetch failed for {msg_id}: {e}")
             return None
@@ -521,6 +543,8 @@ class IMAPClient:
             section = f"{prefix}{number}"
             try:
                 header = self._fetch_section(msg_id, f"{section}.MIME")
+            except imaplib.IMAP4.abort:
+                raise  # connection lost: _fetch_each reads the message again
             except imaplib.IMAP4.error:
                 return
             if not header:
@@ -564,6 +588,8 @@ class IMAPClient:
             try:
                 body = self._fetch_section(msg_id, section)
                 data = email.message_from_bytes(header + (body or b"")).get_payload(decode=True)
+            except (imaplib.IMAP4.abort, OSError):
+                raise  # connection lost: _fetch_each reads the message again
             except Exception as e:
                 logger.warning(f"Failed to read attachment {filename}: {e}")
                 fetched.unread_attachment_names.append(filename)
@@ -681,6 +707,8 @@ class IMAPClient:
                 to=_decode_header_value(msg.get("To", "")),
                 cc=_decode_header_value(msg.get("Cc", "")),
             )
+        except (imaplib.IMAP4.abort, OSError):
+            raise  # connection lost: _fetch_each reads the message again
         except Exception as e:
             logger.warning(f"Header-only fetch failed for {msg_id}: {e}")
             return None

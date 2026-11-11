@@ -12,7 +12,7 @@ Also extracts claim numbers and other identifiers from email/PDF content.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -280,6 +280,114 @@ def match_by_name(
         )
 
     return None
+
+
+# Words that end a street address, not part of the street's own name
+_STREET_SUFFIXES = {
+    "way", "pl", "place", "dr", "drive", "ct", "court", "rd", "road", "st",
+    "street", "ln", "lane", "ave", "av", "avenue", "blvd", "boulevard", "ter",
+    "terrace", "cir", "circle", "pkwy", "parkway", "hwy", "highway", "trl",
+    "trail", "sq", "square", "loop", "pike", "cv", "cove", "xing", "crossing",
+    "n", "s", "e", "w", "ne", "nw", "se", "sw",
+}
+_UNIT_PATTERN = re.compile(r"\s(?:apt|unit|ste|suite|#)\b.*$", re.IGNORECASE)
+# One short word ("Oak", "Elm") turns up in ordinary text too often
+_MIN_STREET_NAME_LEN = 5
+
+
+def street_name(address: Optional[str]) -> Optional[str]:
+    """The street's own name, lowercased - how mail about a property names it
+    when it leaves out the house number: "larkspur" from "4821 Larkspur Way,
+    Fairfax, VA 22030", "cedar hollow" from "500 Cedar Hollow Pl". None
+    for an address without a house number, or a name too short to tell from
+    an ordinary word."""
+    first = _UNIT_PATTERN.sub("", (address or "").split(",")[0].strip())
+    words = [w.strip(".").lower() for w in first.split()]
+    if len(words) < 2 or not words[0].isdigit():
+        return None
+    words = words[1:]
+    while len(words) > 1 and words[-1] in _STREET_SUFFIXES:
+        words.pop()
+    if words[-1] in _STREET_SUFFIXES:
+        return None  # "12 Court St" - nothing left but an ordinary word
+    name = " ".join(words)
+    return name if len(name) >= _MIN_STREET_NAME_LEN else None
+
+
+def mentions_street(lowered_text: str, address: Optional[str]) -> bool:
+    """Whether lowercased text names the property: "4821 larkspur" or just
+    "larkspur"."""
+    words = (address or "").split(",")[0].split()
+    if len(words) >= 2 and words[0].isdigit():
+        house = " ".join(words[:2]).lower()
+        if re.search(rf"\b{re.escape(house)}\b", lowered_text):
+            return True
+    name = street_name(address)
+    return bool(name and re.search(rf"\b{re.escape(name)}\b", lowered_text))
+
+
+class ClaimContactIndex:
+    """Every claim's people by email address - its adjusters, public adjuster
+    and homeowner - with the street it is at, read once per poll.
+
+    Mail from someone on several claims often names the property by its
+    street alone ("a supplement for larkspur"), with no claim number or
+    labelled address for the text rules to find. The sender narrows it to
+    their own claims, and the street picks one of those.
+    """
+
+    def __init__(self, claims: List[Dict[str, Any]]):
+        self._by_address: Dict[str, List[Dict[str, Any]]] = {}
+        for claim in claims:
+            for address in claim["contacts"]:
+                self._by_address.setdefault(address, []).append(claim)
+
+    @classmethod
+    def load(cls, session) -> "ClaimContactIndex":
+        from app.domains.client.adjusters import additional_adjuster_emails
+
+        rows = (
+            session.query(
+                Claim.id, Claim.client_id, Claim.adjuster_email,
+                Claim.additional_adjusters, Claim.pa_email,
+                Client.email, Client.address,
+            )
+            .join(Client, Client.id == Claim.client_id)
+            .all()
+        )
+        claims = []
+        for claim_id, client_id, adjuster, others, pa, homeowner, address in rows:
+            raw = [adjuster, pa, homeowner] + additional_adjuster_emails(others)
+            contacts = {
+                a for a in (extract_sender_email(r) for r in raw if r) if a
+            }
+            if contacts and address:
+                claims.append({
+                    "claim_id": str(claim_id),
+                    "client_id": str(client_id),
+                    "address": address,
+                    "contacts": contacts,
+                })
+        return cls(claims)
+
+    def match(self, text: str, sender: Optional[str]) -> Optional[MatchResult]:
+        """The one claim of the sender's whose street the text names."""
+        sender_address = extract_sender_email(sender) if sender else None
+        claims = self._by_address.get(sender_address or "", [])
+        if not claims:
+            return None
+        lowered = (text or "").lower()
+        named = [c for c in claims if mentions_street(lowered, c["address"])]
+        clients = {c["client_id"] for c in named}
+        if len(clients) != 1:
+            return None
+        return MatchResult(
+            client_id=named[0]["client_id"],
+            # A client with two claims at the address leaves the claim open
+            claim_id=named[0]["claim_id"] if len(named) == 1 else None,
+            method="contact_street",
+            confidence=80,
+        )
 
 
 def match_email_to_client(

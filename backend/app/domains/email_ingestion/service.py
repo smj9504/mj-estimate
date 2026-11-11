@@ -138,6 +138,16 @@ _CERTAIN_MATCH_METHODS = {"reply_thread", "claim_number"}
 _MAX_BODY_CHARS = 200_000
 
 
+def _as_datetime(value) -> Optional[datetime]:
+    """A date from a repository dict, which holds dates as ISO strings.
+
+    Passed on as a string, last_synced_at failed the IMAP search, so every
+    poll of an account that had synced before stopped there."""
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
+
+
 def _snippet(text: str, length: int = 280) -> Optional[str]:
     collapsed = " ".join((text or "").split())
     return collapsed[:length] or None
@@ -577,7 +587,7 @@ class EmailIngestionService:
             # files also go through the PDF pipeline below. These arrive one
             # at a time, so only one message's attachments are in memory.
             all_emails = imap.fetch_emails(
-                since_date=since_date or account.get("last_synced_at"),
+                since_date=since_date or _as_datetime(account.get("last_synced_at")),
                 limit=limit,
                 unseen_only=unseen_only,
             )
@@ -603,6 +613,8 @@ class EmailIngestionService:
             # Same for the water mitigation jobs inbound mail is matched to
             from app.domains.water_mitigation.adjuster_inbox import JobMailIndex
             wm_index = JobMailIndex.load(session)
+            from app.domains.email_ingestion.matcher import ClaimContactIndex
+            claim_index = ClaimContactIndex.load(session)
 
             for fetched_email in _closing_transaction_between(session, all_emails):
                 stats["emails_scanned"] += 1
@@ -611,6 +623,7 @@ class EmailIngestionService:
                     if self._save_received_email(
                         session, account_id, fetched_email,
                         wm_index=wm_index, own_address=account["email_address"],
+                        claim_index=claim_index,
                     ):
                         stats["emails_saved"] += 1
                 except Exception as e:
@@ -782,6 +795,7 @@ class EmailIngestionService:
         pipeline through the regular poll, which this leaves untouched
         (last_synced_at included).
         """
+        from app.domains.email_ingestion.matcher import ClaimContactIndex
         from app.domains.water_mitigation.adjuster_inbox import JobMailIndex
 
         session = self._get_session()
@@ -789,12 +803,14 @@ class EmailIngestionService:
             imap = self._build_imap_client(account, session)
             fetched = imap.search_emails(criteria, since_date=since_date, limit=limit)
             wm_index = JobMailIndex.load(session)
+            claim_index = ClaimContactIndex.load(session)
             saved = 0
             for fetched_email in fetched:
                 try:
                     if self._save_received_email(
                         session, str(account["id"]), fetched_email,
                         wm_index=wm_index, own_address=account["email_address"],
+                        claim_index=claim_index,
                     ):
                         saved += 1
                 except Exception as e:
@@ -853,6 +869,7 @@ class EmailIngestionService:
         fetched_email,
         wm_index=None,
         own_address: Optional[str] = None,
+        claim_index=None,
     ) -> bool:
         """Store one inbound message if it belongs to a claim or a water
         mitigation job.
@@ -864,7 +881,8 @@ class EmailIngestionService:
 
         `wm_index` (a JobMailIndex) also matches WM jobs; `own_address` is
         the receiving account's, so copies of our own mail aren't taken for
-        an adjuster's.
+        an adjuster's. `claim_index` (a ClaimContactIndex) files mail from
+        someone on a claim that names its street.
         """
         from app.domains.email_ingestion.models import ReceivedEmail
 
@@ -877,7 +895,7 @@ class EmailIngestionService:
 
         text = fetched_email.body_text or _html_to_text(fetched_email.body_html)
         client_id, claim_id, method, confidence = self._match_received_email(
-            session, fetched_email, text
+            session, fetched_email, text, claim_index=claim_index,
         )
 
         wm_job_id = None
@@ -925,14 +943,15 @@ class EmailIngestionService:
         return True
 
     def _match_received_email(
-        self, session, fetched_email, text: str
+        self, session, fetched_email, text: str, claim_index=None,
     ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[int]]:
         """(client_id, claim_id, method, confidence) for an inbound message.
 
         A reply in a thread we started is the strongest signal - the claim is
         whatever our outbound mail (or an earlier stored message in the same
         thread) belonged to. Otherwise fall back to the attachment matcher's
-        text rules over subject + body.
+        text rules over subject + body, then to `claim_index` (a
+        ClaimContactIndex): a sender on the claim naming its street.
         """
         from app.domains.claim_followup.models import SentEmail
         from app.domains.client.models import Claim
@@ -965,13 +984,16 @@ class EmailIngestionService:
         result = match_email_to_client(
             session, email_text, "", sender=fetched_email.sender
         )
-        if not result.client_id:
-            return None, None, None, None
         # A bare name guess ("Dear John" -> any client named John) is too
         # loose to file mail on; keep name matches only when the sender's
         # address is the client's own email.
         if result.method == "name" and (result.confidence or 0) < 85:
-            return None, None, None, None
+            result.client_id = None
+        if not result.client_id:
+            # Someone on the claim naming its street ("larkspur")
+            result = claim_index.match(email_text, fetched_email.sender) if claim_index else None
+            if not result:
+                return None, None, None, None
 
         claim_id = result.claim_id
         if not claim_id:
@@ -1573,6 +1595,29 @@ class EmailIngestionService:
                 and str(log["matched_client_id"]) == str(row.matched_client_id)
             ):
                 log["matched_claim_id"] = row.matched_claim_id
+
+        # Still nothing: where the email itself was filed. Its text can name
+        # the claim when the attachment's doesn't - "a supplement for
+        # larkspur" from the claim's public adjuster.
+        unmatched = [log for log in open_logs if not log.get("matched_client_id")]
+        if not unmatched:
+            return
+        from app.domains.email_ingestion.models import ReceivedEmail
+
+        filed = {
+            (str(row.email_account_id), row.message_id): row
+            for row in session.query(ReceivedEmail).filter(
+                ReceivedEmail.message_id.in_({log["message_id"][:500] for log in unmatched}),
+                ReceivedEmail.matched_client_id.isnot(None),
+            )
+        }
+        for log in unmatched:
+            row = filed.get((str(log["email_account_id"]), log["message_id"][:500]))
+            if row is not None:
+                log["matched_client_id"] = row.matched_client_id
+                log["matched_claim_id"] = row.matched_claim_id
+                log["match_method"] = "same_email"
+                log["match_confidence"] = row.match_confidence
 
     def get_pending_logs(self, scope=None) -> List[Dict[str, Any]]:
         """Get logs needing manual review"""

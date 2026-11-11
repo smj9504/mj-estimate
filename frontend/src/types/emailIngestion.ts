@@ -192,7 +192,7 @@ export interface ReceivedEmail {
   attachment_names: string[];
   matched_client_id?: string;
   matched_claim_id?: string;
-  /** reply_thread | claim_number | policy_number | address | name | manual | adjuster_email */
+  /** reply_thread | claim_number | policy_number | address | contact_street | name | manual | adjuster_email */
   match_method?: string;
   match_confidence?: number;
   /** The water mitigation job it's about, when one matched */
