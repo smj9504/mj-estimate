@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * Vitest setup for the sketch geometry layer, the bathroom and kitchen estimate helpers,
+ * Vitest setup for the sketch geometry layer, the bathroom, kitchen and flooring estimate helpers,
  * the claim follow-up helpers, the todo board helpers, the screen catalog,
  * the contract signature lines, the on-site signing dates, the claim photo viewer's
  * zoom and category helpers, the packing item edits, the cheat sheet's views and
@@ -33,6 +33,7 @@ export default defineConfig({
       'src/components/bathroom-estimate/**/*.test.ts',
       'src/components/contract/**/*.test.ts',
       'src/components/cabinet-estimate/**/*.test.ts',
+      'src/components/flooring-estimate/**/*.test.ts',
       'src/components/claim-followup/**/*.test.ts',
       'src/components/todo/**/*.test.ts',
       'src/components/onsite-signing/**/*.test.ts',
