@@ -23,6 +23,7 @@ from app.domains.acculynx_archive.models import AccuLynxArchivedDocument, AccuLy
 from app.domains.auth import company_scope  # noqa: E402
 from app.domains.auth.dependencies import get_current_staff  # noqa: E402
 from app.domains.bathroom_estimate.models import BathroomEstimate  # noqa: E402
+from app.domains.flooring_estimate.models import FlooringEstimate  # noqa: E402
 from app.domains.cabinet_estimate.models import CabinetEstimate  # noqa: E402
 from app.domains.claim_followup.models import CommunicationLog, FollowUpTask, SentEmail  # noqa: E402
 from app.domains.client import client_delete  # noqa: E402
@@ -265,7 +266,7 @@ def seed_client(session, label, shared_report_id=None):
     add(CreditTransaction, customer_credit_id=credit.id)
 
     # A restoration on the claim, and an option in its group with no claim of its own
-    for model in (CabinetEstimate, BathroomEstimate):
+    for model in (CabinetEstimate, BathroomEstimate, FlooringEstimate):
         restore = add(model, claim_id=claim.id)
         restore.group_id = restore.id
         add(model, group_id=restore.id, claim_id=None, kind='option')
@@ -455,8 +456,8 @@ def test_preview_says_what_goes(world, api, storage):
     assert items['Water mitigation jobs'] == 1
     assert items['Contracts'] == 2
     assert items['Invoices'] == 2
-    # General, two cabinet, two bathroom, roofing, siding
-    assert items['Estimates'] == 7
+    # General, two cabinet, two bathroom, two flooring, roofing, siding
+    assert items['Estimates'] == 9
     assert items['Work orders'] == 1
     assert items['AccuLynx archived jobs'] == 1
     assert items['Field visits'] == 1

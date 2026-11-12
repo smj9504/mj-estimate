@@ -145,6 +145,7 @@ def _load_domains() -> None:
     # Importing a pricing module installs its tables
     from app.domains.bathroom_estimate import pricing as _bathroom  # noqa: F401
     from app.domains.cabinet_estimate import pricing as _cabinet  # noqa: F401
+    from app.domains.flooring_estimate import pricing as _flooring  # noqa: F401
 
 
 # ── Items ──

@@ -79,6 +79,11 @@ WebSearch로 해당 항목군의 **최근 원가/시장 동향**을 조사한다
 - `backend/app/domains/bathroom_estimate/pricing.py` — 페이즈별 표(`DEMO_RATES`, `PLUMBING_RATES`, `TILE_*`, `VANITY_*`, `DETACH_RESET_COSTS`, `HIDDEN_COSTS` 등)와 단일 상수(`VANITY_INSTALL`, `MIRROR_INSTALL` …). 단일 상수는 계산기가 `FLAT_PRICES["VANITY_INSTALL"]`로 읽는다. 어떤 표가 가격인지는 `bathroom_estimate/price_catalog.py`.
 - 파일 상단 docstring에 지난 인상 이력(Tier A/B)이 있다. 이어서 적는다.
 
+### Flooring Estimate
+- `backend/app/domains/flooring_estimate/pricing.py` — `FLOORING_MATERIAL`·`FLOORING_INSTALL_LABOR`(자재별, carpet은 SY), `PAD_PRICES`, `REMOVAL_RATES`, `PREP_RATES`, `TRIM_RATES`, `DETACH_RESET_RATES`, `TRANSITION_RATES`, `STAIR_RATES`, `CONTENTS_RATES`, `GENERAL_RATES`. 어떤 표가 가격인지는 `flooring_estimate/price_catalog.py`. `WASTE_PCT`, `PATTERN_LABOR_MULTIPLIER`, `BOX_COVERAGE_SF`, carpet roll 규칙은 가격이 아니다.
+- 2026-11 초기값: Bathroom과 같은 작업(LVT/SPC, 타일, self-leveling, subfloor, 변기·vanity D&R, MDF base, quarter round, floor protection, dumpster)은 Bathroom 값과 일치시켜 두었다. 한쪽을 올리면 다른 쪽도 같이 볼 것. 나머지는 아직 리서치하지 않은 DMV 중간값이라 첫 업데이트 때 전부 검증 대상.
+- 부수 작업 항목(`items.py`)은 가격 경로(`TRIM_RATES.shoe_molding_per_lf` 등)만 참조한다. 키 이름을 바꾸면 견적에 저장된 선택과 회사 단가가 끊기니 절대 바꾸지 말 것.
+
 ### Packing Estimate
 - `backend/app/domains/pack_calculation/seed_prices.py` — `DEFAULT_PACKING_PRICES` (원본, DB 시딩용).
 - `backend/app/domains/pack_calculation/packing_service.py` — **실제 계산 엔진.** 자체 `DEFAULT_PRICES` 딕셔너리를 따로 가지고 있어 seed_prices.py와 반드시 동기화 필요. 그 외 `STORAGE_SETUP_BY_SIZE`, `SPECIAL_ITEM_COSTS`, `SUPPLEMENT_DEFINITIONS`, `select_truck()`/`get_storage_setup_fee()`의 인라인 fallback 리터럴도 전부 이 파일 안에 흩어져 있음.

@@ -1,9 +1,9 @@
 /**
- * Company prices for the bathroom and kitchen cabinet estimates, and the
- * price book an estimate is priced with.
+ * Company prices for the bathroom, kitchen cabinet and flooring estimates,
+ * and the price book an estimate is priced with.
  */
 
-export type PriceDomain = 'bathroom' | 'cabinet';
+export type PriceDomain = 'bathroom' | 'cabinet' | 'flooring';
 export type PriceKind = 'material' | 'labor' | 'mixed';
 
 export interface UnitPriceItem {

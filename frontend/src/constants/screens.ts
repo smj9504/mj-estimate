@@ -62,7 +62,7 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
         key: 'unit_prices',
         label: '회사별 단가',
         paths: ['/unit-prices'],
-        hint: 'Bathroom and kitchen cabinet prices for each company',
+        hint: 'Bathroom, kitchen cabinet and flooring prices for each company',
       },
     ],
   },

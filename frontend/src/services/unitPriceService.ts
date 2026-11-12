@@ -52,7 +52,7 @@ export const unitPriceService = {
 
   /** Reprice an estimate's whole job at today's prices. */
   async useCurrentPrices(domain: PriceDomain, estimateId: string) {
-    const path = domain === 'bathroom' ? 'bathroom-estimates' : 'cabinet-estimates';
+    const path = `${domain}-estimates`;
     const { data } = await api.post(`/api/${path}/${estimateId}/use-current-prices`);
     return data;
   },
