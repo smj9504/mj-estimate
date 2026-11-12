@@ -23,10 +23,11 @@ import type {
 import { formatFeet, formatSf, parseFeet } from './utils/dimensions';
 import {
   WALL_T, bbox, centroid, constrainAngle, distance, edgesOf, measureRoom, moveVertex, offsetPolygon,
-  pointInPolygon, projectOnSegment, rectPoints, resizeEdge, roomAcross, snapLines, snapPoint, snapShift,
-  spanOnEdge, translate, wallAt, type Edge,
+  insertVertex, pointInPolygon, projectOnSegment, rectPoints, removeVertex, resizeEdge, roomAcross, snapLines,
+  snapPoint, snapShift, spanOnEdge, translate, wallAt, type Edge,
 } from './utils/geometry';
 import { FIXTURE_LABELS } from './utils/sketchOps';
+import { midpoint, pinchView, spread, zoomAround, type Px, type View as ViewState } from './utils/view';
 
 export type SketchTool = 'select' | 'pan' | 'rect' | 'polygon' | 'opening' | 'cabinet' | 'fixture';
 
@@ -45,19 +46,13 @@ export type CanvasAction =
   | { type: 'addFixture'; fixtureType: FixtureType; at: FtPoint }
   | { type: 'moveFixture'; id: string; x: number; y: number };
 
-interface View {
-  scale: number;
-  x: number;
-  y: number;
-}
-
-type Px = { x: number; y: number };
+type View = ViewState;
 
 type Drag =
   | { kind: 'pan'; start: Px; view: View }
   | { kind: 'rect'; start: FtPoint; current: FtPoint }
   | { kind: 'room'; roomId: string; start: FtPoint; dx: number; dy: number; moved: boolean }
-  | { kind: 'vertex'; roomId: string; index: number; points: FtPoint[] }
+  | { kind: 'vertex'; roomId: string; index: number; base: FtPoint[]; points: FtPoint[]; moved: boolean; inserted: boolean }
   | { kind: 'opening'; id: string; edge: Edge; width: number; a: FtPoint; b: FtPoint; moved: boolean }
   | { kind: 'cabinet-new'; roomId: string; edge: Edge; from: number; to: number }
   | { kind: 'cabinet'; id: string; edge: Edge; width: number; a: FtPoint; b: FtPoint; moved: boolean }
@@ -173,13 +168,39 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitSignal]);
 
-  const zoomAt = useCallback((factor: number, at: Px) => {
-    setView((v) => {
-      const scale = Math.max(3, Math.min(120, v.scale * factor));
-      const k = scale / v.scale;
-      return { scale, x: at.x - (at.x - v.x) * k, y: at.y - (at.y - v.y) * k };
-    });
-  }, []);
+  const zoomAt = useCallback((factor: number, at: Px) => setView((v) => zoomAround(v, factor, at)), []);
+
+  // ── Two fingers zoom and pan (tracked on the wrapper, ahead of the shapes) ──
+  const fingers = useRef(new Map<number, Px>());
+  const pinch = useRef<{ view: View; center: Px; distance: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const local = (e: React.PointerEvent): Px => {
+    const box = wrapRef.current?.getBoundingClientRect();
+    return { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) };
+  };
+  const onFingerDown = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'touch') return;
+    fingers.current.set(e.pointerId, local(e));
+    if (fingers.current.size === 2) {
+      const [a, b] = Array.from(fingers.current.values());
+      pinch.current = { view, center: midpoint(a, b), distance: spread(a, b) };
+      // Whatever the first finger started is dropped
+      setDrag(null);
+    }
+  };
+  const onFingerMove = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'touch' || !fingers.current.has(e.pointerId)) return;
+    fingers.current.set(e.pointerId, local(e));
+    const start = pinch.current;
+    if (start && fingers.current.size >= 2) {
+      const [a, b] = Array.from(fingers.current.values());
+      setView(pinchView(start.view, start.center, start.distance, midpoint(a, b), spread(a, b)));
+    }
+  };
+  const onFingerUp = (e: React.PointerEvent) => {
+    fingers.current.delete(e.pointerId);
+    if (fingers.current.size < 2) pinch.current = null;
+  };
   useEffect(() => {
     if (zoomRequest.n) zoomAt(zoomRequest.factor, { x: width / 2, y: height / 2 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -270,7 +291,7 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
 
   // ── Pointer ──
   const startOnBackground = useCallback((e: KonvaEventObject<PointerEvent>) => {
-    if (readOnly) return;
+    if (readOnly || fingers.current.size >= 2) return;
     const p = pointerFt();
     const px = stageRef.current?.getPointerPosition();
     if (!p || !px) return;
@@ -352,11 +373,10 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
         return;
       }
       case 'vertex': {
-        const room = roomById.get(drag.roomId);
-        if (!room) return;
-        const others = rooms.filter((r) => r.id !== room.id);
+        if (pinch.current) return;
+        const others = rooms.filter((r) => r.id !== drag.roomId);
         const q = e.evt.shiftKey ? p : snapPoint(p, others, tolerance, grid);
-        setDrag({ ...drag, points: moveVertex(room.points, drag.index, q) });
+        setDrag({ ...drag, points: moveVertex(drag.base, drag.index, q), moved: true });
         return;
       }
       case 'opening':
@@ -394,7 +414,8 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
         if (d.moved) onAction({ type: 'moveRoom', roomId: d.roomId, dx: d.dx, dy: d.dy });
         return;
       case 'vertex':
-        onAction({ type: 'roomPoints', roomId: d.roomId, points: d.points });
+        // A corner only clicked (or a wall's middle only tapped) changes nothing
+        if (d.moved) onAction({ type: 'roomPoints', roomId: d.roomId, points: d.points });
         return;
       case 'opening':
         if (d.moved) onAction({ type: 'moveOpening', id: d.id, a: d.a, b: d.b });
@@ -448,9 +469,26 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
   };
 
   const grabVertex = (room: SketchRoom, index: number) => (e: KonvaEventObject<PointerEvent>) => {
-    if (tool !== 'select' || readOnly) return;
+    if (tool !== 'select' || readOnly || fingers.current.size >= 2) return;
     e.cancelBubble = true;
-    setDrag({ kind: 'vertex', roomId: room.id, index, points: room.points });
+    setDrag({ kind: 'vertex', roomId: room.id, index, base: room.points, points: room.points, moved: false, inserted: false });
+  };
+
+  /** A wall's middle handle: a new corner there, dragged to bend the wall */
+  const grabMidpoint = (room: SketchRoom, edge: Edge) => (e: KonvaEventObject<PointerEvent>) => {
+    if (tool !== 'select' || readOnly || fingers.current.size >= 2) return;
+    e.cancelBubble = true;
+    const mid = { x: (edge.a.x + edge.b.x) / 2, y: (edge.a.y + edge.b.y) / 2 };
+    const base = insertVertex(room.points, edge.index, mid);
+    setDrag({ kind: 'vertex', roomId: room.id, index: edge.index + 1, base, points: base, moved: false, inserted: true });
+  };
+
+  /** Double-click a corner to take it out (a room keeps three) */
+  const dropVertex = (room: SketchRoom, index: number) => (e: KonvaEventObject<Event>) => {
+    if (readOnly || room.points.length <= 3) return;
+    e.cancelBubble = true;
+    setDrag(null);
+    onAction({ type: 'roomPoints', roomId: room.id, points: removeVertex(room.points, index) });
   };
 
   const grabSegment = (kind: 'opening' | 'cabinet', id: string, roomId: string, a: FtPoint, b: FtPoint) =>
@@ -732,13 +770,24 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
     const pts = shown.roomPoints.get(selectedRoom);
     const room = roomById.get(selectedRoom);
     if (!pts || !room) return null;
-    return pts.map((p, i) => {
+    const mids = drag?.kind === 'vertex' ? [] : edgesOf(pts)
+      .filter((edge) => edge.length * view.scale >= 48)
+      .map((edge) => {
+        const q = toPx({ x: (edge.a.x + edge.b.x) / 2, y: (edge.a.y + edge.b.y) / 2 });
+        return (
+          <Circle key={`m${edge.index}`} x={q.x} y={q.y} radius={4.5} fill={COLORS.selected} opacity={0.55}
+            stroke="#ffffff" strokeWidth={1} name="midpoint-handle" onPointerDown={grabMidpoint(room, edge)} />
+        );
+      });
+    const corners = pts.map((p, i) => {
       const q = toPx(p);
       return (
         <Rect key={`h${i}`} x={q.x - 5} y={q.y - 5} width={10} height={10} fill="#ffffff" stroke={COLORS.selected}
-          strokeWidth={1.5} onPointerDown={grabVertex(room, i)} />
+          strokeWidth={1.5} name="corner-handle" onPointerDown={grabVertex(room, i)}
+          onDblClick={dropVertex(room, i)} onDblTap={dropVertex(room, i)} />
       );
     });
+    return [...mids, ...corners];
   })();
 
   // ── Previews ──
@@ -785,7 +834,12 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
 
   return (
     <div
+      ref={wrapRef}
       style={{ position: 'relative', width, height, cursor, touchAction: 'none' }}
+      onPointerDownCapture={onFingerDown}
+      onPointerMoveCapture={onFingerMove}
+      onPointerUpCapture={onFingerUp}
+      onPointerCancelCapture={onFingerUp}
       data-testid="flooring-sketch-canvas"
       // Pixels per foot and the offset, so a test can find a spot in feet
       data-scale={view.scale}

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { FtPoint, SketchLevel, SketchRoom } from '../../../../types/flooringEstimate';
 import {
-  WALL_T, centroid, constrainAngle, edgesOf, measureRoom, moveVertex, offsetPolygon, pointInPolygon,
-  polygonArea, polygonPerimeter, reattach, rectPoints, resizeEdge, roomAcross, snapPoint, snapShift, wallAt,
+  WALL_T, centroid, constrainAngle, edgesOf, insertVertex, measureRoom, moveVertex, offsetPolygon, pointInPolygon,
+  polygonArea, polygonPerimeter, reattach, rectPoints, removeVertex, resizeEdge, roomAcross, snapPoint, snapShift, wallAt,
 } from './geometry';
 
 const P = (...pts: [number, number][]): FtPoint[] => pts.map(([x, y]) => ({ x, y }));
@@ -112,6 +112,18 @@ describe('changing a room', () => {
   it('drags a corner and keeps square walls square', () => {
     const moved = moveVertex(rectPoints(0, 0, 12, 10), 2, { x: 14, y: 11 });
     expect(moved).toEqual(rectPoints(0, 0, 14, 11));
+  });
+
+  it('bends a wall at a point added in its middle, moving that point alone', () => {
+    const withPoint = insertVertex(rectPoints(0, 0, 12, 10), 0, { x: 6, y: 0 });
+    const bent = moveVertex(withPoint, 1, { x: 6, y: -2 });
+    expect(bent).toHaveLength(5);
+    expect(bent[0]).toEqual({ x: 0, y: 0 });
+    expect(bent[2]).toEqual({ x: 12, y: 0 });
+    expect(polygonArea(bent)).toBeCloseTo(120 + 12, 6);
+    expect(removeVertex(bent, 1)).toEqual(rectPoints(0, 0, 12, 10));
+    // A triangle keeps its three corners
+    expect(removeVertex(rectPoints(0, 0, 4, 4).slice(0, 3), 0)).toHaveLength(3);
   });
 
   it('puts a doorway back on its wall after the room changes', () => {

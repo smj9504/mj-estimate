@@ -177,12 +177,18 @@ export function resizeEdge(points: FtPoint[], index: number, length: number): Ft
 /**
  * The outline with one corner dragged to p. A wall that was square stays
  * square: the corners at its other ends follow along the matching axis.
+ * A point in the middle of a straight wall (just added to bend it) moves on
+ * its own.
  */
 export function moveVertex(points: FtPoint[], index: number, p: FtPoint): FtPoint[] {
   const n = points.length;
   const old = points[index];
   const next = points.map((q) => ({ ...q }));
   next[index] = { ...p };
+  const before = points[(index - 1 + n) % n];
+  const after = points[(index + 1) % n];
+  const straight = Math.abs((old.x - before.x) * (after.y - old.y) - (old.y - before.y) * (after.x - old.x)) < EPS;
+  if (straight) return next;
   for (const k of [(index - 1 + n) % n, (index + 1) % n]) {
     const q = points[k];
     if (isVertical(old, q)) next[k] = { ...next[k], x: p.x };
