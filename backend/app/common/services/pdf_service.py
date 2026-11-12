@@ -4991,15 +4991,14 @@ def generate_ewa_pdf(
     # Create writer and add first page with overlay
     writer = PdfWriter()
 
-    # Get overlay page first
-    overlay_page = overlay_reader.pages[0]
+    # Get overlay page first. Attach it to the writer before merging:
+    # pypdf 7+ refuses to merge into a page still owned by a PdfReader.
+    overlay_page = writer.add_page(overlay_reader.pages[0])
 
     # Get template page and merge it UNDER the overlay
     # This ensures text is on top of the template
     template_page = template_reader.pages[0]
     overlay_page.merge_page(template_page)
-
-    writer.add_page(overlay_page)
 
     # Step 3: Convert photo to PDF page and append
     if compress:

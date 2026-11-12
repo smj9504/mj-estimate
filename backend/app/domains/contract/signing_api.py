@@ -681,7 +681,9 @@ def _generate_filled_pdf_bytes(
         page_map.setdefault(pi, []).append(m)
 
     for pg in range(len(reader.pages)):
-        page = reader.pages[pg]
+        # Attach the page to the writer before merging: pypdf 7+
+        # refuses to merge into a page still owned by a PdfReader.
+        page = writer.add_page(reader.pages[pg])
         pw = float(page.mediabox.width)
         ph = float(page.mediabox.height)
 
@@ -718,8 +720,6 @@ def _generate_filled_pdf_bytes(
             overlay = PdfReader(buf)
             if overlay.pages:
                 page.merge_page(overlay.pages[0])
-
-        writer.add_page(page)
 
     out = BytesIO()
     writer.write(out)
