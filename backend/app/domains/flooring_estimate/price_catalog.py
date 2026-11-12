@@ -34,7 +34,7 @@ PRICE_TABLES = [
     ),
     TableSpec(
         "PAD_PRICES", "Flooring", kind=MATERIAL, title="Carpet pad", unit="SY",
-        labels={"rebond_7_16": '7/16" rebond'},
+        labels={"rebond_7_16": '7/16" rebond, 8 lb'},
     ),
     TableSpec(
         "REMOVAL_RATES", "Removal", kind=LABOR, title="Remove", unit="SF",
@@ -72,7 +72,8 @@ PRICE_TABLES = [
         labels={
             "toilet": "Toilet - detach & reset", "vanity": "Vanity - detach & reset",
             "toe_kick_per_lf": "Cabinet toe kick - detach & reset",
-            "appliance": "Appliance - detach & reset", "door": "Door - detach & reset",
+            "appliance": "Appliance - detach & reset",
+            "dishwasher": "Dishwasher - detach & reset", "door": "Door - detach & reset",
             "door_undercut": "Door - undercut",
         },
     ),

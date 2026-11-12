@@ -254,6 +254,18 @@ def test_items_start_on_only_where_the_sketch_makes_it_plain():
         assert not any(situational in keys for keys in on.values()), situational
 
 
+def test_a_dishwasher_is_priced_apart_from_the_appliances_pulled_out():
+    sketch = house()
+    sketch["levels"][0]["fixtures"].append({"id": "f5", "type": "dishwasher", "x": 25, "y": 1.2, "w": 2, "h": 2})
+    rooms = measured(sketch)
+    assert (rooms["kitchen"].appliance_count, rooms["kitchen"].dishwasher_count) == (2, 1)
+
+    kitchen = lines_of(calculate_estimate(estimate(sketch)), "Kitchen")
+    assert kitchen["appliance_detach_reset"]["quantity"] == 2
+    assert kitchen["dishwasher_detach_reset"]["quantity"] == 1
+    assert pricing.DETACH_RESET_RATES["dishwasher"] > pricing.DETACH_RESET_RATES["appliance"]
+
+
 def test_a_toilet_drawn_in_a_room_brings_its_detach_and_reset():
     est = estimate(room_scopes=scopes(bath={"included": True, "new_material": "porcelain_tile"}))
     bath = lines_of(calculate_estimate(est), "Bathroom")

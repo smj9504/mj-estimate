@@ -81,7 +81,10 @@ WebSearch로 해당 항목군의 **최근 원가/시장 동향**을 조사한다
 
 ### Flooring Estimate
 - `backend/app/domains/flooring_estimate/pricing.py` — `FLOORING_MATERIAL`·`FLOORING_INSTALL_LABOR`(자재별, carpet은 SY), `PAD_PRICES`, `REMOVAL_RATES`, `PREP_RATES`, `TRIM_RATES`, `DETACH_RESET_RATES`, `TRANSITION_RATES`, `STAIR_RATES`, `CONTENTS_RATES`, `GENERAL_RATES`. 어떤 표가 가격인지는 `flooring_estimate/price_catalog.py`. `WASTE_PCT`, `PATTERN_LABOR_MULTIPLIER`, `BOX_COVERAGE_SF`, carpet roll 규칙은 가격이 아니다.
-- 2026-11 초기값: Bathroom과 같은 작업(LVT/SPC, 타일, self-leveling, subfloor, 변기·vanity D&R, MDF base, quarter round, floor protection, dumpster)은 Bathroom 값과 일치시켜 두었다. 한쪽을 올리면 다른 쪽도 같이 볼 것. 나머지는 아직 리서치하지 않은 DMV 중간값이라 첫 업데이트 때 전부 검증 대상.
+- Bathroom과 같은 작업(LVT/SPC, 타일, self-leveling, subfloor, 변기·vanity D&R, MDF base, quarter round, floor protection, dumpster)은 Bathroom 값과 일치시켜 두었다. 한쪽을 올리면 다른 쪽도 같이 볼 것.
+- 2026-11-12 첫 리서치 업데이트: Flooring 전용 임시값 28개를 리서치 값으로 재설정(오르고 내린 것 섞임, 사용자 승인). 가전 D&R은 65로 내리고 식기세척기 D&R(`DETACH_RESET_RATES.dishwasher`, 280)을 따로 둠. 근거와 출처는 `pricing.py` 상단 History. 이제부터는 일반 절차대로 1~5% 범위.
+- Bathroom 공유 값은 그대로 두었지만 리서치는 다르게 나왔다(LVP 자재 ~4.00, 포세린 ~5.35, 타일 철거 ~4.00, self-leveling ~4.25, subfloor ~6.75, 변기 D&R ~290, vanity D&R ~325, MDF base ~7.50, quarter round ~3.40, dumpster ~550). **다음 Bathroom 업데이트 때 두 도메인 함께 검토할 것.**
+- 공개된 Northern Virginia Xactimate 단가표는 없다. 다른 지역 Xactimate 견적(Baltimore MDBA8X 2024, NJ 2021, Houston 2026, Boise 2025)을 Verisk 인건비 상승률로 보정하고, Homewyse ZIP 22030, Floor & Decor/Home Depot 목록, Fairfax dumpster 견적과 함께 봤다.
 - 부수 작업 항목(`items.py`)은 가격 경로(`TRIM_RATES.shoe_molding_per_lf` 등)만 참조한다. 키 이름을 바꾸면 견적에 저장된 선택과 회사 단가가 끊기니 절대 바꾸지 말 것.
 
 ### Packing Estimate

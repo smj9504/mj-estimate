@@ -167,6 +167,7 @@ export interface TakeoffRoom {
   toilet_count: number;
   vanity_count: number;
   appliance_count: number;
+  dishwasher_count: number;
   included: boolean;
   new_material: FloorMaterial | null;
   pattern: LayPattern;

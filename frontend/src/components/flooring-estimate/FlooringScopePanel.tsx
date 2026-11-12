@@ -31,7 +31,7 @@ const GROUP_ORDER = ['Flooring', 'Trim', 'Detach & Reset', 'Prep', 'Transitions'
 const ALWAYS_SHOWN = new Set(['Flooring', 'Trim']);
 /** Bases worth saying under an item: counts read off the sketch */
 const SAY_BASIS = new Set([
-  'toilet_count', 'vanity_count', 'appliance_count', 'door_count', 'exterior_door_count', 'transition_count', 'toe_kick_lf',
+  'toilet_count', 'vanity_count', 'appliance_count', 'dishwasher_count', 'door_count', 'exterior_door_count', 'transition_count', 'toe_kick_lf',
 ]);
 const UNITS = ['EA', 'SF', 'LF', 'SY', 'HR', 'LS'];
 

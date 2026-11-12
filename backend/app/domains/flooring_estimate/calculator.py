@@ -393,7 +393,8 @@ def room_rows(
         "floor_sf": m.floor_sf, "base_lf": m.base_lf, "toe_kick_lf": m.toe_kick_lf,
         "door_count": m.door_count, "exterior_door_count": m.exterior_door_count,
         "toilet_count": m.toilet_count, "vanity_count": m.vanity_count,
-        "appliance_count": m.appliance_count, "transition_count": len(transition_to),
+        "appliance_count": m.appliance_count, "dishwasher_count": m.dishwasher_count,
+        "transition_count": len(transition_to),
     }
     context = {**values, "new_material": scope.new_material, "any_removal": any_removal}
     job_room_items = job.get("room_items") or {}

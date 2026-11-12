@@ -146,7 +146,8 @@ class RoomMeasure:
     exterior_door_count: int = 0
     toilet_count: int = 0
     vanity_count: int = 0
-    appliance_count: int = 0
+    appliance_count: int = 0       # pulled out and pushed back: not dishwashers
+    dishwasher_count: int = 0
     openings: List[OpeningRef] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -234,6 +235,8 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
                 owner.toilet_count += 1
             elif kind == "vanity":
                 owner.vanity_count += 1
+            elif kind == "dishwasher":
+                owner.dishwasher_count += 1
             elif kind in APPLIANCE_TYPES:
                 owner.appliance_count += 1
             elif kind == "island":
