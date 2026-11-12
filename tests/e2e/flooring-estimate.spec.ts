@@ -91,3 +91,29 @@ test('calculating shows the priced estimate room by room', async ({ page }) => {
   await expect(result.getByTestId('result-__general__')).toContainText('Final cleaning - floors');
   await expect(result.getByTestId('grand-total')).toHaveText('$6,040.13');
 });
+
+test('a line priced from the price list', async ({ page }) => {
+  const api = await mockFlooringEstimateApi(page);
+  await page.goto(`/flooring-estimates/${ESTIMATE_ID}?tab=rooms`);
+  const living = page.getByTestId('room-scope-living');
+  await living.getByRole('combobox', { name: 'Add from the price list' }).click();
+  await page.keyboard.type('Quarter round');
+  // The visible option (antd also keeps a hidden one for screen readers)
+  await page.getByTitle('Quarter round - install & paint (LF)').click();
+  await expect(living.getByLabel('Custom line description')).toHaveValue('Quarter round - install & paint');
+  await expect(living.getByLabel('Custom line unit price')).toHaveAttribute('placeholder', '3.55');
+  await expect(living.getByText('price list', { exact: true })).toBeVisible();
+  await expect.poll(() => api.lastUpdate()?.room_scopes?.living?.custom_items?.[0])
+    .toMatchObject({ price_key: 'TRIM_RATES.quarter_round_per_lf', unit: 'LF', quantity: 1 });
+});
+
+test('the PDF downloads from the result', async ({ page }) => {
+  const api = await mockFlooringEstimateApi(page, 'calculated');
+  await page.goto(`/flooring-estimates/${ESTIMATE_ID}?tab=result`);
+  const download = page.waitForEvent('download');
+  await page.getByTestId('download-pdf').click();
+  expect((await download).suggestedFilename()).toBe('flooring_estimate_123_Example_St.pdf');
+  expect(api.pdfs).toBe(1);
+  // Opened calculated and unchanged: printed as it is, not recalculated
+  expect(api.calculations).toBe(0);
+});

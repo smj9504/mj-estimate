@@ -225,8 +225,17 @@ export interface MaterialInfo {
   removal_price: number;
 }
 
+export interface PriceListItem {
+  key: string;
+  label: string;
+  group: string;
+  unit: string;
+  unit_price: number;
+}
+
 export interface FlooringPricingInfo {
   materials: MaterialInfo[];
+  price_list: PriceListItem[];
   patterns: { key: LayPattern; label: string; labor_multiplier: number }[];
   pad_price: number;
   room_items: CatalogItem[];
