@@ -1,5 +1,5 @@
 """
-Company prices for the bathroom and kitchen cabinet estimates.
+Company prices for the bathroom, kitchen cabinet and flooring estimates.
 
 Behind the "unit_prices" screen. A company's prices can be read and
 changed by someone with that screen who belongs to the company (admins:

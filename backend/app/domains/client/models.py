@@ -300,6 +300,10 @@ class Claim(Base, BaseModel):
         "RoofingEstimate", back_populates="claim_ref",
         foreign_keys="RoofingEstimate.claim_id", lazy='select'
     )
+    flooring_estimates = relationship(
+        "FlooringEstimate", back_populates="claim_ref",
+        foreign_keys="FlooringEstimate.claim_id", lazy='select'
+    )
     payments = relationship(
         "ClaimPayment", back_populates="claim",
         cascade="all, delete-orphan", lazy='select',

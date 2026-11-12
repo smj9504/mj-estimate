@@ -1,7 +1,7 @@
 /**
- * Company prices — bathroom and kitchen cabinet estimates.
+ * Company prices — bathroom, kitchen cabinet and flooring estimates.
  *
- * Every price the two calculators use, with its default (from the code,
+ * Every price the calculators use, with its default (from the code,
  * updated monthly or quarterly) and the company's own material and labor.
  * An empty company cell follows the default. A company price applies to
  * estimates priced after it is saved: an estimate keeps the prices it was
@@ -54,6 +54,7 @@ type Side = 'material' | 'labor';
 const DOMAINS: { value: PriceDomain; label: string }[] = [
   { value: 'bathroom', label: 'Bathroom' },
   { value: 'cabinet', label: 'Kitchen Cabinet' },
+  { value: 'flooring', label: 'Flooring' },
 ];
 
 const KIND_TAGS: Record<PriceKind, { color: string; label: string }> = {

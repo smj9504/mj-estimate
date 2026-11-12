@@ -1,0 +1,554 @@
+"""A flooring estimate is priced room by room from its sketch. Every
+quantity is measured from the rooms (interior, wall to wall); the work that
+comes with a new floor (base trim, toilets, toe kicks, transitions...) is
+offered on every room, starts on only where the sketch makes it plain, and
+is the estimator's to switch, size and price. What the estimator chose
+lives in the scope, so it survives every recalculation. On a throwaway
+SQLite database where a database is needed."""
+
+import importlib.util
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+import uuid
+
+import pytest
+import sqlalchemy as sa
+from pydantic import ValidationError
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import sessionmaker
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import app.main  # noqa: E402,F401
+from app.core.database_factory import SQLAlchemySession, get_db_session  # noqa: E402
+from app.domains.auth.dependencies import get_current_staff  # noqa: E402
+from app.domains.client.models import Claim, Client  # noqa: E402
+from app.domains.company.models import Company  # noqa: E402
+from app.domains.flooring_estimate import pricing  # noqa: E402
+from app.domains.flooring_estimate.calculator import build_takeoff, calculate_estimate  # noqa: E402
+from app.domains.flooring_estimate.geometry import measure_sketch  # noqa: E402
+from app.domains.flooring_estimate.models import (  # noqa: E402
+    FlooringEstimate, FlooringEstimateHistory, FlooringEstimateLineItem,
+)
+from app.domains.flooring_estimate.schemas import (  # noqa: E402
+    FlooringEstimateCreate, FlooringEstimateUpdate, FlooringSketch, JobScope, RoomScope,
+)
+from app.domains.flooring_estimate.service import FlooringEstimateService  # noqa: E402
+from app.domains.staff.models import StaffRole  # noqa: E402
+from app.domains.unit_prices.models import PriceBook, UnitPriceChange, UnitPriceOverride  # noqa: E402
+from app.domains.unit_prices.service import UnitPriceService  # noqa: E402
+from app.domains.unit_prices.tables import use_prices  # noqa: E402
+
+
+@compiles(JSONB, 'sqlite')
+def _jsonb_on_sqlite(type_, compiler, **kw):
+    return 'JSON'
+
+
+# ── A small house: living room, L-shaped kitchen, hall, two bedrooms, a
+# closet and a bathroom, with 4.5" walls between them ──
+
+def P(*pts):
+    return [{"x": x, "y": y} for x, y in pts]
+
+
+def house(**level_extra):
+    level = {
+        "id": "main", "name": "Main Level",
+        "rooms": [
+            {"id": "living", "name": "Living Room", "points": P((0, 0), (15, 0), (15, 14.1667), (0, 14.1667))},
+            {"id": "kitchen", "name": "Kitchen", "points": P(
+                (15.375, 0), (29.375, 0), (29.375, 8), (25.375, 8), (25.375, 11.5), (15.375, 11.5))},
+            {"id": "hall", "name": "Hallway", "points": P((15.375, 11.875), (19.375, 11.875), (19.375, 24.0417), (15.375, 24.0417))},
+            {"id": "bed1", "name": "Bedroom 1", "points": P((0, 14.5417), (15, 14.5417), (15, 26.0417), (0, 26.0417))},
+            {"id": "closet", "name": "Closet", "subroom_of": "bed1",
+             "points": P((9.5, 26.4167), (15, 26.4167), (15, 28.4167), (9.5, 28.4167))},
+            {"id": "bed2", "name": "Bedroom 2", "points": P((19.75, 11.875), (29.375, 11.875), (29.375, 24.0417), (19.75, 24.0417))},
+            {"id": "bath", "name": "Bathroom", "points": P((15.375, 24.4167), (23.375, 24.4167), (23.375, 29.4167), (15.375, 29.4167))},
+        ],
+        "openings": [
+            {"id": "o1", "kind": "opening", "rooms": ["living", "kitchen"], "a": {"x": 15, "y": 2}, "b": {"x": 15, "y": 8}},
+            {"id": "o2", "kind": "exterior_door", "rooms": ["living", None], "a": {"x": 5, "y": 0}, "b": {"x": 8, "y": 0},
+             "swing": "living"},
+            {"id": "o3", "kind": "opening", "rooms": ["hall", "kitchen"], "a": {"x": 15.875, "y": 11.875}, "b": {"x": 18.875, "y": 11.875}},
+            {"id": "o4", "kind": "door", "rooms": ["hall", "bed1"], "a": {"x": 15.375, "y": 16}, "b": {"x": 15.375, "y": 18.5},
+             "swing": "bed1"},
+            {"id": "o5", "kind": "door", "rooms": ["hall", "bed2"], "a": {"x": 19.375, "y": 19}, "b": {"x": 19.375, "y": 21.5},
+             "swing": "bed2"},
+            {"id": "o6", "kind": "door", "rooms": ["hall", "bath"], "a": {"x": 16, "y": 24.0417}, "b": {"x": 18.5, "y": 24.0417},
+             "swing": "bath"},
+            {"id": "o7", "kind": "bifold", "rooms": ["bed1", "closet"], "a": {"x": 10, "y": 26.0417}, "b": {"x": 14.5, "y": 26.0417},
+             "swing": "closet"},
+        ],
+        "cabinet_runs": [{"id": "c1", "room_id": "kitchen", "a": {"x": 15.375, "y": 0}, "b": {"x": 29.375, "y": 0}}],
+        "fixtures": [
+            {"id": "f1", "type": "refrigerator", "x": 28, "y": 3, "w": 3, "h": 3},
+            {"id": "f2", "type": "range", "x": 22, "y": 1.2, "w": 2.5, "h": 2.2},
+            {"id": "f3", "type": "toilet", "x": 17, "y": 28, "w": 1.6, "h": 2.4},
+        ],
+    }
+    level.update(level_extra)
+    return {"version": 1, "units": "ft", "levels": [level]}
+
+
+def scopes(**changes):
+    base = {
+        "living": {"new_material": "lvp", "existing_material": "carpet"},
+        "kitchen": {"new_material": "lvp", "existing_material": "sheet_vinyl"},
+        "hall": {"new_material": "lvp", "existing_material": "carpet"},
+        "bed1": {"new_material": "carpet", "existing_material": "carpet"},
+        "closet": {"new_material": "carpet", "existing_material": "carpet"},
+        "bed2": {"included": False, "existing_material": "carpet"},
+        "bath": {"included": False, "existing_material": "ceramic_tile"},
+    }
+    for room, scope in changes.items():
+        base[room] = {**base.get(room, {}), **scope}
+    return base
+
+
+def estimate(sketch=None, room_scopes=None, job_scope=None, **fields):
+    values = {
+        "sketch_data": house() if sketch is None else sketch,
+        "room_scopes": scopes() if room_scopes is None else room_scopes,
+        "job_scope": job_scope or {},
+        "state": "VA", "zip_code": "22030",
+        "include_overhead_profit": False, "overhead_pct": 0.10, "profit_pct": 0.10,
+    }
+    values.update(fields)
+    return SimpleNamespace(**values)
+
+
+def measured(sketch=None):
+    return {m.room_id: m for m in measure_sketch(sketch or house())}
+
+
+def lines_of(result, room_name):
+    return {li["item_key"]: li for li in result["line_items"] if li["room_name"] == room_name}
+
+
+def row(estimate_, room_id, key):
+    t = build_takeoff(estimate_)
+    return next(r for r in t.rows[room_id] if r.key == key)
+
+
+# ── Measuring ──
+
+def test_a_room_is_measured_wall_to_wall_from_its_outline():
+    rooms = measured()
+    assert rooms["living"].floor_sf == pytest.approx(212.50, abs=0.01)
+    assert rooms["living"].perimeter_lf == pytest.approx(58.33, abs=0.01)
+    assert rooms["living"].floor_sy == pytest.approx(23.61, abs=0.01)
+    # The L-shaped kitchen: 14 x 8 plus 10 x 3'6"
+    assert rooms["kitchen"].floor_sf == pytest.approx(147.0)
+    assert rooms["kitchen"].perimeter_lf == pytest.approx(51.0)
+    assert rooms["living"].wall_sf == pytest.approx(58.33 * 8, abs=0.1)
+
+
+def test_baseboard_runs_the_perimeter_less_doorways_and_cabinets():
+    rooms = measured()
+    # Living room: a 6' opening to the kitchen and a 3' front door
+    assert rooms["living"].base_lf == pytest.approx(58.33 - 9, abs=0.01)
+    # Kitchen: those, the 3' opening to the hall, and 14' of base cabinets
+    assert rooms["kitchen"].base_lf == pytest.approx(51 - 6 - 3 - 14)
+    assert rooms["kitchen"].toe_kick_lf == pytest.approx(14)
+    assert rooms["hall"].base_lf == pytest.approx(32.33 - 3 - 2.5 * 3, abs=0.01)
+
+
+def test_a_door_belongs_to_the_room_it_swings_into():
+    rooms = measured()
+    assert (rooms["living"].door_count, rooms["living"].exterior_door_count) == (1, 1)
+    assert rooms["hall"].door_count == 0
+    assert rooms["bed1"].door_count == 1
+    assert rooms["closet"].door_count == 1
+
+
+def test_fixtures_count_in_the_room_they_stand_in_and_an_island_takes_its_floor():
+    sketch = house()
+    sketch["levels"][0]["fixtures"].append({"id": "f4", "type": "island", "x": 20, "y": 5, "w": 6, "h": 3})
+    rooms = measured(sketch)
+    assert rooms["kitchen"].appliance_count == 2
+    assert rooms["bath"].toilet_count == 1
+    assert rooms["kitchen"].floor_sf == pytest.approx(147 - 18)
+    assert rooms["kitchen"].toe_kick_lf == pytest.approx(14 + 18)
+
+    sketch["levels"][0]["fixtures"][-1]["floor_under"] = True
+    assert measured(sketch)["kitchen"].floor_sf == pytest.approx(147)
+
+
+def test_a_closet_comes_right_after_its_room():
+    order = [m.room_id for m in measure_sketch(house())]
+    assert order.index("closet") == order.index("bed1") + 1
+
+
+# ── The room's own floor ──
+
+def test_new_floor_takes_waste_and_says_how_many_boxes():
+    living = lines_of(calculate_estimate(estimate()), "Living Room")
+    lvp = living["install"]
+    assert lvp["quantity"] == pytest.approx(233.75)
+    assert lvp["notes"] == "Incl. 10% waste · order 12 boxes @ 20 SF"
+    assert living["removal"]["description"] == "Remove carpet & pad"
+    assert living["removal"]["quantity"] == pytest.approx(212.5)
+
+
+def test_a_pattern_adds_waste_and_labor():
+    est = estimate(room_scopes=scopes(living={"pattern": "herringbone"}))
+    lvp = row(est, "living", "install")
+    assert lvp.qty == pytest.approx(212.5 * 1.20, abs=0.01)
+    assert "herringbone" in lvp.label
+    material, labor = pricing.FLOORING_MATERIAL["lvp"], pricing.FLOORING_INSTALL_LABOR["lvp"]
+    assert lvp.unit_price == pytest.approx(material + labor * 1.40)
+
+
+def test_carpet_wide_enough_for_the_roll_is_priced_by_its_cut_and_a_closet_by_waste():
+    result = calculate_estimate(estimate())
+    bedroom = lines_of(result, "Bedroom 1")["install"]
+    # 11'6" across fits one 12' drop; 15' + 3" trim long
+    assert bedroom["unit"] == "SY"
+    assert bedroom["quantity"] == pytest.approx(15.25 * 12 / 9, abs=0.01)
+    assert bedroom["notes"] == "12' roll · 1 cut 15' 3\" incl. trim · no seam"
+    closet = lines_of(result, "Closet")["install"]
+    assert closet["quantity"] == pytest.approx(11 * 1.15 / 9, abs=0.01)
+    assert "remnant" in closet["notes"]
+    assert lines_of(result, "Bedroom 1")["pad"]["quantity"] == pytest.approx(172.5 * 1.05 / 9, abs=0.01)
+
+
+def test_a_room_can_be_torn_out_without_a_new_floor():
+    est = estimate(room_scopes=scopes(hall={"items": {"install": {"on": False}}}))
+    result = calculate_estimate(est)
+    hall = lines_of(result, "Hallway")
+    assert "install" not in hall and "removal" in hall
+    assert not any("Hallway" in w for w in result["warning_flags"])
+
+
+def test_a_room_with_no_floor_picked_is_flagged():
+    est = estimate(room_scopes=scopes(hall={"new_material": None}))
+    est.room_scopes["hall"].pop("new_material")
+    assert any(w.startswith("Hallway:") for w in calculate_estimate(est)["warning_flags"])
+
+
+def test_the_job_default_floor_fills_rooms_that_have_none():
+    est = estimate(
+        room_scopes={"bed2": {"included": False}, "bath": {"included": False}},
+        job_scope={"defaults": {"new_material": "laminate", "existing_material": "carpet"}},
+    )
+    living = lines_of(calculate_estimate(est), "Living Room")
+    assert living["install"]["description"].startswith("Laminate")
+    # Laminate floats over an underlayment roll: that starts on
+    assert "underlayment" in living
+
+
+# ── The work that comes with it ──
+
+def test_items_start_on_only_where_the_sketch_makes_it_plain():
+    t = build_takeoff(estimate())
+    on = {room: {r.key for r in rows if r.on} for room, rows in t.rows.items()}
+    assert "baseboard_detach_reset" in on["living"]          # new hard floor
+    assert "tack_strip" in on["bed1"]                         # new carpet
+    assert "baseboard_detach_reset" not in on["bed1"]
+    assert "appliance_detach_reset" in on["kitchen"]          # fridge and range drawn
+    assert "transition" in on["hall"]
+    for situational in ("shoe_molding", "quarter_round", "toe_kick_detach_reset", "door_undercut",
+                        "vanity_detach_reset", "contents_move", "self_leveling"):
+        assert not any(situational in keys for keys in on.values()), situational
+
+
+def test_a_toilet_drawn_in_a_room_brings_its_detach_and_reset():
+    est = estimate(room_scopes=scopes(bath={"included": True, "new_material": "porcelain_tile"}))
+    bath = lines_of(calculate_estimate(est), "Bathroom")
+    assert bath["toilet_detach_reset"]["quantity"] == 1
+    assert "cement_board" in bath
+
+
+def test_trim_and_toe_kicks_are_measured_from_the_sketch():
+    est = estimate(room_scopes=scopes(kitchen={"items": {
+        "toe_kick_detach_reset": {"on": True}, "shoe_molding": {"on": True},
+        "baseboard_detach_reset": {"on": False},
+    }}))
+    kitchen = lines_of(calculate_estimate(est), "Kitchen")
+    assert kitchen["toe_kick_detach_reset"]["quantity"] == pytest.approx(14)
+    assert kitchen["shoe_molding"]["quantity"] == pytest.approx(28)
+    assert "baseboard_detach_reset" not in kitchen
+
+
+def test_a_room_choice_beats_the_job_choice_beats_the_default():
+    est = estimate(
+        room_scopes=scopes(hall={"items": {"shoe_molding": {"on": False}}}),
+        job_scope={"room_items": {"shoe_molding": {"on": True}, "baseboard_detach_reset": {"on": False}}},
+    )
+    t = build_takeoff(est)
+    shoe = {room: next(r for r in rows if r.key == "shoe_molding") for room, rows in t.rows.items()}
+    assert (shoe["living"].on, shoe["living"].on_source) == (True, "job")
+    assert (shoe["hall"].on, shoe["hall"].on_source) == (False, "room")
+    base = next(r for r in t.rows["living"] if r.key == "baseboard_detach_reset")
+    assert (base.on, base.default_on, base.on_source) == (False, True, "job")
+
+
+def test_transitions_go_where_the_floor_changes():
+    result = calculate_estimate(estimate())
+    hall = lines_of(result, "Hallway")["transition"]
+    assert hall["quantity"] == 3
+    assert hall["notes"] == "To Bedroom 1 (carpet), Bedroom 2 (carpet - existing), Bathroom (ceramic - existing)"
+    # LVP to LVP needs none, and a front door takes a threshold, not a transition
+    assert "transition" not in lines_of(result, "Living Room")
+    assert "transition" not in lines_of(result, "Kitchen")
+
+
+def test_rooms_left_out_have_no_lines():
+    rooms = {li["room_name"] for li in calculate_estimate(estimate())["line_items"]}
+    assert {"Bedroom 2", "Bathroom"}.isdisjoint(rooms)
+
+
+def test_the_general_section_covers_the_job():
+    result = calculate_estimate(estimate())
+    general = lines_of(result, "General")
+    assert general["haul_debris"]["quantity"] == 1
+    floored = 212.5 + 147 + 48.6668 + 172.5 + 11
+    assert general["final_clean"]["quantity"] == pytest.approx(floored, abs=0.01)
+    assert "dumpster" not in general
+
+
+# ── Prices ──
+
+def test_a_typed_quantity_and_price_are_used_as_entered():
+    est = estimate(
+        room_scopes=scopes(living={"items": {"baseboard_detach_reset": {"qty": 40, "unit_price": 3.10, "note": "Front wall only"}}}),
+        include_overhead_profit=True,
+    )
+    base = lines_of(calculate_estimate(est), "Living Room")["baseboard_detach_reset"]
+    assert (base["quantity"], base["unit_price"], base["total"]) == (40, 3.10, 124.0)
+    assert base["notes"] == "Front wall only"
+
+
+def test_catalog_prices_carry_material_tax_and_op_folded_in():
+    plain = lines_of(calculate_estimate(estimate()), "Living Room")["install"]
+    material, labor = pricing.FLOORING_MATERIAL["lvp"], pricing.FLOORING_INSTALL_LABOR["lvp"]
+    # Northern Virginia: 6% on the material part only
+    assert plain["unit_price"] == pytest.approx(round(material * 1.06 + labor, 2))
+    with_op = lines_of(calculate_estimate(estimate(include_overhead_profit=True)), "Living Room")["install"]
+    assert with_op["unit_price"] == pytest.approx(round((material * 1.06 + labor) * 1.21, 2))
+    removal = lines_of(calculate_estimate(estimate()), "Living Room")["removal"]
+    assert removal["unit_price"] == pytest.approx(pricing.REMOVAL_RATES["carpet"])  # labor: no tax
+
+
+def test_custom_items_on_a_room_and_on_the_job():
+    est = estimate(
+        room_scopes=scopes(kitchen={"custom_items": [
+            {"id": "c1", "description": "Detach & reset island countertop", "quantity": 1, "unit": "EA", "unit_price": 350},
+            {"id": "c2", "description": "Floor leveling - pantry", "quantity": 12, "unit": "SF",
+             "price_key": "PREP_RATES.self_leveling_per_sf"},
+            {"id": "c3", "description": "Ask the adjuster", "quantity": 1},
+        ]}),
+        job_scope={"custom_items": [{"description": "Permit allowance", "quantity": 1, "unit_price": 150}]},
+    )
+    result = calculate_estimate(est)
+    kitchen = lines_of(result, "Kitchen")
+    assert (kitchen["c1"]["total"], kitchen["c1"]["source"]) == (350, "custom")
+    leveling = pricing.PREP_RATES["self_leveling_per_sf"]
+    share = 0.40
+    assert kitchen["c2"]["unit_price"] == pytest.approx(round(leveling * (1 + share * 0.06), 2))
+    assert '"Ask the adjuster" has no price' in " ".join(result["warning_flags"])
+    assert lines_of(result, "General")["custom_1"]["total"] == 150
+
+
+def test_a_price_book_prices_the_estimate():
+    with use_prices({"FLOORING_MATERIAL.lvp": [6.00, 0], "TRIM_RATES.baseboard_detach_reset_per_lf": [0, 3.00]}):
+        living = lines_of(calculate_estimate(estimate()), "Living Room")
+    assert living["install"]["unit_price"] == pytest.approx(round(6.00 * 1.06 + pricing.FLOORING_INSTALL_LABOR["lvp"], 2))
+    assert living["baseboard_detach_reset"]["unit_price"] == 3.00
+
+
+def test_the_total_is_the_sum_of_lines_each_qty_times_price():
+    result = calculate_estimate(estimate(include_overhead_profit=True))
+    assert result["total"] == pytest.approx(sum(li["total"] for li in result["line_items"]), abs=0.005)
+    for li in result["line_items"]:
+        assert li["total"] == pytest.approx(round(li["quantity"] * li["unit_price"], 2), abs=0.005)
+    room_totals = sum(r["total"] for r in result["rooms"]) + result["general_total"]
+    assert room_totals == pytest.approx(result["total"], abs=0.01)
+
+
+# ── What the estimator may send ──
+
+def test_a_sketch_has_to_hang_together():
+    FlooringSketch.model_validate(house())
+    bad_opening = house()
+    bad_opening["levels"][0]["openings"].append(
+        {"id": "o9", "kind": "door", "rooms": ["living", "garage"], "a": {"x": 0, "y": 1}, "b": {"x": 0, "y": 4}})
+    with pytest.raises(ValidationError, match="isn't drawn"):
+        FlooringSketch.model_validate(bad_opening)
+    two_points = house()
+    two_points["levels"][0]["rooms"][0]["points"] = P((0, 0), (1, 1))
+    with pytest.raises(ValidationError):
+        FlooringSketch.model_validate(two_points)
+
+
+def test_unknown_items_and_floors_are_refused():
+    with pytest.raises(ValidationError, match="Unknown room item"):
+        RoomScope.model_validate({"items": {"shoe_moulding": {"on": True}}})
+    with pytest.raises(ValidationError, match="Unknown floor"):
+        RoomScope.model_validate({"new_material": "bamboo"})
+    with pytest.raises(ValidationError, match="Unknown general item"):
+        JobScope.model_validate({"items": {"tack_strip": {"on": True}}})
+    with pytest.raises(ValidationError, match="set on the room"):
+        JobScope.model_validate({"room_items": {"shoe_molding": {"qty": 20}}})
+
+
+# ── Saved estimates ──
+
+@pytest.fixture
+def session(tmp_path):
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'floor.db'}")
+    for model in (PriceBook, UnitPriceOverride, UnitPriceChange, Company, Client, Claim,
+                  FlooringEstimate, FlooringEstimateLineItem, FlooringEstimateHistory):
+        model.__table__.create(engine)
+    s = SQLAlchemySession(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)())
+    yield s
+    s.close()
+
+
+@pytest.fixture
+def service(session):
+    return FlooringEstimateService(session)
+
+
+def new_estimate(service, **fields):
+    return service.create_estimate(FlooringEstimateCreate(
+        property_address="123 Example St", city="Anytown", state="VA", zip_code="22030",
+        sketch_data=house(), room_scopes=scopes(), **fields,
+    ))
+
+
+def test_an_estimate_shows_every_room_and_item_before_it_is_calculated(service):
+    est = new_estimate(service)
+    assert est["status"] == "draft" and est["kind"] == "restore" and est["group_id"] == est["id"]
+    rooms = {r["room_id"]: r for r in est["takeoff"]["rooms"]}
+    assert rooms["living"]["floor_sf"] == pytest.approx(212.5)
+    keys = [item["key"] for item in rooms["living"]["items"]]
+    assert {"install", "removal", "shoe_molding", "toilet_detach_reset", "toe_kick_detach_reset"} <= set(keys)
+    shoe = next(item for item in rooms["living"]["items"] if item["key"] == "shoe_molding")
+    assert (shoe["on"], shoe["auto_qty"], shoe["estimated_total"]) == (False, pytest.approx(49.33, abs=0.01), 0.0)
+
+
+def test_choices_survive_recalculation(service):
+    est = new_estimate(service)
+    first = service.calculate(est["id"])
+    assert first["status"] == "calculated"
+    assert first["total"] == pytest.approx(sum(li["total"] for li in first["line_items"]), abs=0.01)
+    assert {r["room_id"] for r in first["calculated_rooms"]} == {"living", "kitchen", "hall", "bed1", "closet"}
+
+    service.update_estimate(est["id"], FlooringEstimateUpdate(room_scopes=scopes(kitchen={
+        "items": {"toe_kick_detach_reset": {"on": True}},
+        "custom_items": [{"id": "c1", "description": "Detach & reset island countertop", "unit_price": 350}],
+    })))
+    second = service.calculate(est["id"])
+    third = service.calculate(est["id"])
+    for result in (second, third):
+        kitchen = {li["item_key"] for li in result["line_items"] if li["room_name"] == "Kitchen"}
+        assert {"toe_kick_detach_reset", "c1"} <= kitchen
+    assert third["total"] == pytest.approx(second["total"])
+    assert len(service.get_history(est["id"])) == 3
+
+
+def test_the_sketch_saves_on_its_own_and_the_quantities_follow_it(service):
+    est = new_estimate(service)
+    bigger = house()
+    bigger["levels"][0]["rooms"][0]["points"] = P((0, 0), (16, 0), (16, 14.1667), (0, 14.1667))
+    saved = service.save_sketch(est["id"], FlooringSketch.model_validate(bigger))
+    living = next(r for r in saved["takeoff"]["rooms"] if r["room_id"] == "living")
+    assert living["floor_sf"] == pytest.approx(16 * 14.1667, abs=0.01)
+    assert saved["room_scopes"]["living"]["new_material"] == "lvp"
+
+
+def test_an_estimate_keeps_its_prices_until_asked_to_move(service, session):
+    company = Company(name="Sample Co")
+    session.add(company)
+    session.flush()
+    est = new_estimate(service, company_id=str(company.id))
+    first = service.calculate(est["id"])
+    lvp_price = lines_of(first, "Living Room")["install"]["unit_price"]
+
+    UnitPriceService(session).save("flooring", str(company.id), {"FLOORING_MATERIAL.lvp": {"material": 7.00}})
+    again = service.calculate(est["id"])
+    assert lines_of(again, "Living Room")["install"]["unit_price"] == lvp_price
+    assert again["price_book"]["is_current"] is False
+
+    moved = service.use_current_prices(est["id"])
+    labor = pricing.FLOORING_INSTALL_LABOR["lvp"]
+    assert lines_of(moved, "Living Room")["install"]["unit_price"] == pytest.approx(round(7.00 * 1.06 + labor, 2))
+    assert moved["price_book"]["is_current"] is True
+
+
+def test_a_clone_is_a_new_draft_with_the_same_scope_priced_afresh(service):
+    est = new_estimate(service)
+    service.calculate(est["id"])
+    clone = service.clone_estimate(est["id"])
+    assert clone["id"] != est["id"] and clone["group_id"] == clone["id"]
+    assert clone["status"] == "draft"
+    assert clone["room_scopes"] == service.get_estimate(est["id"])["room_scopes"]
+    assert len(clone["line_items"]) == len(service.get_estimate(est["id"])["line_items"])
+    assert clone["price_book"] is None
+
+
+def test_the_api_creates_calculates_and_lists(session):
+    from fastapi.testclient import TestClient
+
+    def use_db():
+        yield session
+
+    app.main.app.dependency_overrides[get_db_session] = use_db
+    app.main.app.dependency_overrides[get_current_staff] = lambda: SimpleNamespace(
+        id=str(uuid.uuid4()), role=StaffRole.admin,
+    )
+    try:
+        client = TestClient(app.main.app)
+        created = client.post("/api/flooring-estimates", json={
+            "property_address": "123 Example St", "state": "VA", "zip_code": "22030",
+            "sketch_data": house(), "room_scopes": scopes(),
+        })
+        assert created.status_code == 200, created.text
+        estimate_id = created.json()["id"]
+
+        refused = client.put(f"/api/flooring-estimates/{estimate_id}",
+                             json={"room_scopes": {"living": {"items": {"nope": {"on": True}}}}})
+        assert refused.status_code == 422
+
+        calculated = client.post(f"/api/flooring-estimates/{estimate_id}/calculate")
+        assert calculated.status_code == 200, calculated.text
+        assert calculated.json()["line_items"]
+
+        info = client.get("/api/flooring-estimates/pricing-info", params={"estimate_id": estimate_id})
+        assert info.status_code == 200
+        assert {m["key"] for m in info.json()["materials"]} == set(pricing.MATERIALS)
+
+        listed = client.get("/api/flooring-estimates")
+        assert [e["id"] for e in listed.json()["items"]] == [estimate_id]
+    finally:
+        app.main.app.dependency_overrides.pop(get_db_session, None)
+        app.main.app.dependency_overrides.pop(get_current_staff, None)
+
+
+# ── The migration ──
+
+def test_the_migration_makes_the_tables_the_models_describe(tmp_path):
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    from app.domains.staff.models import Staff
+
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "flr20261112tb01_add_flooring_estimate_tables.py"
+    spec = importlib.util.spec_from_file_location("flooring_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'migrate.db'}")
+    for model in (PriceBook, Company, Client, Claim, Staff):
+        model.__table__.create(engine)
+    with engine.begin() as conn:
+        migration.op = Operations(MigrationContext.configure(conn))
+        migration.upgrade()
+        migration.upgrade()  # again: tables the app already made are left alone
+        inspector = sa.inspect(conn)
+        for model in (FlooringEstimate, FlooringEstimateLineItem, FlooringEstimateHistory):
+            made = {c["name"] for c in inspector.get_columns(model.__tablename__)}
+            assert made == {c.name for c in model.__table__.columns}, model.__tablename__
