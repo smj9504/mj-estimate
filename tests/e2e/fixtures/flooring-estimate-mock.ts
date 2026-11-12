@@ -37,6 +37,7 @@ export interface EstimateApi {
   updates: Record<string, any>[];
   calculations: number;
   created: number;
+  pdfs: number;
   lastUpdate(): Record<string, any> | undefined;
 }
 
@@ -52,6 +53,7 @@ export async function mockFlooringEstimateApi(page: Page, start: 'draft' | 'calc
     updates: [],
     calculations: 0,
     created: 0,
+    pdfs: 0,
     lastUpdate() {
       return this.updates[this.updates.length - 1];
     },
@@ -70,6 +72,15 @@ export async function mockFlooringEstimateApi(page: Page, start: 'draft' | 'calc
       api.calculations += 1;
       current = { ...structuredClone(CALCULATED), room_scopes: current.room_scopes, job_scope: current.job_scope };
       return json(route, current);
+    }
+    if (p.endsWith(`${base}/${ESTIMATE_ID}/export/pdf`)) {
+      api.pdfs += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/pdf',
+        headers: { 'content-disposition': 'attachment; filename="flooring_estimate_123_Example_St.pdf"' },
+        body: '%PDF-1.4\n%%EOF\n',
+      });
     }
     if (p.endsWith(`${base}/${ESTIMATE_ID}/sketch`)) {
       current = { ...current, sketch_data: route.request().postDataJSON().sketch_data };

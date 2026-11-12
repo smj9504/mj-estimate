@@ -520,9 +520,89 @@ def test_the_api_creates_calculates_and_lists(session):
         info = client.get("/api/flooring-estimates/pricing-info", params={"estimate_id": estimate_id})
         assert info.status_code == 200
         assert {m["key"] for m in info.json()["materials"]} == set(pricing.MATERIALS)
+        shoe = next(p for p in info.json()["price_list"] if p["key"] == "TRIM_RATES.shoe_molding_per_lf")
+        assert (shoe["unit"], shoe["unit_price"]) == ("LF", pricing.TRIM_RATES["shoe_molding_per_lf"])
 
         listed = client.get("/api/flooring-estimates")
         assert [e["id"] for e in listed.json()["items"]] == [estimate_id]
+    finally:
+        app.main.app.dependency_overrides.pop(get_db_session, None)
+        app.main.app.dependency_overrides.pop(get_current_staff, None)
+
+
+# ── The PDF ──
+
+def _pdf_text(pdf) -> str:
+    from pypdf import PdfReader
+    return "\n".join(page.extract_text() for page in PdfReader(pdf).pages)
+
+
+def test_the_pdf_prints_each_room_with_its_sketch_measurements_and_lines_then_the_plan(service):
+    from app.domains.flooring_estimate.export_service import FlooringExportService
+
+    est = new_estimate(service)
+    service.calculate(est["id"])
+    text = _pdf_text(FlooringExportService().generate_pdf(service.get_estimate(est["id"])))
+    assert "FLOORING ESTIMATE" in text
+    for room in ("Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet"):
+        assert f"Totals: {room}" in text, room
+    # The measurements beside each room's sketch, and the sketch's own wall lengths
+    for label in ("SF Floor", "SY Flooring", "LF Floor Perimeter", "LF Baseboard", "SF Walls"):
+        assert label in text, label
+    assert "15' 0\"" in text and "14' 2\"" in text
+    assert "Totals: General" in text and "GRAND TOTAL" in text
+    # The plan, with the rooms left out marked
+    assert "Floor Plan" in text and "Main Level" in text
+    assert "Not in scope" in text
+    assert "Bedroom 2" in text
+
+
+def test_a_room_drawing_is_cropped_to_the_room_and_labelled(service):
+    from app.domains.flooring_estimate.floorplan_drawing import room_thumbnail
+
+    level = house()["levels"][0]
+    kitchen = next(r for r in level["rooms"] if r["id"] == "kitchen")
+    drawing = room_thumbnail(level, kitchen, 148, 124, "lvp")
+    assert (drawing.width, drawing.height) == (148, 124)
+
+    texts = []
+
+    def walk(node):
+        for child in getattr(node, "contents", []):
+            if hasattr(child, "text"):
+                texts.append(child.text)
+            walk(child)
+
+    walk(drawing)
+    assert "Kitchen" in texts
+    # Every wall of the L, the short ones too
+    for length in ("14' 0\"", "8' 0\"", "4' 0\"", "3' 6\"", "10' 0\"", "11' 6\""):
+        assert length in texts, length
+
+
+def test_the_pdf_waits_for_a_calculation(session):
+    from fastapi.testclient import TestClient
+
+    def use_db():
+        yield session
+
+    app.main.app.dependency_overrides[get_db_session] = use_db
+    app.main.app.dependency_overrides[get_current_staff] = lambda: SimpleNamespace(
+        id=str(uuid.uuid4()), role=StaffRole.admin,
+    )
+    try:
+        client = TestClient(app.main.app)
+        estimate_id = client.post("/api/flooring-estimates", json={
+            "property_address": "123 Example St", "sketch_data": house(), "room_scopes": scopes(),
+        }).json()["id"]
+        early = client.get(f"/api/flooring-estimates/{estimate_id}/export/pdf")
+        assert early.status_code == 400
+        client.post(f"/api/flooring-estimates/{estimate_id}/calculate")
+        pdf = client.get(f"/api/flooring-estimates/{estimate_id}/export/pdf")
+        assert pdf.status_code == 200
+        assert pdf.headers["content-type"] == "application/pdf"
+        assert 'filename="flooring_estimate_123_Example_St.pdf"' in pdf.headers["content-disposition"]
+        assert pdf.content.startswith(b"%PDF")
     finally:
         app.main.app.dependency_overrides.pop(get_db_session, None)
         app.main.app.dependency_overrides.pop(get_current_staff, None)

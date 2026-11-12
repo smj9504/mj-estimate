@@ -7,9 +7,11 @@ off, a quantity or price typed in, a custom item), never edited directly.
 """
 
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
@@ -185,6 +187,31 @@ def clone_estimate(
 ):
     _require_estimate(session, current_user, estimate_id)
     return _found(FlooringEstimateService(session).clone_estimate(estimate_id, created_by_id=current_user.id))
+
+
+@router.get("/{estimate_id}/export/pdf")
+def export_pdf(
+    estimate_id: str,
+    show_signature: bool = Query(True),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The estimate as a PDF: room by room with each room's sketch, then the
+    plan of every level. It prints what was last calculated."""
+    _require_estimate(session, current_user, estimate_id)
+    from .export_service import FlooringExportService
+
+    estimate = _found(FlooringEstimateService(session).get_estimate(estimate_id))
+    if not estimate.get("line_items"):
+        raise HTTPException(status_code=400, detail="Calculate the estimate first: it has no lines to print yet.")
+    pdf = FlooringExportService().generate_pdf(estimate, show_signature=show_signature)
+    street = re.sub(r"[^A-Za-z0-9]+", "_", estimate.get("property_address") or "").strip("_")[:40]
+    name = f"flooring_estimate_{street or estimate_id[:8]}.pdf"
+    return Response(
+        content=pdf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 @router.get("/{estimate_id}/history", response_model=list[HistoryResponse])

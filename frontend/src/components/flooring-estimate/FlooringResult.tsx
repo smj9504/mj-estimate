@@ -4,8 +4,8 @@
  */
 
 import React, { useMemo } from 'react';
-import { Alert, Button, Empty, Grid, List, Table, Typography } from 'antd';
-import { CalculatorOutlined } from '@ant-design/icons';
+import { Alert, Button, Empty, Grid, List, Space, Table, Typography } from 'antd';
+import { CalculatorOutlined, FilePdfOutlined } from '@ant-design/icons';
 import type { FlooringEstimate, FlooringLineItem } from '../../types/flooringEstimate';
 import PriceBookNotice from '../common/PriceBookNotice';
 
@@ -44,9 +44,11 @@ interface ResultProps {
   stale: boolean;
   calculating: boolean;
   onCalculate: () => void;
+  downloading?: boolean;
+  onPdf?: () => void;
 }
 
-const FlooringResult: React.FC<ResultProps> = ({ estimate, stale, calculating, onCalculate }) => {
+const FlooringResult: React.FC<ResultProps> = ({ estimate, stale, calculating, onCalculate, downloading, onPdf }) => {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const grouped = useMemo(() => sections(estimate.line_items || []), [estimate.line_items]);
@@ -67,6 +69,14 @@ const FlooringResult: React.FC<ResultProps> = ({ estimate, stale, calculating, o
 
   return (
     <div data-testid="flooring-result">
+      {onPdf && (
+        <Space style={{ marginBottom: 12 }}>
+          <Button icon={<FilePdfOutlined />} loading={downloading} onClick={onPdf} data-testid="download-pdf">
+            PDF
+          </Button>
+          <Text type="secondary" style={{ fontSize: 12 }}>Room by room with each room&apos;s sketch, then the floor plan</Text>
+        </Space>
+      )}
       <PriceBookNotice domain="flooring" estimateId={estimate.id} priceBook={estimate.price_book}
         refreshKeys={[['flooring-estimate', estimate.id]]} />
       {stale && (

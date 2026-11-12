@@ -108,6 +108,20 @@ const Workspace: React.FC<{ initial: FlooringEstimate }> = ({ initial }) => {
     onError: (err: any) => message.error(err?.response?.data?.detail || "It couldn't be calculated"),
   });
 
+  const pdf = useMutation({
+    mutationFn: async () => {
+      // The PDF prints the last calculation: bring it up to date first
+      if (stale) {
+        await sketchSave.current?.();
+        await saveNow();
+        showSaved(await flooringEstimateService.calculate(id));
+        setStale(false);
+      }
+      await flooringEstimateService.downloadPdf(id);
+    },
+    onError: () => message.error("The PDF couldn't be made"),
+  });
+
   // Opened on a calculated estimate, the result is current
   useEffect(() => {
     setStale(initial.status !== 'calculated' && (initial.line_items || []).length > 0);
@@ -184,7 +198,7 @@ const Workspace: React.FC<{ initial: FlooringEstimate }> = ({ initial }) => {
             label: 'Result',
             children: (
               <FlooringResult estimate={estimate} stale={stale} calculating={calculate.isPending}
-                onCalculate={() => calculate.mutate()} />
+                onCalculate={() => calculate.mutate()} downloading={pdf.isPending} onPdf={() => pdf.mutate()} />
             ),
           },
         ]}

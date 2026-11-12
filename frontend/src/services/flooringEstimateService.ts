@@ -12,6 +12,19 @@ import type {
 
 const BASE_URL = '/api/flooring-estimates';
 
+/** Save a PDF the API sent, named by its Content-Disposition (or `fallback`) */
+function savePdf(response: { data: BlobPart; headers?: Record<string, string> }, fallback: string) {
+  const match = response.headers?.['content-disposition']?.match(/filename="?([^";\n]+)"?/);
+  const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', match?.[1] || fallback);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export interface FlooringEstimateUpdate {
   claim_id?: string | null;
   company_id?: string | null;
@@ -89,6 +102,15 @@ export const flooringEstimateService = {
   async history(id: string) {
     const { data } = await api.get(`${BASE_URL}/${id}/history`);
     return data;
+  },
+
+  /** Download the estimate's PDF: room by room with each room's sketch, then the plan */
+  async downloadPdf(id: string, showSignature = true) {
+    const response = await api.get(`${BASE_URL}/${id}/export/pdf`, {
+      params: { show_signature: showSignature },
+      responseType: 'blob',
+    });
+    savePdf(response as { data: BlobPart; headers?: Record<string, string> }, `flooring_estimate_${id.slice(0, 8)}.pdf`);
   },
 
   async pricingInfo(estimateId?: string) {

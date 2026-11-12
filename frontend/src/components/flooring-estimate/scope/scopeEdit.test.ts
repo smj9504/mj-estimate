@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TakeoffItem } from '../../../types/flooringEstimate';
 import {
-  addCustom, removeCustom, resetRoomItem, setGeneralItem, setJobDefaults, setJobRoomItem, setRoomField,
+  addCustom, addPricedCustom, customPrice, removeCustom, resetRoomItem, setGeneralItem, setJobDefaults, setJobRoomItem, setRoomField,
   setRoomItem, shownItem, updateCustom,
 } from './scopeEdit';
 
@@ -88,5 +88,20 @@ describe('what an item shows', () => {
     const on = shownItem(item(), { on: true }, undefined, 3.75);
     expect(on.total).toBeCloseTo(49.33 * 3.75, 2);
     expect(shownItem(item(), undefined, undefined, 3.75).total).toBe(0);
+  });
+});
+
+describe('lines from the price list', () => {
+  const prices = new Map([['TRIM_RATES.shoe_molding_per_lf', 3.75]]);
+
+  it('take the list price until one is typed', () => {
+    const [line] = addPricedCustom(undefined, { key: 'TRIM_RATES.shoe_molding_per_lf', label: 'Shoe molding', unit: 'LF' });
+    expect(line).toMatchObject({ description: 'Shoe molding', unit: 'LF', quantity: 1, price_key: 'TRIM_RATES.shoe_molding_per_lf', unit_price: null });
+    expect(customPrice(line, prices)).toBe(3.75);
+    expect(customPrice({ ...line, unit_price: 4 }, prices)).toBe(4);
+  });
+
+  it('count a plain line with no price as nothing', () => {
+    expect(customPrice({ description: 'x', quantity: 1, unit: 'EA' }, prices)).toBe(0);
   });
 });

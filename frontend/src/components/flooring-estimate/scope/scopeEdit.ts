@@ -78,6 +78,19 @@ export function addCustom(list: CustomItem[] | undefined): CustomItem[] {
   return [...(list || []), { id: customId(), description: 'New line', quantity: 1, unit: 'EA', unit_price: 0 }];
 }
 
+/** A line priced from the price list: its price follows the estimate's prices unless one is typed */
+export function addPricedCustom(list: CustomItem[] | undefined, item: { key: string; label: string; unit: string }): CustomItem[] {
+  return [...(list || []), {
+    id: customId(), description: item.label, quantity: 1, unit: item.unit, unit_price: null, price_key: item.key,
+  }];
+}
+
+/** A custom line's price: as typed, else its price-list price */
+export function customPrice(item: CustomItem, priceList: Map<string, number>): number {
+  if (item.unit_price != null) return item.unit_price;
+  return (item.price_key && priceList.get(item.price_key)) || 0;
+}
+
 export function updateCustom(list: CustomItem[] | undefined, id: string, patch: Partial<CustomItem>): CustomItem[] {
   return (list || []).map((c) => (c.id === id ? { ...c, ...patch } : c));
 }

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.interfaces import DatabaseSession
+from app.domains.unit_prices import catalog as price_catalog
 from app.domains.unit_prices.service import UnitPriceService
 from app.domains.unit_prices.tables import use_prices
 
@@ -75,6 +76,12 @@ def pricing_info() -> Dict[str, Any]:
         "fixture_types": sorted(FIXTURE_TYPES),
         "appliance_types": sorted(APPLIANCE_TYPES),
         "carpet_roll_width_ft": pricing.CARPET_ROLL_WIDTH_FT,
+        # Every flooring price, for a custom line priced from the list
+        "price_list": [
+            {"key": item.key, "label": item.label, "group": item.group, "unit": item.unit,
+             "unit_price": round(price_of(item.key), 2)}
+            for item in price_catalog.get_domain(PRICE_DOMAIN).items()
+        ],
     }
 
 

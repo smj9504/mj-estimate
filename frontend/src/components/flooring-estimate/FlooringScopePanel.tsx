@@ -16,12 +16,12 @@ import {
 } from 'antd';
 import { DeleteOutlined, PlusOutlined, UndoOutlined } from '@ant-design/icons';
 import type {
-  CatalogItem, CustomItem, FloorMaterial, FlooringPricingInfo, ItemChoice, JobScope, LayPattern, RoomScope,
-  TakeoffItem, TakeoffRoom,
+  CatalogItem, CustomItem, FloorMaterial, FlooringPricingInfo, ItemChoice, JobScope, LayPattern, PriceListItem,
+  RoomScope, TakeoffItem, TakeoffRoom,
 } from '../../types/flooringEstimate';
 import {
-  addCustom, removeCustom, resetRoomItem, round2, setGeneralItem, setJobDefaults, setJobRoomItem, setRoomField,
-  setRoomItem, shownItem, updateCustom,
+  addCustom, addPricedCustom, customPrice, removeCustom, resetRoomItem, round2, setGeneralItem, setJobDefaults,
+  setJobRoomItem, setRoomField, setRoomItem, shownItem, updateCustom,
 } from './scope/scopeEdit';
 
 const { Text } = Typography;
@@ -121,7 +121,14 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, roomChoice, jobChoice, c
 
 // ── Lines the catalog doesn't have ──
 
-const CustomLines: React.FC<{ items: CustomItem[] | undefined; onChange: (next: CustomItem[]) => void }> = ({ items, onChange }) => (
+interface CustomLinesProps {
+  items: CustomItem[] | undefined;
+  priceList: PriceListItem[];
+  prices: Map<string, number>;
+  onChange: (next: CustomItem[]) => void;
+}
+
+const CustomLines: React.FC<CustomLinesProps> = ({ items, priceList, prices, onChange }) => (
   <div>
     {(items || []).map((c) => (
       <div key={c.id ?? ''} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
@@ -132,23 +139,57 @@ const CustomLines: React.FC<{ items: CustomItem[] | undefined; onChange: (next: 
         <Select size="small" value={c.unit} style={{ width: 72 }} options={UNITS.map((u) => ({ value: u, label: u }))}
           onChange={(unit) => onChange(updateCustom(items, c.id!, { unit }))} />
         <InputNumber size="small" min={0} prefix="$" value={c.unit_price ?? null} style={{ width: 100 }}
-          aria-label="Custom line unit price" placeholder="price"
+          aria-label="Custom line unit price"
+          placeholder={c.price_key && prices.has(c.price_key) ? prices.get(c.price_key)!.toFixed(2) : 'price'}
           onChange={(v) => onChange(updateCustom(items, c.id!, { unit_price: v ?? null }))} />
         <Text strong style={{ width: 90, textAlign: 'right', alignSelf: 'center' }}>
-          {money(round2((c.quantity || 0) * (c.unit_price || 0)))}
+          {money(round2((c.quantity || 0) * customPrice(c, prices)))}
         </Text>
+        {c.price_key && c.unit_price == null && (
+          <Tooltip title="Priced from the price list, at this estimate's prices; material tax and O&P go on it like any item">
+            <Tag style={{ alignSelf: 'center', marginInlineEnd: 0 }}>price list</Tag>
+          </Tooltip>
+        )}
         <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label="Remove custom line"
           onClick={() => onChange(removeCustom(items, c.id!))} />
       </div>
     ))}
-    <Button size="small" icon={<PlusOutlined />} style={{ marginTop: 8 }} onClick={() => onChange(addCustom(items))}>
-      Add a line
-    </Button>
+    <Space wrap size={8} style={{ marginTop: 8 }}>
+      <Button size="small" icon={<PlusOutlined />} onClick={() => onChange(addCustom(items))}>
+        Add a line
+      </Button>
+      {priceList.length > 0 && (
+        <Select
+          size="small"
+          showSearch
+          value={null}
+          placeholder="…or add one from the price list"
+          style={{ width: 300 }}
+          optionFilterProp="label"
+          aria-label="Add from the price list"
+          options={Object.entries(groupBy(priceList)).map(([group, list]) => ({
+            label: group,
+            options: list.map((p) => ({ value: p.key, label: `${p.label} (${p.unit})` })),
+          }))}
+          onChange={(key: string) => {
+            const item = priceList.find((p) => p.key === key);
+            if (item) onChange(addPricedCustom(items, item));
+          }}
+        />
+      )}
+    </Space>
   </div>
 );
 
-const customTotal = (items: CustomItem[] | undefined) =>
-  (items || []).reduce((sum, c) => sum + round2((c.quantity || 0) * (c.unit_price || 0)), 0);
+function groupBy(list: PriceListItem[]): Record<string, PriceListItem[]> {
+  return list.reduce<Record<string, PriceListItem[]>>((acc, p) => {
+    (acc[p.group] = acc[p.group] || []).push(p);
+    return acc;
+  }, {});
+}
+
+const customTotal = (items: CustomItem[] | undefined, prices: Map<string, number>) =>
+  (items || []).reduce((sum, c) => sum + round2((c.quantity || 0) * customPrice(c, prices)), 0);
 
 // ── The panel ──
 
@@ -160,6 +201,8 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
     for (const c of [...(pricing?.room_items || []), ...(pricing?.general_items || [])]) map.set(c.key, c);
     return map;
   }, [pricing]);
+  const priceList = useMemo(() => pricing?.price_list || [], [pricing]);
+  const prices = useMemo(() => new Map(priceList.map((p) => [p.key, p.unit_price])), [priceList]);
   const materials = pricing?.materials || [];
   const materialLabel = (key?: FloorMaterial | null) => materials.find((m) => m.key === key)?.label ?? key ?? '';
   const materialOptions = materials.map((m) => ({ value: m.key, label: m.label }));
@@ -192,7 +235,7 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
       .filter((g) => g.items.length);
     const total = round2(items.reduce((sum, i) => sum + shownItem(
       i, scope.items?.[i.key], jobScope.room_items?.[i.key], catalog.get(i.key)?.unit_price,
-    ).total, 0) + customTotal(scope.custom_items));
+    ).total, 0) + customTotal(scope.custom_items, prices));
     const included = scope.included !== false;
     const newMaterial = scope.new_material ?? defaults.new_material ?? null;
     const material = materials.find((m) => m.key === newMaterial);
@@ -289,7 +332,8 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
               <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Other work in this room
               </Text>
-              <CustomLines items={scope.custom_items} onChange={(next) => set({ custom_items: next })} />
+              <CustomLines items={scope.custom_items} priceList={priceList} prices={prices}
+                onChange={(next) => set({ custom_items: next })} />
             </div>
           </>
         )}
@@ -306,7 +350,7 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
   const general = generalItems.filter((i) => i.source !== 'custom');
   const generalTotal = round2(general.reduce((sum, i) => sum + shownItem(
     i, jobScope.items?.[i.key], undefined, catalog.get(i.key)?.unit_price,
-  ).total, 0) + customTotal(jobScope.custom_items));
+  ).total, 0) + customTotal(jobScope.custom_items, prices));
   const warnings = rooms.filter((r) => (roomScopes[r.room_id]?.included ?? true) && !(roomScopes[r.room_id]?.new_material ?? defaults.new_material)
     && roomScopes[r.room_id]?.items?.install?.on !== false);
 
@@ -391,7 +435,8 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
         ))}
         <div style={{ marginTop: 12 }}>
           <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>Other work on the job</Text>
-          <CustomLines items={jobScope.custom_items} onChange={(next) => onJobScope({ ...jobScope, custom_items: next })} />
+          <CustomLines items={jobScope.custom_items} priceList={priceList} prices={prices}
+            onChange={(next) => onJobScope({ ...jobScope, custom_items: next })} />
         </div>
       </Card>
       <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>
