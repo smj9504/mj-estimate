@@ -103,6 +103,7 @@ const CabinetEstimateDetail = lazyWithRetry(() => import('./pages/CabinetEstimat
 // Bathroom Estimate Pages
 const BathroomEstimateList = lazyWithRetry(() => import('./pages/BathroomEstimateList'));
 const BathroomEstimateDetail = lazyWithRetry(() => import('./pages/BathroomEstimateDetail'));
+const FlooringEstimateList = lazyWithRetry(() => import('./pages/FlooringEstimateList'));
 const FlooringEstimateDetail = lazyWithRetry(() => import('./pages/FlooringEstimateDetail'));
 
 // Siding Estimate Pages
@@ -961,6 +962,18 @@ const router = createBrowserRouter([
     )
   },
   // Flooring Estimate routes
+  {
+    path: "/flooring-estimates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <FlooringEstimateList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
   {
     path: "/flooring-estimates/:id",
     element: (

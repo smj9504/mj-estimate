@@ -552,3 +552,38 @@ def test_the_migration_makes_the_tables_the_models_describe(tmp_path):
         for model in (FlooringEstimate, FlooringEstimateLineItem, FlooringEstimateHistory):
             made = {c["name"] for c in inspector.get_columns(model.__tablename__)}
             assert made == {c.name for c in model.__table__.columns}, model.__tablename__
+
+
+def test_people_who_build_bathroom_estimates_can_open_flooring_ones(tmp_path):
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    from app.domains.staff.models import RoleScreenAccess
+
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "flr20261112sc02_flooring_estimates_screen.py"
+    spec = importlib.util.spec_from_file_location("flooring_screen_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'screens.db'}")
+    RoleScreenAccess.__table__.create(engine)
+    # Only what the migration reads of a staff member
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE staff (id VARCHAR(36) PRIMARY KEY, screen_access JSON)")
+    roles = sa.table("role_screen_access", sa.column("role"), sa.column("screens", sa.JSON))
+    staff = sa.table("staff", sa.column("id"), sa.column("screen_access", sa.JSON))
+    with engine.begin() as conn:
+        conn.execute(roles.insert(), [
+            {"role": "manager", "screens": ["clients", "bathroom_estimates"]},
+            {"role": "staff", "screens": ["clients"]},
+        ])
+        conn.execute(staff.insert(), [{"id": str(uuid.uuid4()), "screen_access": ["bathroom_estimates"]}])
+        migration.op = Operations(MigrationContext.configure(conn))
+        migration.upgrade()
+        migration.upgrade()  # once only
+        saved = dict(conn.execute(sa.select(roles.c.role, roles.c.screens)).all())
+        assert saved["manager"] == ["clients", "bathroom_estimates", "flooring_estimates"]
+        assert saved["staff"] == ["clients"]
+        assert conn.execute(sa.select(staff.c.screen_access)).scalar() == ["bathroom_estimates", "flooring_estimates"]
+        migration.downgrade()
+        assert dict(conn.execute(sa.select(roles.c.role, roles.c.screens)).all())["manager"] == ["clients", "bathroom_estimates"]

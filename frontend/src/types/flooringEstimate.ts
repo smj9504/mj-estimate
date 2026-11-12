@@ -194,6 +194,51 @@ export interface FlooringLineItem {
   display_order: number;
 }
 
+/** What /pricing-info says about the catalog, at the estimate's prices */
+export interface CatalogItem {
+  key: string;
+  label: string;
+  group: string;
+  unit: string;
+  basis: string;
+  basis_label: string;
+  factor: number;
+  manual_qty: number;
+  rule: string;
+  rule_label: string;
+  price_key: string;
+  hint: string;
+  unit_price: number;
+}
+
+export interface MaterialInfo {
+  key: FloorMaterial;
+  label: string;
+  short: string;
+  unit: string;
+  material_price: number;
+  install_labor: number;
+  patterned: boolean;
+  waste_pct: Partial<Record<LayPattern, number>>;
+  box_coverage_sf: number | null;
+  removal_label: string;
+  removal_price: number;
+}
+
+export interface FlooringPricingInfo {
+  materials: MaterialInfo[];
+  patterns: { key: LayPattern; label: string; labor_multiplier: number }[];
+  pad_price: number;
+  room_items: CatalogItem[];
+  general_items: CatalogItem[];
+}
+
+export interface PriceBookSummary {
+  id: string;
+  priced_at: string | null;
+  is_current: boolean;
+}
+
 export interface FlooringEstimate {
   id: string;
   claim_id: string | null;
@@ -217,6 +262,9 @@ export interface FlooringEstimate {
   subtotal: number | null;
   total: number | null;
   warning_flags: string[] | null;
+  methodology_notes: string | null;
+  notes: string | null;
+  price_book: PriceBookSummary | null;
   line_items: FlooringLineItem[];
   takeoff: {
     rooms: TakeoffRoom[];

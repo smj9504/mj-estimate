@@ -1,5 +1,5 @@
 /**
- * Playwright config for the flooring sketch tests.
+ * Playwright config for the flooring estimate tests (sketch and estimate).
  *
  * These specs stub every /api call (see tests/e2e/fixtures/flooring-sketch-mock.ts),
  * so unlike the main suite they need only the frontend dev server — no
@@ -11,7 +11,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: /flooring-sketch-.*\.spec\.ts/,
+  testMatch: /flooring-.*\.spec\.ts/,
   outputDir: './tests/e2e/test-results',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

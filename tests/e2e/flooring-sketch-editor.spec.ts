@@ -27,7 +27,7 @@ function sketchWith(rooms: { id: string; name: string; points: { x: number; y: n
 
 async function open(page: Page, initial: SavedSketch | null = null): Promise<FlooringApi> {
   const api = await mockFlooringApi(page, initial);
-  await page.goto(`/flooring-estimates/${ESTIMATE_ID}`);
+  await page.goto(`/flooring-estimates/${ESTIMATE_ID}?tab=sketch`);
   await expect(page.getByTestId('flooring-sketch-canvas')).toBeVisible();
   return api;
 }
