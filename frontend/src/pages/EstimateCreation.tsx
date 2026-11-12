@@ -71,6 +71,7 @@ import { generateId } from '../components/sketch/utils/idUtils';
 import { formatCurrency } from '../utils/formatUtils';
 import { lineAmount } from '../utils/money';
 import { zIndex as zIndexScale } from '../styles/tokens';
+import { sanitizeHtmlDocument } from '../utils/safeHtml';
 
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
@@ -1499,7 +1500,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
       const newWindow = window.open('', '_blank');
       if (newWindow) {
-        newWindow.document.write(htmlContent);
+        newWindow.document.write(sanitizeHtmlDocument(htmlContent));
         newWindow.document.close();
         newWindow.document.title = `Estimate Preview - ${pdfData.estimate_number || 'Draft'}`;
       } else {

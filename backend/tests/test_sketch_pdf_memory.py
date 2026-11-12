@@ -76,11 +76,22 @@ def test_background_is_left_out_in_draw_mode_or_when_switched_off(source_type, i
 def test_weasyprint_budget_scales_with_floor_count(monkeypatch):
     requested = []
     monkeypatch.setattr(sketch_pdf_service, 'require_memory', requested.append)
+    fetchers = []
     weasyprint = ModuleType('weasyprint')
-    weasyprint.HTML = lambda string: SimpleNamespace(write_pdf=lambda: b'%PDF')
+
+    def fake_html(string, url_fetcher=None):
+        fetchers.append(url_fetcher)
+        return SimpleNamespace(write_pdf=lambda: b'%PDF')
+
+    weasyprint.HTML = fake_html
     monkeypatch.setitem(sys.modules, 'weasyprint', weasyprint)
+    from app.common.services import pdf_service
+    guard = object()
+    monkeypatch.setattr(pdf_service, 'guarded_url_fetcher', lambda: guard)
     service = SketchPdfService(None)
     for floors in (1, 3):
         service._floor_count = floors
         service._html_to_pdf_weasyprint('<p>sketch</p>')
     assert requested == [34 * resources.MIB, 54 * resources.MIB]
+    # Sketch HTML can carry typed room names: it may not read server files.
+    assert fetchers == [guard, guard]

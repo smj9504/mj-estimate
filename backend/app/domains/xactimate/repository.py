@@ -383,20 +383,25 @@ class XactimateUnifiedRepository:
                       page: int = 1, page_size: int = 50) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
         """Unified search across both Xactimate and Custom line items"""
         
-        # Build conditions for unified search
-        conditions = []
+        # Everything the caller typed goes in as a bound value, never into the SQL text.
+        params: Dict[str, Any] = {}
+        xactimate_conditions = []
+        custom_conditions = []
         if search_term:
-            search_term_like = f"%{search_term}%"
-            conditions.append(f"description ILIKE '{search_term_like}'")
-        
+            params["search_like"] = f"%{search_term}%"
+            xactimate_conditions.append("description ILIKE :search_like")
+            custom_conditions.append("description ILIKE :search_like")
+
         if category:
-            conditions.append(f"cat = '{category}'")
-        
-        # Build WHERE clause
+            params["category"] = category
+            # xactimate_items names the column category_code; "cat" is only its alias here.
+            xactimate_conditions.append("category_code = :category")
+            custom_conditions.append("cat = :category")
+
         where_clause = ""
-        if conditions:
-            where_clause = "WHERE " + " AND ".join(conditions)
-        
+        if xactimate_conditions:
+            where_clause = "WHERE " + " AND ".join(xactimate_conditions)
+
         # Determine which types to include
         include_xactimate = item_type in [None, "ALL", "XACTIMATE"]
         include_custom = item_type in [None, "ALL", "CUSTOM"]
@@ -422,7 +427,7 @@ class XactimateUnifiedRepository:
                     market_conditions as market_condition,
                     true as is_active,
                     1 as version,
-                    NULL::UUID as company_id,
+                    NULL::text as company_id,  -- the custom half sends company_id::text
                     created_at,
                     updated_at
                 FROM xactimate_items
@@ -432,9 +437,11 @@ class XactimateUnifiedRepository:
         
         # Custom part
         if include_custom:
-            custom_conditions = conditions.copy()
             if company_id:
-                custom_conditions.append(f"(company_id = '{company_id}' OR company_id IS NULL)")
+                params["company_id"] = str(company_id)
+                custom_conditions.append(
+                    "(CAST(company_id AS TEXT) = :company_id OR company_id IS NULL)"
+                )
             custom_conditions.append("type = 'CUSTOM' AND is_active = true")
             
             custom_where = "WHERE " + " AND ".join(custom_conditions) if custom_conditions else ""
@@ -471,12 +478,16 @@ class XactimateUnifiedRepository:
         full_query = " UNION ALL ".join(union_parts)
         
         # Add ordering and pagination
-        offset = (page - 1) * page_size
+        page_params = {
+            **params,
+            "page_limit": int(page_size),
+            "page_offset": (int(page) - 1) * int(page_size),
+        }
         paginated_query = f"""
             WITH unified_results AS ({full_query})
             SELECT * FROM unified_results
             ORDER BY type, cat, item
-            LIMIT {page_size} OFFSET {offset}
+            LIMIT :page_limit OFFSET :page_offset
         """
         
         # Count query
@@ -490,8 +501,8 @@ class XactimateUnifiedRepository:
         """
         
         # Execute queries
-        results = self.db.execute(text(paginated_query)).fetchall()
-        count_result = self.db.execute(text(count_query)).fetchone()
+        results = self.db.execute(text(paginated_query), page_params).fetchall()
+        count_result = self.db.execute(text(count_query), params).fetchone()
         
         # Convert results to dictionaries
         items = []

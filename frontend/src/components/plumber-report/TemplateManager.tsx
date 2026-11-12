@@ -34,6 +34,7 @@ import {
 } from '../../services/plumberReportTemplateService';
 import { useAuth } from '../../contexts/AuthContext';
 import RichTextEditor from '../editor/RichTextEditor';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 const { TextArea } = Input;
 
@@ -441,7 +442,7 @@ const TemplateManager: React.FC<TemplateManagerProps> = ({
       >
         <Card>
           <div
-            dangerouslySetInnerHTML={{ __html: previewContent }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewContent) }}
             style={{
               maxHeight: '500px',
               overflow: 'auto',

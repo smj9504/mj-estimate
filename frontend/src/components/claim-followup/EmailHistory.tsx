@@ -14,6 +14,7 @@ import { claimFollowUpService } from '../../services/claimFollowUpService';
 import type { SentEmail } from '../../types/claimFollowUp';
 import type { ColumnsType } from 'antd/es/table';
 import { Pill, useSheetModal } from '../common/ui';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 dayjs.extend(relativeTime);
 
@@ -125,7 +126,7 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
             title={subj}
             content={
               <div style={{ maxWidth: 'min(400px, 80vw)', maxHeight: 300, overflow: 'auto' }}
-                dangerouslySetInnerHTML={{ __html: record.body_html || '' }} />
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(record.body_html) }} />
             }
             trigger="click"
           >

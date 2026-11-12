@@ -7,6 +7,7 @@ import {
 } from '../../services/plumberReportTemplateService';
 import { useAuth } from '../../contexts/AuthContext';
 import TemplateManager from './TemplateManager';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 interface TemplateSelectorProps {
   companyId: string;
@@ -255,7 +256,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
         width={600}
       >
         <div
-          dangerouslySetInnerHTML={{ __html: previewContent }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewContent) }}
           style={{
             maxHeight: '400px',
             overflow: 'auto',

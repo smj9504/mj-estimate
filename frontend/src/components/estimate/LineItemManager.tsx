@@ -43,6 +43,7 @@ import SelectionModal from './SelectionModal';
 import XactimateInputMode from './XactimateInputMode';
 import { XactimateLineItemData } from '../../utils/xactimateTransform';
 import { formatNumber } from '../../utils/formatUtils';
+import { sanitizeHtml } from '../../utils/safeHtml';
 /** Lightweight arithmetic evaluator — input must be pre-validated */
 // eslint-disable-next-line no-new-func
 const safeEvaluate = (expr: string): number => new Function(`"use strict"; return (${expr});`)() as number;
@@ -1287,7 +1288,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
           >
             <span>{value || '-'}</span>
             {record.note && (
-              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: record.note }} />}>
+              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: sanitizeHtml(record.note) }} />}>
                 <FileTextFilled
                   style={{ color: '#1890ff', cursor: 'help', flexShrink: 0 }}
                   onClick={(e) => e.stopPropagation()}

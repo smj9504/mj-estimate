@@ -40,6 +40,7 @@ import {
 } from '@ant-design/icons';
 import { EstimateLineItem } from '../../services/estimateService';
 import debounce from 'lodash/debounce';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 const { Text, Title } = Typography;
 const { Option } = Select;
@@ -435,7 +436,7 @@ const GroupableLineItems: React.FC<GroupableLineItemsProps> = ({
             <Text strong>{item.name}</Text>
             {item.description && <Text type="secondary">({item.description})</Text>}
             {item.note && (
-              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: item.note }} />}>
+              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.note) }} />}>
                 <FileTextFilled style={{ color: '#1890ff', cursor: 'help' }} />
               </Tooltip>
             )}

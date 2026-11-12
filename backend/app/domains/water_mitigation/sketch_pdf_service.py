@@ -2822,10 +2822,13 @@ class SketchPdfService:
         """Convert HTML to PDF using WeasyPrint."""
         try:
             from weasyprint import HTML
+            from app.common.services.pdf_service import guarded_url_fetcher
             # Measured on WeasyPrint 68.1 with 1600px JPEG backgrounds: peak
             # grew ~19MiB for one floor, ~30MiB for three, ~49MiB for five.
             require_memory((24 + 10 * self._floor_count) * MIB)
-            pdf_bytes = HTML(string=html_content).write_pdf()
+            pdf_bytes = HTML(
+                string=html_content, url_fetcher=guarded_url_fetcher(),
+            ).write_pdf()
             logger.info(
                 "PDF generated via WeasyPrint (%d bytes)", len(pdf_bytes)
             )

@@ -105,6 +105,7 @@ import { clientService } from '../services/clientService';
 import type { Client, ClientListItem } from '../types/client';
 import { useInvoice, useCreateInvoice, useUpdateInvoice, useInvoiceVersions, useReviseInvoice } from '../hooks/useInvoiceQueries';
 import { useReceiptTemplates, useReceiptByNumber } from '../hooks/useReceiptQueries';
+import { sanitizeHtml } from '../utils/safeHtml';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -455,7 +456,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   render: (value: string, record: InvoiceItem) => (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {value ? (
-                        <div dangerouslySetInnerHTML={{ __html: value }} style={{ flex: 1 }} />
+                        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(value) }} style={{ flex: 1 }} />
                       ) : null}
                       {record.note && record.note.replace(/<[^>]*>/g, '').trim() ? (
                         <Tooltip

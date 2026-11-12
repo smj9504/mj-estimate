@@ -638,8 +638,23 @@ if sys.platform == 'win32':
 html_path = sys.argv[1]
 output_path = sys.argv[2]
 css_path = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] != 'None' else None
+guard_path = sys.argv[4]
+guard_options = json.loads(sys.argv[5])
+
+import importlib.util
+_spec = importlib.util.spec_from_file_location('pdf_fetch_guard', guard_path)
+pdf_fetch_guard = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(pdf_fetch_guard)
 
 from weasyprint import HTML, CSS
+from weasyprint.urls import URLFetcher
+
+class GuardedURLFetcher(URLFetcher):
+    def fetch(self, url, headers=None):
+        pdf_fetch_guard.check_url(
+            url, guard_options['file_roots'], guard_options['block_private_hosts'],
+        )
+        return super().fetch(url, headers)
 
 stylesheets = []
 if css_path:
@@ -650,7 +665,9 @@ if css_path:
 with open(html_path, 'r', encoding='utf-8') as f:
     html = f.read()
 
-HTML(string=html).write_pdf(output_path, stylesheets=stylesheets)
+HTML(string=html, url_fetcher=GuardedURLFetcher()).write_pdf(
+    output_path, stylesheets=stylesheets,
+)
 print(os.path.getsize(output_path))
 """
         with tempfile.NamedTemporaryFile(
@@ -668,6 +685,12 @@ print(os.path.getsize(output_path))
                 cmd.append(css_path)
             else:
                 cmd.append('None')
+            from app.core.config import settings
+            cmd.append(str(Path(__file__).with_name('pdf_fetch_guard.py')))
+            cmd.append(json.dumps({
+                'file_roots': [str(p) for p in pdf_fetch_file_roots()],
+                'block_private_hosts': settings.ENVIRONMENT == 'production',
+            }))
 
             logger.info(
                 f"Subprocess PDF: html={len(html_content)} chars, "
@@ -2913,6 +2936,39 @@ def _full_page_photo_pdf(source, max_px: int, quality: int, rotation: int = 0,
             os.unlink(path)
 
 
+def pdf_fetch_file_roots() -> list[Path]:
+    """Folders a PDF render may read local files from (see pdf_fetch_guard)."""
+    from app.core.config import settings
+    return [TEMPLATE_DIR, Path(settings.UPLOAD_DIR)]
+
+
+def check_pdf_fetch_url(url: str) -> None:
+    """Raise PDFFetchRefused unless a PDF render may fetch ``url``."""
+    from app.core.config import settings
+    from app.common.services.pdf_fetch_guard import check_url
+    check_url(
+        url,
+        pdf_fetch_file_roots(),
+        block_private_hosts=settings.ENVIRONMENT == 'production',
+    )
+
+
+def guarded_url_fetcher():
+    """A WeasyPrint URL fetcher that refuses what check_pdf_fetch_url refuses.
+
+    Redirects come back through fetch() (URLFetcher.open calls it), so a
+    redirect target is checked too.
+    """
+    from weasyprint.urls import URLFetcher
+
+    class GuardedURLFetcher(URLFetcher):
+        def fetch(self, url, headers=None):
+            check_pdf_fetch_url(url)
+            return super().fetch(url, headers)
+
+    return GuardedURLFetcher()
+
+
 def _shrinking_url_fetcher():
     """A WeasyPrint URL fetcher that hands over images no larger than drawn.
 
@@ -2921,7 +2977,8 @@ def _shrinking_url_fetcher():
     plumber report photo URL - so each is shrunk to GRID_PHOTO_PX first.
     Small images (logos, icons) pass through untouched. WeasyPrint turns any
     fetch error into a missing image, so a refusal for lack of memory is kept
-    in .error for the caller to raise.
+    in .error for the caller to raise. URLs are checked by
+    check_pdf_fetch_url before anything is fetched.
     """
     from PIL import Image, UnidentifiedImageError
     from weasyprint.urls import URLFetcher, URLFetcherResponse
@@ -2930,6 +2987,7 @@ def _shrinking_url_fetcher():
         error = None
 
         def fetch(self, url, headers=None):
+            check_pdf_fetch_url(url)
             response = super().fetch(url, headers)
             content_type = response.content_type
             if not content_type.startswith('image/') or content_type == 'image/svg+xml':
