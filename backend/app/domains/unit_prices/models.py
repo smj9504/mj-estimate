@@ -24,7 +24,7 @@ class UnitPriceOverride(Base, BaseModel):
     )
 
     company_id = Column(UUIDType(), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-    # bathroom / cabinet (unit_prices.catalog)
+    # bathroom / cabinet / flooring (unit_prices.catalog)
     domain = Column(String(20), nullable=False)
     # Path of the price in its pricing module, e.g. "DEMO_RATES.floor_tile_per_sf"
     price_key = Column(String(200), nullable=False)

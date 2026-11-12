@@ -34,6 +34,7 @@ import {
   PlusOutlined,
   AppstoreOutlined,
   BorderOuterOutlined,
+  BlockOutlined,
   CheckSquareOutlined,
   SignatureOutlined,
   CameraOutlined,
@@ -226,6 +227,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/bathroom-estimates',
             icon: <ExperimentOutlined />,
             label: 'Bathroom',
+          },
+          {
+            key: '/flooring-estimates',
+            icon: <BlockOutlined />,
+            label: 'Flooring',
           },
           {
             key: '/roofing-estimates',

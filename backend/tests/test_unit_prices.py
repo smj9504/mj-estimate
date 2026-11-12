@@ -140,7 +140,7 @@ def _code_figure(domain, key):
     return node
 
 
-@pytest.mark.parametrize("domain", ["bathroom", "cabinet"])
+@pytest.mark.parametrize("domain", ["bathroom", "cabinet", "flooring"])
 def test_every_default_split_adds_back_up_to_the_code_figure(domain):
     items = catalog.get_domain(domain).items()
     assert items, domain
@@ -153,7 +153,7 @@ def test_every_default_split_adds_back_up_to_the_code_figure(domain):
             assert item.material == 0, item.key
 
 
-@pytest.mark.parametrize("domain", ["bathroom", "cabinet"])
+@pytest.mark.parametrize("domain", ["bathroom", "cabinet", "flooring"])
 def test_multipliers_waste_tax_and_shares_are_not_prices(domain):
     for spec in catalog.get_domain(domain).specs:
         assert not any(word in spec.name for word in ("MULTIPLIER", "SHARE", "WASTE", "TAX", "SCALE", "ZIP")), spec.name
