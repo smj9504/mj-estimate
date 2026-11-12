@@ -154,3 +154,50 @@ test('undo and redo, and a reload shows what was saved', async ({ page }) => {
   await page.reload();
   await expect(page.getByTestId('flooring-sketch-inspector').getByText('Hallway').first()).toBeVisible();
 });
+
+test.describe('corners', () => {
+  test.skip(({ isMobile }) => isMobile, 'Mouse gestures');
+
+  test("a wall bends at a corner pulled from its middle, and a corner double-clicked goes", async ({ page }) => {
+    const api = await open(page, sketchWith([{ id: 'r1', name: 'Bedroom', points: rect(0, 0, 12, 10) }]));
+    const canvas = page.getByTestId('flooring-sketch-canvas');
+    await zoomOut(page);
+    const inside = await pagePoint(canvas, { x: 6, y: 5 });
+    await page.mouse.click(inside.x, inside.y);
+    await expect(page.getByTestId('room-inspector')).toBeVisible();
+
+    const mid = await pagePoint(canvas, { x: 6, y: 0 });
+    const out = await pagePoint(canvas, { x: 6, y: -2 });
+    await page.mouse.move(mid.x, mid.y);
+    await page.mouse.down();
+    await page.mouse.move(mid.x, (mid.y + out.y) / 2, { steps: 3 });
+    await page.mouse.move(out.x, out.y, { steps: 3 });
+    await page.mouse.up();
+    await expect.poll(() => savedRooms(api)[0]?.points.length).toBe(5);
+    expect(polygonArea(savedRooms(api)[0].points)).toBeCloseTo(132, 3);
+
+    const corner = await pagePoint(canvas, { x: 6, y: -2 });
+    await page.mouse.dblclick(corner.x, corner.y);
+    await expect.poll(() => savedRooms(api)[0]?.points.length).toBe(4);
+    expect(polygonArea(savedRooms(api)[0].points)).toBeCloseTo(120, 3);
+  });
+});
+
+test('two fingers zoom the sketch on a phone', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'Touch');
+  await open(page, sketchWith([{ id: 'r1', name: 'Bedroom', points: rect(0, 0, 12, 10) }]));
+  const canvas = page.getByTestId('flooring-sketch-canvas');
+  const box = (await canvas.boundingBox())!;
+  const before = Number(await canvas.getAttribute('data-scale'));
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: string, spreadPx: number) => cdp.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: type === 'touchEnd' ? [] : [{ x: cx - spreadPx, y: cy, id: 1 }, { x: cx + spreadPx, y: cy, id: 2 }],
+  });
+  await touch('touchStart', 30);
+  for (const s of [45, 60, 75, 90]) await touch('touchMove', s);
+  await touch('touchEnd', 0);
+  await expect.poll(async () => Number(await canvas.getAttribute('data-scale'))).toBeGreaterThan(before * 2.5);
+});

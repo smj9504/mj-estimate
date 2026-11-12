@@ -106,6 +106,10 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <Figure label="Baseboard, less openings" value={`${m.baseLf.toFixed(2)} LF`} />
         <Figure label="Walls" value={formatSf(m.wallSf)} />
         <Divider style={{ margin: '8px 0' }} />
+        <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+          On the sketch: drag a corner to move it, drag a wall&apos;s middle dot to bend the wall at a new corner,
+          double-click a corner to take it out.
+        </Text>
         <Text type="secondary" style={{ fontSize: 12 }}>Walls, clockwise from the first corner</Text>
         <div style={{ marginTop: 6 }}>
           {edgesOf(room.points).map((edge) => (
