@@ -20,7 +20,8 @@ from app.domains.auth.company_scope import (
     require_document,
     sees_everything,
 )
-from app.domains.auth.dependencies import get_current_user
+from app.domains.auth.dependencies import get_current_user, require_screen
+from app.domains.auth.price_access import require_price_company
 
 from .formula import FUNCTION_NAMES
 from .formula import validate as validate_formula
@@ -192,13 +193,15 @@ def create_material_price(
     data: MaterialPriceCreate,
     company_id: Optional[str] = Query(None),
     session: DatabaseSession = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_screen("material_prices")),
 ):
     """Add a material the seed catalog does not cover.
 
     Retiring a material is an update setting is_active=false, not a
-    delete: estimates priced with it must keep resolving.
+    delete: estimates priced with it must keep resolving. Without a
+    company it is a default for every company: admins only.
     """
+    company_id = require_price_company(session, current_user, company_id)
     service = RoofingEstimateService(session)
     return service.create_material_price(
         data.dict(exclude_unset=True),
@@ -212,9 +215,13 @@ def update_material_prices(
     data: MaterialPriceUpdate,
     company_id: Optional[str] = Query(None),
     session: DatabaseSession = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_screen("material_prices")),
 ):
-    """Change default costs. Existing estimates keep their own snapshot."""
+    """Change default costs. Existing estimates keep their own snapshot.
+
+    Without a company these are every company's defaults: admins only.
+    """
+    company_id = require_price_company(session, current_user, company_id)
     service = RoofingEstimateService(session)
     prices = {
         key: patch.dict(exclude_unset=True)
@@ -245,13 +252,15 @@ def update_pricing_settings(
     data: PricingSettingsUpdate,
     company_id: Optional[str] = Query(None),
     session: DatabaseSession = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_screen("pricing_settings")),
 ):
     """Change calculation rates. A null value resets to the default.
 
     Existing estimates keep the totals they were last calculated with;
-    they re-price only when someone calculates them again.
+    they re-price only when someone calculates them again. Without a
+    company these are every company's rates: admins only.
     """
+    company_id = require_price_company(session, current_user, company_id)
     service = RoofingEstimateService(session)
     try:
         return service.update_pricing_settings(

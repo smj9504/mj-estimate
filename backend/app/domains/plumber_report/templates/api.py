@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth import company_scope
+from app.domains.auth.dependencies import require_screen
 from app.domains.plumber_report.templates.service import PlumberReportTemplateService
 from app.domains.plumber_report.templates.schemas import (
     PlumberReportTemplateCreate,
@@ -15,6 +17,22 @@ from app.domains.plumber_report.templates.schemas import (
 )
 
 router = APIRouter(prefix="/plumber-report-templates", tags=["plumber-report-templates"])
+
+
+def _require_template_company(
+    company_id: str = Query(..., description="Company ID"),
+    staff=Depends(require_screen("plumber_reports")),
+    db: Session = Depends(get_db),
+):
+    """A company's templates are changed (and used) by its own people with the
+    Plumber Reports screen; admins: any company."""
+    allowed = company_scope.company_ids(db, staff)
+    if allowed is not None and str(company_id) not in {str(c) for c in allowed}:
+        raise HTTPException(status_code=403, detail="You don't have access to this company")
+    return staff
+
+
+_EDIT = [Depends(_require_template_company)]
 
 
 def get_template_service(db: Session = Depends(get_db)) -> PlumberReportTemplateService:
@@ -78,7 +96,7 @@ def get_template(
     return template
 
 
-@router.post("/", response_model=PlumberReportTemplateResponse)
+@router.post("/", response_model=PlumberReportTemplateResponse, dependencies=_EDIT)
 def create_template(
     template_data: PlumberReportTemplateCreate,
     company_id: str = Query(..., description="Company ID"),
@@ -89,7 +107,7 @@ def create_template(
     return service.create_template(company_id, user_id, template_data)
 
 
-@router.put("/{template_id}", response_model=PlumberReportTemplateResponse)
+@router.put("/{template_id}", response_model=PlumberReportTemplateResponse, dependencies=_EDIT)
 def update_template(
     template_id: str,
     update_data: PlumberReportTemplateUpdate,
@@ -103,7 +121,7 @@ def update_template(
     return template
 
 
-@router.delete("/{template_id}")
+@router.delete("/{template_id}", dependencies=_EDIT)
 def delete_template(
     template_id: str,
     company_id: str = Query(..., description="Company ID"),
@@ -116,7 +134,7 @@ def delete_template(
     return {"message": "Template deleted successfully"}
 
 
-@router.post("/{template_id}/use", response_model=PlumberReportTemplateContentResponse)
+@router.post("/{template_id}/use", response_model=PlumberReportTemplateContentResponse, dependencies=_EDIT)
 def use_template(
     template_id: str,
     company_id: str = Query(..., description="Company ID"),

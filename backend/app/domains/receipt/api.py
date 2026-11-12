@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth.company_scope import document_condition, require_document
-from app.domains.auth.dependencies import get_current_staff
+from app.domains.auth.dependencies import get_current_staff, require_admin
 from app.domains.auth.document_access import require_document_access, sees_all_documents
 from app.domains.invoice.models import Invoice
 from app.domains.receipt.models import Receipt
@@ -76,6 +76,9 @@ def get_receipt_template_service():
 
 
 router = APIRouter()
+
+# Receipt templates are shared by every receipt; no screen edits them, so admins only.
+_ADMIN_ONLY = [Depends(require_admin)]
 
 
 # A receipt is visible to whoever may open its invoice: the invoice's owner
@@ -1322,7 +1325,7 @@ def get_default_template(
         raise HTTPException(status_code=500, detail=f"Failed to get default template: {str(e)}")
 
 
-@router.post("/templates/", response_model=ReceiptTemplateResponse)
+@router.post("/templates/", response_model=ReceiptTemplateResponse, dependencies=_ADMIN_ONLY)
 def create_template(
     template_data: ReceiptTemplateCreate,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
@@ -1352,7 +1355,7 @@ def create_template(
         raise HTTPException(status_code=500, detail=f"Failed to create template: {str(e)}")
 
 
-@router.put("/templates/{template_id}", response_model=ReceiptTemplateResponse)
+@router.put("/templates/{template_id}", response_model=ReceiptTemplateResponse, dependencies=_ADMIN_ONLY)
 def update_template(
     template_id: str,
     template_data: ReceiptTemplateUpdate,
@@ -1390,7 +1393,7 @@ def update_template(
         raise HTTPException(status_code=500, detail=f"Failed to update template: {str(e)}")
 
 
-@router.post("/templates/{template_id}/set-default")
+@router.post("/templates/{template_id}/set-default", dependencies=_ADMIN_ONLY)
 def set_default_template(
     template_id: str,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
@@ -1414,7 +1417,7 @@ def set_default_template(
         raise HTTPException(status_code=500, detail=f"Failed to set default template: {str(e)}")
 
 
-@router.delete("/templates/{template_id}")
+@router.delete("/templates/{template_id}", dependencies=_ADMIN_ONLY)
 def delete_template(
     template_id: str,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)

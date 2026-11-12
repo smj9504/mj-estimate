@@ -57,8 +57,26 @@ class ClientSyncService:
     Designed to be called after any WM Job create/update operation.
     """
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, staff: Any = None):
+        """staff: who saved the job. Someone outside the group (a public adjuster's
+        office, a contractor) only joins clients and claims they can already see;
+        group staff join whatever is at the address or under the claim number, so
+        affiliates share a claim. Sheet syncs pass no one."""
+        from app.domains.auth.company_scope import is_outside_party
         self.db = db
+        self._outside_staff = staff if is_outside_party(staff) else None
+
+    def _client_scope(self) -> Any:
+        if self._outside_staff is None:
+            return None
+        from app.domains.auth.company_scope import client_condition
+        return client_condition(self.db, self._outside_staff, Client.id)
+
+    def _claim_scope(self) -> Any:
+        if self._outside_staff is None:
+            return None
+        from app.domains.auth.company_scope import claim_condition
+        return claim_condition(self.db, self._outside_staff, Claim.id)
 
     def sync_from_wm_job(self, job: WaterMitigationJob, homeowner_new: bool = False) -> Dict[str, Any]:
         """
@@ -171,8 +189,11 @@ class ClientSyncService:
     def _same_origin(self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch]) -> Any:
         """Condition for the clients this job may match by its details"""
         if self._from_sheet(job, decision):
-            return Client.source == SHEET_SOURCE
-        return or_(Client.source.is_(None), Client.source != SHEET_SOURCE)
+            origin = Client.source == SHEET_SOURCE
+        else:
+            origin = or_(Client.source.is_(None), Client.source != SHEET_SOURCE)
+        scope = self._client_scope()
+        return origin if scope is None else and_(origin, scope)
 
     def _job_address(self, job: WaterMitigationJob) -> Dict[str, Optional[str]]:
         return fill_missing_address_parts(
@@ -542,17 +563,25 @@ class ClientSyncService:
 
     def _claim_by_number(self, job: WaterMitigationJob, client: Client, claim_number: str) -> Optional[Claim]:
         """The claim with this number: this client's first, then anyone's (claim_number
-        is unique per insurance), but not across a sheet client and one entered by hand"""
-        claim = self.db.query(Claim).filter(
+        is unique per insurance), but not across a sheet client and one entered by hand.
+        Only claims they can already see for someone outside the group."""
+        scope = self._claim_scope()
+        own = self.db.query(Claim).filter(
             Claim.client_id == client.id,
             func.lower(Claim.claim_number) == claim_number.lower(),
-        ).first()
+        )
+        if scope is not None:
+            own = own.filter(scope)
+        claim = own.first()
         if claim:
             return claim
-        return self.db.query(Claim).join(Client, Claim.client_id == Client.id).filter(
+        anyone = self.db.query(Claim).join(Client, Claim.client_id == Client.id).filter(
             func.lower(Claim.claim_number) == claim_number.lower(),
             self._same_origin(job, self._same_decision(job)),
-        ).first()
+        )
+        if scope is not None:
+            anyone = anyone.filter(scope)
+        return anyone.first()
 
     def _claim_has_history(self, claim: Claim) -> bool:
         """
@@ -690,13 +719,16 @@ def mark_sheet_clients(db: Session) -> None:
     db.commit()
 
 
-def sync_client_from_wm_job(db: Session, job: WaterMitigationJob, homeowner_new: bool = False) -> Dict[str, Any]:
+def sync_client_from_wm_job(
+    db: Session, job: WaterMitigationJob, homeowner_new: bool = False, staff: Any = None,
+) -> Dict[str, Any]:
     """
     Convenience function - creates ClientSyncService and runs sync.
     Safe to call - catches errors and logs them without propagating.
+    staff: who saved the job (see ClientSyncService); None for the sheet sync.
     """
     try:
-        service = ClientSyncService(db)
+        service = ClientSyncService(db, staff)
         return service.sync_from_wm_job(job, homeowner_new)
     except Exception as e:
         logger.error(f"Client sync failed for WM Job {job.id}: {e}", exc_info=True)

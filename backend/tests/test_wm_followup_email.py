@@ -4,6 +4,7 @@ WM docs follow-up, the same as one sent from the follow-up screen."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
@@ -92,13 +93,17 @@ def env(tmp_path, monkeypatch):
     engine.dispose()
 
 
+# Sent by an admin: any account may be used (access rules: test_email_account_guard.py)
+ADMIN = SimpleNamespace(id='99999999-9999-9999-9999-999999999999', role='admin')
+
+
 def send(env):
     return env['service'].send_followup(env['job_id'], {
         'email_account_id': env['account_id'],
         'to_addresses': ['pat@carrier.com'],
         'subject': 'Follow Up - CLM-77',
         'body_html': '<p>Checking in on the documents.</p>',
-    })
+    }, sender=ADMIN)
 
 
 def sent_emails(env):

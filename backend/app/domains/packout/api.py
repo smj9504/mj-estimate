@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_db
-from app.domains.auth.dependencies import get_current_user
+from app.domains.auth.dependencies import get_current_user, require_admin
 from app.domains.packout.schemas import (
     PackoutAnalysisRequest, PackoutAnalysisResponse,
     XactimateImportRequest, XactimateImportResponse,
@@ -154,16 +154,13 @@ def import_xactimate_codes(
     request: XactimateImportRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(require_admin)
 ):
     """
     Import Xactimate codes from JSON file.
 
     Requires admin privileges.
     """
-    # Check admin privileges
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
 
     service = XactimateService(db)
 
@@ -193,16 +190,13 @@ def import_xactimate_codes(
 def import_all_xactimate_codes(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(require_admin)
 ):
     """
     Import all default Xactimate JSON files.
 
     Requires admin privileges.
     """
-    # Check admin privileges
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
 
     service = XactimateService(db)
 
@@ -263,15 +257,13 @@ def search_xactimate_codes(
 def create_packing_rule(
     rule: PackingRuleCreate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(require_admin)
 ):
     """
     Create a new packing rule.
 
     Requires admin privileges.
     """
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
 
     repository = PackoutRepository(db)
 
@@ -350,15 +342,13 @@ def list_packing_rules(
 def create_item_mapping(
     mapping: ItemMappingCreate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(require_admin)
 ):
     """
     Create a new item to Xactimate code mapping.
 
     Requires admin privileges.
     """
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
 
     repository = PackoutRepository(db)
 

@@ -1085,7 +1085,7 @@ def send_email(
     payload['client_files'] = _client_files(db, current_staff, data.claim_id, data.client_documents)
     service = _get_service()
     try:
-        return service.send_email(payload)
+        return service.send_email(payload, sender=current_staff)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1103,7 +1103,7 @@ def send_from_template(
     _require_links(db, current_staff, data.claim_id, data.followup_task_id)
     service = _get_service()
     try:
-        return service.send_from_template(data.dict())
+        return service.send_from_template(data.dict(), sender=current_staff)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1187,9 +1187,21 @@ def track_email_open(email_id: str):
 
 
 @router.post("/emails/test-smtp")
-def test_smtp(account_id: Optional[str] = None, current_staff=Depends(get_current_staff)):
+def test_smtp(
+    account_id: Optional[str] = None,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Test SMTP connection"""
     from app.domains.claim_followup.smtp_service import test_smtp_connection
+    if account_id:
+        # Logs in with the account's saved credentials: only for an account
+        # the caller may send from (audit 2026-11)
+        from app.domains.claim_followup.service import require_sending_account
+        try:
+            require_sending_account(db, account_id, staff=current_staff)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     result = test_smtp_connection(account_id)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])

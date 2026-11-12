@@ -354,11 +354,15 @@ class AdjusterEmailService:
     # Adjuster & PA Info
     # ================================================================
 
-    def get_adjuster_info(self, job_id: str, sender_email: Optional[str] = None) -> Dict[str, Any]:
+    def get_adjuster_info(
+        self, job_id: str, sender_email: Optional[str] = None, *, staff,
+    ) -> Dict[str, Any]:
         """Get adjuster contact info and PA email for BCC.
 
         sender_email is the logged-in staff member's address: their own
         account comes first in email_accounts, which the send dialogs preselect.
+        staff limits email_accounts to the ones they may send from
+        (email_ingestion/access.py); SYSTEM_SENDER lists them all.
         """
         session = self._get_readonly_session()
         try:
@@ -535,7 +539,8 @@ class AdjusterEmailService:
 
             # Get email accounts for sender selection
             email_accounts = self._get_email_accounts(
-                session, company_id=job.company_id, sender_email=sender_email
+                session, company_id=job.company_id, sender_email=sender_email,
+                staff=staff,
             )
 
             # Reply-To / signature identity: the job's assigned company, not
@@ -598,18 +603,26 @@ class AdjusterEmailService:
         return result
 
     def _get_email_accounts(
-        self, session, company_id=None, sender_email: Optional[str] = None
+        self, session, company_id=None, sender_email: Optional[str] = None,
+        staff=None,
     ) -> List[Dict[str, str]]:
         """Get available email accounts for sending.
         Returns the sender's own account first, then accounts matching
-        company_id, then others.
+        company_id, then others. With staff, only the accounts they may send
+        from (their own and their companies'; all for an admin).
         """
         try:
             from app.domains.email_ingestion.models import EmailAccount
-            accounts = session.query(EmailAccount).filter(
+            query = session.query(EmailAccount).filter(
                 EmailAccount.is_active == True,
                 EmailAccount.can_send == True,
-            ).all()
+            )
+            if staff is not None:
+                from app.domains.email_ingestion.access import sendable_condition
+                condition = sendable_condition(session, staff)
+                if condition is not None:
+                    query = query.filter(condition)
+            accounts = query.all()
 
             result = []
             for a in accounts:
@@ -850,7 +863,7 @@ class AdjusterEmailService:
     # ================================================================
 
     @document_job
-    def send_to_adjuster(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def send_to_adjuster(self, job_id: str, data: Dict[str, Any], *, sender) -> Dict[str, Any]:
         """Send water mitigation documents to insurance adjuster via email."""
         timer = StageTimer()
         session = self._get_session()
@@ -868,7 +881,7 @@ class AdjusterEmailService:
             if not job:
                 raise ValueError("Job not found")
             from app.domains.claim_followup.service import require_sending_account
-            require_sending_account(session, data.get("email_account_id"))
+            require_sending_account(session, data.get("email_account_id"), staff=sender)
 
             to_addresses = data.get("to_addresses", [])
             cc_addresses = data.get("cc_addresses", [])
@@ -933,7 +946,7 @@ class AdjusterEmailService:
                 {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
             )
             require_memory(6 * sum(len(a["data"]) for a in attachments))
-            email_result = email_service.send_email(send_payload)
+            email_result = email_service.send_email(send_payload, sender=sender)
             timer.lap("send")
 
             # Update job: documents_sent_date
@@ -999,7 +1012,7 @@ class AdjusterEmailService:
     # ================================================================
 
     @document_job
-    def send_followup(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def send_followup(self, job_id: str, data: Dict[str, Any], *, sender) -> Dict[str, Any]:
         """Send follow-up email to adjuster (does NOT update documents_sent_date)."""
         timer = StageTimer()
         session = self._get_session()
@@ -1013,7 +1026,7 @@ class AdjusterEmailService:
             if not job:
                 raise ValueError("Job not found")
             from app.domains.claim_followup.service import require_sending_account
-            require_sending_account(session, data.get("email_account_id"))
+            require_sending_account(session, data.get("email_account_id"), staff=sender)
 
             to_addresses = data.get("to_addresses", [])
             cc_addresses = data.get("cc_addresses", [])
@@ -1062,7 +1075,7 @@ class AdjusterEmailService:
                 {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
             )
             require_memory(6 * sum(len(a["data"]) for a in attachments))
-            email_result = email_service.send_email(send_payload)
+            email_result = email_service.send_email(send_payload, sender=sender)
             timer.lap("send")
 
             # Log claim activity (but do NOT update documents_sent_date or status)
@@ -1106,7 +1119,7 @@ class AdjusterEmailService:
     # ================================================================
 
     @document_job
-    def send_documents(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def send_documents(self, job_id: str, data: Dict[str, Any], *, sender) -> Dict[str, Any]:
         """Email documents picked in the Documents tab.
 
         Attaches exactly the chosen documents, of any type, as saved - nothing
@@ -1125,7 +1138,7 @@ class AdjusterEmailService:
             if not job:
                 raise ValueError("Job not found")
             from app.domains.claim_followup.service import require_sending_account
-            require_sending_account(session, data.get("email_account_id"))
+            require_sending_account(session, data.get("email_account_id"), staff=sender)
 
             to_addresses = data.get("to_addresses", [])
             # In the order picked, each once
@@ -1173,7 +1186,7 @@ class AdjusterEmailService:
                 {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
             )
             require_memory(6 * sum(len(a["data"]) for a in attachments))
-            email_result = email_service.send_email(send_payload)
+            email_result = email_service.send_email(send_payload, sender=sender)
             timer.lap("send")
 
             if job.claim_id:

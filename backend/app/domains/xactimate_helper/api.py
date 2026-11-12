@@ -11,6 +11,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.domains.auth.dependencies import require_screen
+
 from .schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -41,6 +43,9 @@ from .service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# The helper's rooms, AI runs and shared line-item descriptions: Line Items screen.
+_EDIT = [Depends(require_screen("line_items"))]
 
 # Service instances (lazy singletons)
 _line_item_svc = None
@@ -106,7 +111,7 @@ def get_embedding_service() -> XactEmbeddingService:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-@router.post("/rooms", response_model=XactRoomResponse, tags=["Xactimate Helper"])
+@router.post("/rooms", response_model=XactRoomResponse, tags=["Xactimate Helper"], dependencies=_EDIT)
 def create_room(data: XactRoomCreate):
     """Create a new room for AI analysis."""
     svc = get_room_service()
@@ -124,7 +129,7 @@ def get_room(room_id: UUID):
     return room
 
 
-@router.patch("/rooms/{room_id}", response_model=XactRoomResponse, tags=["Xactimate Helper"])
+@router.patch("/rooms/{room_id}", response_model=XactRoomResponse, tags=["Xactimate Helper"], dependencies=_EDIT)
 def update_room(room_id: UUID, data: XactRoomUpdate):
     """Update room details."""
     svc = get_room_service()
@@ -139,7 +144,7 @@ def update_room(room_id: UUID, data: XactRoomUpdate):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-@router.post("/rooms/{room_id}/analyze", tags=["Xactimate Helper"])
+@router.post("/rooms/{room_id}/analyze", tags=["Xactimate Helper"], dependencies=_EDIT)
 async def analyze_room(room_id: UUID, data: AnalyzeRequest):
     """
     Trigger AI analysis for a room.
@@ -187,6 +192,7 @@ def get_recommendations(room_id: UUID):
     "/rooms/{room_id}/corrections",
     response_model=CorrectionResponse,
     tags=["Xactimate Helper"],
+    dependencies=_EDIT,
 )
 async def save_correction(room_id: UUID, data: CorrectionCreate):
     """Save user correction feedback for AI improvement."""
@@ -249,6 +255,7 @@ def get_item_descriptions(
     "/descriptions",
     response_model=DescriptionResponse,
     tags=["Xactimate Helper"],
+    dependencies=_EDIT,
 )
 def create_description(data: DescriptionCreate):
     """Create a new justification description."""
@@ -260,6 +267,7 @@ def create_description(data: DescriptionCreate):
     "/descriptions/{desc_id}",
     response_model=DescriptionResponse,
     tags=["Xactimate Helper"],
+    dependencies=_EDIT,
 )
 def update_description(desc_id: UUID, data: DescriptionUpdate):
     """Update a justification description."""
@@ -274,6 +282,7 @@ def update_description(desc_id: UUID, data: DescriptionUpdate):
     "/descriptions/{desc_id}/approve",
     response_model=DescriptionResponse,
     tags=["Xactimate Helper"],
+    dependencies=_EDIT,
 )
 def approve_description(desc_id: UUID):
     """Approve an AI-generated description."""
@@ -284,7 +293,7 @@ def approve_description(desc_id: UUID):
     return result
 
 
-@router.post("/descriptions/{desc_id}/copy", tags=["Xactimate Helper"])
+@router.post("/descriptions/{desc_id}/copy", tags=["Xactimate Helper"], dependencies=_EDIT)
 def record_copy(desc_id: UUID):
     """Record a copy event (increment usage_count)."""
     svc = get_description_service()
@@ -314,6 +323,7 @@ def list_assemblies(
     "/helper/assemblies",
     response_model=XactAssemblyResponse,
     tags=["Xactimate Helper"],
+    dependencies=_EDIT,
 )
 def create_assembly(data: XactAssemblyCreate):
     """Create a new assembly template (admin)."""
@@ -379,6 +389,7 @@ def get_helper_line_item(item_code: str):
     "/embed/sync",
     response_model=EmbeddingSyncResponse,
     tags=["Xactimate Helper Admin"],
+    dependencies=_EDIT,
 )
 async def sync_embeddings(data: EmbeddingSyncRequest):
     """
@@ -398,7 +409,7 @@ async def sync_embeddings(data: EmbeddingSyncRequest):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-@router.post("/helper/line-items/{item_code}/generate-descriptions", tags=["Xactimate Helper"])
+@router.post("/helper/line-items/{item_code}/generate-descriptions", tags=["Xactimate Helper"], dependencies=_EDIT)
 async def generate_descriptions(
     item_code: str,
     damage_type: str = Query("general"),

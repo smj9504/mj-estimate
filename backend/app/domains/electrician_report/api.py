@@ -459,7 +459,7 @@ def send_electrician_report_to_pa(
         raise HTTPException(status_code=400, detail="No recipients")
     from app.domains.claim_followup.service import require_sending_account
     try:
-        require_sending_account(db, request.email_account_id)
+        require_sending_account(db, request.email_account_id, staff=current_staff)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -489,7 +489,7 @@ def send_electrician_report_to_pa(
         if request.from_address:
             send_payload["from_address"] = request.from_address
 
-        email_result = email_service.send_email(send_payload)
+        email_result = email_service.send_email(send_payload, sender=current_staff)
         if report.status != 'sent':
             report.status = 'sent'
             db.commit()

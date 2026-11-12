@@ -8,9 +8,14 @@ from typing import List, Optional
 from uuid import UUID, uuid4
 
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.dependencies import require_admin
 from . import models, schemas, service
 
 router = APIRouter()
+
+# Fees and types are edited in System Configuration (admin pages). Reading and
+# fee calculations stay open to everyone signed in.
+_ADMIN_ONLY = [Depends(require_admin)]
 
 
 # Document Types endpoints
@@ -38,7 +43,7 @@ def get_document_type(
     return document_type
 
 
-@router.post("/document-types/", response_model=schemas.DocumentTypeResponse)
+@router.post("/document-types/", response_model=schemas.DocumentTypeResponse, dependencies=_ADMIN_ONLY)
 def create_document_type(
     document_type: schemas.DocumentTypeCreate,
     db: Session = Depends(get_db)
@@ -59,7 +64,7 @@ def create_document_type(
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/document-types/{document_type_id}", response_model=schemas.DocumentTypeResponse)
+@router.put("/document-types/{document_type_id}", response_model=schemas.DocumentTypeResponse, dependencies=_ADMIN_ONLY)
 def update_document_type(
     document_type_id: UUID,
     document_type: schemas.DocumentTypeUpdate,
@@ -83,7 +88,7 @@ def update_document_type(
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/document-types/{document_type_id}")
+@router.delete("/document-types/{document_type_id}", dependencies=_ADMIN_ONLY)
 def delete_document_type(
     document_type_id: UUID,
     db: Session = Depends(get_db)
@@ -132,7 +137,7 @@ def get_trade(
     return trade
 
 
-@router.post("/trades/", response_model=schemas.TradeResponse)
+@router.post("/trades/", response_model=schemas.TradeResponse, dependencies=_ADMIN_ONLY)
 def create_trade(
     trade: schemas.TradeCreate,
     db: Session = Depends(get_db)
@@ -142,7 +147,7 @@ def create_trade(
     return service.create_trade(db, trade, user_id)
 
 
-@router.put("/trades/{trade_id}", response_model=schemas.TradeResponse)
+@router.put("/trades/{trade_id}", response_model=schemas.TradeResponse, dependencies=_ADMIN_ONLY)
 def update_trade(
     trade_id: UUID,
     trade: schemas.TradeUpdate,
@@ -156,7 +161,7 @@ def update_trade(
     return updated
 
 
-@router.delete("/trades/{trade_id}")
+@router.delete("/trades/{trade_id}", dependencies=_ADMIN_ONLY)
 def delete_trade(
     trade_id: UUID,
     db: Session = Depends(get_db)
@@ -192,7 +197,7 @@ def get_measurement_report_type(
     return report_type
 
 
-@router.post("/measurement-report-types/", response_model=schemas.MeasurementReportTypeResponse)
+@router.post("/measurement-report-types/", response_model=schemas.MeasurementReportTypeResponse, dependencies=_ADMIN_ONLY)
 def create_measurement_report_type(
     report_type: schemas.MeasurementReportTypeCreate,
     db: Session = Depends(get_db)
@@ -201,7 +206,7 @@ def create_measurement_report_type(
     return service.create_measurement_report_type(db, report_type)
 
 
-@router.put("/measurement-report-types/{report_type_id}", response_model=schemas.MeasurementReportTypeResponse)
+@router.put("/measurement-report-types/{report_type_id}", response_model=schemas.MeasurementReportTypeResponse, dependencies=_ADMIN_ONLY)
 def update_measurement_report_type(
     report_type_id: UUID,
     report_type: schemas.MeasurementReportTypeUpdate,
@@ -214,7 +219,7 @@ def update_measurement_report_type(
     return updated
 
 
-@router.delete("/measurement-report-types/{report_type_id}")
+@router.delete("/measurement-report-types/{report_type_id}", dependencies=_ADMIN_ONLY)
 def delete_measurement_report_type(
     report_type_id: UUID,
     db: Session = Depends(get_db)

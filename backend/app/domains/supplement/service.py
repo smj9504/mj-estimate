@@ -779,7 +779,7 @@ class SupplementService:
         finally:
             session.close()
 
-    def send_to_pa(self, supplement_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def send_to_pa(self, supplement_id: str, data: Dict[str, Any], *, sender) -> Dict[str, Any]:
         """Send supplement bid items to PA via email with PDF attachments."""
         session = self._get_session()
         try:
@@ -792,7 +792,7 @@ class SupplementService:
             if not sup:
                 raise ValueError("Supplement not found")
             from app.domains.claim_followup.service import require_sending_account
-            require_sending_account(session, data.get("email_account_id"))
+            require_sending_account(session, data.get("email_account_id"), staff=sender)
 
             claim = session.query(Claim).filter(Claim.id == sup.claim_id).first()
             client = session.query(Client).filter(
@@ -859,7 +859,7 @@ class SupplementService:
             }
             if data.get("from_address"):
                 send_payload["from_address"] = data["from_address"]
-            email_result = email_service.send_email(send_payload)
+            email_result = email_service.send_email(send_payload, sender=sender)
 
             # Update supplement status & submission info
             now = __import__("datetime").datetime.now(
@@ -1184,7 +1184,7 @@ class SupplementService:
         except Exception:
             pass
 
-    def send_info_request(self, supplement_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def send_info_request(self, supplement_id: str, data: Dict[str, Any], *, sender) -> Dict[str, Any]:
         """Send an info request email and create a followup record."""
         session = self._get_session()
         try:
@@ -1208,7 +1208,7 @@ class SupplementService:
             items_needed = data.get("items_needed", [])
             email_account_id = data.get("email_account_id")
             from app.domains.claim_followup.service import require_sending_account
-            require_sending_account(session, email_account_id)
+            require_sending_account(session, email_account_id, staff=sender)
 
             if not to_email:
                 raise ValueError("Recipient email is required")
@@ -1248,7 +1248,7 @@ class SupplementService:
                 "subject": subject,
                 "body_html": body_html,
                 "attachments": [],
-            })
+            }, sender=sender)
 
             now = __import__("datetime").datetime.now(
                 __import__("datetime").timezone.utc
@@ -1295,7 +1295,7 @@ class SupplementService:
             session.close()
 
     def resend_info_request(
-        self, supplement_id: str, followup_id: str, data: Dict[str, Any]
+        self, supplement_id: str, followup_id: str, data: Dict[str, Any], *, sender
     ) -> Dict[str, Any]:
         """Resend/follow-up on an existing info request."""
         session = self._get_session()
@@ -1367,7 +1367,7 @@ class SupplementService:
                 "subject": subject,
                 "body_html": body_html,
                 "attachments": [],
-            })
+            }, sender=sender)
 
             now = __import__("datetime").datetime.now(
                 __import__("datetime").timezone.utc

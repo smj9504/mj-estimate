@@ -23,7 +23,8 @@ from app.domains.auth.company_scope import (
     require_document,
     scoped,
 )
-from app.domains.auth.dependencies import get_current_user
+from app.domains.auth.dependencies import get_current_user, require_screen
+from app.domains.auth.price_access import require_price_company
 from app.domains.staff.models import Staff
 
 from .packing_schemas import (
@@ -418,14 +419,16 @@ def update_price(
     price_id: str,
     update: dict,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user),
+    current_user: Staff = Depends(require_screen("pack_calculator")),
 ):
-    """Update a packing price."""
+    """Update a packing price: a company's own by its people, a default
+    (no company) by an admin."""
     price = db.query(PackingPrice).filter(
         PackingPrice.id == price_id
     ).first()
     if not price:
         raise HTTPException(404, "Price not found")
+    require_price_company(db, current_user, price.company_id)
 
     if "unit_price" in update:
         price.unit_price = update["unit_price"]
@@ -440,9 +443,10 @@ def update_price(
 def seed_prices(
     company_id: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user),
+    current_user: Staff = Depends(require_screen("pack_calculator")),
 ):
-    """Seed default packing prices."""
+    """Seed default packing prices (for every company: admins only)."""
+    company_id = require_price_company(db, current_user, company_id)
     count = seed_packing_prices(
         db,
         company_id=company_id,

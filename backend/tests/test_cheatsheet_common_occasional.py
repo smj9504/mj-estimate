@@ -3,6 +3,7 @@ throwaway SQLite database."""
 
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -14,6 +15,8 @@ from sqlalchemy.ext.compiler import compiles
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core import database_factory  # noqa: E402
 from app.core.database_factory import SQLiteDatabase  # noqa: E402
+from app.domains.auth.dependencies import get_current_staff  # noqa: E402
+from app.domains.staff.models import StaffRole  # noqa: E402
 from app.domains.cheatsheet import service as cheatsheet_service  # noqa: E402
 from app.domains.cheatsheet.api import router  # noqa: E402
 from app.domains.cheatsheet.models import (  # noqa: E402
@@ -61,6 +64,10 @@ def client(tmp_path, monkeypatch):
 
     app = FastAPI()
     app.include_router(router, prefix='/api/cheatsheet')
+    # Changing the sheet takes the Cheat Sheet screen; an admin has every screen
+    app.dependency_overrides[get_current_staff] = lambda: SimpleNamespace(
+        id=uuid.uuid4(), role=StaffRole.admin,
+    )
     return TestClient(app)
 
 

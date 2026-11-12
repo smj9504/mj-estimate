@@ -432,11 +432,20 @@ class SmtpService:
                 )
 
             provider = account.get("provider_type", "gmail")
+            auth_method = account.get("auth_method", "password")
             # A custom account with its own smtp_server (e.g. Resend, which
             # has no IMAP endpoint and so can't use a gmail/outlook/yahoo
             # preset) overrides the provider preset lookup.
-            send_only = provider == "custom" and bool(account.get("smtp_server"))
-            if send_only:
+            send_only = (
+                auth_method != "oauth"
+                and provider == "custom" and bool(account.get("smtp_server"))
+            )
+            if auth_method == "oauth":
+                # The token is Google's: it only ever goes to Google's SMTP,
+                # whatever provider or server the row says (audit 2026-11)
+                from app.domains.email_ingestion.access import GOOGLE_SMTP
+                preset = dict(GOOGLE_SMTP)
+            elif send_only:
                 preset = {
                     "server": account["smtp_server"],
                     "port": account.get("smtp_port") or 587,
