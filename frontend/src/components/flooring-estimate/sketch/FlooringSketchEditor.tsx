@@ -25,11 +25,13 @@ export interface FlooringSketchEditorProps {
   initialSketch: FlooringSketch | null | undefined;
   readOnly?: boolean;
   onSaved?: (estimate: FlooringEstimate) => void;
+  /** Set to a function that saves any change still waiting (the page calls it before calculating) */
+  saveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 const TOOL_KEYS: Record<string, SketchTool> = { v: 'select', r: 'rect', p: 'polygon', d: 'opening' };
 
-const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId, initialSketch, readOnly, onSaved }) => {
+const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId, initialSketch, readOnly, onSaved, saveRef }) => {
   const [history, dispatch] = useReducer(historyReducer, initialSketch, (s) => ({
     past: [], present: normalizeSketch(s), future: [],
   }));
@@ -46,7 +48,14 @@ const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId,
   const [zoomRequest, setZoomRequest] = useState({ factor: 1, n: 0 });
   const [levelDialog, setLevelDialog] = useState<{ mode: 'add' | 'rename'; name: string } | null>(null);
 
-  const { status } = useSketchAutosave(estimateId, sketch, onSaved, !readOnly);
+  const { status, saveNow } = useSketchAutosave(estimateId, sketch, onSaved, !readOnly);
+  useEffect(() => {
+    if (!saveRef) return undefined;
+    saveRef.current = saveNow;
+    return () => {
+      saveRef.current = null;
+    };
+  }, [saveRef, saveNow]);
 
   const screens = Grid.useBreakpoint();
   const wide = !!screens.lg;
