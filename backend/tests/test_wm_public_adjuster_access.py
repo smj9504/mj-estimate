@@ -235,7 +235,9 @@ def screens(client):
     def numbers(path, prefix):
         response = client.get(path)
         assert response.status_code == 200, response.text
-        return {row['title'].replace(prefix, '') for row in response.json()}
+        body = response.json()
+        rows = body['items'] if isinstance(body, dict) else body  # rebuild projects come paginated
+        return {row['title'].replace(prefix, '') for row in rows}
 
     response = client.get('/api/clients/')
     assert response.status_code == 200, response.text

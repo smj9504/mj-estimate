@@ -174,7 +174,9 @@ class PDFEditorService:
 
             # Process each page
             for page_num in range(len(pdf_reader.pages)):
-                page = pdf_reader.pages[page_num]
+                # Attach the page to the writer before merging: pypdf 7+
+                # refuses to merge into a page still owned by a PdfReader.
+                page = pdf_writer.add_page(pdf_reader.pages[page_num])
 
                 # Create overlay if there are edits for this page
                 if page_num in overlay_pages:
@@ -185,8 +187,6 @@ class PDFEditorService:
                     # Merge overlay with original page
                     overlay_reader = PdfReader(io.BytesIO(overlay_bytes))
                     page.merge_page(overlay_reader.pages[0])
-
-                pdf_writer.add_page(page)
 
             # Write edited PDF to bytes
             output = io.BytesIO()
