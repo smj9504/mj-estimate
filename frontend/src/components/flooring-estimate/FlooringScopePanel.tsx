@@ -14,14 +14,14 @@ import {
   Alert, Button, Card, Checkbox, Collapse, Empty, Input, InputNumber, Segmented, Select, Space, Switch, Tag,
   Tooltip, Typography,
 } from 'antd';
-import { DeleteOutlined, PlusOutlined, UndoOutlined } from '@ant-design/icons';
+import { ClockCircleOutlined, DeleteOutlined, PlusOutlined, UndoOutlined } from '@ant-design/icons';
 import type {
   CatalogItem, CustomItem, FloorMaterial, FloorWork, FlooringPricingInfo, ItemChoice, JobScope, LayPattern,
   PriceListItem, RefinishFinish, RoomScope, TakeoffItem, TakeoffRoom,
 } from '../../types/flooringEstimate';
 import {
-  addCustom, addPricedCustom, customPrice, removeCustom, resetRoomItem, round2, setGeneralItem, setJobDefaults,
-  setJobRoomItem, setRoomField, setRoomItem, shownItem, updateCustom,
+  LABOR_HOURS, addCustom, addLabor, addPricedCustom, customPrice, isLaborKey, removeCustom, resetRoomItem, round2,
+  setGeneralItem, setJobDefaults, setJobRoomItem, setRoomField, setRoomItem, shownItem, updateCustom,
 } from './scope/scopeEdit';
 
 const { Text } = Typography;
@@ -135,60 +135,92 @@ interface CustomLinesProps {
   priceList: PriceListItem[];
   prices: Map<string, number>;
   onChange: (next: CustomItem[]) => void;
+  /** The trade an "Add labor hours" line starts on (a price-list key) */
+  laborKey?: string;
 }
 
-const CustomLines: React.FC<CustomLinesProps> = ({ items, priceList, prices, onChange }) => (
-  <div>
-    {(items || []).map((c) => (
-      <div key={c.id ?? ''} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
-        <Input size="small" value={c.description} style={{ flex: '1 1 220px' }} aria-label="Custom line description"
-          onChange={(e) => onChange(updateCustom(items, c.id!, { description: e.target.value }))} />
-        <InputNumber size="small" min={0} value={c.quantity} style={{ width: 80 }} aria-label="Custom line quantity"
-          onChange={(v) => onChange(updateCustom(items, c.id!, { quantity: v ?? 0 }))} />
-        <Select size="small" value={c.unit} style={{ width: 72 }} options={UNITS.map((u) => ({ value: u, label: u }))}
-          onChange={(unit) => onChange(updateCustom(items, c.id!, { unit }))} />
-        <InputNumber size="small" min={0} prefix="$" value={c.unit_price ?? null} style={{ width: 100 }}
-          aria-label="Custom line unit price"
-          placeholder={c.price_key && prices.has(c.price_key) ? prices.get(c.price_key)!.toFixed(2) : 'price'}
-          onChange={(v) => onChange(updateCustom(items, c.id!, { unit_price: v ?? null }))} />
-        <Text strong style={{ width: 90, textAlign: 'right', alignSelf: 'center' }}>
-          {money(round2((c.quantity || 0) * customPrice(c, prices)))}
-        </Text>
-        {c.price_key && c.unit_price == null && (
-          <Tooltip title="Priced from the price list, at this estimate's prices; material tax and O&P go on it like any item">
-            <Tag style={{ alignSelf: 'center', marginInlineEnd: 0 }}>price list</Tag>
+const HOUR_OPTIONS = LABOR_HOURS.map((h) => ({ value: h, label: `${h} hr` }));
+
+const CustomLines: React.FC<CustomLinesProps> = ({ items, priceList, prices, onChange, laborKey }) => {
+  const trades = priceList.filter((p) => isLaborKey(p.key));
+  const tradeOptions = trades.map((p) => ({
+    value: p.key, label: `${p.label.replace(/ - per hour$/, '')} · ${money(p.unit_price)}/hr`,
+  }));
+  const startOn = laborKey && prices.has(laborKey) ? laborKey : trades[0]?.key;
+  return (
+    <div>
+      {(items || []).map((c) => (
+        <div key={c.id ?? ''} data-testid={isLaborKey(c.price_key) ? 'labor-line' : undefined}
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
+          <Input size="small" value={c.description} style={{ flex: '1 1 220px' }} aria-label="Custom line description"
+            placeholder={isLaborKey(c.price_key) ? 'What the hours are for' : undefined}
+            onChange={(e) => onChange(updateCustom(items, c.id!, { description: e.target.value }))} />
+          {isLaborKey(c.price_key) ? (
+            // Hours by the quarter, at the trade's hourly rate
+            <>
+              <Select size="small" value={c.price_key} style={{ width: 230 }} options={tradeOptions}
+                aria-label="Labor trade" onChange={(price_key: string) => onChange(updateCustom(items, c.id!, { price_key }))} />
+              <Select size="small" value={c.quantity} style={{ width: 88 }} options={HOUR_OPTIONS}
+                aria-label="Labor hours" onChange={(quantity: number) => onChange(updateCustom(items, c.id!, { quantity }))} />
+            </>
+          ) : (
+            <>
+              <InputNumber size="small" min={0} value={c.quantity} style={{ width: 80 }} aria-label="Custom line quantity"
+                onChange={(v) => onChange(updateCustom(items, c.id!, { quantity: v ?? 0 }))} />
+              <Select size="small" value={c.unit} style={{ width: 72 }} options={UNITS.map((u) => ({ value: u, label: u }))}
+                onChange={(unit) => onChange(updateCustom(items, c.id!, { unit }))} />
+            </>
+          )}
+          <InputNumber size="small" min={0} prefix="$" value={c.unit_price ?? null} style={{ width: 100 }}
+            aria-label="Custom line unit price"
+            placeholder={c.price_key && prices.has(c.price_key) ? prices.get(c.price_key)!.toFixed(2) : 'price'}
+            onChange={(v) => onChange(updateCustom(items, c.id!, { unit_price: v ?? null }))} />
+          <Text strong style={{ width: 90, textAlign: 'right', alignSelf: 'center' }}>
+            {money(round2((c.quantity || 0) * customPrice(c, prices)))}
+          </Text>
+          {c.price_key && c.unit_price == null && (
+            <Tooltip title="Priced from the price list, at this estimate's prices; material tax and O&P go on it like any item">
+              <Tag style={{ alignSelf: 'center', marginInlineEnd: 0 }}>price list</Tag>
+            </Tooltip>
+          )}
+          <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label="Remove custom line"
+            onClick={() => onChange(removeCustom(items, c.id!))} />
+        </div>
+      ))}
+      <Space wrap size={8} style={{ marginTop: 8 }}>
+        <Button size="small" icon={<PlusOutlined />} onClick={() => onChange(addCustom(items))}>
+          Add a line
+        </Button>
+        {startOn && (
+          <Tooltip title="Work no line covers, like cutting tile around a column base: a trade's hours, by the quarter hour">
+            <Button size="small" icon={<ClockCircleOutlined />} onClick={() => onChange(addLabor(items, startOn))}>
+              Add labor hours
+            </Button>
           </Tooltip>
         )}
-        <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label="Remove custom line"
-          onClick={() => onChange(removeCustom(items, c.id!))} />
-      </div>
-    ))}
-    <Space wrap size={8} style={{ marginTop: 8 }}>
-      <Button size="small" icon={<PlusOutlined />} onClick={() => onChange(addCustom(items))}>
-        Add a line
-      </Button>
-      {priceList.length > 0 && (
-        <Select
-          size="small"
-          showSearch
-          value={null}
-          placeholder="…or add one from the price list"
-          style={{ width: 300 }}
-          optionFilterProp="label"
-          aria-label="Add from the price list"
-          options={Object.entries(groupBy(priceList)).map(([group, list]) => ({
-            label: group,
-            options: list.map((p) => ({ value: p.key, label: `${p.label} (${p.unit})` })),
-          }))}
-          onChange={(key: string) => {
-            const item = priceList.find((p) => p.key === key);
-            if (item) onChange(addPricedCustom(items, item));
-          }}
-        />
-      )}
-    </Space>
-  </div>
-);
+        {priceList.length > 0 && (
+          <Select
+            size="small"
+            showSearch
+            value={null}
+            placeholder="…or add one from the price list"
+            style={{ width: 300 }}
+            optionFilterProp="label"
+            aria-label="Add from the price list"
+            options={Object.entries(groupBy(priceList)).map(([group, list]) => ({
+              label: group,
+              options: list.map((p) => ({ value: p.key, label: `${p.label} (${p.unit})` })),
+            }))}
+            onChange={(key: string) => {
+              const item = priceList.find((p) => p.key === key);
+              if (item) onChange(addPricedCustom(items, item));
+            }}
+          />
+        )}
+      </Space>
+    </div>
+  );
+};
 
 function groupBy(list: PriceListItem[]): Record<string, PriceListItem[]> {
   return list.reduce<Record<string, PriceListItem[]>>((acc, p) => {
@@ -213,6 +245,7 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
   const priceList = useMemo(() => pricing?.price_list || [], [pricing]);
   const prices = useMemo(() => new Map(priceList.map((p) => [p.key, p.unit_price])), [priceList]);
   const materials = pricing?.materials || [];
+  const labor = pricing?.labor;
   const materialLabel = (key?: FloorMaterial | null) => materials.find((m) => m.key === key)?.label ?? key ?? '';
   const materialOptions = materials.map((m) => ({ value: m.key, label: m.label }));
   const patternOptions = (pricing?.patterns || []).map((p) => ({ value: p.key, label: p.label }));
@@ -361,6 +394,7 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
                 Other work in this room
               </Text>
               <CustomLines items={scope.custom_items} priceList={priceList} prices={prices}
+                laborKey={refinish ? labor?.refinish : newMaterial ? labor?.by_floor[newMaterial] : labor?.general}
                 onChange={(next) => set({ custom_items: next })} />
             </div>
           </>
@@ -475,7 +509,7 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
         ))}
         <div style={{ marginTop: 12 }}>
           <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>Other work on the job</Text>
-          <CustomLines items={jobScope.custom_items} priceList={priceList} prices={prices}
+          <CustomLines items={jobScope.custom_items} priceList={priceList} prices={prices} laborKey={labor?.general}
             onChange={(next) => onJobScope({ ...jobScope, custom_items: next })} />
         </div>
       </Card>

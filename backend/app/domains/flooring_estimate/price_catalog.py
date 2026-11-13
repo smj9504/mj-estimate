@@ -21,6 +21,13 @@ _MATERIAL_LABELS = {
     "porcelain_tile": "Porcelain tile", "sheet_vinyl": "Sheet vinyl", "carpet": "Carpet",
 }
 
+# Each trade's hourly labor line (pricing.LABOR_RATES)
+LABOR_LABELS = {
+    "tile_installer": "Tile installer", "wood_installer": "Wood floor installer",
+    "vinyl_installer": "Vinyl / LVP installer", "carpet_installer": "Carpet installer",
+    "finish_carpenter": "Finish carpenter", "painter": "Painter", "general_laborer": "General laborer",
+}
+
 PRICE_TABLES = [
     TableSpec(
         "FLOORING_MATERIAL", "Flooring", kind=MATERIAL, title="Material", unit="SF",
@@ -156,6 +163,11 @@ PRICE_TABLES = [
     TableSpec(
         "STAIR_RATES", "Stairs", kind=MIXED, share=_STAIRS,
         labels={"carpet_per_step": "Carpet & pad, per step", "tread_riser_per_step": "Tread, riser & nose, per step"},
+    ),
+    TableSpec(
+        "LABOR_RATES", "Labor", kind=LABOR, unit="HR",
+        labels={key: f"{label} - per hour" for key, label in LABOR_LABELS.items()},
+        note="Work no line covers, charged by the quarter hour on a room's or the job's own line.",
     ),
     TableSpec("CONTENTS_RATES", "Contents", kind=LABOR, title="Contents move"),
     TableSpec(

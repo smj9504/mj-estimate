@@ -85,6 +85,19 @@ export function addPricedCustom(list: CustomItem[] | undefined, item: { key: str
   }];
 }
 
+// ── Labor by the hour: a custom line priced from a trade's hourly rate ──
+
+export const LABOR_PREFIX = 'LABOR_RATES.';
+export const isLaborKey = (key?: string | null) => !!key && key.startsWith(LABOR_PREFIX);
+/** Charged in quarter hours, up to a day on one line */
+export const LABOR_HOURS = Array.from({ length: 32 }, (_, i) => (i + 1) * 0.25);
+
+export function addLabor(list: CustomItem[] | undefined, priceKey: string): CustomItem[] {
+  return [...(list || []), {
+    id: customId(), description: 'Additional labor', quantity: 0.5, unit: 'HR', unit_price: null, price_key: priceKey,
+  }];
+}
+
 /** A custom line's price: as typed, else its price-list price */
 export function customPrice(item: CustomItem, priceList: Map<string, number>): number {
   if (item.unit_price != null) return item.unit_price;

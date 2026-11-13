@@ -303,6 +303,15 @@ export interface FlooringPricingInfo {
   pad_price: number;
   room_items: CatalogItem[];
   general_items: CatalogItem[];
+  /** Labor by the hour: the price-list key a room's line starts on, by its new floor */
+  labor?: LaborInfo;
+}
+
+export interface LaborInfo {
+  step_hr: number;
+  by_floor: Record<string, string>;
+  refinish: string;
+  general: string;
 }
 
 export interface PriceBookSummary {

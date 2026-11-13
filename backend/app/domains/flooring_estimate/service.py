@@ -80,6 +80,15 @@ def pricing_info() -> Dict[str, Any]:
         "fixture_types": sorted(FIXTURE_TYPES),
         "appliance_types": sorted(APPLIANCE_TYPES),
         "carpet_roll_width_ft": pricing.CARPET_ROLL_WIDTH_FT,
+        # Labor by the hour: whose hours a room's line starts on, by its new floor
+        "labor": {
+            "step_hr": pricing.LABOR_STEP_HR,
+            "by_floor": {
+                floor: pricing.LABOR_PREFIX + trade for floor, trade in pricing.LABOR_TRADE_BY_FLOOR.items()
+            },
+            "refinish": pricing.LABOR_PREFIX + "wood_installer",
+            "general": pricing.LABOR_PREFIX + "general_laborer",
+        },
         # Every flooring price, for a custom line priced from the list
         "price_list": [
             {"key": item.key, "label": item.label, "group": item.group, "unit": item.unit,

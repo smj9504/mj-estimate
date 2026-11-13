@@ -603,6 +603,49 @@ def test_custom_items_on_a_room_and_on_the_job():
     assert lines_of(result, "General")["custom_1"]["total"] == 150
 
 
+def test_labor_by_the_quarter_hour_for_work_no_line_covers():
+    # Owner, 2026-11-13: tile cut around a column's base, a trade's hours
+    from app.domains.flooring_estimate.service import pricing_info
+
+    assert pricing.LABOR_RATES["tile_installer"] == pytest.approx(141.47)   # FCT LAB 128.61, +10%
+    assert pricing.LABOR_RATES["wood_installer"] == pytest.approx(78.36)    # FCW LAB 71.24
+    est = estimate(
+        room_scopes=scopes(kitchen={"new_material": "ceramic_tile", "custom_items": [
+            {"id": "l1", "description": "Cut tile around the column base", "quantity": 0.75, "unit": "HR",
+             "price_key": "LABOR_RATES.tile_installer"},
+        ]}),
+        job_scope={"custom_items": [
+            {"id": "l2", "description": "Carry boxes up", "quantity": 1.5, "unit": "HR",
+             "price_key": "LABOR_RATES.general_laborer", "unit_price": 50},
+        ]},
+    )
+    result = calculate_estimate(est)
+    column = lines_of(result, "Kitchen")["l1"]
+    # Labor: no material tax on it
+    assert (column["quantity"], column["unit"], column["unit_price"]) == (0.75, "HR", 141.47)
+    assert column["total"] == pytest.approx(106.10)
+    assert column["notes"] == "Tile installer - by the hour"
+    # A price typed in is used as typed
+    assert lines_of(result, "General")["l2"]["total"] == 75
+
+    # Quarter hours only
+    for hours in (0.3, 0, 1.1):
+        with pytest.raises(ValidationError, match="quarter hours"):
+            RoomScope.model_validate({"custom_items": [
+                {"description": "x", "quantity": hours, "unit": "HR", "price_key": "LABOR_RATES.painter"}]})
+    RoomScope.model_validate({"custom_items": [{"description": "x", "quantity": 0.3, "unit": "HR", "unit_price": 80}]})
+
+    # The screen starts a room's hours on its floor's installer, and lists each trade
+    info = pricing_info()
+    assert info["labor"]["by_floor"]["porcelain_tile"] == "LABOR_RATES.tile_installer"
+    assert info["labor"]["by_floor"]["laminate"] == "LABOR_RATES.wood_installer"
+    assert info["labor"]["refinish"] == "LABOR_RATES.wood_installer"
+    listed = {p["key"]: p for p in info["price_list"] if p["key"].startswith("LABOR_RATES.")}
+    assert set(listed) == {f"LABOR_RATES.{k}" for k in pricing.LABOR_RATES}
+    assert listed["LABOR_RATES.tile_installer"]["unit"] == "HR"
+    assert listed["LABOR_RATES.tile_installer"]["label"] == "Tile installer - per hour"
+
+
 def test_a_price_book_prices_the_estimate():
     with use_prices({"FLOORING_MATERIAL.lvp": [6.00, 0], "TRIM_RATES.baseboard_paint_per_lf": [0, 3.00]}):
         living = lines_of(calculate_estimate(estimate()), "Living Room")
@@ -819,6 +862,24 @@ def test_the_pdf_prints_each_room_as_a_card_with_its_lines_under_work_heads_then
     assert "Floor Plan" in text and "Main Level" in text
     assert "Not in scope" in text
     assert "Bedroom 2" in text
+
+
+def test_labor_hours_print_with_their_trade_in_every_layout(service):
+    from app.domains.flooring_estimate.export_service import FlooringExportService
+
+    est = service.create_estimate(FlooringEstimateCreate(
+        property_address="123 Example St", city="Anytown", state="VA", zip_code="22030", sketch_data=house(),
+        room_scopes=scopes(kitchen={"new_material": "ceramic_tile", "custom_items": [
+            {"id": "l1", "description": "Cut tile around the column base", "quantity": 0.75, "unit": "HR",
+             "price_key": "LABOR_RATES.tile_installer"}]}),
+    ))
+    service.calculate(est["id"])
+    estimate = service.get_estimate(est["id"])
+    for layout in ("rooms", "trades", "proposal"):
+        text = _pdf_text(FlooringExportService().generate_pdf(estimate, layout=layout))
+        assert "Cut tile around the column base" in text, layout
+        assert "Tile installer - by the hour" in text, layout
+        assert ("(0.75 hr)" if layout == "proposal" else "0.75 HR") in text, layout
 
 
 def test_the_pdf_by_trade_and_as_a_proposal(service):

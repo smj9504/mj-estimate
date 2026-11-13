@@ -177,3 +177,51 @@ test('a room can be sanded and refinished in place of a new floor, and so can ev
   await expect.poll(() => api.lastUpdate()?.room_scopes?.living?.work).toBe('replace');
   await expect(living.getByRole('combobox', { name: 'New floor' })).toBeVisible();
 });
+
+test('labor hours on a room, by the quarter hour at a trade’s rate', async ({ page }) => {
+  const api = await mockFlooringEstimateApi(page);
+  // Each trade's hourly line and whose a room's hours start on (the saved fixture predates them)
+  const pricing = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'flooring-pricing-info.json'), 'utf8'));
+  const trade = (key: string, label: string, price: number) => ({
+    key: `LABOR_RATES.${key}`, label: `${label} - per hour`, group: 'Labor', unit: 'HR', unit_price: price,
+  });
+  await page.route((url) => url.pathname.endsWith('/api/flooring-estimates/pricing-info'), (route) => route.fulfill({
+    json: {
+      ...pricing,
+      price_list: [...pricing.price_list, trade('tile_installer', 'Tile installer', 141.47),
+        trade('vinyl_installer', 'Vinyl / LVP installer', 100.85), trade('general_laborer', 'General laborer', 63.1)],
+      labor: {
+        step_hr: 0.25, by_floor: { lvp: 'LABOR_RATES.vinyl_installer', ceramic_tile: 'LABOR_RATES.tile_installer' },
+        refinish: 'LABOR_RATES.wood_installer', general: 'LABOR_RATES.general_laborer',
+      },
+    },
+  }));
+  await page.goto(`/flooring-estimates/${ESTIMATE_ID}?tab=rooms`);
+  const living = page.getByTestId('room-scope-living');
+  await living.getByRole('button', { name: 'Add labor hours' }).click();
+  // The room's LVP: the vinyl installer's half hour to start
+  const line = living.getByTestId('labor-line');
+  await expect(line.locator('.ant-select', { has: page.getByRole('combobox', { name: 'Labor trade' }) }))
+    .toContainText('Vinyl / LVP installer · $100.85/hr');
+  await expect(line.getByText('$50.43')).toBeVisible();
+
+  await line.getByLabel('Custom line description').fill('Cut tile around the column base');
+  await line.locator('.ant-select', { has: page.getByRole('combobox', { name: 'Labor trade' }) }).click();
+  await page.getByTitle('Tile installer · $141.47/hr', { exact: true }).filter({ visible: true }).click();
+  await line.locator('.ant-select', { has: page.getByRole('combobox', { name: 'Labor hours' }) }).click();
+  // Quarter hours only
+  for (const h of ['0.25 hr', '0.5 hr', '0.75 hr', '1 hr']) {
+    await expect(page.locator(`.ant-select-item-option[title="${h}"]`)).toBeVisible();
+  }
+  await page.locator('.ant-select-item-option[title="0.75 hr"]').click();
+  await expect(line.getByText('$106.10')).toBeVisible();
+  await expect.poll(() => api.lastUpdate()?.room_scopes?.living?.custom_items?.[0]).toMatchObject({
+    description: 'Cut tile around the column base', quantity: 0.75, unit: 'HR', unit_price: null,
+    price_key: 'LABOR_RATES.tile_installer',
+  });
+
+  // On the job, a general laborer's
+  await page.getByText('Other work on the job').locator('..').getByRole('button', { name: 'Add labor hours' }).click();
+  await expect.poll(() => api.lastUpdate()?.job_scope?.custom_items?.[0])
+    .toMatchObject({ price_key: 'LABOR_RATES.general_laborer', quantity: 0.5, unit: 'HR' });
+});

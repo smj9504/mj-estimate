@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { TakeoffItem } from '../../../types/flooringEstimate';
 import {
-  addCustom, addPricedCustom, customPrice, removeCustom, resetRoomItem, setGeneralItem, setJobDefaults, setJobRoomItem, setRoomField,
-  setRoomItem, shownItem, updateCustom,
+  LABOR_HOURS, addCustom, addLabor, addPricedCustom, customPrice, isLaborKey, removeCustom, resetRoomItem, setGeneralItem,
+  setJobDefaults, setJobRoomItem, setRoomField, setRoomItem, shownItem, updateCustom,
 } from './scopeEdit';
 
 const item = (over: Partial<TakeoffItem> = {}): TakeoffItem => ({
@@ -103,5 +103,17 @@ describe('lines from the price list', () => {
 
   it('count a plain line with no price as nothing', () => {
     expect(customPrice({ description: 'x', quantity: 1, unit: 'EA' }, prices)).toBe(0);
+  });
+});
+
+describe('labor by the hour', () => {
+  it('starts a half hour on the trade given, priced from the price list, in quarter hours only', () => {
+    const [line] = addLabor(undefined, 'LABOR_RATES.tile_installer');
+    expect(line).toMatchObject({ quantity: 0.5, unit: 'HR', unit_price: null, price_key: 'LABOR_RATES.tile_installer' });
+    expect(isLaborKey(line.price_key)).toBe(true);
+    expect(isLaborKey('TRIM_RATES.shoe_molding_per_lf')).toBe(false);
+    expect(customPrice({ ...line, quantity: 0.75 }, new Map([['LABOR_RATES.tile_installer', 141.47]]))).toBe(141.47);
+    expect(LABOR_HOURS.slice(0, 4)).toEqual([0.25, 0.5, 0.75, 1]);
+    expect(LABOR_HOURS.every((h) => Number.isInteger(h * 4))).toBe(true);
   });
 });

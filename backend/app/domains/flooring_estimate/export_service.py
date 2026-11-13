@@ -549,6 +549,9 @@ class FlooringExportService:
                 qty = float(li.get("quantity") or 0)
                 if unit in ("SF", "LF", "SY"):
                     text += f" <font color='#4a5568'>({qty:,.2f} {unit})</font>"
+                elif unit == "HR":
+                    # Labor by the hour: always say how long
+                    text += f" <font color='#4a5568'>({qty:g} hr)</font>"
                 elif qty != 1:
                     text += f" <font color='#4a5568'>({qty:g})</font>"
                 if li.get("notes"):

@@ -37,6 +37,7 @@ from app.domains.unit_prices import catalog
 from app.domains.unit_prices.tables import material_share
 
 from . import pricing
+from .price_catalog import LABOR_LABELS
 from .geometry import (
     CABINET_HEIGHT_FT, RoomMeasure, bounding_box, distance, fixture_words, point, format_ft_in, is_axis_rectangle, levels_of, measure_sketch,
 )
@@ -405,12 +406,17 @@ def _custom_rows(custom_items: List[Mapping[str, Any]], warnings: List[str], whe
             typed = True
             if typed_price is None:
                 warnings.append(f"{where}: \"{description}\" has no price.")
+        notes = c.get("notes")
+        if not notes and pricing.is_labor_key(key):
+            # Hours on a line of its own: say whose
+            trade = LABOR_LABELS.get(str(key)[len(pricing.LABOR_PREFIX):])
+            notes = f"{trade} - by the hour" if trade else None
         rows.append(Row(
             key=str(c.get("id") or f"custom_{i + 1}"), label=description, group="Custom",
             category="custom", unit=str(c.get("unit") or "EA"), basis="manual", on=True,
             default_on=True, on_source="room", auto_qty=qty, qty=qty, qty_typed=True,
             unit_price=price, material_unit=material, price_typed=typed,
-            price_key=key if not typed else None, notes=c.get("notes"), source="custom",
+            price_key=key if not typed else None, notes=notes, source="custom",
         ))
     return rows
 

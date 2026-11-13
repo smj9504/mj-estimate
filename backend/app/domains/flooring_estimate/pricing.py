@@ -265,6 +265,36 @@ CUT_TO_FIT_RATES = {
     "wood_per_angled_lf": xact(71.24 * 0.05),
 }
 
+# Labor by the hour, for work no line item covers: tile cut around a
+# column's base, a floor scribed to an odd hearth (owner, 2026-11-13). A
+# custom line on the room or the job priced from here, its hours in quarter
+# hours (LABOR_STEP_HR). Each trade's Xactimate hourly line, marked up.
+LABOR_RATES = {
+    "tile_installer": xact(128.61),     # FCT LAB: ceramic tile flooring installer
+    "wood_installer": xact(71.24),      # FCW LAB: wood floor covering installer (hardwood, laminate)
+    "vinyl_installer": xact(91.68),     # FCV LAB: vinyl floor covering installer (LVP, sheet vinyl)
+    "carpet_installer": xact(91.68),    # FCC LAB: carpet installer
+    "finish_carpenter": xact(92.32),    # FNC LAB: finish carpenter (base, shoe, trim)
+    "painter": xact(101.41),            # PNT LAB: painter
+    "general_laborer": xact(57.36),     # FCT LABL: flooring general laborer
+}
+LABOR_STEP_HR = 0.25
+LABOR_PREFIX = "LABOR_RATES."
+# Whose hours a room's labor line starts on, by its new floor (a sanded
+# floor: the wood installer's); the estimator can pick another trade
+LABOR_TRADE_BY_FLOOR = {
+    "ceramic_tile": "tile_installer", "porcelain_tile": "tile_installer",
+    "solid_hardwood": "wood_installer", "engineered_hardwood": "wood_installer",
+    "laminate": "wood_installer",       # Xactimate files snaplock laminate under FCW
+    "lvp": "vinyl_installer", "sheet_vinyl": "vinyl_installer",
+    "carpet": "carpet_installer",
+}
+
+
+def is_labor_key(path) -> bool:
+    return bool(path) and str(path).startswith(LABOR_PREFIX)
+
+
 # ──────────────────────────────────────────────
 # Sanding: an existing hardwood floor refinished in place of a new one
 # (owner, 2026-11-13). Every line from Xactimate (FCW), marked up.

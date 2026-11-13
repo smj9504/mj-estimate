@@ -189,6 +189,17 @@ class CustomItem(BaseModel):
     price_key: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = Field(None, max_length=500)
 
+    @model_validator(mode="after")
+    def check_hours(self) -> "CustomItem":
+        # Labor by the hour goes on in quarter hours (owner, 2026-11-13)
+        if pricing.is_labor_key(self.price_key):
+            steps = self.quantity / pricing.LABOR_STEP_HR
+            if self.quantity <= 0 or abs(steps - round(steps)) > 1e-6:
+                raise ValueError(
+                    f'"{self.description}": labor is charged in quarter hours (0.25, 0.5, 0.75, 1 ...)'
+                )
+        return self
+
 
 class RoomScope(BaseModel):
     model_config = ConfigDict(extra="forbid")
