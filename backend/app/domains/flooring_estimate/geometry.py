@@ -231,6 +231,13 @@ class RoomMeasure:
     # The fixtures a new floor is cut and fitted around (floor_fit_of), by
     # type in the order drawn
     cut_to_fit: List[str] = field(default_factory=list)
+    # How hard the floor is to cut in (owner, 2026-11-13): every corner it
+    # has to be notched around, and the walls off square
+    inside_corners: int = 0        # the outline's, an island left in place (4), a built-out wall's free end (2)
+    cabinet_free_ends: int = 0     # a cabinet run's end standing in the room: one notch at its front corner
+    angled_walls: int = 0          # walls not square to the room's longest wall
+    angled_wall_lf: float = 0.0
+    island_cut_lf: float = 0.0     # all round the islands the floor stops at
     openings: List[OpeningRef] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -345,28 +352,64 @@ def cabinet_layout(
             q = (a[0] + u[0] * s - n[0] * CABINET_DEPTH_FT * 0.999, a[1] + u[1] * s - n[1] * CABINET_DEPTH_FT * 0.999)
             if not any(in_run(q, o) for o in others):
                 front += step
-        sides = {}
+        sides, free = {}, {}
         for key, end, away in (("a", a, (-u[0], -u[1])), ("b", b, u)):
-            set_on_run = run.get(f"side_{key}")
-            if set_on_run is not None:
-                sides[key] = bool(set_on_run)
-                continue
             # Just past the end, halfway back to the wall
             p = (end[0] + away[0] * 0.15 - n[0] * CABINET_DEPTH_FT / 2,
                  end[1] + away[1] * 0.15 - n[1] * CABINET_DEPTH_FT / 2)
-            hidden = (
+            # Not against a wall or another run: the floor turns its front corner
+            # (an appliance beside it stands on the floor, so it still does)
+            free[key] = not (
                 not point_in_polygon(p, points)
                 or any(in_run(p, o, 0.05) for o in others)
-                or any(_near_fixture(p, f, SIDE_TOUCH_FT) for f in hiders)
                 or any(_segment_distance(p, wa, wb) <= reach for wa, wb, reach in stubs)
             )
-            sides[key] = not hidden
-        out.append({"id": str(run.get("id") or ""), "front_lf": front, "side_a": sides["a"], "side_b": sides["b"]})
+            set_on_run = run.get(f"side_{key}")
+            if set_on_run is not None:
+                sides[key] = bool(set_on_run)
+            else:
+                sides[key] = free[key] and not any(_near_fixture(p, f, SIDE_TOUCH_FT) for f in hiders)
+        out.append({"id": str(run.get("id") or ""), "front_lf": front, "side_a": sides["a"], "side_b": sides["b"],
+                    "free_a": free["a"], "free_b": free["b"]})
     return out
 
 
 def levels_of(sketch: Optional[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
     return list((sketch or {}).get("levels") or [])
+
+
+# Off square by more than this, a wall is angled
+ANGLE_TOLERANCE_RAD = math.radians(2)
+
+
+def outline_shape(points: Sequence[Point]) -> Tuple[int, int, float]:
+    """(inside corners, angled walls, their length) of a room's outline. An
+    inside corner turns into the room (an L's inner corner): the floor is
+    notched around it. A wall is angled when it isn't square to the room's
+    longest wall, so a room drawn turned on the page isn't all angled."""
+    n = len(points)
+    if n < 3:
+        return 0, 0, 0.0
+    turn = 1 if _doubled_area(points) > 0 else -1
+    inside = 0
+    for i in range(n):
+        a, b, c = points[i - 1], points[i], points[(i + 1) % n]
+        cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+        if cross * turn < -1e-9:
+            inside += 1
+    edges = [(points[i], points[(i + 1) % n]) for i in range(n)]
+    longest = max(edges, key=lambda e: distance(*e))
+    base = math.atan2(longest[1][1] - longest[0][1], longest[1][0] - longest[0][0])
+    count, length = 0, 0.0
+    for a, b in edges:
+        lf = distance(a, b)
+        if lf < 1e-6:
+            continue
+        off = (math.atan2(b[1] - a[1], b[0] - a[0]) - base) % (math.pi / 2)
+        if min(off, math.pi / 2 - off) > ANGLE_TOLERANCE_RAD:
+            count += 1
+            length += lf
+    return inside, count, length
 
 
 def floor_fit_of(fixture: Mapping[str, Any]) -> Optional[str]:
@@ -472,10 +515,18 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
             if m is not None:
                 m.cabinet_run_lf += distance(point(run.get("a") or (0, 0)), point(run.get("b") or (0, 0)))
 
+        for m in by_id.values():
+            m.inside_corners, m.angled_walls, m.angled_wall_lf = outline_shape(m.points)
+
         for wall in level.get("walls") or []:
             m = by_id.get(str(wall.get("room_id")))
             if m is None:
                 continue
+            # The floor is notched around both corners of an end standing in the room
+            m.inside_corners += 2 * sum(
+                1 for p in (point(wall.get("a") or (0, 0)), point(wall.get("b") or (0, 0)))
+                if not _on_outline(p, m.points)
+            )
             exposed, footprint, covered = wall_faces(
                 point(wall.get("a") or (0, 0)), point(wall.get("b") or (0, 0)),
                 float(wall.get("thickness") or 0.375), m.points,
@@ -517,6 +568,9 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
                         owner.island_floored_count += 1
                     else:
                         owner.floor_sf = max(0.0, owner.floor_sf - w * h)
+                        # The floor stops at it all round, notched at its four corners
+                        owner.island_cut_lf += 2 * (w + h)
+                        owner.inside_corners += 4
 
         runs_of = {room_id: [] for room_id in by_id}
         for run in level.get("cabinet_runs") or []:
@@ -530,6 +584,7 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
             for run in cabinet_layout(runs_of[room_id], m.points, fixtures_of[room_id], walls_of[room_id]):
                 m.cabinet_front_lf += run["front_lf"]
                 m.cabinet_side_lf += CABINET_DEPTH_FT * (run["side_a"] + run["side_b"])
+                m.cabinet_free_ends += run["free_a"] + run["free_b"]
             m.toe_kick_lf = m.cabinet_front_lf + m.island_perimeter_lf
 
         ordered: List[RoomMeasure] = []

@@ -96,6 +96,18 @@ WASTE_PCT = {
     "carpet": {"straight": 15},
 }
 
+# Tile and wood waste from the floor's shape instead of WASTE_PCT's straight
+# lay (owner, 2026-11-13), worked out over the rooms laid together (the same
+# floor through a doorway: the small ones are filled from the big one's
+# offcuts). Breakage, then a strip cut off along every edge, LF of edge per SF
+# of floor times per_edge (24: a 12' x 12' room comes to 10%, a large plain
+# room under it, a hall or a small bath alone near 18%), more for each wall
+# off square, up to max. Diagonal and herringbone add what they add in
+# WASTE_PCT. LVP and laminate keep WASTE_PCT: their row-end offcuts start the
+# next row. A waste typed on the room is used as typed.
+SHAPE_WASTE_FLOORS = TILES | WOOD_FLOORS
+SHAPE_WASTE = {"breakage_pct": 2.0, "per_edge": 24.0, "per_angled_wall_pct": 2.0, "max_pct": 20.0}
+
 # Laying on a diagonal or in herringbone is slower: the install labor goes up
 PATTERN_LABOR_MULTIPLIER = {"straight": 1.00, "diagonal": 1.15, "herringbone": 1.40}
 
@@ -241,9 +253,16 @@ REMOVAL_EXTRA_RATES = {
 # line, not a line of its own (owner, 2026-11-13). Half an hour of the
 # installer's Xactimate hourly rate: an allowance, not an Xactimate line,
 # that the owner agreed to (2026-11-13).
+# The same for the shape of the floor (owner, 2026-11-13): a quarter hour for
+# each corner the floor is notched around, three minutes a foot along a wall
+# that isn't square, each counted on the sketch (geometry.outline_shape).
 CUT_TO_FIT_RATES = {
     "tile_per_fixture": xact(128.61 * 0.5),   # FCT LAB: ceramic tile flooring installer, per hour
     "wood_per_fixture": xact(71.24 * 0.5),    # FCW LAB: wood floor covering installer, per hour
+    "tile_per_inside_corner": xact(128.61 * 0.25),
+    "wood_per_inside_corner": xact(71.24 * 0.25),
+    "tile_per_angled_lf": xact(128.61 * 0.05),
+    "wood_per_angled_lf": xact(71.24 * 0.05),
 }
 
 # ──────────────────────────────────────────────

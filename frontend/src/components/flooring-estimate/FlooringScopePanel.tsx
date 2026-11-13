@@ -307,7 +307,8 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
                 <Space size={4}>
                   <Text type="secondary">Waste</Text>
                   <InputNumber size="small" min={0} max={100} suffix="%" style={{ width: 84 }} value={scope.waste_pct ?? null}
-                    placeholder={String(material.waste_pct[pattern] ?? material.waste_pct.straight ?? '')}
+                    // What the server worked out (the floor's shape for tile and wood), until one is typed
+                    placeholder={String(room.waste_pct ?? material.waste_pct[pattern] ?? material.waste_pct.straight ?? '')}
                     onChange={(v) => set({ waste_pct: v ?? null })} aria-label="Waste percent" />
                 </Space>
               )}

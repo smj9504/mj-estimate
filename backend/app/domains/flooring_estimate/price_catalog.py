@@ -33,11 +33,16 @@ PRICE_TABLES = [
         note="Straight lay. Diagonal and herringbone take more (code, not a price).",
     ),
     TableSpec(
-        "CUT_TO_FIT_RATES", "Flooring", kind=LABOR, title="Cut to fit a fixture", unit="EA",
+        "CUT_TO_FIT_RATES", "Flooring", kind=LABOR, title="Cuts", unit="EA",
+        units={"tile_per_angled_lf": "LF", "wood_per_angled_lf": "LF"},
         labels={"tile_per_fixture": "Tile - cut to fit a fixture",
-                "wood_per_fixture": "Wood - cut to fit a fixture"},
-        note="Per fixture that needs a hole in the new floor (toilet flange, floor register); "
-             "added to the room's new floor line.",
+                "wood_per_fixture": "Wood - cut to fit a fixture",
+                "tile_per_inside_corner": "Tile - notch around a corner",
+                "wood_per_inside_corner": "Wood - notch around a corner",
+                "tile_per_angled_lf": "Tile - cut along an angled wall",
+                "wood_per_angled_lf": "Wood - cut along an angled wall"},
+        note="Added to the room's new floor line: per fixture that needs a hole in the floor (toilet flange, "
+             "floor register), per corner it is notched around, per LF of wall off square.",
     ),
     TableSpec(
         "REFINISH_RATES", "Refinish", kind=MIXED, share=0.23,

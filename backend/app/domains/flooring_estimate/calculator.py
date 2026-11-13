@@ -38,7 +38,7 @@ from app.domains.unit_prices.tables import material_share
 
 from . import pricing
 from .geometry import (
-    CABINET_HEIGHT_FT, RoomMeasure, bounding_box, fixture_words, format_ft_in, is_axis_rectangle, levels_of, measure_sketch,
+    CABINET_HEIGHT_FT, RoomMeasure, bounding_box, distance, fixture_words, point, format_ft_in, is_axis_rectangle, levels_of, measure_sketch,
 )
 from .items import (
     CATEGORY_ORDER, GENERAL_ITEMS, MAIN_LABELS, ROOM_ITEM_MAP, ROOM_ITEMS, RULES, ItemDef,
@@ -104,6 +104,9 @@ class RoomScope:
     items: Dict[str, Dict[str, Any]]
     custom_items: List[Dict[str, Any]]
     notes: Optional[str]
+    waste_typed: bool = False
+    # Where an automatic waste came from (the floor's shape)
+    waste_note: Optional[str] = None
 
 
 def _valid_material(value: Any) -> Optional[str]:
@@ -145,6 +148,7 @@ def resolve_scope(scope: Optional[Mapping[str, Any]], job: Mapping[str, Any]) ->
         items=dict(scope.get("items") or {}),
         custom_items=list(scope.get("custom_items") or []),
         notes=scope.get("notes"),
+        waste_typed=scope.get("waste_pct") is not None,
     )
 
 
@@ -246,6 +250,12 @@ def _carpet_quantity(m: RoomMeasure, scope: RoomScope) -> Tuple[float, str]:
     return m.floor_sf * (1 + scope.waste_pct / 100) / 9, f"Incl. {scope.waste_pct:g}% waste · {reason}"
 
 
+def _cut_rate(new: str, what: str) -> float:
+    """CUT_TO_FIT_RATES' price for a tile or wood floor: per inside_corner, angled_lf"""
+    side = "tile" if new in pricing.TILES else "wood"
+    return price_of(f"CUT_TO_FIT_RATES.{side}_per_{what}")
+
+
 def _cut_to_fit_rate(new: str) -> float:
     """Per fixture the new floor is cut to fit: tile and wood only (owner,
     2026-11-13)"""
@@ -256,7 +266,9 @@ def _cut_to_fit_rate(new: str) -> float:
     return 0.0
 
 
-def _install_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) -> Optional[Row]:
+def _install_row(
+    m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any], cabinets_out: bool = False,
+) -> Optional[Row]:
     new = scope.new_material
     if not new:
         return None
@@ -269,7 +281,7 @@ def _install_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) ->
         label = spec["line"]
     else:
         auto_qty = m.floor_sf * (1 + scope.waste_pct / 100)
-        note = f"Incl. {scope.waste_pct:g}% waste"
+        note = f"Incl. {scope.waste_pct:g}% waste" + (f" {scope.waste_note}" if scope.waste_note else "")
         label = f"{spec['line']}, {pricing.PATTERNS[scope.pattern]}" if new in pricing.PATTERNED else spec["line"]
     on, source = _switch(choice, {}, True)
     typed_qty = choice.get("qty")
@@ -277,17 +289,31 @@ def _install_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) ->
     coverage = pricing.BOX_COVERAGE_SF.get(new)
     if coverage and qty > 0:
         boxes = math.ceil(round(qty / coverage, 6))
-        note = f"{note} · order {boxes} boxes @ {coverage:g} SF" if typed_qty is None else f"Order {boxes} boxes @ {coverage:g} SF"
+        order = f"{boxes} box{'es' if boxes != 1 else ''} @ {coverage:g} SF"
+        note = f"{note} · order {order}" if typed_qty is None else f"Order {order}"
     elif typed_qty is not None:
         note = None
     typed_price = choice.get("unit_price")
     # A tile or wood floor cut to fit the fixtures that need a hole in it:
     # that labor spread over the line, not a line of its own
+    # So is cutting it to the room's shape: the corners it is notched around
+    # (a cabinet run's free end only while the cabinets stay) and the walls off square
     cut_rate = _cut_to_fit_rate(new)
-    if cut_rate and m.cut_to_fit and qty > 0 and typed_price is None:
-        labor += cut_rate * len(m.cut_to_fit) / qty
-        cut = f"cut to fit {fixture_words(m.cut_to_fit)}"
-        note = f"{note} · {cut}" if note else cut[0].upper() + cut[1:]
+    if cut_rate and qty > 0 and typed_price is None:
+        corners = m.inside_corners + (0 if cabinets_out else m.cabinet_free_ends)
+        cuts = []
+        if m.cut_to_fit:
+            labor += cut_rate * len(m.cut_to_fit) / qty
+            cuts.append(f"cut to fit {fixture_words(m.cut_to_fit)}")
+        if corners:
+            labor += _cut_rate(new, "inside_corner") * corners / qty
+            cuts.append(f"{corners} corner{'s' if corners != 1 else ''} notched")
+        if m.angled_wall_lf > 0.05:
+            labor += _cut_rate(new, "angled_lf") * m.angled_wall_lf / qty
+            cuts.append(f"{m.angled_wall_lf:,.2f} LF along angled walls")
+        if cuts:
+            cut = ", ".join(cuts)
+            note = f"{note} · {cut}" if note else cut[0].upper() + cut[1:]
     return Row(
         key="install", label=label, group="Flooring", category="install", unit=spec["unit"],
         basis="floor_sf", on=on, default_on=True, on_source=source, auto_qty=auto_qty, qty=qty,
@@ -389,6 +415,69 @@ def _custom_rows(custom_items: List[Mapping[str, Any]], warnings: List[str], whe
     return rows
 
 
+# ── Waste from the floor's shape ──
+
+def shape_waste(
+    sketch: Optional[Mapping[str, Any]], rooms: Mapping[str, RoomMeasure], scopes: Mapping[str, RoomScope],
+) -> None:
+    """Sets the waste of each room getting new tile or wood, unless one was
+    typed on it, from the shape of the floor it is laid in (pricing.SHAPE_WASTE):
+    the rooms with the same new floor joined by doorways, taken together."""
+    def lays(room_id: Optional[str]) -> Optional[str]:
+        scope = scopes.get(room_id) if room_id else None
+        if scope is None or not scope.included or scope.new_material not in pricing.SHAPE_WASTE_FLOORS:
+            return None
+        if _override(scope.items, "install").get("on") is False:
+            return None
+        return scope.new_material
+
+    parent = {room_id: room_id for room_id in rooms if lays(room_id)}
+
+    def root(room_id: str) -> str:
+        while parent[room_id] != room_id:
+            room_id = parent[room_id]
+        return room_id
+
+    joins: List[Tuple[str, str, float]] = []
+    for level in levels_of(sketch):
+        for opening in level.get("openings") or []:
+            ids = [str(r) if r else None for r in (opening.get("rooms") or [])][:2]
+            if len(ids) < 2 or None in ids or ids[0] == ids[1] or ids[0] not in parent or ids[1] not in parent:
+                continue
+            if lays(ids[0]) != lays(ids[1]):
+                continue
+            parent[root(ids[0])] = root(ids[1])
+            joins.append((ids[0], ids[1], distance(point(opening.get("a") or (0, 0)), point(opening.get("b") or (0, 0)))))
+
+    groups: Dict[str, List[str]] = {}
+    for room_id in parent:
+        groups.setdefault(root(room_id), []).append(room_id)
+    rule = pricing.SHAPE_WASTE
+    for key, members in groups.items():
+        area = sum(rooms[r].floor_sf for r in members)
+        if area <= 0:
+            continue
+        # Every edge the floor is cut along: the walls (a doorway to the same
+        # floor isn't one, on either side) and all round the islands left in place
+        edges = sum(rooms[r].perimeter_lf + rooms[r].island_cut_lf for r in members)
+        edges -= 2 * sum(width for a, b, width in joins if root(a) == key)
+        angled = sum(rooms[r].angled_walls for r in members)
+        straight = min(rule["max_pct"], rule["breakage_pct"] + rule["per_edge"] * max(0.0, edges) / area
+                       + rule["per_angled_wall_pct"] * angled)
+        floor = lays(members[0])
+        where = (f"for this room's shape" if len(members) == 1 else
+                 f"for the shape of the {area:,.0f} SF of {pricing.MATERIALS[floor]['short'].lower()} "
+                 f"laid across {len(members)} rooms")
+        for r in members:
+            scope = scopes[r]
+            if scope.waste_typed:
+                continue
+            table = pricing.WASTE_PCT.get(floor, {})
+            extra = table.get(scope.pattern, table.get("straight", 10)) - table.get("straight", 10)
+            scope.waste_pct = round(straight + extra, 1)
+            scope.waste_note = where
+
+
 # ── Transitions ──
 
 def _floor_on_each_side(
@@ -441,13 +530,6 @@ def room_rows(
     m: RoomMeasure, scope: RoomScope, job: Mapping[str, Any],
     transition_to: List[str], any_removal: bool, warnings: List[str],
 ) -> List[Row]:
-    rows: List[Row] = []
-    for key, make in (("removal", _removal_row), ("install", _install_row), ("pad", _pad_row),
-                      ("refinish", _refinish_row)):
-        row = make(m, scope, _override(scope.items, key))
-        if row is not None:
-            rows.append(row)
-
     values = {
         "floor_sf": m.floor_sf, "base_lf": m.base_lf, "toe_kick_lf": m.toe_kick_lf,
         "cabinet_face_sf": m.toe_kick_lf * CABINET_HEIGHT_FT,
@@ -464,12 +546,22 @@ def room_rows(
     }
     context = {**values, "new_material": scope.new_material, "any_removal": any_removal,
                "refinish": scope.work == "refinish"}
+    rows: List[Row] = []
     job_room_items = job.get("room_items") or {}
-    # Shoe molding goes along the wall behind the base cabinets only when they come out
+    # Whether the base cabinets come out: the floor then runs under them
+    # (shoe along the wall behind them, no notch at their ends)
     cabinets_out, _ = _switch(
         _override(scope.items, "base_cabinet_detach_reset"), _override(job_room_items, "base_cabinet_detach_reset"),
         RULES[ROOM_ITEM_MAP["base_cabinet_detach_reset"].rule](context),
     )
+    for key, make in (("removal", _removal_row), ("install", _install_row), ("pad", _pad_row),
+                      ("refinish", _refinish_row)):
+        choice = _override(scope.items, key)
+        row = make(m, scope, choice, cabinets_out) if key == "install" else make(m, scope, choice)
+        if row is not None:
+            rows.append(row)
+
+    # Shoe molding goes along the wall behind the base cabinets only when they come out
     values["shoe_lf"] = m.shoe_lf + (m.cabinet_run_lf if cabinets_out else 0.0)
     for item in ROOM_ITEMS:
         note = None
@@ -560,6 +652,7 @@ def build_takeoff(estimate: Any) -> Takeoff:
         return s.included and bool(s.existing_material) and _override(s.items, "removal").get("on") is not False
 
     any_removal = any(tears_out(m) for m in measures)
+    shape_waste(sketch, by_id, scopes)
     doorways = transitions(sketch, by_id, scopes)
     rows: Dict[str, List[Row]] = {}
     job_floor_sf = 0.0
@@ -682,8 +775,9 @@ def _methodology(tax_rate: float, include_op: bool, overhead_pct: float, profit_
     notes = [
         "Quantities are measured from the sketch, interior wall to wall.",
         "Baseboard, shoe molding and tack strip follow the perimeter less doorways and cabinet runs.",
-        "New floor includes waste for cuts (more for diagonal and herringbone); carpet that takes "
-        "most of a 12' roll is priced by the cut it needs.",
+        "New floor includes waste for cuts (more for diagonal and herringbone); for tile and wood it follows "
+        "the shape of the floor laid together, and the labor counts the corners notched and the walls off "
+        "square. Carpet that takes most of a 12' roll is priced by the cut it needs.",
         f"Material tax of {tax_rate * 100:g}% is in the unit prices.",
     ]
     if include_op:

@@ -1025,6 +1025,107 @@ def test_the_pdf_notes_which_fixtures_go_on_top_of_a_new_tile_or_wood_floor_and_
     assert fixture_floor_notes(service.get_estimate(plain["id"])) == []
 
 
+# ── The floor's shape: waste and cutting labor (owner, 2026-11-13) ──
+
+def test_a_rooms_outline_gives_its_inside_corners_and_walls_off_square():
+    from app.domains.flooring_estimate.geometry import outline_shape
+
+    assert outline_shape([(0, 0), (12, 0), (12, 10), (0, 10)]) == (0, 0, 0.0)
+    # The house's L-shaped kitchen: one corner turns into the room
+    kitchen = next(r for r in house()["levels"][0]["rooms"] if r["id"] == "kitchen")
+    assert outline_shape([(p["x"], p["y"]) for p in kitchen["points"]])[:2] == (1, 0)
+    # One corner cut off at 45 degrees: one wall off square, 2' 10" long
+    inside, angled, lf = outline_shape([(0, 0), (12, 0), (12, 8), (10, 10), (0, 10)])
+    assert (inside, angled) == (0, 1) and lf == pytest.approx(2 * 2 ** 0.5)
+    # A plain room drawn turned on the page isn't angled
+    import math
+    c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
+    turned = [(x * c - y * s, x * s + y * c) for x, y in [(0, 0), (12, 0), (12, 10), (0, 10)]]
+    assert outline_shape(turned)[:2] == (0, 0)
+
+
+def _waste(t, room_id):
+    return t.scopes[room_id].waste_pct, t.scopes[room_id].waste_note
+
+
+def test_tile_and_wood_waste_follows_the_shape_of_the_floor_laid_together():
+    # A plain 12' x 12' room alone comes to 10%
+    room = {"id": "r", "name": "Room", "points": P((0, 0), (12, 0), (12, 12), (0, 12))}
+    sketch = {"version": 1, "units": "ft", "levels": [{"id": "main", "name": "Main", "rooms": [room]}]}
+    t = build_takeoff(estimate(sketch, {"r": {"new_material": "ceramic_tile"}}))
+    assert _waste(t, "r") == (10.0, "for this room's shape")
+    # Diagonal adds what it adds in WASTE_PCT
+    t = build_takeoff(estimate(sketch, {"r": {"new_material": "ceramic_tile", "pattern": "diagonal"}}))
+    assert t.scopes["r"].waste_pct == 15.0
+
+    # The house's kitchen alone: 51 LF of edge on 147 SF
+    tile_kitchen = scopes(kitchen={"new_material": "porcelain_tile"})
+    t = build_takeoff(estimate(room_scopes=tile_kitchen))
+    assert t.scopes["kitchen"].waste_pct == pytest.approx(round(2 + 24 * 51 / 147, 1))
+    # The living room in the same floor through the 6' opening: laid together,
+    # that doorway isn't an edge on either side
+    both = scopes(kitchen={"new_material": "porcelain_tile"}, living={"new_material": "porcelain_tile"})
+    t = build_takeoff(estimate(room_scopes=both))
+    together = round(2 + 24 * (58.33 + 51 - 2 * 6) / (212.5 + 147), 1)
+    assert t.scopes["kitchen"].waste_pct == pytest.approx(together, abs=0.1)
+    assert t.scopes["living"].waste_pct == t.scopes["kitchen"].waste_pct
+    assert "laid across 2 rooms" in t.scopes["living"].waste_note
+    install = next(r for r in t.rows["living"] if r.key == "install")
+    assert f"Incl. {t.scopes['living'].waste_pct:g}% waste for the shape of the" in install.notes
+    # A hall or a small bath alone wastes more, up to 20%
+    hall = {"id": "h", "name": "Hall", "points": P((0, 0), (4, 0), (4, 12), (0, 12))}
+    closet = {"id": "c", "name": "Closet", "points": P((0, 0), (3, 0), (3, 2), (0, 2))}
+    sketch = {"version": 1, "units": "ft", "levels": [{"id": "main", "name": "Main", "rooms": [hall, closet]}]}
+    t = build_takeoff(estimate(sketch, {"h": {"new_material": "solid_hardwood"}, "c": {"new_material": "solid_hardwood"}}))
+    assert t.scopes["h"].waste_pct == pytest.approx(18.0)
+    assert t.scopes["c"].waste_pct == 20.0
+
+    # LVP keeps the table's; a waste typed on the room is used as typed
+    t = build_takeoff(estimate(room_scopes=scopes(kitchen={"new_material": "porcelain_tile", "waste_pct": 12})))
+    assert _waste(t, "living") == (10.0, None)
+    assert _waste(t, "kitchen") == (12.0, None)
+
+
+def test_the_floor_line_carries_the_notches_and_the_angled_walls():
+    sketch = house()
+    level = sketch["levels"][0]
+    # The run stops at 22': its end stands in the room. An island left in place.
+    level["cabinet_runs"] = [{"id": "c1", "room_id": "kitchen", "a": {"x": 15.375, "y": 0}, "b": {"x": 22, "y": 0}}]
+    level["fixtures"] = [{"id": "i1", "type": "island", "x": 20, "y": 6, "w": 4, "h": 2}]
+    k = measured(sketch)["kitchen"]
+    assert (k.inside_corners, k.cabinet_free_ends, k.angled_walls) == (1 + 4, 1, 0)
+
+    def install(**kitchen):
+        rows = build_takeoff(estimate(sketch, scopes(kitchen={"new_material": "ceramic_tile", **kitchen}))).rows
+        return next(r for r in rows["kitchen"] if r.key == "install")
+
+    row = install()
+    per_sf = pricing.FLOORING_MATERIAL["ceramic_tile"] + pricing.FLOORING_INSTALL_LABOR["ceramic_tile"]
+    corner = pricing.CUT_TO_FIT_RATES["tile_per_inside_corner"]
+    assert corner == pytest.approx(35.37) and pricing.CUT_TO_FIT_RATES["wood_per_inside_corner"] == pytest.approx(19.59)
+    assert row.qty * row.unit_price == pytest.approx(row.qty * per_sf + 6 * corner)
+    assert "6 corners notched" in row.notes
+    # The cabinets out, the floor runs under them: no notch at their end
+    out = install(items={"base_cabinet_detach_reset": {"on": True}})
+    assert out.qty * out.unit_price == pytest.approx(out.qty * per_sf + 5 * corner)
+
+    # A wall off square: three minutes a foot
+    living = level["rooms"][0]
+    living["points"] = P((0, 0), (15, 0), (15, 14.1667), (2, 14.1667), (0, 12.1667))
+    rows = build_takeoff(estimate(sketch, scopes(living={"new_material": "solid_hardwood"}))).rows
+    row = next(r for r in rows["living"] if r.key == "install")
+    angled_lf = 2 * 2 ** 0.5
+    per_sf = pricing.FLOORING_MATERIAL["solid_hardwood"] + pricing.FLOORING_INSTALL_LABOR["solid_hardwood"]
+    assert pricing.CUT_TO_FIT_RATES["wood_per_angled_lf"] == pytest.approx(3.92)
+    assert row.qty * row.unit_price == pytest.approx(row.qty * per_sf + angled_lf * 3.92, abs=0.01)
+    assert "2.83 LF along angled walls" in row.notes
+
+    # LVP: neither
+    rows = build_takeoff(estimate(sketch)).rows
+    lvp = next(r for r in rows["kitchen"] if r.key == "install")
+    assert lvp.unit_price == pytest.approx(pricing.FLOORING_MATERIAL["lvp"] + pricing.FLOORING_INSTALL_LABOR["lvp"])
+
+
 # ── Sanding a hardwood floor in place of a new one ──
 
 def _on(rows):
