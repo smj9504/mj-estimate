@@ -23,12 +23,16 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test_reference_data_writes.db
 
 from fastapi.testclient import TestClient
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.main import app
+from app.core.database_factory import get_db
 from app.domains.auth import company_scope, dependencies, screen_access
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.pack_calculation import packing_api
+from app.domains.receipt import api as receipt_api
 from app.domains.roofing_estimate.service import RoofingEstimateService
 
 COMPANY_A = str(uuid.uuid4())
@@ -41,6 +45,32 @@ class FakeStaff:
         self.role = role
         self.screens = set(screens)
         self.companies = list(companies)
+
+
+@pytest.fixture(autouse=True)
+def empty_db(monkeypatch):
+    """Every route here gets an empty in-memory SQLite. The DATABASE_URL set
+    above only counts when this file is the first to import the app; in a full
+    run the settings were already made without one, so get_db answered 503
+    before any check could refuse (403) or validation could stop (422).
+
+    The receipt template routes build their service from the database factory
+    instead of get_db. They stop at the admin check or at validation here, so
+    their service is a bare object that any real use would trip over."""
+    engine = create_engine("sqlite://")
+    make_session = sessionmaker(bind=engine)
+
+    def empty_session():
+        session = make_session()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, empty_session)
+    monkeypatch.setitem(app.dependency_overrides, receipt_api.get_receipt_template_service, object)
+    yield
+    engine.dispose()
 
 
 @pytest.fixture
