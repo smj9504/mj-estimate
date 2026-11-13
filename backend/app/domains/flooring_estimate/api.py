@@ -193,18 +193,20 @@ def clone_estimate(
 def export_pdf(
     estimate_id: str,
     show_signature: bool = Query(True),
+    layout: str = Query("rooms", pattern="^(rooms|trades|proposal)$"),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
-    """The estimate as a PDF: room by room with each room's sketch, then the
-    plan of every level. It prints what was last calculated."""
+    """The estimate as a PDF, laid out as room cards, by trade or as a
+    proposal (export_service.LAYOUTS), then the plan of every level. It
+    prints what was last calculated."""
     _require_estimate(session, current_user, estimate_id)
     from .export_service import FlooringExportService
 
     estimate = _found(FlooringEstimateService(session).get_estimate(estimate_id))
     if not estimate.get("line_items"):
         raise HTTPException(status_code=400, detail="Calculate the estimate first: it has no lines to print yet.")
-    pdf = FlooringExportService().generate_pdf(estimate, show_signature=show_signature)
+    pdf = FlooringExportService().generate_pdf(estimate, show_signature=show_signature, layout=layout)
     street = re.sub(r"[^A-Za-z0-9]+", "_", estimate.get("property_address") or "").strip("_")[:40]
     name = f"flooring_estimate_{street or estimate_id[:8]}.pdf"
     return Response(

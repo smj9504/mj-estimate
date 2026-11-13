@@ -3,13 +3,30 @@
  * lines and total, the General section and the grand total.
  */
 
-import React, { useMemo } from 'react';
-import { Alert, Button, Empty, Grid, List, Space, Table, Typography } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { Alert, Button, Empty, Grid, List, Select, Space, Table, Typography } from 'antd';
 import { CalculatorOutlined, FilePdfOutlined } from '@ant-design/icons';
-import type { FlooringEstimate, FlooringLineItem } from '../../types/flooringEstimate';
+import type { FlooringEstimate, FlooringLineItem, FlooringPdfLayout } from '../../types/flooringEstimate';
 import PriceBookNotice from '../common/PriceBookNotice';
 
 const { Text, Title } = Typography;
+
+const PDF_LAYOUTS: { value: FlooringPdfLayout; label: string; hint: string }[] = [
+  { value: 'rooms', label: 'Room cards', hint: "Each room a card with its sketch, its lines under tear out, floor, trim" },
+  { value: 'trades', label: 'By trade', hint: 'The whole house under each kind of work, after a summary' },
+  { value: 'proposal', label: 'Proposal', hint: "Each room's work in words and its amount; the quantities at the back" },
+];
+const LAYOUT_KEY = 'flooring-pdf-layout';
+
+/** The layout picked last on this browser, or room cards */
+function savedLayout(): FlooringPdfLayout {
+  try {
+    const v = localStorage.getItem(LAYOUT_KEY);
+    return PDF_LAYOUTS.some((l) => l.value === v) ? (v as FlooringPdfLayout) : 'rooms';
+  } catch {
+    return 'rooms';
+  }
+}
 
 const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -45,13 +62,22 @@ interface ResultProps {
   calculating: boolean;
   onCalculate: () => void;
   downloading?: boolean;
-  onPdf?: () => void;
+  onPdf?: (layout: FlooringPdfLayout) => void;
 }
 
 const FlooringResult: React.FC<ResultProps> = ({ estimate, stale, calculating, onCalculate, downloading, onPdf }) => {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const grouped = useMemo(() => sections(estimate.line_items || []), [estimate.line_items]);
+  const [layout, setLayout] = useState<FlooringPdfLayout>(savedLayout);
+  const pickLayout = (v: FlooringPdfLayout) => {
+    setLayout(v);
+    try {
+      localStorage.setItem(LAYOUT_KEY, v);
+    } catch {
+      // Not kept: it still applies to this download
+    }
+  };
   let n = 0;
   const numbered = grouped.map((s) => ({ ...s, lines: s.lines.map((li) => ({ ...li, n: ++n })) }));
 
@@ -70,11 +96,17 @@ const FlooringResult: React.FC<ResultProps> = ({ estimate, stale, calculating, o
   return (
     <div data-testid="flooring-result">
       {onPdf && (
-        <Space style={{ marginBottom: 12 }}>
-          <Button icon={<FilePdfOutlined />} loading={downloading} onClick={onPdf} data-testid="download-pdf">
-            PDF
-          </Button>
-          <Text type="secondary" style={{ fontSize: 12 }}>Room by room with each room&apos;s sketch, then the floor plan</Text>
+        <Space style={{ marginBottom: 12 }} wrap>
+          <Space.Compact>
+            <Select size="middle" style={{ width: 140 }} value={layout} onChange={pickLayout} aria-label="PDF layout"
+              options={PDF_LAYOUTS.map((l) => ({ value: l.value, label: l.label }))} />
+            <Button icon={<FilePdfOutlined />} loading={downloading} onClick={() => onPdf(layout)} data-testid="download-pdf">
+              PDF
+            </Button>
+          </Space.Compact>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {PDF_LAYOUTS.find((l) => l.value === layout)?.hint}, then the floor plan
+          </Text>
         </Space>
       )}
       <PriceBookNotice domain="flooring" estimateId={estimate.id} priceBook={estimate.price_book}

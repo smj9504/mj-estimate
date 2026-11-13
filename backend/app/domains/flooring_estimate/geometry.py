@@ -23,8 +23,11 @@ drawn around the rooms; they are not part of the area.
         "cabinet_runs": [{"id", "room_id", "a": {...}, "b": {...}, "side_a", "side_b"}],
         # Things on the floor, by their center: toilets, vanities, pedestal sinks,
         # utility sinks, islands, appliances, floor registers
-        # (a range or dryer may be on gas: "gas": true)
-        "fixtures": [{"id", "type", "x", "y", "w", "h", "rotation", "floor_under", "gas"}],
+        # (a range or dryer may be on gas: "gas": true). "floor_fit" says
+        # whether it goes back on top of the new floor or the floor is cut
+        # around it; absent, its kind's (FIXTURE_KINDS), and an island's
+        # is "floor_under"
+        "fixtures": [{"id", "type", "x", "y", "w", "h", "rotation", "floor_under", "gas", "floor_fit"}],
         # A wall built out from one of the room's walls (a wall end, a
         # partition): from a, on the room's wall, to b. Its faces take
         # baseboard, and so does its end when it stops short in the room;
@@ -36,7 +39,7 @@ drawn around the rooms; they are not part of the area.
 
 import math
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 Point = Tuple[float, float]
 
@@ -56,9 +59,43 @@ CABINET_HEIGHT_FT = 2.875
 SIDE_TOUCH_FT = 0.75
 # Appliances whose detach & reset differs on gas
 GAS_APPLIANCES = frozenset({"range", "dryer"})
-FIXTURE_TYPES = frozenset({
-    "toilet", "vanity", "pedestal_sink", "utility_sink", "island", "floor_register", "other",
-}) | APPLIANCE_TYPES
+
+# How a fixture meets the new floor laid in its room (owner's rule, 2026-11-13):
+ON_TOP = "on_top"          # it sits on the floor: set back on top of it once it is down
+CUT_TO_FIT = "cut_to_fit"  # it needs a hole in the floor (a toilet's flange, a register's
+                           # duct): the floor is cut to fit it, more labor
+FLOOR_FITS = (ON_TOP, CUT_TO_FIT)
+
+
+class FixtureKind(NamedTuple):
+    label: str
+    floor_fit: str  # ON_TOP or CUT_TO_FIT, unless the fixture on the sketch says its own
+
+
+# Every kind of fixture the sketch can hold. FIXTURE_TYPES is made from this
+# table, so a new kind can't be added without saying how it meets the new
+# floor. The frontend keeps the same table (sketchOps.ts FIXTURE_FLOOR_FIT).
+FIXTURE_KINDS: Dict[str, FixtureKind] = {
+    # Set on the new floor, over a hole cut for its flange
+    "toilet": FixtureKind("Toilet", CUT_TO_FIT),
+    "vanity": FixtureKind("Vanity", ON_TOP),
+    "pedestal_sink": FixtureKind("Pedestal sink", ON_TOP),
+    "utility_sink": FixtureKind("Utility sink", ON_TOP),
+    # Detached and reset, it goes back on top of the new floor; left in
+    # place, the floor stops at it as at the cabinets ("floor_under")
+    "island": FixtureKind("Island", ON_TOP),
+    "refrigerator": FixtureKind("Refrigerator", ON_TOP),
+    "range": FixtureKind("Range", ON_TOP),
+    # Goes with the cabinets: nothing to cut around it
+    "dishwasher": FixtureKind("Dishwasher", ON_TOP),
+    "washer": FixtureKind("Washer", ON_TOP),
+    "dryer": FixtureKind("Dryer", ON_TOP),
+    # Drops into its duct's opening, cut in the new floor
+    "floor_register": FixtureKind("Floor register", CUT_TO_FIT),
+    "other": FixtureKind("Other", ON_TOP),
+}
+FIXTURE_TYPES = frozenset(FIXTURE_KINDS)
+assert APPLIANCE_TYPES <= FIXTURE_TYPES and SIDE_HIDERS <= FIXTURE_TYPES
 
 
 def point(value: Any) -> Point:
@@ -191,6 +228,9 @@ class RoomMeasure:
     dryer_count: int = 0           # electric
     dryer_gas_count: int = 0
     register_count: int = 0        # HVAC floor registers
+    # The fixtures a new floor is cut and fitted around (floor_fit_of), by
+    # type in the order drawn
+    cut_to_fit: List[str] = field(default_factory=list)
     openings: List[OpeningRef] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -329,6 +369,49 @@ def levels_of(sketch: Optional[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
     return list((sketch or {}).get("levels") or [])
 
 
+def floor_fit_of(fixture: Mapping[str, Any]) -> Optional[str]:
+    """ON_TOP or CUT_TO_FIT: whether the fixture is set back on top of the
+    new floor or the floor is cut to fit it. None for an island left in
+    place: the floor stops at it, as at the cabinets."""
+    kind = str(fixture.get("type") or "other")
+    if kind == "island" and not fixture.get("floor_under"):
+        return None
+    fit = fixture.get("floor_fit")
+    if fit in FLOOR_FITS:
+        return str(fit)
+    return FIXTURE_KINDS[kind].floor_fit if kind in FIXTURE_KINDS else ON_TOP
+
+
+def fixture_words(kinds: Iterable[str]) -> str:
+    """"refrigerator, range, 2 floor registers": fixture types in the order
+    first seen, counted"""
+    counts: Dict[str, int] = {}
+    for kind in kinds:
+        counts[kind] = counts.get(kind, 0) + 1
+    words = []
+    for kind, n in counts.items():
+        label = "other fixture" if kind == "other" else (
+            FIXTURE_KINDS[kind].label if kind in FIXTURE_KINDS else kind).lower()
+        if n > 1:
+            label = f"{n} {label[:-1] + 'ies' if label.endswith('y') else label + 's'}"
+        words.append(label)
+    return ", ".join(words)
+
+
+def fixtures_by_room(level: Mapping[str, Any]) -> Dict[str, List[Mapping[str, Any]]]:
+    """Each room's fixtures: the first room drawn that a fixture's center
+    stands in"""
+    rooms = [(str(r.get("id")), points_of(r.get("points")))
+             for r in (level.get("rooms") or []) if len(r.get("points") or []) >= 3]
+    out: Dict[str, List[Mapping[str, Any]]] = {room_id: [] for room_id, _ in rooms}
+    for fixture in level.get("fixtures") or []:
+        center = (float(fixture.get("x") or 0), float(fixture.get("y") or 0))
+        owner = next((room_id for room_id, pts in rooms if point_in_polygon(center, pts)), None)
+        if owner is not None:
+            out[owner].append(fixture)
+    return out
+
+
 def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
     """Every room of every level, in the order they were drawn, with a
     subroom (a closet) right after the room it belongs to."""
@@ -402,44 +485,39 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
             m.wall_sf += (exposed - covered) * m.height_ft
             m.floor_sf = max(0.0, m.floor_sf - footprint)
 
-        for fixture in level.get("fixtures") or []:
-            center = (float(fixture.get("x") or 0), float(fixture.get("y") or 0))
-            owner = next((m for m in by_id.values() if point_in_polygon(center, m.points)), None)
-            if owner is None:
-                continue
-            kind = str(fixture.get("type") or "other")
-            if kind == "toilet":
-                owner.toilet_count += 1
-            elif kind == "vanity":
-                owner.vanity_count += 1
-            elif kind == "pedestal_sink":
-                owner.pedestal_sink_count += 1
-            elif kind == "utility_sink":
-                owner.utility_sink_count += 1
-            elif kind == "floor_register":
-                owner.register_count += 1
-            elif kind in APPLIANCE_TYPES:
-                owner.appliance_count += 1
-                gas = kind in GAS_APPLIANCES and bool(fixture.get("gas"))
-                field_name = f"{kind}_gas_count" if gas else f"{kind}_count"
-                setattr(owner, field_name, getattr(owner, field_name) + 1)
-            elif kind == "island":
-                w, h = float(fixture.get("w") or 0), float(fixture.get("h") or 0)
-                owner.island_count += 1
-                owner.island_lf += max(w, h)
-                owner.island_perimeter_lf += 2 * (w + h)
-                owner.island_panel_sf += (max(w, h) + 2 * min(w, h)) * CABINET_HEIGHT_FT
-                if fixture.get("floor_under"):
-                    owner.island_floored_count += 1
-                else:
-                    owner.floor_sf = max(0.0, owner.floor_sf - w * h)
+        fixtures_of = fixtures_by_room(level)
+        for room_id, fixtures in fixtures_of.items():
+            owner = by_id[room_id]
+            for fixture in fixtures:
+                kind = str(fixture.get("type") or "other")
+                if floor_fit_of(fixture) == CUT_TO_FIT:
+                    owner.cut_to_fit.append(kind)
+                if kind == "toilet":
+                    owner.toilet_count += 1
+                elif kind == "vanity":
+                    owner.vanity_count += 1
+                elif kind == "pedestal_sink":
+                    owner.pedestal_sink_count += 1
+                elif kind == "utility_sink":
+                    owner.utility_sink_count += 1
+                elif kind == "floor_register":
+                    owner.register_count += 1
+                elif kind in APPLIANCE_TYPES:
+                    owner.appliance_count += 1
+                    gas = kind in GAS_APPLIANCES and bool(fixture.get("gas"))
+                    field_name = f"{kind}_gas_count" if gas else f"{kind}_count"
+                    setattr(owner, field_name, getattr(owner, field_name) + 1)
+                elif kind == "island":
+                    w, h = float(fixture.get("w") or 0), float(fixture.get("h") or 0)
+                    owner.island_count += 1
+                    owner.island_lf += max(w, h)
+                    owner.island_perimeter_lf += 2 * (w + h)
+                    owner.island_panel_sf += (max(w, h) + 2 * min(w, h)) * CABINET_HEIGHT_FT
+                    if fixture.get("floor_under"):
+                        owner.island_floored_count += 1
+                    else:
+                        owner.floor_sf = max(0.0, owner.floor_sf - w * h)
 
-        fixtures_of = {room_id: [] for room_id in by_id}
-        for fixture in level.get("fixtures") or []:
-            center = (float(fixture.get("x") or 0), float(fixture.get("y") or 0))
-            owner = next((m for m in by_id.values() if point_in_polygon(center, m.points)), None)
-            if owner is not None:
-                fixtures_of[owner.room_id].append(fixture)
         runs_of = {room_id: [] for room_id in by_id}
         for run in level.get("cabinet_runs") or []:
             if str(run.get("room_id")) in runs_of:

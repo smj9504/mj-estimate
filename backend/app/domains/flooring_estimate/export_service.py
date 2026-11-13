@@ -1,19 +1,23 @@
 """
-Flooring estimate PDF.
+Flooring estimate PDF, in one of three layouts (LAYOUTS), none of them
+Xactimate's (owner, 2026-11-13):
 
-Laid out the way an Xactimate estimate is read: room by room, each room's
-small sketch in the top-left corner of its block with its measurements
-beside it and its lines below, then the General section, a summary, the
-plan of every level, and the terms.
+  rooms     each room a card: its floor, a line of measurements and its
+            sketch, then its lines under work heads (tear out, floor, trim...)
+  trades    the whole house under each kind of work, room by room within it,
+            after a summary by work beside the plan
+  proposal  the work in words room by room with each room's amount, the
+            itemized quantities at the back
 
-Built from a calculated estimate (FlooringEstimateService.get_estimate):
-the measurements are the ones its lines were calculated from
+Every layout ends with the plan of every level and the terms. Built from a
+calculated estimate (FlooringEstimateService.get_estimate): the
+measurements are the ones its lines were calculated from
 (calculated_rooms), the drawing is its sketch.
 """
 
 import io
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -26,17 +30,16 @@ from reportlab.platypus import (
 
 from . import pricing
 from .floorplan_drawing import level_plan, room_thumbnail
-from .geometry import format_ft_in, levels_of
+from .geometry import (
+    CUT_TO_FIT, ON_TOP, fixture_words, fixtures_by_room, floor_fit_of, format_ft_in, levels_of,
+)
 
 BRAND_DARK = colors.HexColor("#1a2332")
 BRAND_ACCENT = colors.HexColor("#2c5282")
 TEXT_GREY = colors.HexColor("#4a5568")
 BORDER_GREY = colors.HexColor("#e2e2e2")
-SECTION_BG = colors.HexColor("#f1f1f1")
-ROW_ALT = colors.HexColor("#f7f7f7")
 
 MARGIN = 0.6 * inch
-THUMB_W, THUMB_H = 2.05 * inch, 1.72 * inch
 
 OPENING_WORDS = {
     "opening": "Opening", "door": "Door", "bifold": "Bifold", "pocket": "Pocket door",
@@ -51,6 +54,44 @@ TERMS = [
     "Material is ordered by the full box or roll; what is left over stays with the owner.",
     "Any change to the scope after signing requires a written change order.",
 ]
+
+
+def fixture_floor_notes(estimate: Mapping[str, Any]) -> List[str]:
+    """The note on how each fixture meets a new tile or wood floor: set back
+    on top of it, or the floor cut to fit it (more labor). Read
+    from the sketch, for the rooms getting a tile or wood floor (owner's
+    rule, 2026-11-13). Empty when there is nothing to say."""
+    rooms = {str(r.get("room_id")): r for r in estimate.get("calculated_rooms") or []
+             if r.get("new_material") in pricing.TILES | pricing.WOOD_FLOORS}
+    on_top: List[str] = []
+    cut_to_fit: List[str] = []
+    floors = set()
+    for level in levels_of(estimate.get("sketch_data")):
+        for room_id, fixtures in fixtures_by_room(level).items():
+            room = rooms.get(room_id)
+            if room is None or not fixtures:
+                continue
+            floors.add("tile" if room.get("new_material") in pricing.TILES else "wood")
+            name = _escape(room.get("name") or "Room")
+            for fit, out in ((ON_TOP, on_top), (CUT_TO_FIT, cut_to_fit)):  # an island left in place: neither
+                these = [f for f in fixtures if floor_fit_of(f) == fit]
+                if these:
+                    out.append(f"{name} — {_escape(fixture_words(str(f.get('type') or 'other') for f in these))}")
+    if not on_top and not cut_to_fit:
+        return []
+    notes = [f"<b>Fixtures on the new {' and '.join(sorted(floors))} floors</b>"]
+    if on_top:
+        notes.append("• Set back on top of the new floor: " + "; ".join(on_top) + ".")
+    if cut_to_fit:
+        notes.append("• The new floor is cut to fit these (a hole for the flange or duct), which takes more "
+                     "labor; it is included in each room's new floor line: " + "; ".join(cut_to_fit) + ".")
+    return notes
+
+
+def _floor_key(room: Mapping[str, Any]) -> Optional[str]:
+    """What colors the room on the plan: its new floor, or "refinish" for a
+    hardwood floor sanded in place"""
+    return "refinish" if room.get("work") == "refinish" else room.get("new_material")
 
 
 def _money(n: float) -> str:
@@ -80,7 +121,7 @@ def _company_block(company: Optional[Mapping[str, Any]], style: ParagraphStyle):
     return Paragraph("<br/>".join(parts), style)
 
 
-def _canvas_maker(quote_no: str, address: str):
+def _canvas_maker(quote_no: str, address: str, title: str = "Flooring Estimate"):
     page_w, page_h = letter
 
     class NumberedCanvas(Canvas):
@@ -100,7 +141,7 @@ def _canvas_maker(quote_no: str, address: str):
                 self.setFont("Helvetica", 7.5)
                 self.setFillColor(TEXT_GREY)
                 if i:
-                    self.drawString(MARGIN, page_h - 0.4 * inch, f"Flooring Estimate · Quote #: {quote_no}")
+                    self.drawString(MARGIN, page_h - 0.4 * inch, f"{title} · Quote #: {quote_no}")
                     self.drawRightString(page_w - MARGIN, page_h - 0.4 * inch, address[:70])
                     self.setStrokeColor(BORDER_GREY)
                     self.line(MARGIN, page_h - 0.48 * inch, page_w - MARGIN, page_h - 0.48 * inch)
@@ -112,165 +153,91 @@ def _canvas_maker(quote_no: str, address: str):
     return NumberedCanvas
 
 
+# The PDF can be laid out three ways (owner, 2026-11-13: not like Xactimate)
+LAYOUTS = ("rooms", "trades", "proposal")
+LAYOUT_LABELS = {"rooms": "Room cards", "trades": "By trade", "proposal": "Proposal"}
+
+# A room's lines in the order the work is done, under these heads
+SECTIONS = (
+    ("Move & detach", ("contents", "detach_reset")),
+    ("Tear out", ("removal",)),
+    ("Prep", ("prep",)),
+    ("Floor", ("install", "refinish")),
+    ("Trim", ("trim",)),
+    ("Transitions & stairs", ("transition", "stairs")),
+    ("Other work", ("general", "custom")),
+)
+_SECTION_OF = {category: title for title, categories in SECTIONS for category in categories}
+
+CARD_BG = colors.HexColor("#eef2f7")
+RULE = colors.HexColor("#e6e9ee")
+CARD_THUMB_W, CARD_THUMB_H = 1.55 * inch, 1.25 * inch
+
+
+def _grouped(lines: List[Mapping[str, Any]]) -> List[Tuple[str, List[Mapping[str, Any]]]]:
+    """Lines under their heads (SECTIONS), heads in work order, lines as they came"""
+    by: Dict[str, List[Mapping[str, Any]]] = {}
+    for li in lines:
+        by.setdefault(_SECTION_OF.get(str(li.get("category") or ""), "Other work"), []).append(li)
+    return [(title, by[title]) for title, _ in SECTIONS if title in by]
+
+
+def _total(lines: List[Mapping[str, Any]]) -> float:
+    return sum(float(li.get("total") or 0) for li in lines)
+
+
+def _qty(li: Mapping[str, Any]) -> str:
+    return f"{float(li.get('quantity') or 0):,.2f} {li.get('unit') or ''}".strip()
+
+
+def _floor_words(room: Mapping[str, Any]) -> str:
+    """What the room's floor gets: "Ceramic tile · straight lay", "Hardwood · sand, stain, and finish" """
+    if room.get("work") == "refinish":
+        label, _ = pricing.REFINISH_FINISHES.get(room.get("finish") or "", ("Sand & refinish", ""))
+        existing = pricing.MATERIALS.get(room.get("existing_material") or "", {}).get("short", "Hardwood")
+        return f"{existing} · {label[0].lower()}{label[1:]}"
+    new = room.get("new_material")
+    if not new:
+        return "No new floor"
+    words = pricing.MATERIALS.get(new, {}).get("label", new)
+    if new in pricing.PATTERNED:
+        words += f" · {pricing.PATTERNS.get(room.get('pattern') or 'straight', 'straight lay')}"
+    return words
+
+
 class FlooringExportService:
-    def generate_pdf(self, estimate: Mapping[str, Any], show_signature: bool = True) -> io.BytesIO:
+    def generate_pdf(
+        self, estimate: Mapping[str, Any], show_signature: bool = True, layout: str = "rooms",
+    ) -> io.BytesIO:
+        layout = layout if layout in LAYOUTS else "rooms"
         buffer = io.BytesIO()
         page_w, _ = letter
-        usable_w = page_w - 2 * MARGIN
+        w = page_w - 2 * MARGIN
         quote_no = str(estimate.get("id", ""))[:8].upper()
         address = ", ".join(filter(None, [
             estimate.get("property_address"),
             ", ".join(filter(None, [estimate.get("city"), " ".join(filter(None, [estimate.get("state"), estimate.get("zip_code")]))])),
         ]))
+        title = "Flooring Proposal" if layout == "proposal" else "Flooring Estimate"
         doc = SimpleDocTemplate(
             buffer, pagesize=letter, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=MARGIN,
-            bottomMargin=0.8 * inch, title="Flooring Estimate",
+            bottomMargin=0.8 * inch, title=title,
         )
-        st = {
-            "company": ParagraphStyle("c", fontSize=9, fontName="Helvetica", textColor=TEXT_GREY, leading=13),
-            "right": ParagraphStyle("r", fontSize=9, fontName="Helvetica", textColor=TEXT_GREY, leading=13, alignment=2),
-            "section": ParagraphStyle("s", fontSize=11, fontName="Helvetica-Bold", textColor=BRAND_DARK, spaceBefore=12, spaceAfter=8),
-            "room": ParagraphStyle("rn", fontSize=10.5, fontName="Helvetica", textColor=BRAND_DARK),
-            "height": ParagraphStyle("h", fontSize=8.5, fontName="Helvetica", textColor=TEXT_GREY, alignment=2),
-            "desc": ParagraphStyle("d", fontSize=8.8, fontName="Helvetica", textColor=BRAND_DARK, leading=11),
-            "meas": ParagraphStyle("m", fontSize=8.3, fontName="Helvetica", textColor=BRAND_DARK, leading=11),
-            "small": ParagraphStyle("sm", fontSize=7.8, fontName="Helvetica", textColor=TEXT_GREY, leading=10.5),
-            "terms": ParagraphStyle("t", fontSize=8.5, fontName="Helvetica", textColor=TEXT_GREY, leading=12),
-            "plan": ParagraphStyle("fp", fontSize=14, leading=18, fontName="Helvetica-Bold", textColor=BRAND_DARK, spaceAfter=2),
-        }
-        el: List[Any] = []
-
-        # ── Header ──
-        today = datetime.now()
-        right = Paragraph(
-            "<font size=18 color='#1a2332'><b>FLOORING ESTIMATE</b></font><br/><br/>"
-            f"Quote #: {quote_no}<br/>Date: {today:%m/%d/%Y}<br/>"
-            f"Valid Through: {today + timedelta(days=30):%m/%d/%Y}", st["right"])
-        header = Table([[_company_block(estimate.get("company_info"), st["company"]), right]],
-                       colWidths=[usable_w * 0.5, usable_w * 0.5])
-        header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                    ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
-        el += [header, Spacer(1, 10), HRFlowable(width="100%", thickness=1.5, color=BRAND_ACCENT), Spacer(1, 8)]
-
+        st = self._styles()
         rooms: List[Dict[str, Any]] = list(estimate.get("calculated_rooms") or [])
-        names = {r["room_id"]: r.get("name") for r in rooms}
         lines = sorted(estimate.get("line_items") or [], key=lambda li: li.get("display_order") or 0)
-        total_sf = sum(float(r.get("floor_sf") or 0) for r in rooms)
         levels = {str(lvl.get("id")): lvl for lvl in levels_of(estimate.get("sketch_data"))}
 
-        info = [["Property:", address or "—", "Claim #:", estimate.get("claim_number") or "—"]]
-        if estimate.get("client_name"):
-            info.append(["Client:", estimate["client_name"], "", ""])
-        level_names = list(dict.fromkeys(r.get("level_name") or "" for r in rooms))
-        info.append(["Scope:", f"{' / '.join(n for n in level_names if n) or 'Rooms'} · {len(rooms)} rooms "
-                               f"· {total_sf:,.2f} SF", "Measured:", "Interior, wall to wall"])
-        it = Table(info, colWidths=[usable_w * 0.11, usable_w * 0.47, usable_w * 0.15, usable_w * 0.27])
-        it.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"), ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9), ("TEXTCOLOR", (0, 0), (-1, -1), BRAND_DARK),
-            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        el += [it, Spacer(1, 6)]
+        el: List[Any] = self._header(estimate, rooms, st, w, quote_no, address, title)
+        if layout == "trades":
+            el += self._by_trade(estimate, rooms, lines, levels, st, w)
+        elif layout == "proposal":
+            el += self._proposal(estimate, rooms, lines, st, w)
+        else:
+            el += self._room_cards(estimate, rooms, lines, levels, st, w)
 
-        col_w = [usable_w * 0.045, usable_w * 0.515, usable_w * 0.11, usable_w * 0.06, usable_w * 0.12, usable_w * 0.15]
-        number = 1
-
-        def line_table(items: List[Mapping[str, Any]], total_label: str, total: float):
-            nonlocal number
-            rows: List[List[Any]] = [["", "DESCRIPTION", "QTY", "UNIT", "UNIT PRICE", "TOTAL"]]
-            for li in items:
-                desc = _escape(li.get("description"))
-                if li.get("notes"):
-                    desc += f"<br/><font size=7.5 color='#4a5568'>{_escape(li['notes'])}</font>"
-                rows.append([f"{number}.", Paragraph(desc, st["desc"]), f"{float(li.get('quantity') or 0):,.2f}",
-                             li.get("unit") or "", f"{float(li.get('unit_price') or 0):,.2f}",
-                             f"{float(li.get('total') or 0):,.2f}"])
-                number += 1
-            rows.append(["", "", "", "", total_label, f"{total:,.2f}"])
-            table = Table(rows, colWidths=col_w, repeatRows=1)
-            style = [
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, 0), 7.5),
-                ("TEXTCOLOR", (0, 0), (-1, 0), TEXT_GREY), ("LINEBELOW", (0, 0), (-1, 0), 0.6, BORDER_GREY),
-                ("FONTSIZE", (0, 1), (-1, -1), 8.8), ("TEXTCOLOR", (0, 1), (-1, -1), BRAND_DARK),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-                ("ALIGN", (3, 0), (3, -1), "CENTER"),
-                ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                ("FONTNAME", (4, -1), (-1, -1), "Helvetica-Bold"), ("LINEABOVE", (4, -1), (-1, -1), 0.6, BORDER_GREY),
-                ("SPAN", (0, -1), (3, -1)),
-            ]
-            for r in range(2, len(rows) - 1, 2):
-                style.append(("BACKGROUND", (0, r), (-1, r), ROW_ALT))
-            table.setStyle(TableStyle(style))
-            return table
-
-        def bar(title_html: str, right_text: str = ""):
-            t = Table([[Paragraph(title_html, st["room"]), Paragraph(right_text, st["height"])]],
-                      colWidths=[usable_w * 0.7, usable_w * 0.3])
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), SECTION_BG), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ("LINEBELOW", (0, 0), (-1, -1), 0.8, BRAND_ACCENT),
-            ]))
-            return t
-
-        def level_bar(name: str):
-            t = Table([[name]], colWidths=[usable_w])
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), BRAND_ACCENT), ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
-                ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 10),
-                ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ]))
-            return t
-
-        summary: List[List[Any]] = []
-        current_level = None
-        for room in rooms:
-            room_lines = [li for li in lines if li.get("room_id") == room["room_id"]]
-            if not room_lines:
-                continue
-            if room.get("level_name") != current_level:
-                current_level = room.get("level_name")
-                el += [Spacer(1, 6), level_bar(current_level or "Rooms"), Spacer(1, 8)]
-            total = sum(float(li.get("total") or 0) for li in room_lines)
-            summary.append([room.get("name"), f"{float(room.get('floor_sf') or 0):,.2f}",
-                            pricing.MATERIALS.get(room.get("new_material") or "", {}).get("short", "—"), _money(total)])
-
-            title = f"<b>{_escape(room.get('name'))}</b>"
-            if room.get("subroom_of") and names.get(room["subroom_of"]):
-                title += f"  <font size=8 color='#4a5568'>(subroom of {_escape(names[room['subroom_of']])})</font>"
-            block = [bar(title, f"Height: {format_ft_in(float(room.get('height_ft') or 8))}")]
-            block.append(self._room_top(room, levels.get(str(room.get("level_id"))), st, usable_w))
-            block += [line_table(room_lines, f"Totals: {room.get('name')}", total), Spacer(1, 14)]
-            el.append(KeepTogether(block))
-
-        general = [li for li in lines if not li.get("room_id")]
-        general_total = sum(float(li.get("total") or 0) for li in general)
-        if general:
-            el.append(KeepTogether([
-                bar("<b>General</b>"), Spacer(1, 4), line_table(general, "Totals: General", general_total), Spacer(1, 14),
-            ]))
-            summary.append(["General", "", "", _money(general_total)])
-
-        # ── Summary ──
-        srows = [["Area", "Floor SF", "New Flooring", "Total"], *summary,
-                 ["", f"{total_sf:,.2f}", "GRAND TOTAL", _money(float(estimate.get("total") or 0))]]
-        stbl = Table(srows, colWidths=[usable_w * 0.40, usable_w * 0.18, usable_w * 0.22, usable_w * 0.20])
-        stbl.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("BACKGROUND", (0, 0), (-1, 0), SECTION_BG),
-            ("FONTSIZE", (0, 0), (-1, -1), 9.5), ("TEXTCOLOR", (0, 0), (-1, -1), BRAND_DARK),
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"), ("ALIGN", (3, 0), (3, -1), "RIGHT"),
-            ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"), ("FONTSIZE", (0, -1), (-1, -1), 10.5),
-            ("LINEABOVE", (0, -1), (-1, -1), 1.5, BRAND_ACCENT), ("BACKGROUND", (0, -1), (-1, -1), SECTION_BG),
-        ]))
-        notes = "Quantities are measured from the sketch, interior wall to wall."
-        if estimate.get("include_overhead_profit"):
-            notes += " Unit prices include overhead &amp; profit."
-        el.append(KeepTogether([Paragraph("Estimate Summary", st["section"]), stbl, Spacer(1, 4), Paragraph(notes, st["small"])]))
-
-        # ── The plan of each level ──
-        materials = {r["room_id"]: r.get("new_material") for r in rooms}
+        # The plan of each level
+        materials = {r["room_id"]: _floor_key(r) for r in rooms}
         for lvl in levels.values():
             if not lvl.get("rooms"):
                 continue
@@ -278,76 +245,337 @@ class FlooringExportService:
             el.append(Paragraph(f"Floor Plan — {_escape(lvl.get('name') or 'Level')}", st["plan"]))
             el.append(Paragraph("Interior dimensions, wall to wall. For estimating only — not for construction.", st["small"]))
             el.append(Spacer(1, 10))
-            el.append(level_plan(lvl, usable_w, 7.6 * inch, materials, materials.keys()))
+            el.append(level_plan(lvl, w, 7.6 * inch, materials, materials.keys()))
 
-        # ── Terms ──
+        if layout == "proposal":
+            el += self._itemized_appendix(rooms, lines, st, w)
+
+        # Terms
         el.append(PageBreak())
         el.append(Paragraph("Terms &amp; Conditions", st["section"]))
         for term in TERMS:
-            el.append(Paragraph(f"• {term}", st["terms"]))
+            el.append(Paragraph(f"• {term}", st["bullet"]))
         if show_signature:
             el.append(Spacer(1, 36))
             sig = Table([["_______________________________", "", "_______________________________"],
                          ["Customer Signature / Date", "", "Contractor Signature / Date"]],
-                        colWidths=[usable_w * 0.42, usable_w * 0.16, usable_w * 0.42])
+                        colWidths=[w * 0.42, w * 0.16, w * 0.42])
             sig.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 8.5), ("TEXTCOLOR", (0, 0), (-1, -1), TEXT_GREY)]))
             el.append(sig)
 
-        doc.build(el, canvasmaker=_canvas_maker(quote_no, address))
+        doc.build(el, canvasmaker=_canvas_maker(quote_no, address, title))
         buffer.seek(0)
         return buffer
 
-    def _room_top(self, room: Mapping[str, Any], level: Optional[Mapping[str, Any]], st, usable_w: float):
-        """The room's sketch in the corner, its measurements beside it"""
+    # ── Shared ──
+
+    def _styles(self) -> Dict[str, ParagraphStyle]:
+        def style(name: str, size: float, bold: bool = False, color=BRAND_DARK, **kw) -> ParagraphStyle:
+            return ParagraphStyle(name, fontSize=size, fontName="Helvetica-Bold" if bold else "Helvetica",
+                                  textColor=color, **kw)
+
+        return {
+            "company": style("c", 9, color=TEXT_GREY, leading=13),
+            "right": style("r", 9, color=TEXT_GREY, leading=13, alignment=2),
+            "section": style("s", 11, True, spaceBefore=12, spaceAfter=8),
+            "level": style("lv", 8, True, BRAND_ACCENT, leading=11, spaceBefore=4, spaceAfter=6),
+            "card_title": style("ct", 12, True, leading=15),
+            "card_total": style("cm", 12, True, leading=15, alignment=2),
+            "chip": style("ch", 8.5, color=BRAND_ACCENT, leading=11),
+            "group": style("g", 7.3, True, BRAND_ACCENT, leading=9),
+            "desc": style("d", 8.8, leading=11),
+            "num": style("n", 8.8, leading=11, alignment=2),
+            "sub": style("sb", 7.8, color=TEXT_GREY, leading=10, alignment=2),
+            "small": style("sm", 7.8, color=TEXT_GREY, leading=10.5),
+            "body": style("bd", 9.5, leading=13.5),
+            "terms": style("t", 8.5, color=TEXT_GREY, leading=12),
+            # A bullet whose wrapped lines start under its text
+            "bullet": style("b", 8.5, color=TEXT_GREY, leading=12, leftIndent=8, firstLineIndent=-8),
+            "scope": style("sc", 9.2, leading=12.5, leftIndent=10, firstLineIndent=-10),
+            "plan": style("fp", 14, True, leading=18, spaceAfter=2),
+            "big": style("bg", 20, True, leading=24),
+        }
+
+    def _header(self, estimate, rooms, st, w, quote_no, address, title) -> List[Any]:
+        today = datetime.now()
+        right = Paragraph(
+            f"<font size=18 color='#1a2332'><b>{title.upper()}</b></font><br/><br/>"
+            f"Quote #: {quote_no}<br/>Date: {today:%m/%d/%Y}<br/>"
+            f"Valid Through: {today + timedelta(days=30):%m/%d/%Y}", st["right"])
+        header = Table([[_company_block(estimate.get("company_info"), st["company"]), right]],
+                       colWidths=[w * 0.5, w * 0.5])
+        header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                    ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        total_sf = sum(float(r.get("floor_sf") or 0) for r in rooms)
+        info = [["Property:", address or "—", "Claim #:", estimate.get("claim_number") or "—"]]
+        if estimate.get("client_name"):
+            info.append(["Client:", estimate["client_name"], "", ""])
+        level_names = list(dict.fromkeys(r.get("level_name") or "" for r in rooms))
+        info.append(["Scope:", f"{' / '.join(n for n in level_names if n) or 'Rooms'} · {len(rooms)} rooms "
+                               f"· {total_sf:,.2f} SF", "Measured:", "Interior, wall to wall"])
+        it = Table(info, colWidths=[w * 0.11, w * 0.47, w * 0.15, w * 0.27])
+        it.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"), ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9), ("TEXTCOLOR", (0, 0), (-1, -1), BRAND_DARK),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return [header, Spacer(1, 10), HRFlowable(width="100%", thickness=1.5, color=BRAND_ACCENT), Spacer(1, 8),
+                it, Spacer(1, 10)]
+
+    def _totals_table(self, rows: List[List[str]], grand_row: List[str], heads: List[str],
+                      widths: List[float]) -> Table:
+        """A short table of amounts: an accent rule under its heads, the grand total on a dark band"""
+        data = [heads, *rows, grand_row]
+        t = Table(data, colWidths=widths)
+        t.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, 0), 7.5),
+            ("TEXTCOLOR", (0, 0), (-1, 0), BRAND_ACCENT), ("LINEBELOW", (0, 0), (-1, 0), 1, BRAND_ACCENT),
+            ("FONTSIZE", (0, 1), (-1, -1), 9.5), ("TEXTCOLOR", (0, 1), (-1, -2), BRAND_DARK),
+            ("LINEBELOW", (0, 1), (-1, -2), 0.4, RULE),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("BACKGROUND", (0, -1), (-1, -1), BRAND_DARK), ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"), ("FONTSIZE", (0, -1), (-1, -1), 11),
+        ]))
+        return t
+
+    def _notes(self, estimate, st) -> List[Any]:
+        """What the summary says under it, then the fixtures note"""
+        text = "Quantities are measured from the sketch, interior wall to wall."
+        if estimate.get("include_overhead_profit"):
+            text += " Unit prices include overhead &amp; profit."
+        out: List[Any] = [Spacer(1, 4), Paragraph(text, st["small"])]
+        fixture_notes = fixture_floor_notes(estimate)
+        if fixture_notes:
+            out.append(Spacer(1, 8))
+            out += [Paragraph(t, st["bullet" if t.startswith("•") else "terms"]) for t in fixture_notes]
+        return out
+
+    def _lines_table(self, lines, st, w, area: bool = False, heads: bool = True) -> Table:
+        """Lines under their heads: description (with its note), quantity, unit
+        price, amount; a head's subtotal when it has more than one line. With
+        area, the room is a first column, said once per room within a head."""
+        widths = ([w * 0.17, w * 0.43] if area else [w * 0.58]) + [w * 0.15, w * 0.11, w * 0.14]
+        n = len(widths)
+        rows: List[List[Any]] = [([""] * (2 if area else 1)) + ["QTY", "UNIT PRICE", "AMOUNT"]]
+        style: List[Any] = [
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, 0), 7),
+            ("TEXTCOLOR", (0, 0), (-1, 0), TEXT_GREY), ("ALIGN", (n - 3, 0), (-1, -1), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"), ("FONTSIZE", (0, 1), (-1, -1), 8.8),
+            ("TEXTCOLOR", (0, 1), (-1, -1), BRAND_DARK),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("LEFTPADDING", (0, 0), (0, -1), 2),
+        ]
+        groups = _grouped(lines) if heads else [("", list(lines))]
+        for title, group in groups:
+            if heads:
+                r = len(rows)
+                rows.append([Paragraph(title.upper(), st["group"])] + [""] * (n - 1))
+                style += [("SPAN", (0, r), (-1, r)), ("TOPPADDING", (0, r), (-1, r), 7)]
+            last_area = None
+            for li in group:
+                desc = _escape(li.get("description"))
+                if li.get("notes"):
+                    desc += f"<br/><font size=7.3 color='#4a5568'>{_escape(li['notes'])}</font>"
+                cells = [Paragraph(desc, st["desc"]), _qty(li), f"{float(li.get('unit_price') or 0):,.2f}",
+                         f"{float(li.get('total') or 0):,.2f}"]
+                if area:
+                    name = li.get("room_name") or "Whole job"
+                    cells.insert(0, Paragraph(_escape(name) if name != last_area else "", st["desc"]))
+                    last_area = name
+                rows.append(cells)
+                style.append(("LINEBELOW", (0, len(rows) - 1), (-1, len(rows) - 1), 0.3, RULE))
+            if heads and len(group) > 1:
+                r = len(rows)
+                rows.append([""] * (n - 3) + [Paragraph(f"{_escape(title)} subtotal", st["sub"]), "",
+                                               Paragraph(f"{_total(group):,.2f}", st["sub"])])
+                style.append(("SPAN", (n - 3, r), (n - 2, r)))
+        t = Table(rows, colWidths=widths, repeatRows=1)
+        t.setStyle(TableStyle(style))
+        return t
+
+    # ── Room cards: each room a card, its lines under work heads ──
+
+    def _room_cards(self, estimate, rooms, lines, levels, st, w) -> List[Any]:
+        el: List[Any] = []
+        names = {r["room_id"]: r.get("name") for r in rooms}
+        current_level = None
+        summary: List[List[str]] = []
+        for room in rooms:
+            room_lines = [li for li in lines if li.get("room_id") == room["room_id"]]
+            if not room_lines:
+                continue
+            if room.get("level_name") != current_level:
+                current_level = room.get("level_name")
+                el.append(Paragraph((current_level or "Rooms").upper(), st["level"]))
+            total = _total(room_lines)
+            short = "Refinish" if room.get("work") == "refinish" else \
+                pricing.MATERIALS.get(room.get("new_material") or "", {}).get("short", "—")
+            summary.append([room.get("name"), f"{float(room.get('floor_sf') or 0):,.2f}", short, _money(total)])
+            title = _escape(room.get("name"))
+            if room.get("subroom_of") and names.get(room["subroom_of"]):
+                title += f"  <font size=8 color='#4a5568'>in {_escape(names[room['subroom_of']])}</font>"
+            block = [self._card_head(title, _escape(_floor_words(room)), total, st, w),
+                     self._card_facts(room, levels.get(str(room.get("level_id"))), st, w),
+                     self._lines_table(room_lines, st, w), Spacer(1, 16)]
+            el.append(KeepTogether(block))
+
+        general = [li for li in lines if not li.get("room_id")]
+        if general:
+            total = _total(general)
+            el.append(KeepTogether([self._card_head("Whole job", "Once for the whole job", total, st, w),
+                                    Spacer(1, 2), self._lines_table(general, st, w), Spacer(1, 16)]))
+            summary.append(["Whole job", "", "", _money(total)])
+
+        total_sf = sum(float(r.get("floor_sf") or 0) for r in rooms)
+        grand = ["Grand total", f"{total_sf:,.2f}", "", _money(float(estimate.get("total") or 0))]
+        table = self._totals_table(summary, grand, ["AREA", "FLOOR SF", "FLOORING", "AMOUNT"],
+                                   [w * 0.40, w * 0.18, w * 0.22, w * 0.20])
+        el.append(KeepTogether([Paragraph("Summary", st["section"]), table, *self._notes(estimate, st)]))
+        return el
+
+    def _card_head(self, title_html: str, chip_html: str, total: float, st, w) -> Table:
+        t = Table([[Paragraph(title_html, st["card_title"]), Paragraph(_money(total), st["card_total"])],
+                   [Paragraph(chip_html, st["chip"]), ""]], colWidths=[w * 0.7, w * 0.3])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("LINEBEFORE", (0, 0), (0, -1), 3, BRAND_ACCENT),
+            ("SPAN", (1, 0), (1, 1)), ("VALIGN", (1, 0), (1, 1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (0, -1), 9), ("RIGHTPADDING", (1, 0), (1, -1), 9),
+            ("TOPPADDING", (0, 0), (-1, 0), 6), ("BOTTOMPADDING", (0, 1), (-1, 1), 6),
+            ("TOPPADDING", (0, 1), (-1, 1), 0), ("BOTTOMPADDING", (0, 0), (-1, 0), 1),
+        ]))
+        return t
+
+    def _card_facts(self, room, level, st, w) -> Table:
+        """The room's sketch small, with its measurements and doorways beside it"""
+        f = lambda k: float(room.get(k) or 0)  # noqa: E731
+        facts = [f"<b>{f('floor_sf'):,.2f}</b> SF floor", f"<b>{f('base_lf'):,.2f}</b> LF baseboard"]
+        if f("cabinet_run_lf"):
+            facts.append(f"<b>{f('cabinet_run_lf'):,.2f}</b> LF cabinets")
+        parts = [Paragraph(" &nbsp;·&nbsp; ".join(facts), st["desc"])]
+        openings = room.get("openings") or []
+        if openings:
+            text = ", ".join(
+                f"{format_ft_in(float(o.get('width_lf') or 0))} {OPENING_WORDS.get(o.get('kind'), 'opening').lower()} "
+                f"to {_escape(o.get('to_room_name') or 'outside')}"
+                for o in openings
+            )
+            parts.append(Paragraph(f"Doorways: {text}", st["small"]))
+        existing = room.get("existing_material")
+        if existing:
+            label = _escape(pricing.MATERIALS.get(existing, {}).get("label", existing))
+            parts.append(Paragraph(("Floor sanded: " if room.get("work") == "refinish" else "Coming out: ") + label,
+                                   st["small"]))
         sketch_room = None
         if level:
             sketch_room = next((r for r in level.get("rooms") or [] if str(r.get("id")) == room["room_id"]), None)
         drawn = sketch_room or {"id": room["room_id"], "name": room.get("name"), "points": room.get("points") or []}
-        thumb = room_thumbnail(level or {}, drawn, THUMB_W, THUMB_H, room.get("new_material"))
-
-        def row(v1: float, l1: str, v2: float, l2: str):
-            return [Paragraph(f"<b>{v1:,.2f}</b>", st["meas"]), Paragraph(l1, st["meas"]),
-                    Paragraph(f"<b>{v2:,.2f}</b>", st["meas"]), Paragraph(l2, st["meas"])]
-
-        f = lambda k: float(room.get(k) or 0)  # noqa: E731
-        table = Table([
-            row(f("floor_sf"), "SF Floor", f("floor_sy"), "SY Flooring"),
-            row(f("perimeter_lf"), "LF Floor Perimeter", f("base_lf"), "LF Baseboard"),
-            row(f("wall_sf"), "SF Walls", f("ceiling_sf"), "SF Ceiling"),
-        ], colWidths=[0.62 * inch, 1.25 * inch, 0.62 * inch, 1.3 * inch])
-        table.setStyle(TableStyle([
-            ("ALIGN", (0, 0), (0, -1), "RIGHT"), ("ALIGN", (2, 0), (2, -1), "RIGHT"),
-            ("TOPPADDING", (0, 0), (-1, -1), 1.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-        ]))
-        details: List[Any] = [table, Spacer(1, 4)]
-        openings = room.get("openings") or []
-        if openings:
-            text = " · ".join(
-                f"{format_ft_in(float(o.get('width_lf') or 0))} {OPENING_WORDS.get(o.get('kind'), 'Opening')} "
-                f"→ {_escape(o.get('to_room_name') or 'Exterior')}"
-                for o in openings
-            )
-            details.append(Paragraph(f"<b>Openings:</b> {text}", st["small"]))
-        deductions = ["openings"] + (["cabinet runs"] if room.get("cabinet_run_lf") else [])
-        details.append(Paragraph(f"Baseboard = perimeter less {' and '.join(deductions)}", st["small"]))
-        new = room.get("new_material")
-        spec = "<b>New:</b> "
-        if new:
-            spec += _escape(pricing.MATERIALS.get(new, {}).get("label", new))
-            if new in pricing.PATTERNED:
-                spec += f" - {_escape(pricing.PATTERNS.get(room.get('pattern') or 'straight', 'straight lay'))}, " \
-                        f"{float(room.get('waste_pct') or 0):g}% waste"
-        else:
-            spec += "—"
-        existing = room.get("existing_material")
-        existing_label = _escape(pricing.MATERIALS.get(existing, {}).get("label", existing)) if existing else "—"
-        spec += f" &nbsp;&nbsp;<b>Existing:</b> {existing_label}"
-        details += [Spacer(1, 3), Paragraph(spec, st["small"])]
-        top = Table([[thumb, details]], colWidths=[THUMB_W + 10, usable_w - THUMB_W - 10])
-        top.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (0, 0), 0),
+        thumb = room_thumbnail(level or {}, drawn, CARD_THUMB_W, CARD_THUMB_H, _floor_key(room))
+        # The sketch at the card's left edge, the facts right beside it
+        t = Table([[thumb, parts]], colWidths=[CARD_THUMB_W + 12, w - CARD_THUMB_W - 12])
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (0, 0), 3),
             ("LEFTPADDING", (1, 0), (1, 0), 6), ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ]))
-        return top
+        return t
+
+    # ── By trade: the whole house under each kind of work ──
+
+    def _by_trade(self, estimate, rooms, lines, levels, st, w) -> List[Any]:
+        groups = _grouped(lines)
+        summary = [[title, _money(_total(group))] for title, group in groups]
+        table = self._totals_table(summary, ["Grand total", _money(float(estimate.get("total") or 0))],
+                                   ["WORK", "AMOUNT"], [w * 0.32, w * 0.18])
+        # The summary by work beside its notes (the plan is at the back)
+        notes = self._notes(estimate, st)
+        top = Table([[table, notes[1:] or ""]], colWidths=[w * 0.52, w * 0.48])
+        top.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (0, 0), 0),
+                                 ("LEFTPADDING", (1, 0), (1, 0), 14)]))
+        el: List[Any] = [Paragraph("Project Summary", st["section"]), top, Spacer(1, 18)]
+        for title, group in groups:
+            head = Table([[Paragraph(_escape(title), st["card_title"]),
+                           Paragraph(_money(_total(group)), st["card_total"])]], colWidths=[w * 0.7, w * 0.3])
+            head.setStyle(TableStyle([
+                ("LINEBELOW", (0, 0), (-1, -1), 1.2, BRAND_ACCENT), ("LEFTPADDING", (0, 0), (0, 0), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            el += [KeepTogether([head, self._lines_table(group, st, w, area=True, heads=False)]), Spacer(1, 14)]
+        return el
+
+    # ── Proposal: the work in words, room by room; the quantities at the back ──
+
+    def _proposal(self, estimate, rooms, lines, st, w) -> List[Any]:
+        el: List[Any] = [
+            Paragraph("Scope of Work", st["section"]),
+            Paragraph("The work below is priced room by room, labor and materials included. The quantities each "
+                      "price comes from are itemized at the back.", st["body"]),
+            Spacer(1, 12),
+        ]
+        names = {r["room_id"]: r.get("name") for r in rooms}
+
+        def block(title: str, sub: str, room_lines: List[Mapping[str, Any]]) -> List[Any]:
+            head = Table([[Paragraph(title, st["card_title"]), Paragraph(_money(_total(room_lines)), st["card_total"])]],
+                         colWidths=[w * 0.7, w * 0.3])
+            head.setStyle(TableStyle([
+                ("LINEBELOW", (0, 0), (-1, -1), 1, BRAND_ACCENT), ("LEFTPADDING", (0, 0), (0, 0), 0),
+                ("RIGHTPADDING", (1, 0), (1, 0), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            items = []
+            for li in room_lines:
+                text = _escape(li.get("description"))
+                unit = li.get("unit") or ""
+                qty = float(li.get("quantity") or 0)
+                if unit in ("SF", "LF", "SY"):
+                    text += f" <font color='#4a5568'>({qty:,.2f} {unit})</font>"
+                elif qty != 1:
+                    text += f" <font color='#4a5568'>({qty:g})</font>"
+                if li.get("notes"):
+                    text += f"<br/><font size=7.8 color='#4a5568'>{_escape(li['notes'])}</font>"
+                items.append(Paragraph(f"•&nbsp;&nbsp;{text}", st["scope"]))
+            return [head, Spacer(1, 3), Paragraph(sub, st["chip"]), Spacer(1, 4), *items, Spacer(1, 14)]
+
+        for room in rooms:
+            room_lines = [li for li in lines if li.get("room_id") == room["room_id"]]
+            if not room_lines:
+                continue
+            title = _escape(room.get("name"))
+            if room.get("subroom_of") and names.get(room["subroom_of"]):
+                title += f"  <font size=8 color='#4a5568'>in {_escape(names[room['subroom_of']])}</font>"
+            sub = f"{_escape(_floor_words(room))} · {float(room.get('floor_sf') or 0):,.2f} SF"
+            el.append(KeepTogether(block(title, sub, room_lines)))
+        general = [li for li in lines if not li.get("room_id")]
+        if general:
+            el.append(KeepTogether(block("Whole job", "Once for the whole job", general)))
+
+        total = Table([["Total", _money(float(estimate.get("total") or 0))]], colWidths=[w * 0.7, w * 0.3])
+        total.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), BRAND_DARK), ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 13),
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"), ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8), ("LEFTPADDING", (0, 0), (0, 0), 10),
+            ("RIGHTPADDING", (1, 0), (1, 0), 10),
+        ]))
+        el.append(KeepTogether([total, *self._notes(estimate, st)]))
+        return el
+
+    def _itemized_appendix(self, rooms, lines, st, w) -> List[Any]:
+        rows: List[List[Any]] = [["AREA", "DESCRIPTION", "QTY", "UNIT PRICE", "AMOUNT"]]
+        last = None
+        for li in lines:
+            name = li.get("room_name") or "Whole job"
+            rows.append([Paragraph(_escape(name) if name != last else "", st["small"]),
+                         Paragraph(_escape(li.get("description")), st["small"]), _qty(li),
+                         f"{float(li.get('unit_price') or 0):,.2f}", f"{float(li.get('total') or 0):,.2f}"])
+            last = name
+        t = Table(rows, colWidths=[w * 0.17, w * 0.45, w * 0.13, w * 0.11, w * 0.14], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, 0), 7),
+            ("TEXTCOLOR", (0, 0), (-1, 0), BRAND_ACCENT), ("LINEBELOW", (0, 0), (-1, 0), 1, BRAND_ACCENT),
+            ("FONTSIZE", (0, 1), (-1, -1), 7.8), ("TEXTCOLOR", (0, 1), (-1, -1), BRAND_DARK),
+            ("ALIGN", (2, 0), (-1, -1), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.3, RULE),
+            ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        return [PageBreak(), Paragraph("Itemized Quantities", st["section"]), t]

@@ -14,6 +14,15 @@ from .geometry import FIXTURE_TYPES, OPENING_KINDS
 from .items import GENERAL_KEYS, ROOM_ITEM_MAP, ROOM_KEYS
 
 
+Work = Literal["replace", "refinish"]
+
+
+def _finish(value: Optional[str]) -> Optional[str]:
+    if value is not None and value not in pricing.REFINISH_FINISHES:
+        raise ValueError(f"Unknown finish {value!r}; one of {', '.join(pricing.REFINISH_FINISHES)}")
+    return value
+
+
 def _material(value: Optional[str]) -> Optional[str]:
     if value is not None and value not in pricing.MATERIALS:
         raise ValueError(f"Unknown floor {value!r}; one of {', '.join(pricing.MATERIALS)}")
@@ -104,6 +113,9 @@ class SketchFixture(BaseModel):
     floor_under: bool = False
     # A range or dryer on gas: more to its detach & reset
     gas: bool = False
+    # Set on top of the new floor, or the floor cut to fit it (a hole for its pipe or duct);
+    # null: its kind's (geometry.FIXTURE_KINDS). An island goes by floor_under.
+    floor_fit: Optional[Literal["on_top", "cut_to_fit"]] = None
 
     @field_validator("type")
     @classmethod
@@ -181,6 +193,9 @@ class CustomItem(BaseModel):
 class RoomScope(BaseModel):
     model_config = ConfigDict(extra="forbid")
     included: bool = True
+    # "replace" (tear out, new floor) or "refinish" (sand the hardwood); null: the job's
+    work: Optional[Work] = None
+    finish: Optional[str] = None
     new_material: Optional[str] = None
     pattern: Optional[str] = None
     waste_pct: Optional[float] = Field(None, ge=0, le=100)
@@ -204,10 +219,17 @@ class RoomScope(BaseModel):
     def check_items(cls, value: Dict[str, ItemChoice]) -> Dict[str, ItemChoice]:
         return _keys(value, ROOM_KEYS, "room item")
 
+    @field_validator("finish")
+    @classmethod
+    def check_finish(cls, value: Optional[str]) -> Optional[str]:
+        return _finish(value)
+
 
 class JobDefaults(BaseModel):
     """What every room takes unless it says otherwise"""
     model_config = ConfigDict(extra="forbid")
+    work: Optional[Work] = None
+    finish: Optional[str] = None
     new_material: Optional[str] = None
     existing_material: Optional[str] = None
     pattern: Optional[str] = None
@@ -221,6 +243,11 @@ class JobDefaults(BaseModel):
     @classmethod
     def check_lay(cls, value: Optional[str]) -> Optional[str]:
         return _pattern(value)
+
+    @field_validator("finish")
+    @classmethod
+    def check_finish(cls, value: Optional[str]) -> Optional[str]:
+        return _finish(value)
 
 
 class JobScope(BaseModel):

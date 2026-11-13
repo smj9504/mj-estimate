@@ -229,6 +229,56 @@ REMOVAL_EXTRA_RATES = {
     "vinyl_extra_layer_per_sf": xact(0.38),     # FCV AVALR: another layer of vinyl under the top one
 }
 
+# Cutting a new tile or wood floor to fit a fixture that needs a hole in it
+# (geometry.floor_fit_of: a toilet's flange, a floor register's duct), per
+# fixture. Folded into the room's new floor
+# line, not a line of its own (owner, 2026-11-13). Half an hour of the
+# installer's Xactimate hourly rate is my allowance, not Xactimate's.
+CUT_TO_FIT_RATES = {
+    "tile_per_fixture": xact(128.61 * 0.5),   # FCT LAB: ceramic tile flooring installer, per hour
+    "wood_per_fixture": xact(71.24 * 0.5),    # FCW LAB: wood floor covering installer, per hour
+}
+
+# ──────────────────────────────────────────────
+# Sanding: an existing hardwood floor refinished in place of a new one
+# (owner, 2026-11-13). Every line from Xactimate (FCW), marked up.
+# ──────────────────────────────────────────────
+
+# The finishes the room's sand & refinish line can take: key -> (line, what it includes)
+REFINISH_FINISHES = {
+    "natural": ("Sand & finish wood floor (natural finish)",
+                "Edge, drum and screen sanding, wood filler, 2 coats of finish"),
+    "stain": ("Sand, stain, and finish wood floor",
+              "Edge, drum and screen sanding, wood filler, 1 coat of stain, 2 coats of finish"),
+    "water_natural": ("Sand & finish wood floor (natural finish) - water-based",
+                      "Edge, drum and screen sanding, wood filler, 2 coats of water-based finish"),
+    "water_stain": ("Sand, stain, & finish wood floor - water-based",
+                    "Edge, drum and screen sanding, wood filler, 1 coat of stain, 2 coats of water-based finish"),
+    "seal": ("Sand and seal wood floor",
+             "Edge, drum and screen sanding, wood filler, 1 coat of finish"),
+}
+REFINISH_DEFAULT_FINISH = "natural"
+
+REFINISH_RATES = {
+    "natural": xact(4.18),                # FCW FIN, per SF
+    "stain": xact(5.03),                  # FCW FIN+
+    "water_natural": xact(4.41),          # FCW FINW
+    "water_stain": xact(4.69),            # FCW FINW+
+    "seal": xact(3.65),                   # FCW FIN-
+    "extra_coat_per_sf": xact(1.15),      # FCW FINADD: light screen and one more coat
+    "pre_stain_per_sf": xact(0.74),       # FCW FINP: conditioner before the stain
+    "dustless_per_sf": xact(1.00),        # FCW FINDS: dust containment sanding rig
+    "register_per_ea": xact(4.25),        # FCW FINREG: a flush wood register sanded and finished
+    "mask_per_lf": xact(0.63),            # FCW MASKLF: paper and tape along the baseboard and cabinets
+    "cover_per_sf": xact(0.45),           # FCW MASKSF: plastic over cabinets and fixtures, dust control
+    "board_replace_per_sf": xact(12.41),  # FCW AV: oak #1 common, unfinished, finished with the floor
+    "lace_in_per_lf": xact(39.99),        # FCW LACE: new boards woven into the old
+    "trim_detach_reset_per_lf": xact(1.33),  # FCW TRIMRS: reducers / T-moldings lifted and put back
+    "minimum_charge": xact(447.58),       # FCW FINMN: a spot repair blended over about 10' x 12'
+    "steps_per_lf": xact(14.14),          # FCW FINSTP: treads and risers, natural finish
+    "steps_stain_per_lf": xact(18.21),    # FCW FINSTP+: stained
+}
+
 # Where one floor meets another
 TRANSITION_RATES = {
     "transition_strip": 45.00,            # T-mold / reducer / carpet edge, one doorway

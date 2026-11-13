@@ -62,6 +62,10 @@ def pricing_info() -> Dict[str, Any]:
             }
             for key, spec in pricing.MATERIALS.items()
         ],
+        "finishes": [
+            {"key": key, "label": label, "includes": includes, "price": float(pricing.REFINISH_RATES[key])}
+            for key, (label, includes) in pricing.REFINISH_FINISHES.items()
+        ],
         "patterns": [
             {"key": key, "label": label, "labor_multiplier": pricing.PATTERN_LABOR_MULTIPLIER[key]}
             for key, label in pricing.PATTERNS.items()

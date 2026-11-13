@@ -6,6 +6,7 @@
 
 import type {
   FixtureType,
+  FloorFit,
   FlooringSketch,
   FtPoint,
   SketchCabinetRun,
@@ -50,6 +51,42 @@ export const FIXTURE_LABELS: Record<FixtureType, string> = {
   floor_register: 'Floor register',
   other: 'Other',
 };
+
+/**
+ * Whether each type sits on the new floor (set back on top of it) or needs a hole in it, so the floor is
+ * cut to fit it, more labor. Every type has to say; a fixture may say its own (floor_fit). The server
+ * keeps the same table (flooring_estimate/geometry.py FIXTURE_KINDS), prices the cutting into the room's
+ * floor line and notes it in the PDF.
+ */
+export const FIXTURE_FLOOR_FIT: Record<FixtureType, FloorFit> = {
+  // Set on the new floor, over a hole cut for its flange
+  toilet: 'cut_to_fit',
+  vanity: 'on_top',
+  pedestal_sink: 'on_top',
+  utility_sink: 'on_top',
+  // Detached and reset, it goes on top of the new floor; left in place, the floor stops at it (floor_under)
+  island: 'on_top',
+  refrigerator: 'on_top',
+  range: 'on_top',
+  // Goes with the cabinets: nothing to cut around it
+  dishwasher: 'on_top',
+  washer: 'on_top',
+  dryer: 'on_top',
+  // Drops into its duct's opening, cut in the new floor
+  floor_register: 'cut_to_fit',
+  other: 'on_top',
+};
+
+export const FLOOR_FIT_LABELS: Record<FloorFit, string> = {
+  on_top: 'Sits on top',
+  cut_to_fit: 'Floor cut to fit it',
+};
+
+/** How this fixture meets the new floor; null for an island left in place (the floor stops at it) */
+export function floorFitOf(f: SketchFixture): FloorFit | null {
+  if (f.type === 'island') return f.floor_under ? 'on_top' : null;
+  return f.floor_fit ?? FIXTURE_FLOOR_FIT[f.type] ?? 'on_top';
+}
 
 let counter = 0;
 /** A short id, unique within a sketch */

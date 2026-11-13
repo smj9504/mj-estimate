@@ -4,6 +4,8 @@
  * a sample house (fixtures/flooring-estimate-mock).
  */
 
+import fs from 'fs';
+import path from 'path';
 import { expect, test } from '@playwright/test';
 import { ESTIMATE_ID, mockFlooringEstimateApi } from './fixtures/flooring-estimate-mock';
 
@@ -116,4 +118,62 @@ test('the PDF downloads from the result', async ({ page }) => {
   expect(api.pdfs).toBe(1);
   // Opened calculated and unchanged: printed as it is, not recalculated
   expect(api.calculations).toBe(0);
+});
+
+test('the PDF comes in the layout picked: room cards, by trade or a proposal', async ({ page }) => {
+  await mockFlooringEstimateApi(page, 'calculated');
+  await page.goto(`/flooring-estimates/${ESTIMATE_ID}?tab=result`);
+  const layoutOf = async () => {
+    const request = page.waitForRequest((r) => r.url().includes('/export/pdf'));
+    const download = page.waitForEvent('download');
+    await page.getByTestId('download-pdf').click();
+    await download;
+    return new URL((await request).url()).searchParams.get('layout');
+  };
+  expect(await layoutOf()).toBe('rooms');
+  // The select's box (its input has no size while a value shows)
+  const picker = page.locator('.ant-select', { has: page.getByRole('combobox', { name: 'PDF layout' }) });
+  await picker.click();
+  await page.getByTitle('Proposal', { exact: true }).filter({ visible: true }).click();
+  await expect(page.getByText("Each room's work in words")).toBeVisible();
+  expect(await layoutOf()).toBe('proposal');
+  // Kept on this browser for the next estimate
+  await page.reload();
+  await expect(picker).toContainText('Proposal');
+});
+
+test('a room can be sanded and refinished in place of a new floor, and so can every room', async ({ page }) => {
+  const api = await mockFlooringEstimateApi(page);
+  // The finishes the server offers (the saved pricing fixture predates them)
+  const pricing = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'flooring-pricing-info.json'), 'utf8'));
+  await page.route((url) => url.pathname.endsWith('/api/flooring-estimates/pricing-info'), (route) => route.fulfill({
+    json: { ...pricing, finishes: [
+      { key: 'natural', label: 'Sand & finish wood floor (natural finish)', includes: '2 coats of finish', price: 4.6 },
+      { key: 'stain', label: 'Sand, stain, and finish wood floor', includes: '1 coat of stain, 2 coats of finish', price: 5.53 },
+    ] },
+  }));
+  await page.goto(`/flooring-estimates/${ESTIMATE_ID}?tab=rooms`);
+  const living = page.getByTestId('room-scope-living');
+  await expect(living.getByRole('combobox', { name: 'New floor' })).toBeVisible();
+
+  await living.getByLabel('Work').getByText('Sand & refinish').click();
+  // No new floor to pick: the finish instead, and the floor to sand
+  await expect(living.getByRole('combobox', { name: 'New floor' })).toHaveCount(0);
+  await expect(living.getByText('Floor to sand')).toBeVisible();
+  await living.getByRole('combobox', { name: 'Finish' }).click();
+  await page.getByTitle('1 coat of stain, 2 coats of finish', { exact: true }).filter({ visible: true }).click();
+  await expect.poll(() => {
+    const room = api.lastUpdate()?.room_scopes?.living;
+    return room && { work: room.work, finish: room.finish };
+  }).toEqual({ work: 'refinish', finish: 'stain' });
+  await expect(page.getByText('Sand & refinish', { exact: true }).first()).toBeVisible();
+
+  // For every room at once
+  await page.getByLabel('Default work').getByText('Sand & refinish').click();
+  await expect.poll(() => api.lastUpdate()?.job_scope?.defaults?.work).toBe('refinish');
+  await expect(page.getByRole('combobox', { name: 'Default finish' })).toBeVisible();
+  // Back to a new floor on the room alone
+  await living.getByLabel('Work').getByText('New floor').click();
+  await expect.poll(() => api.lastUpdate()?.room_scopes?.living?.work).toBe('replace');
+  await expect(living.getByRole('combobox', { name: 'New floor' })).toBeVisible();
 });

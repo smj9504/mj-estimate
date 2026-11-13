@@ -766,7 +766,7 @@ def _pdf_text(pdf) -> str:
     return "\n".join(page.extract_text() for page in PdfReader(pdf).pages)
 
 
-def test_the_pdf_prints_each_room_with_its_sketch_measurements_and_lines_then_the_plan(service):
+def test_the_pdf_prints_each_room_as_a_card_with_its_lines_under_work_heads_then_the_plan(service):
     from app.domains.flooring_estimate.export_service import FlooringExportService
 
     est = new_estimate(service)
@@ -774,16 +774,46 @@ def test_the_pdf_prints_each_room_with_its_sketch_measurements_and_lines_then_th
     text = _pdf_text(FlooringExportService().generate_pdf(service.get_estimate(est["id"])))
     assert "FLOORING ESTIMATE" in text
     for room in ("Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet"):
-        assert f"Totals: {room}" in text, room
-    # The measurements beside each room's sketch, and the sketch's own wall lengths
-    for label in ("SF Floor", "SY Flooring", "LF Floor Perimeter", "LF Baseboard", "SF Walls"):
-        assert label in text, label
+        assert room in text, room
+    # Each room's measurements in a line beside its sketch, its lines under work heads
+    assert "SF floor" in text and "LF baseboard" in text and "Doorways:" in text
+    for head in ("TEAR OUT", "FLOOR", "TRIM", "Trim subtotal"):
+        assert head in text, head
     assert "15' 0\"" in text and "14' 2\"" in text
-    assert "Totals: General" in text and "GRAND TOTAL" in text
+    # None of the Xactimate block: no wall and ceiling figures, no "Totals:" rows
+    assert "SF Walls" not in text and "Totals:" not in text
+    assert "Whole job" in text and "Grand total" in text
     # The plan, with the rooms left out marked
     assert "Floor Plan" in text and "Main Level" in text
     assert "Not in scope" in text
     assert "Bedroom 2" in text
+
+
+def test_the_pdf_by_trade_and_as_a_proposal(service):
+    from app.domains.flooring_estimate.export_service import FlooringExportService
+
+    est = new_estimate(service)
+    service.calculate(est["id"])
+    estimate = service.get_estimate(est["id"])
+    total = f"${float(estimate['total']):,.2f}"
+
+    trades = _pdf_text(FlooringExportService().generate_pdf(estimate, layout="trades"))
+    assert "Project Summary" in trades and total in trades
+    # Each kind of work once, the rooms within it
+    for head in ("Tear out", "Floor", "Trim", "Other work"):
+        assert head in trades, head
+    assert "Floor Plan" in trades
+
+    proposal = _pdf_text(FlooringExportService().generate_pdf(estimate, layout="proposal"))
+    assert "FLOORING PROPOSAL" in proposal and "Scope of Work" in proposal
+    assert "Living Room" in proposal and total in proposal
+    # The quantities at the back, after the plan
+    assert "Itemized Quantities" in proposal
+    assert proposal.index("Floor Plan") < proposal.index("Itemized Quantities")
+
+    # An unknown layout falls back to room cards
+    cards = _pdf_text(FlooringExportService().generate_pdf(estimate, layout="xactimate"))
+    assert "Doorways:" in cards
 
 
 def test_a_room_drawing_is_cropped_to_the_room_and_labelled(service):
@@ -852,6 +882,228 @@ def test_the_plan_draws_open_walls_registers_and_sinks():
     assert (round(0.375 * scale, 1), round(4 * scale, 1)) in sizes
 
 
+def test_every_fixture_kind_says_how_it_meets_the_new_floor_and_the_frontend_agrees():
+    import re
+    from app.domains.flooring_estimate.geometry import FIXTURE_KINDS, FIXTURE_TYPES, FLOOR_FITS
+
+    assert set(FIXTURE_KINDS) == FIXTURE_TYPES
+    assert all(kind.floor_fit in FLOOR_FITS for kind in FIXTURE_KINDS.values())
+    ops = Path(__file__).resolve().parents[2] / "frontend/src/components/flooring-estimate/sketch/utils/sketchOps.ts"
+    if not ops.exists():
+        pytest.skip("no frontend next to the backend")
+    table = re.search(r"FIXTURE_FLOOR_FIT: Record<FixtureType, FloorFit> = \{(.*?)\n\};",
+                      ops.read_text(encoding="utf-8"), re.S).group(1)
+    frontend = dict(re.findall(r"^\s*(\w+): '(\w+)',", table, re.M))
+    assert frontend == {key: kind.floor_fit for key, kind in FIXTURE_KINDS.items()}
+
+
+def test_a_fixture_goes_on_top_of_the_new_floor_or_the_floor_is_cut_to_fit_it():
+    from app.domains.flooring_estimate.geometry import floor_fit_of
+
+    # A hole in the floor for its flange or duct
+    assert floor_fit_of({"type": "toilet"}) == "cut_to_fit"
+    assert floor_fit_of({"type": "floor_register"}) == "cut_to_fit"
+    # Set on top; a dishwasher goes with the cabinets
+    assert floor_fit_of({"type": "refrigerator"}) == "on_top"
+    assert floor_fit_of({"type": "dishwasher"}) == "on_top"
+    # A fixture's own say over its kind's
+    assert floor_fit_of({"type": "dishwasher", "floor_fit": "cut_to_fit"}) == "cut_to_fit"
+    assert floor_fit_of({"type": "vanity", "floor_fit": "cut_to_fit"}) == "cut_to_fit"
+    assert floor_fit_of({"type": "vanity", "floor_fit": None}) == "on_top"
+    # An island detached and reset goes on top; left in place the floor stops at it
+    assert floor_fit_of({"type": "island", "floor_under": True}) == "on_top"
+    assert floor_fit_of({"type": "island", "floor_fit": "on_top"}) is None
+    with pytest.raises(ValidationError):
+        FlooringSketch.model_validate(house(fixtures=[
+            {"id": "f1", "type": "toilet", "x": 17, "y": 28, "floor_fit": "floating"},
+        ]))
+
+
+def test_a_tile_or_wood_floor_cut_to_fit_fixtures_carries_that_labor_in_its_own_line():
+    sketch = house()
+    sketch["levels"][0]["fixtures"] += [
+        {"id": "f4", "type": "dishwasher", "x": 18, "y": 1, "w": 2, "h": 2},
+        {"id": "f5", "type": "island", "x": 20, "y": 5, "w": 6, "h": 3},
+        {"id": "f6", "type": "floor_register", "x": 20, "y": 26, "w": 1, "h": 0.45},
+    ]
+    rooms = measured(sketch)
+    assert rooms["bath"].cut_to_fit == ["toilet", "floor_register"]
+    assert rooms["kitchen"].cut_to_fit == []
+
+    def bath_install(floor, **choice):
+        return row(estimate(sketch, scopes(bath={"included": True, "new_material": floor, **choice})), "bath", "install")
+
+    wood = bath_install("engineered_hardwood")
+    per_sf = pricing.FLOORING_MATERIAL["engineered_hardwood"] + pricing.FLOORING_INSTALL_LABOR["engineered_hardwood"]
+    assert pricing.CUT_TO_FIT_RATES["wood_per_fixture"] == pytest.approx(39.18)
+    assert wood.qty * wood.unit_price == pytest.approx(wood.qty * per_sf + 2 * 39.18)
+    assert "cut to fit toilet, floor register" in wood.notes
+
+    tile = bath_install("porcelain_tile")
+    assert pricing.CUT_TO_FIT_RATES["tile_per_fixture"] == pytest.approx(70.74)
+    assert tile.qty * (tile.unit_price - pricing.FLOORING_MATERIAL["porcelain_tile"]
+                       - pricing.FLOORING_INSTALL_LABOR["porcelain_tile"]) == pytest.approx(2 * 70.74)
+
+    # Not a line of its own
+    t = build_takeoff(estimate(sketch, scopes(bath={"included": True, "new_material": "porcelain_tile"})))
+    assert not [r for r in t.rows["bath"] if "cut_to_fit" in r.key or "cut to fit" in r.label.lower()]
+
+    # LVP, or a price typed in: nothing added
+    lvp = bath_install("lvp")
+    assert lvp.unit_price == pytest.approx(pricing.FLOORING_MATERIAL["lvp"] + pricing.FLOORING_INSTALL_LABOR["lvp"])
+    assert "cut to fit" not in (lvp.notes or "")
+    assert bath_install("porcelain_tile", items={"install": {"unit_price": 20}}).unit_price == 20
+
+
+def test_the_pdf_notes_which_fixtures_go_on_top_of_a_new_tile_or_wood_floor_and_which_it_is_cut_to_fit(service):
+    from app.domains.flooring_estimate.export_service import FlooringExportService, fixture_floor_notes
+
+    sketch = house()
+    sketch["levels"][0]["fixtures"] += [
+        {"id": "f4", "type": "dishwasher", "x": 18, "y": 1, "w": 2, "h": 2},
+        # Left in place: the floor stops at it, in neither list
+        {"id": "f5", "type": "island", "x": 20, "y": 5, "w": 6, "h": 3},
+        {"id": "f6", "type": "floor_register", "x": 20, "y": 26, "w": 1, "h": 0.45},
+        {"id": "f7", "type": "floor_register", "x": 22, "y": 26, "w": 1, "h": 0.45},
+        {"id": "f8", "type": "vanity", "x": 21, "y": 28.5, "w": 2.5, "h": 1.75, "floor_fit": "cut_to_fit"},
+        # In the living room, getting LVP: not in the note
+        {"id": "f9", "type": "washer", "x": 5, "y": 5, "w": 2.25, "h": 2.25},
+    ]
+    est = service.create_estimate(FlooringEstimateCreate(
+        property_address="123 Example St", city="Anytown", state="VA", zip_code="22030", sketch_data=sketch,
+        room_scopes=scopes(kitchen={"new_material": "engineered_hardwood"},
+                           bath={"included": True, "new_material": "porcelain_tile"}),
+    ))
+    service.calculate(est["id"])
+    calculated = service.get_estimate(est["id"])
+    assert fixture_floor_notes(calculated) == [
+        "<b>Fixtures on the new tile and wood floors</b>",
+        "• Set back on top of the new floor: Kitchen — refrigerator, range, dishwasher.",
+        "• The new floor is cut to fit these (a hole for the flange or duct), which takes more labor; it is "
+        "included in each room's new floor line: Bathroom — toilet, 2 floor registers, vanity.",
+    ]
+    text = _pdf_text(FlooringExportService().generate_pdf(calculated))
+    assert "Fixtures on the new tile and wood floors" in text
+    assert "Set back on top of the new floor" in text
+    assert "cut to fit these" in text
+
+    # No tile or wood going in: nothing to note
+    plain = new_estimate(service)
+    service.calculate(plain["id"])
+    assert fixture_floor_notes(service.get_estimate(plain["id"])) == []
+
+
+# ── Sanding a hardwood floor in place of a new one ──
+
+def _on(rows):
+    return {key: r for key, r in rows.items() if r.billed}
+
+
+def test_a_sanded_hardwood_room_has_no_tear_out_or_new_floor_but_its_sanding_and_trim():
+    t = build_takeoff(estimate(room_scopes=scopes(living={"work": "refinish", "existing_material": "solid_hardwood"})))
+    rows = {r.key: r for r in t.rows["living"]}
+    on = _on(rows)
+    assert "removal" not in rows and "install" not in rows
+    sand = rows["refinish"]
+    assert sand.label == "Sand & finish wood floor (natural finish)"
+    assert (sand.qty, sand.unit) == (pytest.approx(212.5, abs=0.01), "SF")
+    assert sand.unit_price == pytest.approx(4.60)  # FCW FIN 4.18 + 10%
+    assert "2 coats of finish" in sand.notes
+    # Quarter round replaced, the baseboard painted and masked along it
+    living = measured()["living"]
+    for key in ("quarter_round", "shoe_molding_remove", "baseboard_paint", "refinish_mask"):
+        assert key in on, key
+    assert on["quarter_round"].qty == pytest.approx(living.shoe_lf)
+    assert on["refinish_mask"].qty == pytest.approx(living.shoe_lf)
+    assert on["refinish_mask"].unit_price == pytest.approx(0.69)  # FCW MASKLF
+    for key in ("shoe_molding", "baseboard_remove", "baseboard_install", "underlayment", "door_undercut"):
+        assert key not in on, key
+    # The extras start off, ready to switch on
+    for key in ("refinish_pre_stain", "refinish_extra_coat", "refinish_dustless", "refinish_board_replace",
+                "refinish_lace_in", "refinish_minimum", "stairs_refinish"):
+        assert key in rows and key not in on, key
+
+
+def test_a_sanded_kitchen_leaves_the_dishwasher_and_island_and_covers_the_cabinets():
+    sketch = house()
+    sketch["levels"][0]["fixtures"] += [
+        {"id": "f4", "type": "dishwasher", "x": 18, "y": 1, "w": 2, "h": 2},
+        {"id": "f5", "type": "island", "x": 20, "y": 5, "w": 6, "h": 3, "floor_under": True},
+    ]
+    sanded = scopes(kitchen={"work": "refinish", "finish": "stain", "existing_material": "engineered_hardwood"})
+    rows = {r.key: r for r in build_takeoff(estimate(sketch, sanded)).rows["kitchen"]}
+    on = _on(rows)
+    assert rows["refinish"].label == "Sand, stain, and finish wood floor"
+    assert rows["refinish"].unit_price == pytest.approx(5.53)  # FCW FIN+ 5.03 + 10%
+    assert "refrigerator_detach_reset" in on and "range_detach_reset" in on
+    assert "dishwasher_detach_reset" not in on and "island_detach_reset" not in on
+    # The cabinet fronts and the island all round, cabinet high
+    kitchen = measured(sketch)["kitchen"]
+    assert on["refinish_cover"].qty == pytest.approx(kitchen.toe_kick_lf * 2.875)
+    # Replaced instead, the dishwasher and the island come out as before
+    replaced = {r.key: r for r in build_takeoff(estimate(sketch)).rows["kitchen"] if r.billed}
+    assert "dishwasher_detach_reset" in replaced and "island_detach_reset" in replaced
+
+
+def test_every_room_can_be_sanded_from_the_job_and_a_room_can_say_otherwise():
+    job = {"defaults": {"work": "refinish", "finish": "water_natural", "existing_material": "solid_hardwood"}}
+    t = build_takeoff(estimate(room_scopes=scopes(hall={"work": "replace"}), job_scope=job))
+    living = {r.key: r for r in t.rows["living"]}
+    hall = {r.key: r for r in t.rows["hall"]}
+    assert living["refinish"].unit_price == pytest.approx(4.85)  # FCW FINW 4.41 + 10%
+    assert "refinish" not in hall and "install" in hall
+    # A sanded floor counts toward the floors cleaned at the end
+    clean = next(r for r in t.general if r.key == "final_clean")
+    assert clean.qty > measured()["hall"].floor_sf
+
+
+def test_new_quarter_round_or_shoe_always_brings_the_baseboard_paint_unless_the_baseboard_is_new():
+    # Carpet: no shoe or paint, until quarter round goes on by hand
+    carpet = {r.key: r for r in build_takeoff(estimate(room_scopes=scopes(
+        bed1={"items": {"quarter_round": {"on": True}}}))).rows["bed1"]}
+    assert carpet["quarter_round"].billed and carpet["baseboard_paint"].billed
+    # A new baseboard is painted already
+    wood = {r.key: r for r in build_takeoff(estimate(room_scopes=scopes(
+        bed1={"new_material": "solid_hardwood", "items": {"quarter_round": {"on": True}}}))).rows["bed1"]}
+    assert wood["baseboard_install"].billed and not wood["baseboard_paint"].billed
+    # Switched off by hand: kept off, and the estimate says so
+    t = build_takeoff(estimate(room_scopes=scopes(
+        living={"work": "refinish", "items": {"baseboard_paint": {"on": False}}})))
+    assert not next(r for r in t.rows["living"] if r.key == "baseboard_paint").billed
+    assert any("Living Room: quarter round is replaced but the baseboard isn't painted" in w for w in t.warnings)
+
+
+def test_sanding_warns_on_a_floor_that_isnt_hardwood_and_the_finish_is_checked():
+    t = build_takeoff(estimate(room_scopes=scopes(living={"work": "refinish", "existing_material": "ceramic_tile"})))
+    assert any("Living Room: only a hardwood floor is sanded" in w for w in t.warnings)
+    with pytest.raises(ValidationError):
+        RoomScope.model_validate({"work": "refinish", "finish": "lacquer"})
+    with pytest.raises(ValidationError):
+        RoomScope.model_validate({"work": "sand"})
+    assert JobScope.model_validate({"defaults": {"work": "refinish", "finish": "seal"}}).defaults.finish == "seal"
+
+
+def test_the_pdf_shows_a_sanded_room_as_refinished(service):
+    from app.domains.flooring_estimate.export_service import FlooringExportService
+
+    est = service.create_estimate(FlooringEstimateCreate(
+        property_address="123 Example St", city="Anytown", state="VA", zip_code="22030", sketch_data=house(),
+        room_scopes=scopes(living={"work": "refinish", "existing_material": "solid_hardwood"}),
+    ))
+    service.calculate(est["id"])
+    calculated = service.get_estimate(est["id"])
+    living = next(r for r in calculated["calculated_rooms"] if r["room_id"] == "living")
+    assert (living["work"], living["finish"]) == ("refinish", "natural")
+    lines = {li["item_key"] for li in calculated["line_items"] if li["room_id"] == "living"}
+    assert {"refinish", "quarter_round", "baseboard_paint", "refinish_mask"} <= lines
+    assert not {"removal", "install"} & lines
+    text = _pdf_text(FlooringExportService().generate_pdf(calculated))
+    assert "Sand & finish wood floor (natural finish)" in text
+    assert "Hardwood · sand & finish wood floor (natural finish)" in text
+    assert "Floor sanded: Solid hardwood" in text and "Refinish" in text
+    assert "Hardwood - sand & refinish" in text
+
+
 def test_the_pdf_waits_for_a_calculation(session):
     from fastapi.testclient import TestClient
 
@@ -875,6 +1127,10 @@ def test_the_pdf_waits_for_a_calculation(session):
         assert pdf.headers["content-type"] == "application/pdf"
         assert 'filename="flooring_estimate_123_Example_St.pdf"' in pdf.headers["content-disposition"]
         assert pdf.content.startswith(b"%PDF")
+        proposal = client.get(f"/api/flooring-estimates/{estimate_id}/export/pdf", params={"layout": "proposal"})
+        assert proposal.status_code == 200 and proposal.content.startswith(b"%PDF")
+        assert client.get(f"/api/flooring-estimates/{estimate_id}/export/pdf",
+                          params={"layout": "xactimate"}).status_code == 422
     finally:
         app.main.app.dependency_overrides.pop(get_db_session, None)
         app.main.app.dependency_overrides.pop(get_current_staff, None)

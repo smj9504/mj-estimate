@@ -65,7 +65,13 @@ export interface SketchFixture {
   floor_under?: boolean;
   /** A range or dryer on gas: more to its detach & reset */
   gas?: boolean;
+  /** Set on top of the new floor, or the floor cut to fit it (a hole for its pipe or duct); absent: its type's
+   * (FIXTURE_FLOOR_FIT). An island goes by floor_under. */
+  floor_fit?: FloorFit | null;
 }
+
+/** How a fixture meets the new floor: set back on top of it, or the floor cut to fit it (a hole: more labor) */
+export type FloorFit = 'on_top' | 'cut_to_fit';
 
 /** A wall built out from one of a room's walls (a wall end, a partition): from a, on the room's wall, to b */
 export interface SketchWall {
@@ -118,8 +124,15 @@ export interface CustomItem {
   notes?: string | null;
 }
 
+/** What happens to a room's floor: torn out and a new one laid, or the hardwood there sanded and refinished */
+export type FloorWork = 'replace' | 'refinish';
+export type RefinishFinish = 'natural' | 'stain' | 'water_natural' | 'water_stain' | 'seal';
+
 export interface RoomScope {
   included?: boolean;
+  /** Null: the job's (replace when the job doesn't say) */
+  work?: FloorWork | null;
+  finish?: RefinishFinish | null;
   new_material?: FloorMaterial | null;
   pattern?: LayPattern | null;
   waste_pct?: number | null;
@@ -131,6 +144,8 @@ export interface RoomScope {
 
 export interface JobScope {
   defaults?: {
+    work?: FloorWork | null;
+    finish?: RefinishFinish | null;
     new_material?: FloorMaterial | null;
     existing_material?: FloorMaterial | null;
     pattern?: LayPattern | null;
@@ -203,6 +218,8 @@ export interface TakeoffRoom {
   dryer_gas_count: number;
   register_count: number;
   included: boolean;
+  work: FloorWork;
+  finish: RefinishFinish;
   new_material: FloorMaterial | null;
   pattern: LayPattern;
   waste_pct: number;
@@ -268,8 +285,19 @@ export interface PriceListItem {
   unit_price: number;
 }
 
+/** How the PDF is laid out: each room a card, the house by kind of work, or a proposal in words */
+export type FlooringPdfLayout = 'rooms' | 'trades' | 'proposal';
+
+export interface FinishInfo {
+  key: RefinishFinish;
+  label: string;
+  includes: string;
+  price: number;
+}
+
 export interface FlooringPricingInfo {
   materials: MaterialInfo[];
+  finishes?: FinishInfo[];
   price_list: PriceListItem[];
   patterns: { key: LayPattern; label: string; labor_multiplier: number }[];
   pad_price: number;

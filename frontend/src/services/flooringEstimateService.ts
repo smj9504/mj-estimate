@@ -5,6 +5,7 @@
 import api from './api';
 import type {
   FlooringEstimate,
+  FlooringPdfLayout,
   FlooringSketch,
   JobScope,
   RoomScope,
@@ -104,10 +105,10 @@ export const flooringEstimateService = {
     return data;
   },
 
-  /** Download the estimate's PDF: room by room with each room's sketch, then the plan */
-  async downloadPdf(id: string, showSignature = true) {
+  /** Download the estimate's PDF in one of its layouts, then the plan */
+  async downloadPdf(id: string, showSignature = true, layout: FlooringPdfLayout = 'rooms') {
     const response = await api.get(`${BASE_URL}/${id}/export/pdf`, {
-      params: { show_signature: showSignature },
+      params: { show_signature: showSignature, layout },
       responseType: 'blob',
     });
     savePdf(response as { data: BlobPart; headers?: Record<string, string> }, `flooring_estimate_${id.slice(0, 8)}.pdf`);

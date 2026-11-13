@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { rectPoints } from './geometry';
 import {
-  FIXTURE_LABELS, FIXTURE_SIZES, HISTORY_LIMIT, addCabinetRun, addFixture, addLevel, addOpening, addRoom, addWall,
-  emptySketch, historyReducer, moveRoom, normalizeSketch, removeLevel, removeRoom, removeWall, setRoomPoints,
+  FIXTURE_FLOOR_FIT, FIXTURE_LABELS, FIXTURE_SIZES, HISTORY_LIMIT, addCabinetRun, addFixture, addLevel, addOpening, addRoom, addWall,
+  emptySketch, floorFitOf, historyReducer, moveRoom, normalizeSketch, removeLevel, removeRoom, removeWall, setRoomPoints,
   updateWall,
 } from './sketchOps';
 
@@ -81,6 +81,20 @@ describe('fixtures', () => {
       expect(FIXTURE_LABELS[type]).toBeTruthy();
       expect(FIXTURE_SIZES[type][0]).toBeGreaterThan(0);
     }
+  });
+
+  it('says for every type whether it sits on top of the new floor or the floor is cut to fit it', () => {
+    expect(Object.keys(FIXTURE_FLOOR_FIT).sort()).toEqual(Object.keys(FIXTURE_LABELS).sort());
+    const base = { id: 'f', x: 0, y: 0, w: 2, h: 2, rotation: 0 };
+    expect(floorFitOf({ ...base, type: 'toilet' })).toBe('cut_to_fit');
+    expect(floorFitOf({ ...base, type: 'floor_register' })).toBe('cut_to_fit');
+    expect(floorFitOf({ ...base, type: 'dishwasher' })).toBe('on_top');
+    // Its own say over its type's
+    expect(floorFitOf({ ...base, type: 'vanity', floor_fit: 'cut_to_fit' })).toBe('cut_to_fit');
+    expect(floorFitOf({ ...base, type: 'vanity', floor_fit: null })).toBe('on_top');
+    // An island detached and reset goes on top; left in place the floor stops at it
+    expect(floorFitOf({ ...base, type: 'island', floor_under: true })).toBe('on_top');
+    expect(floorFitOf({ ...base, type: 'island', floor_fit: 'on_top' })).toBeNull();
   });
 });
 

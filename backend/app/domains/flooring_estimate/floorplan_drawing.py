@@ -38,7 +38,10 @@ MATERIAL_FILLS = {
     "porcelain_tile": colors.HexColor("#e1e6dd"),
     "sheet_vinyl": colors.HexColor("#f2e4e1"),
     "carpet": colors.HexColor("#e4e1db"),
+    # The existing hardwood sanded and refinished
+    "refinish": colors.HexColor("#dcc08f"),
 }
+REFINISH_LABEL, REFINISH_SHORT = "Hardwood - sand & refinish", "Refinish"
 NO_FILL = colors.white
 
 
@@ -367,23 +370,31 @@ def level_plan(
                 (x - n[0] * 6.5, y + n[1] * 6.5, angle), (x - n[0] * 13, y + n[1] * 13, angle),
             ], 6.6, color)
 
-    # Legend: the floors on this level, then "not in scope" if any room is
-    lx = 4.0
+    bar = 10 if (maxx - minx) > 25 else 5
+    bx = width - 4 - bar * scale
+    # Legend: the floors on this level, then "not in scope" if any room is;
+    # onto a second line before it reaches the scale bar
     shown = []
     for rid in [str(r.get("id")) for r in rooms]:
         mat = materials.get(rid)
         if rid in scope and mat and mat not in shown:
             shown.append(mat)
-    for mat in shown:
-        label = _material_label(mat)
-        d.add(Rect(lx, 6, 12, 9, fillColor=fill_for(mat), strokeColor=WALL, strokeWidth=0.4))
-        d.add(String(lx + 16, 8, label, fontName="Helvetica", fontSize=7.5, fillColor=INK))
-        lx += 24 + stringWidth(label, "Helvetica", 7.5)
+    entries = [(fill_for(mat), _material_label(mat)) for mat in shown]
     if any(str(r.get("id")) not in scope for r in rooms):
-        d.add(Rect(lx, 6, 12, 9, fillColor=NO_FILL, strokeColor=WALL, strokeWidth=0.4))
-        d.add(String(lx + 16, 8, "Not in scope", fontName="Helvetica", fontSize=7.5, fillColor=INK))
-    bar = 10 if (maxx - minx) > 25 else 5
-    bx = width - 4 - bar * scale
+        entries.append((NO_FILL, "Not in scope"))
+    lines: List[List[Tuple[Any, str, float]]] = [[]]
+    lx = 4.0
+    for fill, label in entries:
+        w = 24 + stringWidth(label, "Helvetica", 7.5)
+        if lines[-1] and lx + w - 8 > bx - 8:
+            lines.append([])
+            lx = 4.0
+        lines[-1].append((fill, label, lx))
+        lx += w
+    for line, y in zip(lines, [6.0] if len(lines) == 1 else [17.0, 5.0]):
+        for fill, label, x in line:
+            d.add(Rect(x, y, 12, 9, fillColor=fill, strokeColor=WALL, strokeWidth=0.4))
+            d.add(String(x + 16, y + 2, label, fontName="Helvetica", fontSize=7.5, fillColor=INK))
     for k in range(2):
         d.add(Rect(bx + k * bar / 2 * scale, 8, bar / 2 * scale, 4, fillColor=WALL if k == 0 else colors.white,
                    strokeColor=WALL, strokeWidth=0.5))
@@ -438,8 +449,12 @@ def _fixture(d: Drawing, m: _Mapper, f: Mapping[str, Any]):
 
 
 def _material_label(key: str) -> str:
+    if key == "refinish":
+        return REFINISH_LABEL
     return pricing.MATERIALS.get(key, {}).get("label", key)
 
 
 def _material_short(key: str) -> str:
+    if key == "refinish":
+        return REFINISH_SHORT
     return pricing.MATERIALS.get(key, {}).get("short", "")

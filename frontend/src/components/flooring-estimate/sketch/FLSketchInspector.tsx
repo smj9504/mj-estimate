@@ -7,7 +7,9 @@
 import React, { useState } from 'react';
 import { Button, Divider, Input, Popconfirm, Select, Space, Switch, Typography } from 'antd';
 import { DeleteOutlined, PlusOutlined, RotateRightOutlined, SwapOutlined } from '@ant-design/icons';
-import type { FlooringSketch, FixtureType, FtPoint, OpeningKind, SketchLevel } from '../../../types/flooringEstimate';
+import type {
+  FlooringSketch, FixtureType, FloorFit, FtPoint, OpeningKind, SketchLevel,
+} from '../../../types/flooringEstimate';
 import FeetInput from './FeetInput';
 import type { Selection } from './FLSketchCanvas';
 import { formatFeet, formatSf } from './utils/dimensions';
@@ -16,7 +18,7 @@ import {
   rectPoints, resizeEdge, spanOnEdge, wallFaces,
 } from './utils/geometry';
 import {
-  FIXTURE_LABELS, addRoom, removeCabinetRun, removeFixture, removeOpening, removeRoom, removeWall, setRoomPoints,
+  FIXTURE_LABELS, FLOOR_FIT_LABELS, addRoom, floorFitOf, removeCabinetRun, removeFixture, removeOpening, removeRoom, removeWall, setRoomPoints,
   updateCabinetRun, updateFixture, updateOpening, updateRoom, updateWall,
 } from './utils/sketchOps';
 
@@ -311,7 +313,7 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <Row label="Type">
           <Select size="small" style={{ width: 150 }} value={f.type} disabled={readOnly} virtual={false} listHeight={400}
             options={(Object.keys(FIXTURE_LABELS) as FixtureType[]).map((t) => ({ value: t, label: FIXTURE_LABELS[t] }))}
-            onChange={(type) => onApply(updateFixture(sketch, level.id, f.id, { type }))} />
+            onChange={(type) => onApply(updateFixture(sketch, level.id, f.id, { type, floor_fit: null }))} />
         </Row>
         <Row label="Width">
           <FeetInput value={f.w} disabled={readOnly} aria-label="Fixture width"
@@ -327,11 +329,23 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
               onChange={(gas) => onApply(updateFixture(sketch, level.id, f.id, { gas }))} />
           </Row>
         )}
-        {f.type === 'island' && (
+        {f.type === 'island' ? (
           <Row label="Floor runs under it">
             <Switch size="small" checked={!!f.floor_under} disabled={readOnly}
               onChange={(floor_under) => onApply(updateFixture(sketch, level.id, f.id, { floor_under }))} />
           </Row>
+        ) : (
+          <Row label="On the new floor">
+            <Select size="small" style={{ width: 150 }} value={floorFitOf(f) ?? undefined} disabled={readOnly}
+              aria-label="On the new floor"
+              options={(Object.keys(FLOOR_FIT_LABELS) as FloorFit[]).map((v) => ({ value: v, label: FLOOR_FIT_LABELS[v] }))}
+              onChange={(floor_fit) => onApply(updateFixture(sketch, level.id, f.id, { floor_fit }))} />
+          </Row>
+        )}
+        {floorFitOf(f) === 'cut_to_fit' && (
+          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
+            It needs a hole in a new tile or wood floor: the cutting goes into the room&apos;s floor line.
+          </Text>
         )}
         {!readOnly && (
           <Space style={{ width: '100%' }} direction="vertical" size={8}>

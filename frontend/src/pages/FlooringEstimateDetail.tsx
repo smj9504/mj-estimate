@@ -17,7 +17,9 @@ import FlooringProjectPanel, { type ProjectDraft } from '../components/flooring-
 import FlooringResult from '../components/flooring-estimate/FlooringResult';
 import { useAutosave, type SaveStatus } from '../components/flooring-estimate/hooks/useAutosave';
 import flooringEstimateService from '../services/flooringEstimateService';
-import type { FlooringEstimate, FlooringPricingInfo, JobScope, RoomScope } from '../types/flooringEstimate';
+import type {
+  FlooringEstimate, FlooringPdfLayout, FlooringPricingInfo, JobScope, RoomScope,
+} from '../types/flooringEstimate';
 import { STATUS_COLORS } from './FlooringEstimateList';
 
 const { Title, Text } = Typography;
@@ -109,7 +111,7 @@ const Workspace: React.FC<{ initial: FlooringEstimate }> = ({ initial }) => {
   });
 
   const pdf = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (layout: FlooringPdfLayout) => {
       // The PDF prints the last calculation: bring it up to date first
       if (stale) {
         await sketchSave.current?.();
@@ -117,7 +119,7 @@ const Workspace: React.FC<{ initial: FlooringEstimate }> = ({ initial }) => {
         showSaved(await flooringEstimateService.calculate(id));
         setStale(false);
       }
-      await flooringEstimateService.downloadPdf(id);
+      await flooringEstimateService.downloadPdf(id, true, layout);
     },
     onError: () => message.error("The PDF couldn't be made"),
   });
@@ -198,7 +200,7 @@ const Workspace: React.FC<{ initial: FlooringEstimate }> = ({ initial }) => {
             label: 'Result',
             children: (
               <FlooringResult estimate={estimate} stale={stale} calculating={calculate.isPending}
-                onCalculate={() => calculate.mutate()} downloading={pdf.isPending} onPdf={() => pdf.mutate()} />
+                onCalculate={() => calculate.mutate()} downloading={pdf.isPending} onPdf={(layout) => pdf.mutate(layout)} />
             ),
           },
         ]}

@@ -13,7 +13,9 @@ So none of it is hard-wired. Each item here is offered on every room with
     what is plain in the room: under tile, LVP and laminate the baseboard
     stays and is painted with new shoe molding, under wood it is replaced;
     tack strip under carpet; a toilet, pedestal sink, utility sink or floor
-    register detach & reset when one is drawn.
+    register detach & reset when one is drawn. A hardwood floor sanded in
+    place of a new one (work "refinish") gets its quarter round replaced,
+    the baseboard painted and masked, and the cabinets covered.
 
 The estimator decides. Per room, an item can be switched on or off and
 given its own quantity or price (room_scopes[room].items[key]); for the
@@ -47,7 +49,7 @@ class ItemDef:
 
 # Where a line sits in its room
 CATEGORY_ORDER = (
-    "contents", "detach_reset", "removal", "prep", "install", "trim",
+    "contents", "detach_reset", "removal", "prep", "install", "refinish", "trim",
     "transition", "stairs", "general", "custom",
 )
 
@@ -56,6 +58,7 @@ BASES = {
     "floor_sf": "Floor SF",
     "base_lf": "Baseboard LF (perimeter less openings and cabinet runs)",
     "toe_kick_lf": "Cabinet fronts and all round islands LF",
+    "cabinet_face_sf": "Cabinet fronts and all round islands, 34 1/2\" high SF",
     "shoe_lf": "Baseboard, cabinet fronts and showing sides, all round islands LF "
                "(and the wall behind the cabinets when they come out)",
     "cabinet_run_lf": "Base cabinets along the walls LF",
@@ -98,17 +101,23 @@ RULES: Dict[str, Callable[[Mapping], bool]] = {
     "on": lambda ctx: True,
     "hard_surface": lambda ctx: ctx["new_material"] in pricing.HARD_SURFACES,
     "keeps_base": lambda ctx: ctx["new_material"] in pricing.KEEPS_BASE_FLOORS,
+    "refinish": lambda ctx: ctx["refinish"],
+    # The baseboard stays: painted, its shoe or quarter round replaced
+    "keeps_base_or_refinish": lambda ctx: ctx["new_material"] in pricing.KEEPS_BASE_FLOORS or ctx["refinish"],
     "wood": lambda ctx: ctx["new_material"] in pricing.WOOD_FLOORS,
     "carpet": lambda ctx: ctx["new_material"] == "carpet",
     "tile": lambda ctx: ctx["new_material"] in pricing.TILES,
     "underlayment": lambda ctx: ctx["new_material"] in pricing.UNDERLAYMENT_FLOORS,
     "has_toilet": lambda ctx: ctx["toilet_count"] > 0,
     "has_vanity": lambda ctx: ctx["vanity_count"] > 0,
-    "island_floored": lambda ctx: ctx["island_floored_count"] > 0,
+    # Sanded around, an island stays where it is
+    "island_floored": lambda ctx: ctx["island_floored_count"] > 0 and not ctx["refinish"],
     "has_pedestal_sink": lambda ctx: ctx["pedestal_sink_count"] > 0,
     "has_utility_sink": lambda ctx: ctx["utility_sink_count"] > 0,
     "has_register": lambda ctx: ctx["register_count"] > 0,
     **{f"has_{kind}": (lambda key: lambda ctx: ctx[key] > 0)(f"{kind}_count") for kind in APPLIANCE_KINDS},
+    # A dishwasher goes with the cabinets: a floor sanded in place stops at it
+    "has_dishwasher": lambda ctx: ctx["dishwasher_count"] > 0 and not ctx["refinish"],
     "has_appliance": lambda ctx: ctx["appliance_count"] > 0,
     "has_transition": lambda ctx: ctx["transition_count"] > 0,
     "has_removal": lambda ctx: ctx["any_removal"],
@@ -119,17 +128,20 @@ RULE_LABELS = {
     "on": "On unless switched off",
     "hard_surface": "On under a new hard-surface floor",
     "keeps_base": "On under new tile, LVP and laminate",
+    "refinish": "On when the hardwood is sanded and refinished",
+    "keeps_base_or_refinish": "On under new tile, LVP and laminate, and when the hardwood is sanded",
     "wood": "On under a new wood floor",
     "carpet": "On under new carpet",
     "tile": "On under new tile",
     "underlayment": "On under laminate and engineered hardwood",
     "has_toilet": "On when a toilet is drawn in the room",
     "has_vanity": "On when a vanity is drawn in the room",
-    "island_floored": "On when the new floor runs under an island drawn in the room",
+    "island_floored": "On when the new floor runs under an island drawn in the room (not when sanding)",
     "has_pedestal_sink": "On when a pedestal sink is drawn in the room",
     "has_utility_sink": "On when a utility sink is drawn in the room",
     "has_register": "On when floor registers are drawn in the room",
     **{f"has_{kind}": f"On when a {label.lower()} is drawn in the room" for kind, label in APPLIANCE_KINDS.items()},
+    "has_dishwasher": "On when a dishwasher is drawn in the room (not when sanding)",
     "has_appliance": "On when appliances are drawn in the room",
     "has_transition": "On when the floor changes at a doorway",
     "has_removal": "On when any floor is torn out",
@@ -221,21 +233,54 @@ ROOM_ITEMS: List[ItemDef] = [
     ItemDef("baseboard_detach_reset", "Baseboard - detach & reset", "Trim",
             "trim", "LF", "TRIM_RATES.baseboard_detach_reset_per_lf", "base_lf"),
     ItemDef("baseboard_paint", "Baseboard - paint", "Trim",
-            "trim", "LF", "TRIM_RATES.baseboard_paint_per_lf", "base_lf", rule="keeps_base"),
+            "trim", "LF", "TRIM_RATES.baseboard_paint_per_lf", "base_lf", rule="keeps_base_or_refinish",
+            hint="Always with new shoe molding or quarter round, unless the baseboard is new"),
     ItemDef("baseboard_remove", "Remove baseboard", "Trim",
             "trim", "LF", "TRIM_RATES.baseboard_remove_per_lf", "base_lf", rule="wood"),
     ItemDef("baseboard_install", "Baseboard - MDF, install & paint", "Trim",
             "trim", "LF", "TRIM_RATES.baseboard_mdf_per_lf", "base_lf", rule="wood"),
     ItemDef("shoe_molding_remove", "Remove shoe molding / quarter round", "Trim",
-            "trim", "LF", "TRIM_RATES.shoe_molding_remove_per_lf", "shoe_lf", rule="keeps_base",
+            "trim", "LF", "TRIM_RATES.shoe_molding_remove_per_lf", "shoe_lf", rule="keeps_base_or_refinish",
             hint="Under a wood floor it comes off with the baseboard"),
     ItemDef("shoe_molding", "Shoe molding - install & paint", "Trim",
             "trim", "LF", "TRIM_RATES.shoe_molding_per_lf", "shoe_lf", rule="hard_surface",
             hint="Along the baseboard, the cabinets' fronts and showing sides, and all round islands"),
     ItemDef("quarter_round", "Quarter round - install & paint", "Trim",
-            "trim", "LF", "TRIM_RATES.quarter_round_per_lf", "shoe_lf"),
+            "trim", "LF", "TRIM_RATES.quarter_round_per_lf", "shoe_lf", rule="refinish",
+            hint="New, when the hardwood is sanded"),
     ItemDef("tack_strip", "Tack strip", "Trim",
             "trim", "LF", "TRIM_RATES.tack_strip_per_lf", "base_lf", rule="carpet"),
+    # Sanding the hardwood in place of a new floor (work "refinish")
+    ItemDef("refinish_mask", "Mask baseboards & cabinets - floor refinishing", "Refinish",
+            "prep", "LF", "REFINISH_RATES.mask_per_lf", "shoe_lf", rule="refinish",
+            hint="Paper and tape along the baseboard, the cabinets and all round islands"),
+    ItemDef("refinish_cover", "Cover cabinets & fixtures with plastic - dust control", "Refinish",
+            "prep", "SF", "REFINISH_RATES.cover_per_sf", "cabinet_face_sf", rule="refinish",
+            hint="The cabinet fronts and islands, 34 1/2\" high; type more for appliances or built-ins"),
+    ItemDef("refinish_board_replace", "Wood flooring - replace damaged boards", "Refinish",
+            "prep", "SF", "REFINISH_RATES.board_replace_per_sf", "manual", manual_qty=10,
+            hint="Boards too cupped, split or stained to sand out; finished with the floor"),
+    ItemDef("refinish_lace_in", "Lace / weave in new boards", "Refinish",
+            "prep", "LF", "REFINISH_RATES.lace_in_per_lf", "manual", manual_qty=10,
+            hint="Where new boards are woven into the old, along their ends"),
+    ItemDef("refinish_trim_detach_reset", "Wood flooring trim - detach & reset", "Refinish",
+            "prep", "LF", "REFINISH_RATES.trim_detach_reset_per_lf", "manual", manual_qty=3,
+            hint="Reducers and T-moldings at doorways, lifted and put back"),
+    ItemDef("refinish_pre_stain", "Pre-stain wood conditioner", "Refinish",
+            "refinish", "SF", "REFINISH_RATES.pre_stain_per_sf", "floor_sf",
+            hint="Before the stain, for an even color"),
+    ItemDef("refinish_extra_coat", "Additional coat of finish", "Refinish",
+            "refinish", "SF", "REFINISH_RATES.extra_coat_per_sf", "floor_sf",
+            hint="One more coat over the two included; type twice the SF for two"),
+    ItemDef("refinish_dustless", "Dustless sanding - additional cost", "Refinish",
+            "refinish", "SF", "REFINISH_RATES.dustless_per_sf", "floor_sf",
+            hint="A sanding rig that takes the dust out as it goes"),
+    ItemDef("refinish_register", "Sand & finish flush wood register", "Refinish",
+            "refinish", "EA", "REFINISH_RATES.register_per_ea", "register_count",
+            hint="A wood register set flush in the floor; a metal one is lifted (register detach & reset)"),
+    ItemDef("refinish_minimum", "Finish wood floor - minimum charge", "Refinish",
+            "refinish", "EA", "REFINISH_RATES.minimum_charge", "manual",
+            hint="A spot repair in place of the room: about 4' x 4', blended over 10' x 12'"),
     # Transitions
     ItemDef("transition", "Transition strip / reducer", "Transitions",
             "transition", "EA", "TRANSITION_RATES.transition_strip", "transition_count",
@@ -247,6 +292,12 @@ ROOM_ITEMS: List[ItemDef] = [
             "stairs", "EA", "STAIR_RATES.carpet_per_step", "manual", manual_qty=13),
     ItemDef("stairs_tread_riser", "Stairs - tread, riser & nose, per step", "Stairs",
             "stairs", "EA", "STAIR_RATES.tread_riser_per_step", "manual", manual_qty=13),
+    ItemDef("stairs_refinish", "Stairs - sand & finish treads and risers", "Stairs",
+            "stairs", "LF", "REFINISH_RATES.steps_per_lf", "manual", manual_qty=39,
+            hint="LF of steps: 13 steps 3' wide is 39 LF"),
+    ItemDef("stairs_refinish_stain", "Stairs - sand, stain & finish treads and risers", "Stairs",
+            "stairs", "LF", "REFINISH_RATES.steps_stain_per_lf", "manual", manual_qty=39,
+            hint="LF of steps: 13 steps 3' wide is 39 LF"),
 ]
 
 # ── Once for the whole job (General) ──
@@ -267,8 +318,8 @@ GENERAL_ITEM_MAP: Dict[str, ItemDef] = {item.key: item for item in GENERAL_ITEMS
 # The room's own flooring lines. They take the same overrides as the items
 # above (on / qty / unit_price), so the estimator can, say, leave the new
 # floor off a room that is only torn out.
-MAIN_KEYS = ("removal", "install", "pad")
-MAIN_LABELS = {"removal": "Tear out", "install": "New floor", "pad": "Carpet pad"}
+MAIN_KEYS = ("removal", "install", "pad", "refinish")
+MAIN_LABELS = {"removal": "Tear out", "install": "New floor", "pad": "Carpet pad", "refinish": "Sand & refinish"}
 
 ROOM_KEYS = frozenset(MAIN_KEYS) | frozenset(ROOM_ITEM_MAP)
 GENERAL_KEYS = frozenset(GENERAL_ITEM_MAP)

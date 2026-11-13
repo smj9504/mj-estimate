@@ -8,10 +8,13 @@ estimate's fields.
 
 Inputs on the estimate:
   sketch_data   the rooms, openings, cabinet runs and fixtures (geometry.py)
-  room_scopes   per room id: {included, new_material, pattern, waste_pct,
-                existing_material, items: {key: {on, qty, unit_price, note}},
-                custom_items: [...], notes}
-  job_scope     {defaults: {new_material, existing_material, pattern},
+  room_scopes   per room id: {included, work, finish, new_material, pattern,
+                waste_pct, existing_material,
+                items: {key: {on, qty, unit_price, note}}, custom_items: [...], notes}
+                work "replace" (the default) tears out the existing floor
+                and lays the new one; "refinish" sands the existing
+                hardwood and finishes it ("finish": pricing.REFINISH_FINISHES)
+  job_scope     {defaults: {work, finish, new_material, existing_material, pattern},
                  room_items: {key: {on, unit_price}},   # for every room
                  items: {key: {on, qty, unit_price, note}},  # General
                  custom_items: [...]}                   # General
@@ -35,7 +38,7 @@ from app.domains.unit_prices.tables import material_share
 
 from . import pricing
 from .geometry import (
-    RoomMeasure, bounding_box, format_ft_in, is_axis_rectangle, levels_of, measure_sketch,
+    CABINET_HEIGHT_FT, RoomMeasure, bounding_box, fixture_words, format_ft_in, is_axis_rectangle, levels_of, measure_sketch,
 )
 from .items import (
     CATEGORY_ORDER, GENERAL_ITEMS, MAIN_LABELS, ROOM_ITEM_MAP, ROOM_ITEMS, RULES, ItemDef,
@@ -92,6 +95,8 @@ class RoomScope:
     """A room's choices with the job's defaults filled in."""
 
     included: bool
+    work: str                 # "replace" or "refinish"
+    finish: str               # a refinish's finish (pricing.REFINISH_FINISHES)
     new_material: Optional[str]
     pattern: str
     waste_pct: float
@@ -113,6 +118,15 @@ def resolve_scope(scope: Optional[Mapping[str, Any]], job: Mapping[str, Any]) ->
         _valid_material(scope.get("existing_material"))
         or _valid_material(defaults.get("existing_material"))
     )
+    work = scope.get("work") or defaults.get("work") or "replace"
+    if work not in WORKS:
+        work = "replace"
+    finish = scope.get("finish") or defaults.get("finish") or pricing.REFINISH_DEFAULT_FINISH
+    if finish not in pricing.REFINISH_FINISHES:
+        finish = pricing.REFINISH_DEFAULT_FINISH
+    if work == "refinish":
+        # The floor that is there stays: nothing new goes down
+        new = None
     pattern = scope.get("pattern") or defaults.get("pattern") or "straight"
     if pattern not in pricing.PATTERNS or new not in pricing.PATTERNED:
         pattern = "straight"
@@ -122,6 +136,8 @@ def resolve_scope(scope: Optional[Mapping[str, Any]], job: Mapping[str, Any]) ->
         waste = table.get(pattern, table.get("straight", 10))
     return RoomScope(
         included=scope.get("included", True) is not False,
+        work=work,
+        finish=finish,
         new_material=new,
         pattern=pattern,
         waste_pct=float(waste or 0),
@@ -130,6 +146,9 @@ def resolve_scope(scope: Optional[Mapping[str, Any]], job: Mapping[str, Any]) ->
         custom_items=list(scope.get("custom_items") or []),
         notes=scope.get("notes"),
     )
+
+
+WORKS = ("replace", "refinish")
 
 
 def _override(choices: Mapping[str, Any], key: str) -> Mapping[str, Any]:
@@ -227,6 +246,16 @@ def _carpet_quantity(m: RoomMeasure, scope: RoomScope) -> Tuple[float, str]:
     return m.floor_sf * (1 + scope.waste_pct / 100) / 9, f"Incl. {scope.waste_pct:g}% waste · {reason}"
 
 
+def _cut_to_fit_rate(new: str) -> float:
+    """Per fixture the new floor is cut to fit: tile and wood only (owner,
+    2026-11-13)"""
+    if new in pricing.TILES:
+        return price_of("CUT_TO_FIT_RATES.tile_per_fixture")
+    if new in pricing.WOOD_FLOORS:
+        return price_of("CUT_TO_FIT_RATES.wood_per_fixture")
+    return 0.0
+
+
 def _install_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) -> Optional[Row]:
     new = scope.new_material
     if not new:
@@ -252,6 +281,13 @@ def _install_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) ->
     elif typed_qty is not None:
         note = None
     typed_price = choice.get("unit_price")
+    # A tile or wood floor cut to fit the fixtures that need a hole in it:
+    # that labor spread over the line, not a line of its own
+    cut_rate = _cut_to_fit_rate(new)
+    if cut_rate and m.cut_to_fit and qty > 0 and typed_price is None:
+        labor += cut_rate * len(m.cut_to_fit) / qty
+        cut = f"cut to fit {fixture_words(m.cut_to_fit)}"
+        note = f"{note} · {cut}" if note else cut[0].upper() + cut[1:]
     return Row(
         key="install", label=label, group="Flooring", category="install", unit=spec["unit"],
         basis="floor_sf", on=on, default_on=True, on_source=source, auto_qty=auto_qty, qty=qty,
@@ -264,7 +300,7 @@ def _install_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) ->
 
 def _removal_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) -> Optional[Row]:
     existing = scope.existing_material
-    if not existing:
+    if not existing or scope.work == "refinish":
         return None
     on, source = _switch(choice, {}, True)
     typed_qty = choice.get("qty")
@@ -299,6 +335,28 @@ def _pad_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) -> Opt
         price_typed=typed_price is not None, price_key="PAD_PRICES.rebond_7_16",
         notes=choice.get("note") or (f"Incl. {pricing.PAD_WASTE_PCT}% waste" if typed_qty is None else None),
         source="auto",
+    )
+
+
+def _refinish_row(m: RoomMeasure, scope: RoomScope, choice: Mapping[str, Any]) -> Optional[Row]:
+    """The existing hardwood sanded and finished, in place of a new floor"""
+    if scope.work != "refinish":
+        return None
+    path = f"REFINISH_RATES.{scope.finish}"
+    label, includes = pricing.REFINISH_FINISHES[scope.finish]
+    on, source = _switch(choice, {}, True)
+    typed_qty = choice.get("qty")
+    typed_price = choice.get("unit_price")
+    price = price_of(path)
+    return Row(
+        key="refinish", label=label, group="Flooring", category="install", unit="SF",
+        basis="floor_sf", on=on, default_on=True, on_source=source,
+        auto_qty=m.floor_sf, qty=float(typed_qty) if typed_qty is not None else m.floor_sf,
+        qty_typed=typed_qty is not None,
+        unit_price=float(typed_price) if typed_price is not None else price,
+        material_unit=0.0 if typed_price is not None else material_part(path, price),
+        price_typed=typed_price is not None, price_key=path,
+        notes=choice.get("note") or f"Incl. {includes[0].lower()}{includes[1:]}", source="auto",
     )
 
 
@@ -384,13 +442,15 @@ def room_rows(
     transition_to: List[str], any_removal: bool, warnings: List[str],
 ) -> List[Row]:
     rows: List[Row] = []
-    for key, make in (("removal", _removal_row), ("install", _install_row), ("pad", _pad_row)):
+    for key, make in (("removal", _removal_row), ("install", _install_row), ("pad", _pad_row),
+                      ("refinish", _refinish_row)):
         row = make(m, scope, _override(scope.items, key))
         if row is not None:
             rows.append(row)
 
     values = {
         "floor_sf": m.floor_sf, "base_lf": m.base_lf, "toe_kick_lf": m.toe_kick_lf,
+        "cabinet_face_sf": m.toe_kick_lf * CABINET_HEIGHT_FT,
         "cabinet_run_lf": m.cabinet_run_lf, "island_lf": m.island_lf, "island_panel_sf": m.island_panel_sf,
         "island_floored_count": m.island_floored_count,
         "door_count": m.door_count, "exterior_door_count": m.exterior_door_count,
@@ -402,7 +462,8 @@ def room_rows(
         "washer_count": m.washer_count, "dryer_count": m.dryer_count, "dryer_gas_count": m.dryer_gas_count,
         "appliance_count": m.appliance_count, "transition_count": len(transition_to),
     }
-    context = {**values, "new_material": scope.new_material, "any_removal": any_removal}
+    context = {**values, "new_material": scope.new_material, "any_removal": any_removal,
+               "refinish": scope.work == "refinish"}
     job_room_items = job.get("room_items") or {}
     # Shoe molding goes along the wall behind the base cabinets only when they come out
     cabinets_out, _ = _switch(
@@ -418,15 +479,32 @@ def room_rows(
             item, _basis_qty(item, values), RULES[item.rule](context),
             _override(scope.items, item.key), _override(job_room_items, item.key), note,
         ))
+    _paint_base_with_new_shoe(rows, m.name if scope.included else None, warnings)
     rows.extend(_custom_rows(scope.custom_items, warnings, m.name))
     order = {c: i for i, c in enumerate(CATEGORY_ORDER)}
     rows.sort(key=lambda r: order.get(r.category, len(order)))
     return rows
 
 
+def _paint_base_with_new_shoe(rows: List[Row], room_name: Optional[str], warnings: List[str]) -> None:
+    """New shoe molding or quarter round always comes with the baseboard
+    painted (owner, 2026-11-13), unless the baseboard itself is new. It comes
+    on by itself; switched off by hand, the estimate says so."""
+    by_key = {r.key: r for r in rows}
+    shoe = [by_key[k] for k in ("shoe_molding", "quarter_round") if k in by_key and by_key[k].billed]
+    paint, new_base = by_key.get("baseboard_paint"), by_key.get("baseboard_install")
+    if not shoe or paint is None or (new_base is not None and new_base.billed):
+        return
+    if not paint.on and paint.on_source == "default":
+        paint.on = paint.default_on = True
+    elif not paint.on and room_name:
+        warnings.append(f"{room_name}: {shoe[0].label.split(' - ')[0].lower()} is replaced but the baseboard "
+                        f"isn't painted.")
+
+
 def general_rows(job: Mapping[str, Any], job_floor_sf: float, any_removal: bool, warnings: List[str]) -> List[Row]:
     values = {"job_floor_sf": job_floor_sf}
-    context = {"new_material": None, "any_removal": any_removal}
+    context = {"new_material": None, "any_removal": any_removal, "refinish": False}
     choices = job.get("items") or {}
     rows = [
         _priced_row(item, _basis_qty(item, values), RULES[item.rule](context), _override(choices, item.key), {})
@@ -477,6 +555,14 @@ def build_takeoff(estimate: Any) -> Takeoff:
         rows[m.room_id] = room_rows(m, scope, job, doorways.get(m.room_id, []), any_removal, warnings)
         if not scope.included:
             continue
+        if scope.work == "refinish":
+            refinish = next(r for r in rows[m.room_id] if r.key == "refinish")
+            if refinish.on:
+                job_floor_sf += m.floor_sf
+            if scope.existing_material and scope.existing_material not in pricing.WOOD_FLOORS:
+                existing = pricing.MATERIALS[scope.existing_material]["label"].lower()
+                warnings.append(f"{m.name}: only a hardwood floor is sanded, and the floor there is {existing}.")
+            continue
         install = next((r for r in rows[m.room_id] if r.key == "install"), None)
         if install is not None and install.on:
             job_floor_sf += m.floor_sf
@@ -495,7 +581,8 @@ def takeoff_info(t: Takeoff) -> Dict[str, Any]:
         s = t.scopes[m.room_id]
         rooms.append({
             **m.as_dict(),
-            "included": s.included, "new_material": s.new_material, "pattern": s.pattern,
+            "included": s.included, "work": s.work, "finish": s.finish,
+            "new_material": s.new_material, "pattern": s.pattern,
             "waste_pct": s.waste_pct, "existing_material": s.existing_material,
             "transitions": t.transitions.get(m.room_id, []),
             "items": [r.as_dict() for r in t.rows[m.room_id]],
@@ -557,6 +644,7 @@ def calculate_estimate(estimate: Any) -> Dict[str, Any]:
             continue
         rooms.append({
             **m.as_dict(),
+            "work": s.work, "finish": s.finish,
             "new_material": s.new_material, "pattern": s.pattern, "waste_pct": s.waste_pct,
             "existing_material": s.existing_material,
             "transitions": t.transitions.get(m.room_id, []),

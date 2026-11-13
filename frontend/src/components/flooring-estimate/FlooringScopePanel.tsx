@@ -16,8 +16,8 @@ import {
 } from 'antd';
 import { DeleteOutlined, PlusOutlined, UndoOutlined } from '@ant-design/icons';
 import type {
-  CatalogItem, CustomItem, FloorMaterial, FlooringPricingInfo, ItemChoice, JobScope, LayPattern, PriceListItem,
-  RoomScope, TakeoffItem, TakeoffRoom,
+  CatalogItem, CustomItem, FloorMaterial, FloorWork, FlooringPricingInfo, ItemChoice, JobScope, LayPattern,
+  PriceListItem, RefinishFinish, RoomScope, TakeoffItem, TakeoffRoom,
 } from '../../types/flooringEstimate';
 import {
   addCustom, addPricedCustom, customPrice, removeCustom, resetRoomItem, round2, setGeneralItem, setJobDefaults,
@@ -26,7 +26,13 @@ import {
 
 const { Text } = Typography;
 
-const GROUP_ORDER = ['Flooring', 'Tear out', 'Trim', 'Detach & Reset', 'Cabinets', 'Prep', 'Transitions', 'Contents', 'Stairs'];
+const GROUP_ORDER = [
+  'Flooring', 'Refinish', 'Tear out', 'Trim', 'Detach & Reset', 'Cabinets', 'Prep', 'Transitions', 'Contents', 'Stairs',
+];
+const WORK_OPTIONS: { value: FloorWork; label: string }[] = [
+  { value: 'replace', label: 'New floor' },
+  { value: 'refinish', label: 'Sand & refinish' },
+];
 /** Always listed; the rest of a room's items show when on, or when asked for */
 const ALWAYS_SHOWN = new Set(['Flooring', 'Trim']);
 /** Bases worth saying under an item: counts read off the sketch */
@@ -210,7 +216,10 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
   const materialLabel = (key?: FloorMaterial | null) => materials.find((m) => m.key === key)?.label ?? key ?? '';
   const materialOptions = materials.map((m) => ({ value: m.key, label: m.label }));
   const patternOptions = (pricing?.patterns || []).map((p) => ({ value: p.key, label: p.label }));
+  const finishOptions = (pricing?.finishes || []).map((f) => ({ value: f.key, label: f.label, title: f.includes }));
+  const finishLabel = (key?: RefinishFinish | null) => pricing?.finishes?.find((f) => f.key === key)?.label ?? key ?? '';
   const defaults = jobScope.defaults || {};
+  const workOf = (scope: RoomScope): FloorWork => scope.work ?? defaults.work ?? 'replace';
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
   const hintOf = (key: string) => {
     const c = catalog.get(key);
@@ -240,7 +249,8 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
       i, scope.items?.[i.key], jobScope.room_items?.[i.key], catalog.get(i.key)?.unit_price,
     ).total, 0) + customTotal(scope.custom_items, prices));
     const included = scope.included !== false;
-    const newMaterial = scope.new_material ?? defaults.new_material ?? null;
+    const refinish = workOf(scope) === 'refinish';
+    const newMaterial = refinish ? null : scope.new_material ?? defaults.new_material ?? null;
     const material = materials.find((m) => m.key === newMaterial);
     const pattern = (scope.pattern ?? defaults.pattern ?? 'straight') as LayPattern;
     const set = (patch: Partial<RoomScope>) => onRoomScopes(setRoomField(roomScopes, room.room_id, patch));
@@ -250,9 +260,9 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
         <Space size={8} wrap>
           <Text strong>{room.subroom_of ? `↳ ${room.name}` : room.name}</Text>
           <Text type="secondary">{room.floor_sf.toFixed(2)} SF</Text>
-          {included
-            ? (newMaterial ? <Tag>{material?.short ?? newMaterial}</Tag> : <Tag color="warning">No floor picked</Tag>)
-            : <Tag>Not in this estimate</Tag>}
+          {!included ? <Tag>Not in this estimate</Tag>
+            : refinish ? <Tag color="gold">Sand &amp; refinish</Tag>
+              : newMaterial ? <Tag>{material?.short ?? newMaterial}</Tag> : <Tag color="warning">No floor picked</Tag>}
         </Space>
         {included && <Text strong>{money(total)}</Text>}
       </div>
@@ -266,6 +276,18 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
             <Text style={{ marginLeft: 6 }}>In this estimate</Text>
           </span>
           {included && (
+            <Segmented size="small" value={workOf(scope)} options={WORK_OPTIONS} aria-label="Work"
+              onChange={(v) => set({ work: v as FloorWork })} />
+          )}
+          {included && refinish && (
+            <Space size={4}>
+              <Text type="secondary">Finish</Text>
+              <Select size="small" allowClear style={{ width: 290 }} value={scope.finish ?? undefined}
+                placeholder={finishLabel(defaults.finish ?? 'natural')}
+                options={finishOptions} onChange={(v) => set({ finish: v ?? null })} aria-label="Finish" />
+            </Space>
+          )}
+          {included && !refinish && (
             <>
               <Space size={4}>
                 <Text type="secondary">New floor</Text>
@@ -292,9 +314,10 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
             </>
           )}
           <Space size={4}>
-            <Text type="secondary">Existing floor</Text>
+            <Text type="secondary">{refinish ? 'Floor to sand' : 'Existing floor'}</Text>
             <Select size="small" allowClear style={{ width: 210 }} value={scope.existing_material ?? undefined}
-              placeholder={defaults.existing_material ? `Job default: ${materialLabel(defaults.existing_material)}` : 'Nothing to tear out'}
+              placeholder={defaults.existing_material ? `Job default: ${materialLabel(defaults.existing_material)}`
+                : refinish ? 'Hardwood' : 'Nothing to tear out'}
               options={materialOptions} onChange={(v) => set({ existing_material: v ?? null })} aria-label="Existing floor" />
           </Space>
         </Space>
@@ -328,7 +351,8 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
               <Button type="link" size="small" style={{ paddingInline: 0, marginTop: 4 }}
                 data-testid={`more-items-${room.room_id}`}
                 onClick={() => setShowAll((s) => ({ ...s, [room.room_id]: !everything }))}>
-                {everything ? 'Show only what is on' : `${hidden} more: detach & reset, prep, transitions, contents, stairs`}
+                {everything ? 'Show only what is on'
+                  : `${hidden} more: ${refinish ? 'sanding extras, ' : ''}detach & reset, prep, transitions, contents, stairs`}
               </Button>
             )}
             <div style={{ marginTop: 12 }}>
@@ -354,13 +378,25 @@ const FlooringScopePanel: React.FC<ScopePanelProps> = ({
   const generalTotal = round2(general.reduce((sum, i) => sum + shownItem(
     i, jobScope.items?.[i.key], undefined, catalog.get(i.key)?.unit_price,
   ).total, 0) + customTotal(jobScope.custom_items, prices));
-  const warnings = rooms.filter((r) => (roomScopes[r.room_id]?.included ?? true) && !(roomScopes[r.room_id]?.new_material ?? defaults.new_material)
+  const warnings = rooms.filter((r) => (roomScopes[r.room_id]?.included ?? true)
+    && workOf(roomScopes[r.room_id] || {}) !== 'refinish'
+    && !(roomScopes[r.room_id]?.new_material ?? defaults.new_material)
     && roomScopes[r.room_id]?.items?.install?.on !== false);
 
   return (
     <div data-testid="flooring-scope-panel">
       <Card size="small" title="Every room" style={{ marginBottom: 12 }}>
         <Space wrap size={[16, 8]}>
+          <Segmented size="small" value={defaults.work ?? 'replace'} options={WORK_OPTIONS} aria-label="Default work"
+            onChange={(v) => onJobScope(setJobDefaults(jobScope, { work: v === 'replace' ? null : v as FloorWork }))} />
+          {defaults.work === 'refinish' && (
+            <Space size={4}>
+              <Text type="secondary">Finish</Text>
+              <Select size="small" allowClear style={{ width: 290 }} value={defaults.finish ?? undefined}
+                placeholder={finishLabel('natural')} options={finishOptions}
+                onChange={(v) => onJobScope(setJobDefaults(jobScope, { finish: v ?? null }))} aria-label="Default finish" />
+            </Space>
+          )}
           <Space size={4}>
             <Text type="secondary">New floor</Text>
             <Select size="small" allowClear style={{ width: 210 }} value={defaults.new_material ?? undefined} placeholder="Pick per room"
