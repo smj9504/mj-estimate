@@ -218,12 +218,20 @@ def _on_outline(p: Point, points: Sequence[Point]) -> bool:
     return False
 
 
-def wall_faces(a: Point, b: Point, thickness: float, points: Sequence[Point]) -> Tuple[float, float]:
+def _segment_distance(p: Point, a: Point, b: Point) -> float:
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    len2 = dx * dx + dy * dy
+    t = 0.0 if len2 == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2))
+    return distance(p, (a[0] + dx * t, a[1] + dy * t))
+
+
+def wall_faces(a: Point, b: Point, thickness: float, points: Sequence[Point]) -> Tuple[float, float, float]:
     """A built-out wall's exposed length (both faces, and each end that
-    stops in the room) and the floor it stands on"""
+    stops in the room), the floor it stands on, and the length of the
+    room's own wall its joined ends cover"""
     length = distance(a, b)
-    free_ends = sum(1 for p in (a, b) if not _on_outline(p, points))
-    return 2 * length + free_ends * thickness, length * thickness
+    joined = sum(1 for p in (a, b) if _on_outline(p, points))
+    return 2 * length + (2 - joined) * thickness, length * thickness, joined * thickness
 
 
 def _outward_normal(points: Sequence[Point], a: Point, b: Point) -> Point:
@@ -258,11 +266,13 @@ def _near_fixture(p: Point, fixture: Mapping[str, Any], reach: float) -> bool:
 
 def cabinet_layout(
     runs: Sequence[Mapping[str, Any]], points: Sequence[Point], fixtures: Sequence[Mapping[str, Any]],
+    walls: Sequence[Mapping[str, Any]] = (),
 ) -> List[Dict[str, Any]]:
     """Per cabinet run of one room: its front (less where another run meets
     it at a corner) and whether its side shows at each end. A side is hidden
-    by the wall at a corner, by another run, or by an appliance standing
-    beside it; one set on the run (side_a / side_b) is taken as set."""
+    by the wall at a corner, by a wall built out beside it, by another run,
+    or by an appliance standing beside it; one set on the run (side_a /
+    side_b) is taken as set."""
     frames = []
     for run in runs:
         a, b = point(run.get("a") or (0, 0)), point(run.get("b") or (0, 0))
@@ -279,6 +289,9 @@ def cabinet_layout(
         return -pad <= s <= length + pad and -pad <= t <= CABINET_DEPTH_FT + pad
 
     hiders = [f for f in fixtures if str(f.get("type") or "") in SIDE_HIDERS]
+    # Each built-out wall: its line and how far from it still touches it
+    stubs = [(point(w.get("a") or (0, 0)), point(w.get("b") or (0, 0)),
+              float(w.get("thickness") or 0.375) / 2 + 0.2) for w in walls]
     out: List[Dict[str, Any]] = []
     for frame in frames:
         run, a, b, u, n, length = frame
@@ -305,6 +318,7 @@ def cabinet_layout(
                 not point_in_polygon(p, points)
                 or any(in_run(p, o, 0.05) for o in others)
                 or any(_near_fixture(p, f, SIDE_TOUCH_FT) for f in hiders)
+                or any(_segment_distance(p, wa, wb) <= reach for wa, wb, reach in stubs)
             )
             sides[key] = not hidden
         out.append({"id": str(run.get("id") or ""), "front_lf": front, "side_a": sides["a"], "side_b": sides["b"]})
@@ -379,12 +393,13 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
             m = by_id.get(str(wall.get("room_id")))
             if m is None:
                 continue
-            exposed, footprint = wall_faces(
+            exposed, footprint, covered = wall_faces(
                 point(wall.get("a") or (0, 0)), point(wall.get("b") or (0, 0)),
                 float(wall.get("thickness") or 0.375), m.points,
             )
-            m.perimeter_lf += exposed
-            m.wall_sf += exposed * m.height_ft
+            # Where it joins the room's wall, that much of the room's wall is gone
+            m.perimeter_lf += exposed - covered
+            m.wall_sf += (exposed - covered) * m.height_ft
             m.floor_sf = max(0.0, m.floor_sf - footprint)
 
         for fixture in level.get("fixtures") or []:
@@ -429,8 +444,12 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
         for run in level.get("cabinet_runs") or []:
             if str(run.get("room_id")) in runs_of:
                 runs_of[str(run.get("room_id"))].append(run)
+        walls_of = {room_id: [] for room_id in by_id}
+        for wall in level.get("walls") or []:
+            if str(wall.get("room_id")) in walls_of:
+                walls_of[str(wall.get("room_id"))].append(wall)
         for room_id, m in by_id.items():
-            for run in cabinet_layout(runs_of[room_id], m.points, fixtures_of[room_id]):
+            for run in cabinet_layout(runs_of[room_id], m.points, fixtures_of[room_id], walls_of[room_id]):
                 m.cabinet_front_lf += run["front_lf"]
                 m.cabinet_side_lf += CABINET_DEPTH_FT * (run["side_a"] + run["side_b"])
             m.toe_kick_lf = m.cabinet_front_lf + m.island_perimeter_lf

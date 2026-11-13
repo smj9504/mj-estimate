@@ -184,14 +184,15 @@ def test_a_wall_built_out_from_a_wall_takes_baseboard_on_its_faces_and_its_end()
                        "thickness": 0.375}]
     FlooringSketch.model_validate(sketch)
     living = measured(sketch)["living"]
-    assert living.perimeter_lf == pytest.approx(58.33 + 2 * 4 + 0.375, abs=0.01)
-    assert living.base_lf == pytest.approx(58.33 - 9 + 8.375, abs=0.01)
+    # Its two faces and its end, less the 4.5" of the back wall it stands against
+    assert living.perimeter_lf == pytest.approx(58.33 + 2 * 4 + 0.375 - 0.375, abs=0.01)
+    assert living.base_lf == pytest.approx(58.33 - 9 + 8, abs=0.01)
     assert living.floor_sf == pytest.approx(212.5 - 4 * 0.375, abs=0.01)
 
     # Run across the room from wall to wall, it has no end showing
     level["walls"][0]["b"] = {"x": 6, "y": 0}
     across = measured(sketch)["living"]
-    assert across.perimeter_lf == pytest.approx(58.33 + 2 * 14.1667, abs=0.01)
+    assert across.perimeter_lf == pytest.approx(58.33 + 2 * 14.1667 - 2 * 0.375, abs=0.01)
 
     level["walls"][0]["room_id"] = "garage"
     with pytest.raises(ValidationError, match="isn't drawn"):
@@ -365,6 +366,18 @@ def test_cabinets_take_shoe_molding_on_their_fronts_and_showing_sides_not_agains
     assert (layout["right"]["side_a"], layout["right"]["side_b"]) == (False, True)
     level["cabinet_runs"][1]["side_b"] = False
     assert measured(sketch)["k"].cabinet_side_lf == 0
+
+
+def test_a_wall_built_out_beside_a_cabinet_run_hides_its_side():
+    sketch = kitchen_sketch()
+    level = sketch["levels"][0]
+    # A 4" wall 2' 2" out from the top wall, against the top run's open end
+    level["walls"] = [{"id": "stub", "room_id": "k", "a": {"x": 4 - 1 / 6, "y": 0},
+                       "b": {"x": 4 - 1 / 6, "y": 2 + 1 / 6}, "thickness": 1 / 3}]
+    assert measured(sketch)["k"].cabinet_side_lf == pytest.approx(2)  # the right run's end only
+    # A wall further off leaves the side showing
+    level["walls"][0]["a"]["x"] = level["walls"][0]["b"]["x"] = 2
+    assert measured(sketch)["k"].cabinet_side_lf == pytest.approx(4)
 
 
 def test_shoe_molding_goes_behind_the_cabinets_only_when_they_come_out():

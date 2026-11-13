@@ -54,8 +54,9 @@ describe('measuring a room', () => {
   it('gives a wall built out into the room baseboard on both faces and its end, as the server does', () => {
     const wall = { id: 'w1', room_id: 'living', a: { x: 6, y: 14.1667 }, b: { x: 6, y: 10.1667 }, thickness: WALL_T };
     const l = measureRoom({ ...level, walls: [wall] }, living);
-    expect(l.perimeterLf).toBeCloseTo(58.33 + 8 + 0.375, 2);
-    expect(l.baseLf).toBeCloseTo(49.33 + 8.375, 2);
+    // Its two faces and its end, less the bit of the back wall it stands against
+    expect(l.perimeterLf).toBeCloseTo(58.33 + 8 + 0.375 - 0.375, 2);
+    expect(l.baseLf).toBeCloseTo(49.33 + 8, 2);
     expect(l.floorSf).toBeCloseTo(212.5 - 1.5, 2);
     // Wall to wall: no end shows
     expect(wallFaces({ x: 6, y: 14.1667 }, { x: 6, y: 0 }, WALL_T, living.points).exposedLf).toBeCloseTo(2 * 14.1667, 3);
@@ -96,6 +97,14 @@ describe('measuring a room', () => {
     };
     const after = Object.fromEntries(cabinetLayout(withFridge, 'k').map((r) => [r.id, r]));
     expect([after.top.sideA, after.right.sideB]).toEqual([false, false]);
+
+    // A wall built out against the top run's open end hides that side, as on the server
+    const withStub: SketchLevel = {
+      ...kitchenLevel,
+      walls: [{ id: 'stub', room_id: 'k', a: { x: 4 - 1 / 6, y: 0 }, b: { x: 4 - 1 / 6, y: 2 + 1 / 6 }, thickness: 1 / 3 }],
+    };
+    const stubbed = Object.fromEntries(cabinetLayout(withStub, 'k').map((r) => [r.id, r]));
+    expect([stubbed.top.sideA, stubbed.right.sideB]).toEqual([false, true]);
   });
 
   it('finds a centroid inside an L', () => {

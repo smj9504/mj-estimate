@@ -354,8 +354,8 @@ export interface CabinetRunLayout {
 /**
  * Per cabinet run of a room: its front (less where another run meets it at
  * a corner) and whether its side shows at each end. A side is hidden by the
- * wall at a corner, by another run, or by an appliance beside it; one set on
- * the run is taken as set.
+ * wall at a corner, by a wall built out beside it, by another run, or by an
+ * appliance beside it; one set on the run is taken as set.
  */
 export function cabinetLayout(level: SketchLevel, roomId: string): CabinetRunLayout[] {
   const room = level.rooms.find((r) => r.id === roomId);
@@ -386,6 +386,8 @@ export function cabinetLayout(level: SketchLevel, roomId: string): CabinetRunLay
     const ly = -dx * Math.sin(th) + dy * Math.cos(th);
     return Math.hypot(Math.max(Math.abs(lx) - f.w / 2, 0), Math.max(Math.abs(ly) - f.h / 2, 0)) <= SIDE_TOUCH_FT;
   });
+  const stubs = (level.walls ?? []).filter((w) => w.room_id === roomId);
+  const nearWall = (p: FtPoint) => stubs.some((w) => projectOnSegment(p, w.a, w.b).dist <= (w.thickness || WALL_T) / 2 + 0.2);
   return frames.map((frame) => {
     const others = frames.filter((f) => f !== frame);
     const { run, length, u, n } = frame;
@@ -400,7 +402,7 @@ export function cabinetLayout(level: SketchLevel, roomId: string): CabinetRunLay
     const side = (end: FtPoint, away: FtPoint, set: boolean | null | undefined) => {
       if (set !== null && set !== undefined) return set;
       const p = { x: end.x + away.x * 0.15 - n.x * CABINET_DEPTH_FT / 2, y: end.y + away.y * 0.15 - n.y * CABINET_DEPTH_FT / 2 };
-      return !(!pointInPolygon(p, room.points) || others.some((o) => inRun(p, o, 0.05)) || nearFixture(p));
+      return !(!pointInPolygon(p, room.points) || others.some((o) => inRun(p, o, 0.05)) || nearFixture(p) || nearWall(p));
     };
     return {
       id: run.id,
@@ -434,8 +436,13 @@ const onOutline = (p: FtPoint, points: FtPoint[]) =>
  */
 export function wallFaces(a: FtPoint, b: FtPoint, thickness: number, points: FtPoint[]) {
   const length = distance(a, b);
-  const freeEnds = [a, b].filter((p) => !onOutline(p, points)).length;
-  return { exposedLf: 2 * length + freeEnds * thickness, footprintSf: length * thickness };
+  const joined = [a, b].filter((p) => onOutline(p, points)).length;
+  return {
+    exposedLf: 2 * length + (2 - joined) * thickness,
+    footprintSf: length * thickness,
+    /** The room's own wall its joined ends cover */
+    coveredLf: joined * thickness,
+  };
 }
 
 export function measureRoom(level: SketchLevel, room: SketchRoom): RoomMeasure {
@@ -443,8 +450,8 @@ export function measureRoom(level: SketchLevel, room: SketchRoom): RoomMeasure {
   let perimeterLf = polygonPerimeter(room.points);
   for (const w of level.walls ?? []) {
     if (w.room_id !== room.id) continue;
-    const { exposedLf, footprintSf } = wallFaces(w.a, w.b, w.thickness || WALL_T, room.points);
-    perimeterLf += exposedLf;
+    const { exposedLf, footprintSf, coveredLf } = wallFaces(w.a, w.b, w.thickness || WALL_T, room.points);
+    perimeterLf += exposedLf - coveredLf;
     floorSf = Math.max(0, floorSf - footprintSf);
   }
   const openingsLf = level.openings
