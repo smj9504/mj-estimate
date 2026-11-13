@@ -35,3 +35,24 @@ Write-Host ("  실패 (다시 시도할 것): {0}" -f $failed.Count)
 @($failed.Keys) | Select-Object -Last 3 | ForEach-Object { Write-Host ("    {0} -> {1}" -f $_, $failed[$_]) }
 $left = $listed - $read
 if ($state -eq "읽는 중" -and $left -gt 0) { Write-Host ("  남은 시간: 약 {0:N1} 시간 (항목당 약 11.6초, 쉬는 시간 제외)" -f ($left * 11.6 / 3600)) }
+
+# 3) R / M / I (Detach & Reset, Material Only, Install Only)
+$listed = 0
+if (Test-Path "$out\rmi_items.tsv") { foreach ($l in [System.IO.File]::ReadAllLines("$out\rmi_items.tsv")) { if ($l.Trim()) { $listed++ } } }
+$ok = @{}; $failed = [ordered]@{}; $last = $null
+if (Test-Path "$out\rmi_index.tsv") {
+  foreach ($l in [System.IO.File]::ReadAllLines("$out\rmi_index.tsv")) {
+    if (-not $l.Trim()) { continue }
+    $f = $l -split "`t"; $key = "$($f[0]) $($f[1])"; $last = $f
+    if ($f[6] -notlike 'error*') { $ok[$key] = 1; $failed.Remove($key) } elseif (-not $ok.ContainsKey($key)) { $failed[$key] = $f[6] }
+  }
+}
+$alive = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -match '-File\s+"?[^"]*\\(supervise_rmi|rmi)\.ps1' }).Count -gt 0
+$state = if (Test-Path "$out\PAUSE") { "일시정지" } elseif (Test-Path "$out\STOP") { "멈춤" } elseif ($alive) { "읽는 중" } else { "꺼져 있음" }
+Write-Host ("R/M/I 가격: {0}" -f $state)
+Write-Host ("  읽음: {0:N0} / {1:N0} 항목 ({2:P1})" -f $ok.Count, $listed, ($ok.Count / [math]::Max($listed, 1)))
+if ($last) { Write-Host ("  마지막: {0} {1}  {2}" -f $last[0], $last[1], $last[7]) }
+Write-Host ("  실패 (다시 시도할 것): {0}" -f $failed.Count)
+$left = $listed - $ok.Count
+if ($state -eq "읽는 중" -and $left -gt 0) { Write-Host ("  남은 시간: 약 {0:N1} 시간 (항목당 약 4.8초, 쉬는 시간 제외)" -f ($left * 4.8 / 3600)) }

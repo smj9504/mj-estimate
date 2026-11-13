@@ -4,7 +4,7 @@ Xactimate domain models
 
 from sqlalchemy import (
     Column, String, Integer, DateTime, Text, 
-    ForeignKey, DECIMAL, Boolean, Index
+    ForeignKey, DECIMAL, Boolean, Index, UniqueConstraint
 )
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
@@ -86,7 +86,15 @@ class XactimateItem(Base):
     replace_market_conditions = Column(DECIMAL(10, 2))
     remove_market_conditions = Column(DECIMAL(10, 2))
     minimum_group = Column(String(20))      # labor minimum it counts toward, e.g. CABMN-A
-    
+    # Activities Quick Entry offers besides the item's own: R (Detach & Reset),
+    # M (Material Only), I (Install Only) - e.g. "RMI"; "" none; NULL not read.
+    # M is the replace materials, I the replace labor and equipment; R has its
+    # own components (activity "R").
+    other_activities = Column(String(4))
+    detach_reset_price = Column(DECIMAL(10, 2))
+    material_only_price = Column(DECIMAL(10, 2))
+    install_only_price = Column(DECIMAL(10, 2))
+
     # Life expectancy fields
     life_expectancy_years = Column(Integer)
     depreciation_rate = Column(DECIMAL(5, 2))
@@ -174,6 +182,10 @@ class XactimateItem(Base):
             'replace_market_conditions': float(self.replace_market_conditions) if self.replace_market_conditions is not None else None,
             'remove_market_conditions': float(self.remove_market_conditions) if self.remove_market_conditions is not None else None,
             'minimum_group': self.minimum_group,
+            'other_activities': self.other_activities,
+            'detach_reset_price': float(self.detach_reset_price) if self.detach_reset_price is not None else None,
+            'material_only_price': float(self.material_only_price) if self.material_only_price is not None else None,
+            'install_only_price': float(self.install_only_price) if self.install_only_price is not None else None,
             'life_expectancy_years': self.life_expectancy_years,
             'depreciation_rate': float(self.depreciation_rate) if self.depreciation_rate else None,
             'max_depreciation': float(self.max_depreciation) if self.max_depreciation else None,
@@ -208,7 +220,7 @@ class XactimateComponent(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     item_id = Column(Integer, ForeignKey("xactimate_items.id", ondelete="CASCADE"), nullable=False)
     component_type = Column(String(10), nullable=False)  # 'lab', 'mat', 'equ', 'burden', 'market'
-    activity = Column(String(1))  # '+' replace, '-' remove
+    activity = Column(String(1))  # '+' replace, '-' remove, 'R' detach & reset
     component_code = Column(String(50))
     description = Column(Text)              # e.g. Carpenter - Finish, Trim/Cabinet
     supporting_event = Column(String(30))   # e.g. CAB-LAB; its text is in xactimate_supporting_events
@@ -274,3 +286,31 @@ class XactimateSupportingEvent(Base):
 
     def to_dict(self) -> Dict[str, Any]:
         return {'code': self.code, 'description': self.description}
+
+
+class XactimateLaborRate(Base):
+    """A labor trade's hourly rate for one price month, split the way
+    Xactimate's labor breakdown shows it: wage + burden + overhead = rate.
+
+    trade is the component_code of the item's labor components (CARP-FNC), so
+    any labor component's unit_price splits in the same proportions.
+    """
+    __tablename__ = "xactimate_labor_rates"
+    __table_args__ = (
+        UniqueConstraint('trade', 'price_year', 'price_month', name='uq_xactimate_labor_rates_trade_month'),
+        {'extend_existing': True},
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade = Column(String(20), nullable=False)        # e.g. CARP-FNC
+    description = Column(Text)                        # e.g. Carpenter - Finish, Trim/Cabinet
+    price_list = Column(String(30))
+    price_year = Column(Integer, nullable=False)
+    price_month = Column(Integer, nullable=False)
+    rate_per_hour = Column(DECIMAL(10, 2), nullable=False)
+    wage_per_hour = Column(DECIMAL(10, 2), nullable=False)
+    burden_per_hour = Column(DECIMAL(10, 2), nullable=False)
+    overhead_per_hour = Column(DECIMAL(10, 2), nullable=False)
+    sample_item_code = Column(String(50))             # the item whose breakdown it was read from
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

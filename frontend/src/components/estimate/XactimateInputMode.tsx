@@ -532,9 +532,13 @@ const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                     <>
                       <Title level={5}>Components</Title>
                       <Table
-                        dataSource={item.components.map((comp, idx) => ({
+                        dataSource={[...item.components]
+                          // replace, then remove, then detach & reset rows (stable within each)
+                          .sort((a, b) => ['+', '-', 'R'].indexOf(a.activity ?? '+') - ['+', '-', 'R'].indexOf(b.activity ?? '+'))
+                          .map((comp, idx) => ({
                           key: idx,
-                          activity: comp.activity === '+' ? 'Replace' : comp.activity === '-' ? 'Remove' : '',
+                          activity: comp.activity === '+' ? 'Replace' : comp.activity === '-' ? 'Remove'
+                            : comp.activity === 'R' ? 'Detach & Reset' : '',
                           type: comp.component_type,
                           code: comp.component_code,
                           cost: comp.cost,

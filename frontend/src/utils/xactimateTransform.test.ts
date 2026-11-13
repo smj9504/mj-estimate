@@ -78,6 +78,43 @@ describe('Xactimate activity prices', () => {
     expect(line.description).toBe('Cabinetry - appliance garage');
   });
 
+  it('adds Detach & Reset, Material Only and Install Only where Xactimate offers them', () => {
+    // CAB AG: R $122.25, M $147.23, I $76.41 (VAAR8X_NOV26)
+    const withOthers: XactimateItem = {
+      ...CABAG, other_activities: 'RMI',
+      detach_reset_price: 122.25, material_only_price: 147.23, install_only_price: 76.41,
+    };
+    expect(xactimateActivityPrices(withOthers)).toEqual([
+      { activity: '&', price: 244.03 },
+      { activity: '+', price: 223.64 },
+      { activity: '-', price: 20.39 },
+      { activity: 'R', price: 122.25 },
+      { activity: 'M', price: 147.23 },
+      { activity: 'I', price: 76.41 },
+    ]);
+    const reset = convertXactimateToLineItem(withOthers, 1, undefined, 'R');
+    expect(reset.unit_price).toBe(122.25);
+    expect(reset.description).toBe('Detach & Reset Cabinetry - appliance garage');
+    expect(convertXactimateToLineItem(withOthers, 1, undefined, 'M').description).toBe('Material Only Cabinetry - appliance garage');
+    expect(convertXactimateToLineItem(withOthers, 1, undefined, 'I').description).toBe('Install Cabinetry - appliance garage');
+    expect(reset.note).toContain('Detach & Reset $122.25, Material Only $147.23, Install Only $76.41');
+
+    // a replace-only item that installs or supplies on its own gets a choice too
+    const patch = { ...DRYWALL_SF, other_activities: 'MI', material_only_price: '2.10', install_only_price: '7.40' } as unknown as XactimateItem;
+    expect(xactimateActivityPrices(patch)).toEqual([
+      { activity: '+', price: 9.5 },
+      { activity: 'M', price: 2.1 },
+      { activity: 'I', price: 7.4 },
+    ]);
+    expect(convertXactimateToLineItem(patch).description).toBe('Drywall patch');
+  });
+
+  it('leaves out R / M / I that were not read or have no price', () => {
+    expect(xactimateActivityPrices({ ...DRYWALL_SF, other_activities: '' })).toHaveLength(1);
+    expect(xactimateActivityPrices({ ...DRYWALL_SF, other_activities: 'M', material_only_price: null })).toHaveLength(1);
+    expect(xactimateActivityPrices({ ...DRYWALL_SF, material_only_price: 2.1 })).toHaveLength(1);
+  });
+
   it('reads prices that arrive as strings', () => {
     const fromApi = { ...CABAG, untaxed_unit_price: '244.03', replace_price: '223.64', remove_price: '20.39' } as unknown as XactimateItem;
     expect(convertXactimateToLineItem(fromApi, 1, undefined, '+').unit_price).toBe(223.64);

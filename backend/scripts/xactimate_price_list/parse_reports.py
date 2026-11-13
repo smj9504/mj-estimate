@@ -24,6 +24,9 @@ A report looks like this (text as pdfplumber extracts it):
     Average depreciation 2% per year
     Maximum depreciation 100%
 
+A Detach & Reset report (rmi.ps1) has the same shape, with "R" after the
+item code and RLBR / MATR / EQUR rows.
+
 Lines the parser doesn't recognise are kept in `unparsed` so new report
 shapes show up instead of being dropped.
 
@@ -41,7 +44,9 @@ import pdfplumber
 HEADER = re.compile(r"^Price List Item:\s*(?P<code>.+?)\s+(?P<act>[+\-&A-Z]{1,2})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})\s*$")
 NUM = r"-?[\d,]*\.?\d+"
 COMPONENT = re.compile(
-    rf"^(?P<kind>[A-Z]{{3}})(?P<act>[+\-])?\s+(?P<code>\S+)\s+(?P<cost>{NUM})\s+(?P<direct_yield>{NUM})\s+"
+    # act: + replace, - remove; an R / M / I activity's own report (rmi.ps1) marks its
+    # rows RLBR, MATR, EQUI...
+    rf"^(?P<kind>[A-Z]{{3}})(?P<act>[+\-RMI&])?\s+(?P<code>\S+)\s+(?P<cost>{NUM})\s+(?P<direct_yield>{NUM})\s+"
     rf"(?P<yield_unit>\S+/\S+)\s+(?P<spt>{NUM})\s+(?P<yield>{NUM})\s+(?P<unit_price>{NUM})$"
 )
 COSTS = re.compile(rf"^Costs:\s*Lab:\s*(?P<lab>{NUM})\s*Mat:\s*(?P<mat>{NUM})\s*Equ:\s*(?P<equ>{NUM})\s*=\s*(?P<total>{NUM})$")

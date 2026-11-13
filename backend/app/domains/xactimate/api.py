@@ -14,8 +14,9 @@ from .schemas import (
     XactimateItemResponse, XactimateItemCreate, XactimateItemUpdate,
     XactimateComponentResponse, XactimateComponentCreate, XactimateComponentUpdate,
     XactimateSearchRequest, XactimateSearchResponse,
-    UnifiedSearchRequest, UnifiedSearchResponse
+    UnifiedSearchRequest, UnifiedSearchResponse, XactimateLaborRateResponse
 )
+from .models import XactimateLaborRate
 
 router = APIRouter(tags=["xactimate"])
 
@@ -93,6 +94,26 @@ def delete_category(category_code: str, db: Session = Depends(get_db)):
     
     service.repository.db.commit()
     return {"message": "Category deleted successfully"}
+
+
+@router.get("/labor-rates", response_model=List[XactimateLaborRateResponse])
+def get_labor_rates(
+    price_year: Optional[int] = Query(None, ge=2020, le=2100),
+    price_month: Optional[int] = Query(None, ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    """Each labor trade's hourly rate split into wage, burden and overhead,
+    for the given price month or else the latest one imported."""
+    q = db.query(XactimateLaborRate)
+    if price_year is None or price_month is None:
+        latest = (db.query(XactimateLaborRate.price_year, XactimateLaborRate.price_month)
+                  .order_by(XactimateLaborRate.price_year.desc(), XactimateLaborRate.price_month.desc())
+                  .first())
+        if latest is None:
+            return []
+        price_year, price_month = latest
+    return (q.filter(XactimateLaborRate.price_year == price_year, XactimateLaborRate.price_month == price_month)
+            .order_by(XactimateLaborRate.trade).all())
 
 
 # Item endpoints

@@ -11,7 +11,7 @@ export interface XactimateComponent {
   id: number;
   item_id: number;
   component_type: 'lab' | 'mat' | 'equ' | 'burden' | 'market';
-  activity?: '+' | '-' | null; // + part of replacing, - part of removing
+  activity?: '+' | '-' | 'R' | null; // + part of replacing, - part of removing, R detach & reset
   component_code?: string;
   cost?: number;
   direct_yield?: number;
@@ -40,6 +40,12 @@ export interface XactimateItem {
   untaxed_unit_price: number;
   replace_price?: number | null; // an & item's price split; replace + remove = untaxed_unit_price
   remove_price?: number | null;
+  // Which of R (Detach & Reset), M (Material Only), I (Install Only) the item
+  // also offers, e.g. "RMI"; "" none; null where not read. Each one's price:
+  other_activities?: string | null;
+  detach_reset_price?: number | null;
+  material_only_price?: number | null;
+  install_only_price?: number | null;
   life_expectancy_years?: number;
   depreciation_rate?: number;
   max_depreciation?: number;

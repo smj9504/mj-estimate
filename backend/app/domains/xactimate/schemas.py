@@ -11,7 +11,7 @@ from datetime import datetime
 class XactimateComponentBase(BaseModel):
     """Base schema for Xactimate components"""
     component_type: str = Field(..., pattern="^(lab|mat|equ|burden|market)$")
-    activity: Optional[str] = Field(None, pattern=r"^[+\-]$")  # + replace, - remove
+    activity: Optional[str] = Field(None, pattern=r"^[+\-R]$")  # + replace, - remove, R detach & reset
     component_code: Optional[str] = Field(None, max_length=50)
     description: Optional[str] = None
     supporting_event: Optional[str] = Field(None, max_length=30)
@@ -91,6 +91,11 @@ class XactimateItemBase(BaseModel):
     replace_market_conditions: Optional[Decimal] = None
     remove_market_conditions: Optional[Decimal] = None
     minimum_group: Optional[str] = Field(None, max_length=20)
+    # R (Detach & Reset), M (Material Only), I (Install Only) the item also offers, and their prices
+    other_activities: Optional[str] = Field(None, max_length=4)
+    detach_reset_price: Optional[Decimal] = None
+    material_only_price: Optional[Decimal] = None
+    install_only_price: Optional[Decimal] = None
     price_year: int = Field(..., ge=2020, le=2100)
     price_month: int = Field(..., ge=1, le=12)
     labor_cost: Optional[Decimal] = Field(None, ge=0)
@@ -146,6 +151,23 @@ class XactimateItemResponse(XactimateItemBase):
     components: Optional[List[XactimateComponentResponse]] = []
     category: Optional[XactimateCategoryResponse] = None
     
+    class Config:
+        from_attributes = True
+
+
+class XactimateLaborRateResponse(BaseModel):
+    """A labor trade's hourly rate: wage + burden + overhead = rate_per_hour"""
+    trade: str
+    description: Optional[str] = None
+    price_list: Optional[str] = None
+    price_year: int
+    price_month: int
+    rate_per_hour: Decimal
+    wage_per_hour: Decimal
+    burden_per_hour: Decimal
+    overhead_per_hour: Decimal
+    sample_item_code: Optional[str] = None
+
     class Config:
         from_attributes = True
 

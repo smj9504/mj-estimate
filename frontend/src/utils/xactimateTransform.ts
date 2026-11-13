@@ -27,14 +27,28 @@ export interface XactimateLineItemData extends EstimateLineItem {
   xactimate_activity?: XactimateActivity; // which of the item's activities this line is priced as
 }
 
-/** Xactimate activities: & remove and replace (R&R), + replace, - remove. */
-export type XactimateActivity = '&' | '+' | '-';
+/**
+ * Xactimate activities: & remove and replace (R&R), + replace, - remove, and
+ * the ones Quick Entry offers besides: R detach & reset, M material only,
+ * I install only.
+ */
+export type XactimateActivity = '&' | '+' | '-' | 'R' | 'M' | 'I';
 
 export const XACTIMATE_ACTIVITY_LABEL: Record<XactimateActivity, string> = {
   '&': 'R&R',
   '+': 'Replace',
   '-': 'Remove',
+  R: 'Detach & Reset',
+  M: 'Material Only',
+  I: 'Install Only',
 };
+
+/** R / M / I and the item field holding each one's price. */
+const OTHER_ACTIVITY_PRICE: [XactimateActivity, keyof XactimateItem][] = [
+  ['R', 'detach_reset_price'],
+  ['M', 'material_only_price'],
+  ['I', 'install_only_price'],
+];
 
 const toNumber = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') return null;
@@ -42,13 +56,16 @@ const toNumber = (value: unknown): number | null => {
   return isNaN(n) ? null : n;
 };
 
+/** An item's own activity (its other ones come from other_activities). */
 const isActivity = (value: unknown): value is XactimateActivity =>
   value === '&' || value === '+' || value === '-';
 
 /**
  * The activities an item can be added as, each with its price. An & item
  * whose price has been split offers R&R, Replace and Remove; any other item
- * only its own activity (or none, for items without Xactimate activity data).
+ * its own activity (or none, for items without Xactimate activity data).
+ * After those come whichever of Detach & Reset, Material Only and Install
+ * Only Xactimate offers for the item.
  */
 export const xactimateActivityPrices = (
   item: XactimateItem
@@ -56,20 +73,29 @@ export const xactimateActivityPrices = (
   const total = toNumber(item.untaxed_unit_price) ?? 0;
   const replace = toNumber(item.replace_price);
   const remove = toNumber(item.remove_price);
-  if (item.activity === '&' && replace !== null && remove !== null) {
-    return [
-      { activity: '&', price: total },
-      { activity: '+', price: replace },
-      { activity: '-', price: remove },
-    ];
-  }
-  return [{ activity: isActivity(item.activity) ? item.activity : null, price: total }];
+  const own: { activity: XactimateActivity | null; price: number }[] =
+    item.activity === '&' && replace !== null && remove !== null
+      ? [
+          { activity: '&', price: total },
+          { activity: '+', price: replace },
+          { activity: '-', price: remove },
+        ]
+      : [{ activity: isActivity(item.activity) ? item.activity : null, price: total }];
+  if (own[0].activity === null) return own;
+  const others = OTHER_ACTIVITY_PRICE.flatMap(([activity, field]) => {
+    const price = toNumber(item[field]);
+    return item.other_activities?.includes(activity) && price !== null ? [{ activity, price }] : [];
+  });
+  return [...own, ...others];
 };
 
 /** How Xactimate words a line by activity: "R&R ...", "Remove ...", plain for replace. */
 const describeActivity = (description: string, activity: XactimateActivity | null): string => {
   if (activity === '&') return `R&R ${description}`;
   if (activity === '-') return `Remove ${description}`;
+  if (activity === 'R') return `Detach & Reset ${description}`;
+  if (activity === 'M') return `Material Only ${description}`;
+  if (activity === 'I') return `Install ${description}`;
   return description;
 };
 
