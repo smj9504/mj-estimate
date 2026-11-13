@@ -22,6 +22,7 @@ import type { CommunicationLog, SentEmail } from '../../types/claimFollowUp';
 import type { ReceivedEmail } from '../../types/emailIngestion';
 import ReceivedEmailBody from './ReceivedEmailBody';
 import { receivedMailToShow, withoutLoggedCopies } from './receivedMail';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 interface CommunicationTimelineProps {
   claimId: string;
@@ -72,7 +73,7 @@ const ToggleContent: React.FC<{
       {open && (children || (
         <div
           className="fu-comm-content"
-          dangerouslySetInnerHTML={html ? { __html: html } : undefined}
+          dangerouslySetInnerHTML={html ? { __html: sanitizeHtml(html) } : undefined}
         >
           {!html ? text : undefined}
         </div>

@@ -4,6 +4,7 @@ import { EditOutlined, DeleteOutlined, FileTextFilled } from '@ant-design/icons'
 import DraggableTable from '../common/DraggableTable';
 import { EstimateLineItem } from '../../services/estimateService';
 import { lineAmount } from '../../utils/money';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 interface SectionItemsTableProps {
   sectionIndex: number;
@@ -75,9 +76,9 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
         fixed: 'left' as const,
         render: (value: string, record: EstimateLineItem) => (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {value ? <div dangerouslySetInnerHTML={{ __html: value }} /> : null}
+            {value ? <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(value) }} /> : null}
             {record.note && (
-              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: record.note }} />}>
+              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: sanitizeHtml(record.note) }} />}>
                 <FileTextFilled style={{ color: '#1f74c9', cursor: 'help', flexShrink: 0 }} />
               </Tooltip>
             )}

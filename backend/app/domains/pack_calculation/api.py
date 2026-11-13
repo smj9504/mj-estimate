@@ -15,7 +15,7 @@ from app.domains.auth.company_scope import (
     home_company_ids,
     require_document,
 )
-from app.domains.auth.dependencies import get_current_user, require_admin
+from app.domains.auth.dependencies import get_current_user, require_admin, require_screen
 from app.domains.staff.models import Staff
 
 from .schemas import (
@@ -47,6 +47,9 @@ from .models import PackCalculation
 from .service import PackCalculationService
 
 router = APIRouter(prefix="/pack-calculation", tags=["pack_calculation"])
+
+# The item -> packing material table every packing estimate reads from
+_EDIT_MAPPINGS = [Depends(require_screen("pack_calculator"))]
 logger = logging.getLogger(__name__)
 
 
@@ -305,7 +308,7 @@ def list_item_mappings(
     return mappings
 
 
-@router.post("/mappings", response_model=ItemMaterialMappingResponse)
+@router.post("/mappings", response_model=ItemMaterialMappingResponse, dependencies=_EDIT_MAPPINGS)
 def create_item_mapping(
     mapping_input: ItemMaterialMappingInput,
     db: Session = Depends(get_db),
@@ -341,7 +344,7 @@ def create_item_mapping(
     return repo.create(mapping)
 
 
-@router.put("/mappings/{mapping_id}", response_model=ItemMaterialMappingResponse)
+@router.put("/mappings/{mapping_id}", response_model=ItemMaterialMappingResponse, dependencies=_EDIT_MAPPINGS)
 def update_item_mapping(
     mapping_id: UUID,
     mapping_input: ItemMaterialMappingInput,
@@ -370,7 +373,7 @@ def update_item_mapping(
     return repo.update(mapping)
 
 
-@router.delete("/mappings/{mapping_id}")
+@router.delete("/mappings/{mapping_id}", dependencies=_EDIT_MAPPINGS)
 def delete_item_mapping(
     mapping_id: UUID,
     db: Session = Depends(get_db),
@@ -428,7 +431,7 @@ def get_ml_metrics(
         )
 
 
-@router.post("/ml/trigger-retraining")
+@router.post("/ml/trigger-retraining", dependencies=[Depends(require_admin)])
 def trigger_ml_retraining(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),

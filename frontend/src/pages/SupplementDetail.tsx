@@ -41,6 +41,7 @@ import type {
   SupplementFollowUp, BidItemType,
 } from '../types/supplement';
 import type { ClaimNegotiation, NegotiationSection } from '../types/client';
+import { sanitizeHtml } from '../utils/safeHtml';
 
 // Section category config — matches ClaimFollowUpDashboard
 const SECTION_CATEGORIES: Record<string, {
@@ -1897,7 +1898,7 @@ const SupplementDetail: React.FC = () => {
                                   <span>{msg.date ? dayjs(msg.date).format('MM/DD HH:mm') : ''}</span>
                                 </div>
                                 {msg.body_html && (
-                                  <div className="sup-msg-body" dangerouslySetInnerHTML={{ __html: msg.body_html }} />
+                                  <div className="sup-msg-body" dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.body_html) }} />
                                 )}
                                 {!msg.body_html && msg.summary && (
                                   <div className="sup-msg-body">{msg.summary}</div>
@@ -1911,7 +1912,7 @@ const SupplementDetail: React.FC = () => {
                                   <span>{fu.response_date ? dayjs(fu.response_date).format('MM/DD HH:mm') : ''}</span>
                                 </div>
                                 {fu.reply_body_html && (
-                                  <div className="sup-msg-body" dangerouslySetInnerHTML={{ __html: fu.reply_body_html }} />
+                                  <div className="sup-msg-body" dangerouslySetInnerHTML={{ __html: sanitizeHtml(fu.reply_body_html) }} />
                                 )}
                               </div>
                             )}

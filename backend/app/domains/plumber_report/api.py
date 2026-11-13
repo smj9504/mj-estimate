@@ -608,7 +608,7 @@ async def send_plumber_report_to_pa(
         raise HTTPException(status_code=400, detail="No recipients")
     from app.domains.claim_followup.service import require_sending_account
     try:
-        require_sending_account(db, request.email_account_id)
+        require_sending_account(db, request.email_account_id, staff=current_staff)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -653,7 +653,7 @@ async def send_plumber_report_to_pa(
 
         # Run SMTP send in thread to avoid blocking event loop
         email_result = await asyncio.to_thread(
-            email_service.send_email, send_payload
+            email_service.send_email, send_payload, sender=current_staff
         )
 
         # Update report status to 'sent'

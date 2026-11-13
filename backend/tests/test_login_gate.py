@@ -110,7 +110,9 @@ def test_routes_without_their_own_check_turn_away_requests_without_a_token():
     ("GET", "/health/detailed"),
 ])
 def test_holes_found_in_the_audit_need_a_login(method, url):
-    assert client.request(method, url).status_code == 401
+    # 403 where the route now checks the login itself (HTTPBearer's answer),
+    # e.g. the admin-only /api/staff routes.
+    assert client.request(method, url).status_code in (401, 403)
 
 
 def test_a_bad_token_is_turned_away():

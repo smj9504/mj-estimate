@@ -333,9 +333,11 @@ const EmailAccountsManager: React.FC<Props> = ({ variant = 'admin' }) => {
         // and Poll Now both try to open an IMAP session, which always fails
         // for these since there's nothing to authenticate against.
         const isSendOnly = record.provider_type === 'custom' && !!record.smtp_server;
+        // Someone else's own mailbox: only they or an admin may test, edit or delete it
+        const canManage = admin || !record.owner_staff_id || record.owner_staff_id === user?.id;
         return (
         <Space size="small">
-          {!isSendOnly && (
+          {!isSendOnly && canManage && (
             <Tooltip title="Test Connection">
               <Button
                 size="small"
@@ -365,17 +367,21 @@ const EmailAccountsManager: React.FC<Props> = ({ variant = 'admin' }) => {
               />
             </Tooltip>
           )}
-          <Tooltip title="Edit">
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              aria-label={`Edit ${record.email_address}`}
-              onClick={() => openEditModal(record)}
-            />
-          </Tooltip>
-          <Popconfirm title="Delete this account?" onConfirm={() => deleteMutation.mutate(record.id)}>
-            <Button size="small" danger icon={<DeleteOutlined />} aria-label={`Delete ${record.email_address}`} />
-          </Popconfirm>
+          {canManage && (
+            <Tooltip title="Edit">
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                aria-label={`Edit ${record.email_address}`}
+                onClick={() => openEditModal(record)}
+              />
+            </Tooltip>
+          )}
+          {canManage && (
+            <Popconfirm title="Delete this account?" onConfirm={() => deleteMutation.mutate(record.id)}>
+              <Button size="small" danger icon={<DeleteOutlined />} aria-label={`Delete ${record.email_address}`} />
+            </Popconfirm>
+          )}
         </Space>
         );
       },
@@ -561,6 +567,9 @@ const EmailAccountsManager: React.FC<Props> = ({ variant = 'admin' }) => {
           <Form.Item
             name="password"
             label={editingAccount ? 'Password (leave empty to keep current)' : 'Password / App Password'}
+            extra={editingAccount && editingAccount.auth_method !== 'oauth'
+              ? 'Changing the server, port, SSL, provider or username? Enter the password again.'
+              : undefined}
             rules={editingAccount ? [] : [{ required: true }]}
           >
             <Input.Password placeholder={editingAccount ? '(unchanged)' : 'App Password for Gmail'} />

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_db
+from app.domains.auth.dependencies import require_admin
 from .service import XactimateCategoryService, XactimateItemService, XactimateComponentService, XactimateUnifiedService
 from .schemas import (
     XactimateCategoryResponse, XactimateCategoryCreate, XactimateCategoryUpdate,
@@ -17,6 +18,9 @@ from .schemas import (
 )
 
 router = APIRouter(tags=["xactimate"])
+
+# The Xactimate price list is imported, not edited in the app: admins only.
+_ADMIN_ONLY = [Depends(require_admin)]
 
 
 # Category endpoints
@@ -37,14 +41,14 @@ def get_category(category_code: str, db: Session = Depends(get_db)):
     return category
 
 
-@router.post("/categories", response_model=XactimateCategoryResponse)
+@router.post("/categories", response_model=XactimateCategoryResponse, dependencies=_ADMIN_ONLY)
 def create_category(category_data: XactimateCategoryCreate, db: Session = Depends(get_db)):
     """Create new Xactimate category"""
     service = XactimateCategoryService(db)
     return service.create(category_data.dict())
 
 
-@router.put("/categories/{category_code}", response_model=XactimateCategoryResponse)
+@router.put("/categories/{category_code}", response_model=XactimateCategoryResponse, dependencies=_ADMIN_ONLY)
 def update_category(category_code: str, category_data: XactimateCategoryUpdate, db: Session = Depends(get_db)):
     """Update Xactimate category"""
     service = XactimateCategoryService(db)
@@ -69,7 +73,7 @@ def update_category(category_code: str, category_data: XactimateCategoryUpdate, 
     raise HTTPException(status_code=404, detail="Category not found")
 
 
-@router.delete("/categories/{category_code}")
+@router.delete("/categories/{category_code}", dependencies=_ADMIN_ONLY)
 def delete_category(category_code: str, db: Session = Depends(get_db)):
     """Delete Xactimate category"""
     service = XactimateCategoryService(db)
@@ -173,14 +177,14 @@ def get_price_history(item_code: str, db: Session = Depends(get_db)):
     return service.get_price_history(item_code)
 
 
-@router.post("/items", response_model=XactimateItemResponse)
+@router.post("/items", response_model=XactimateItemResponse, dependencies=_ADMIN_ONLY)
 def create_item(item_data: XactimateItemCreate, db: Session = Depends(get_db)):
     """Create new Xactimate item with components"""
     service = XactimateItemService(db)
     return service.create_with_components(item_data)
 
 
-@router.put("/items/{item_id}", response_model=XactimateItemResponse)
+@router.put("/items/{item_id}", response_model=XactimateItemResponse, dependencies=_ADMIN_ONLY)
 def update_item(
     item_id: int, 
     item_data: XactimateItemUpdate, 
@@ -195,7 +199,7 @@ def update_item(
     return updated_item
 
 
-@router.delete("/items/{item_id}")
+@router.delete("/items/{item_id}", dependencies=_ADMIN_ONLY)
 def delete_item(item_id: int, db: Session = Depends(get_db)):
     """Delete Xactimate item"""
     service = XactimateItemService(db)
@@ -224,7 +228,7 @@ def get_components_by_type(
     return service.get_by_type(component_type, limit)
 
 
-@router.post("/items/{item_id}/components", response_model=List[XactimateComponentResponse])
+@router.post("/items/{item_id}/components", response_model=List[XactimateComponentResponse], dependencies=_ADMIN_ONLY)
 def create_item_components(
     item_id: int, 
     components_data: List[XactimateComponentCreate], 
@@ -245,7 +249,7 @@ def get_component(component_id: int, db: Session = Depends(get_db)):
     return component
 
 
-@router.put("/components/{component_id}", response_model=XactimateComponentResponse)
+@router.put("/components/{component_id}", response_model=XactimateComponentResponse, dependencies=_ADMIN_ONLY)
 def update_component(
     component_id: int, 
     component_data: XactimateComponentUpdate, 
@@ -259,7 +263,7 @@ def update_component(
     return updated_component
 
 
-@router.delete("/components/{component_id}")
+@router.delete("/components/{component_id}", dependencies=_ADMIN_ONLY)
 def delete_component(component_id: int, db: Session = Depends(get_db)):
     """Delete component"""
     service = XactimateComponentService(db)

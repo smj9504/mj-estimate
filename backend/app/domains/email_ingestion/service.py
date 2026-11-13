@@ -8,7 +8,6 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from cryptography.fernet import Fernet
 
 from app.core.config import settings
 from app.domains.email_ingestion.email_client import _html_to_text, readable_plain_text
@@ -16,9 +15,8 @@ from app.domains.email_ingestion.schemas import ESTIMATE_DOCUMENT_TYPE
 
 logger = logging.getLogger(__name__)
 
-# Encryption key for email passwords
-# Generate once: Fernet.generate_key() and store in env
-_ENCRYPTION_KEY = getattr(settings, "EMAIL_ENCRYPTION_KEY", None)
+# Mail passwords are encrypted like the other stored secrets (app/core/encryption.py),
+# which still reads ones saved under EMAIL_ENCRYPTION_KEY or the old SECRET_KEY scheme.
 
 # Category of a stored attachment awaiting review; confirming it replaces
 # this with the document type the reviewer chose.
@@ -269,26 +267,16 @@ def _one_copy_per_message(query):
     )
 
 
-def _get_fernet() -> Fernet:
-    """Get Fernet instance for password encryption/decryption"""
-    key = _ENCRYPTION_KEY or settings.SECRET_KEY[:32].ljust(32, "=")
-    # Fernet requires url-safe base64 encoded 32 bytes
-    import base64
-    padded = key.encode("utf-8")[:32].ljust(32, b"\0")
-    key_b64 = base64.urlsafe_b64encode(padded)
-    return Fernet(key_b64)
-
-
 def encrypt_password(password: str) -> str:
-    """Encrypt a password for storage"""
-    f = _get_fernet()
-    return f.encrypt(password.encode("utf-8")).decode("utf-8")
+    """Encrypt a password for storage, with the current key (app/core/encryption.py)"""
+    from app.core.encryption import encrypt_text
+    return encrypt_text(password)
 
 
 def decrypt_password(encrypted: str) -> str:
-    """Decrypt a stored password"""
-    f = _get_fernet()
-    return f.decrypt(encrypted.encode("utf-8")).decode("utf-8")
+    """Decrypt a stored password, whichever key it was saved under"""
+    from app.core.encryption import decrypt_text
+    return decrypt_text(encrypted)
 
 
 class EmailIngestionService:
@@ -564,22 +552,26 @@ class EmailIngestionService:
         auth_method = account.get("auth_method", "password")
         oauth_token = None
         password = ""
+        server, port, use_ssl = account["imap_server"], account["imap_port"], account["use_ssl"]
 
         if auth_method == "oauth":
             from app.domains.claim_followup.smtp_service import SmtpService
+            from app.domains.email_ingestion.access import GOOGLE_IMAP
             smtp = SmtpService()
             oauth_token = smtp._get_fresh_oauth_token(
                 account, session
             )
+            # A Google token only ever goes to Google, whatever the row says
+            server, port, use_ssl = GOOGLE_IMAP["server"], GOOGLE_IMAP["port"], GOOGLE_IMAP["use_ssl"]
         else:
             password = decrypt_password(account["encrypted_password"])
 
         return IMAPClient(
-            server=account["imap_server"],
-            port=account["imap_port"],
+            server=server,
+            port=port,
             username=account["username"],
             password=password,
-            use_ssl=account["use_ssl"],
+            use_ssl=use_ssl,
             oauth_access_token=oauth_token,
         )
 

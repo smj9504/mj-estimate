@@ -286,6 +286,10 @@ class Settings(BaseSettings):
     # Email Ingestion Settings
     ENABLE_EMAIL_INGESTION: bool = os.getenv("ENABLE_EMAIL_INGESTION", "true").lower() == "true"
     EMAIL_ENCRYPTION_KEY: Optional[str] = os.getenv("EMAIL_ENCRYPTION_KEY")
+    # Secrets stored in the DB (mail passwords, OAuth tokens): see app/core/encryption.py
+    DATA_ENCRYPTION_KEY: Optional[str] = os.getenv("DATA_ENCRYPTION_KEY")
+    PREVIOUS_SECRET_KEYS: Optional[str] = os.getenv("PREVIOUS_SECRET_KEYS")
+    PREVIOUS_DATA_ENCRYPTION_KEYS: Optional[str] = os.getenv("PREVIOUS_DATA_ENCRYPTION_KEYS")
 
     # Redis Cache Settings
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")

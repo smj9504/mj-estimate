@@ -58,6 +58,7 @@ import type {
   PolishEmailAction,
   EmailAttachment,
 } from '../../types/claimFollowUp';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 576);
@@ -800,7 +801,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           {previewMode && (
             <div
               className="fu-compose-preview"
-              dangerouslySetInnerHTML={{ __html: bodyHtml || '<p class="fu-muted">Nothing written yet.</p>' }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(bodyHtml) || '<p class="fu-muted">Nothing written yet.</p>' }}
             />
           )}
         </div>

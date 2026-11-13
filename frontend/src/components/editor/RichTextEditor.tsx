@@ -11,6 +11,7 @@ import {
   AlignRightOutlined,
 } from '@ant-design/icons';
 import './RichTextEditor.css';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 interface RichTextEditorProps {
   value?: string;
@@ -72,14 +73,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   // Initial setup
   useEffect(() => {
     if (editorRef.current && value && !editorRef.current.innerHTML) {
-      editorRef.current.innerHTML = value;
+      editorRef.current.innerHTML = sanitizeHtml(value);
     }
   }, []);
 
   useEffect(() => {
     if (editorRef.current && value !== editorRef.current.innerHTML && !isInternalChange.current) {
       const cursorData = saveCursorPosition();
-      editorRef.current.innerHTML = value;
+      editorRef.current.innerHTML = sanitizeHtml(value);
       
       // Restore cursor position after a microtask
       setTimeout(() => {

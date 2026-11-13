@@ -3,6 +3,7 @@ import type { FtPoint, SketchLevel, SketchRoom } from '../../../../types/floorin
 import {
   WALL_T, centroid, constrainAngle, edgesOf, insertVertex, measureRoom, moveVertex, offsetPolygon, pointInPolygon,
   polygonArea, polygonPerimeter, reattach, rectPoints, removeVertex, resizeEdge, roomAcross, snapPoint, snapShift, wallAt,
+  wallFaces, cabinetLayout,
 } from './geometry';
 
 const P = (...pts: [number, number][]): FtPoint[] => pts.map(([x, y]) => ({ x, y }));
@@ -25,6 +26,7 @@ const level: SketchLevel = {
   ],
   cabinet_runs: [{ id: 'c1', room_id: 'kitchen', a: { x: 15.375, y: 0 }, b: { x: 29.375, y: 0 } }],
   fixtures: [],
+  walls: [],
 };
 
 describe('measuring a room', () => {
@@ -47,6 +49,62 @@ describe('measuring a room', () => {
     expect(measureRoom(withIsland, kitchen).floorSf).toBeCloseTo(129, 6);
     withIsland.fixtures[0].floor_under = true;
     expect(measureRoom(withIsland, kitchen).floorSf).toBeCloseTo(147, 6);
+  });
+
+  it('gives a wall built out into the room baseboard on both faces and its end, as the server does', () => {
+    const wall = { id: 'w1', room_id: 'living', a: { x: 6, y: 14.1667 }, b: { x: 6, y: 10.1667 }, thickness: WALL_T };
+    const l = measureRoom({ ...level, walls: [wall] }, living);
+    // Its two faces and its end, less the bit of the back wall it stands against
+    expect(l.perimeterLf).toBeCloseTo(58.33 + 8 + 0.375 - 0.375, 2);
+    expect(l.baseLf).toBeCloseTo(49.33 + 8, 2);
+    expect(l.floorSf).toBeCloseTo(212.5 - 1.5, 2);
+    // Wall to wall: no end shows
+    expect(wallFaces({ x: 6, y: 14.1667 }, { x: 6, y: 0 }, WALL_T, living.points).exposedLf).toBeCloseTo(2 * 14.1667, 3);
+  });
+
+  it('counts an open wall off the baseboard like a doorway as wide as the side', () => {
+    const open = {
+      ...level,
+      openings: [
+        { id: 'o1', kind: 'open_wall' as const, rooms: ['living', 'kitchen'] as [string, string],
+          a: { x: 15, y: 0 }, b: { x: 15, y: 11.5 } },
+        level.openings[1],
+      ],
+    };
+    expect(measureRoom(open, living).baseLf).toBeCloseTo(58.33 - 11.5 - 3, 2);
+  });
+
+  it('measures cabinet fronts less the corner and finds the sides that show, as the server does', () => {
+    const k = room('k', rectPoints(0, 0, 14, 12));
+    const kitchenLevel: SketchLevel = {
+      id: 'main', name: 'Main Level', rooms: [k], openings: [], walls: [],
+      cabinet_runs: [
+        { id: 'top', room_id: 'k', a: { x: 4, y: 0 }, b: { x: 14, y: 0 } },
+        { id: 'right', room_id: 'k', a: { x: 14, y: 0 }, b: { x: 14, y: 8 } },
+      ],
+      fixtures: [],
+    };
+    const runs = Object.fromEntries(cabinetLayout(kitchenLevel, 'k').map((r) => [r.id, r]));
+    expect(runs.top.frontLf).toBeCloseTo(8, 1);
+    expect(runs.right.frontLf).toBeCloseTo(6, 1);
+    expect([runs.top.sideA, runs.top.sideB, runs.right.sideA, runs.right.sideB]).toEqual([true, false, false, true]);
+
+    // A fridge beside the top run's end hides it; a side set on the run is taken as set
+    const withFridge = {
+      ...kitchenLevel,
+      fixtures: [{ id: 'f', type: 'refrigerator' as const, x: 2.5, y: 1.25, w: 3, h: 2.5, rotation: 0 }],
+      cabinet_runs: [kitchenLevel.cabinet_runs[0], { ...kitchenLevel.cabinet_runs[1], side_b: false }],
+    };
+    const after = Object.fromEntries(cabinetLayout(withFridge, 'k').map((r) => [r.id, r]));
+    expect([after.top.sideA, after.right.sideB]).toEqual([false, false]);
+
+    // A wall built out against the top run's open end hides that side, as on the server
+    const withStub: SketchLevel = {
+      ...kitchenLevel,
+      walls: [{ id: 'stub', room_id: 'k', a: { x: 4 - 1 / 6, y: 0 }, b: { x: 4 - 1 / 6, y: 2 + 1 / 6 }, thickness: 1 / 3 }],
+    };
+    const stubbed = Object.fromEntries(cabinetLayout(withStub, 'k').map((r) => [r.id, r]));
+    expect([stubbed.top.sideA, stubbed.right.sideB]).toEqual([false, true]);
   });
 
   it('finds a centroid inside an L', () => {

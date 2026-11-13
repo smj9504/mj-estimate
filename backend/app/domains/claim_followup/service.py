@@ -42,14 +42,20 @@ NO_SENDING_ACCOUNT = (
 )
 
 
-def require_sending_account(session, account_id: Optional[str]) -> None:
+def require_sending_account(session, account_id: Optional[str], *, staff) -> None:
     """Email a person sends from the app goes out only from an account added
     under Email Accounts that is on and allowed to send - never from the
-    server's own address. Raises ValueError otherwise."""
+    server's own address - and that the sender may use: their own mailbox, an
+    account of one of their companies, or any for an admin
+    (email_ingestion/access.py). staff is who is sending, or SYSTEM_SENDER for
+    a scheduled send with nobody signed in. Raises ValueError otherwise."""
     import uuid
 
+    from app.domains.email_ingestion.access import may_send_from
     from app.domains.email_ingestion.models import EmailAccount
 
+    if staff is None:
+        raise ValueError("Couldn't tell who is sending this email. Sign in again and retry.")
     try:
         account_uuid = uuid.UUID(str(account_id or ""))
     except ValueError:
@@ -59,6 +65,11 @@ def require_sending_account(session, account_id: Optional[str]) -> None:
     ).first()
     if account is None:
         raise ValueError(NO_SENDING_ACCOUNT)
+    if not may_send_from(session, staff, account):
+        raise ValueError(
+            f"You can't send from {account.email_address}. Choose your own account "
+            "or one of your company's accounts."
+        )
     if not account.is_active or account.can_send is False:
         raise ValueError(
             f"{account.email_address} is turned off for sending. "
@@ -2024,8 +2035,9 @@ class ClaimFollowUpService:
     # Email Sending (delegates to smtp_service)
     # ============================================================
 
-    def send_email(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Send an email and record it"""
+    def send_email(self, data: Dict[str, Any], *, sender) -> Dict[str, Any]:
+        """Send an email and record it. sender is the staff member sending
+        (or SYSTEM_SENDER); see require_sending_account."""
         if (data.get('wm_job_id') and data.get('wm_documents')) or data.get('client_files'):
             # Collecting WM documents downloads and may render them, and the
             # client's stored files are downloaded too; hold the document
@@ -2033,10 +2045,10 @@ class ClaimFollowUpService:
             # work.
             from app.common.services.document_resources import document_guard
             with document_guard():
-                return self._send_email(data)
-        return self._send_email(data)
+                return self._send_email(data, sender)
+        return self._send_email(data, sender)
 
-    def _send_email(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _send_email(self, data: Dict[str, Any], sender) -> Dict[str, Any]:
         timer = StageTimer()
         session = self._get_session()
         try:
@@ -2049,7 +2061,7 @@ class ClaimFollowUpService:
 
             email_repo = get_sent_email_repository(session)
 
-            require_sending_account(session, data.get('email_account_id'))
+            require_sending_account(session, data.get('email_account_id'), staff=sender)
 
             # Determine from_address. SmtpService always sends as the
             # account's own address; a different from_address only becomes
@@ -2268,7 +2280,7 @@ class ClaimFollowUpService:
         finally:
             session.close()
 
-    def send_from_template(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def send_from_template(self, data: Dict[str, Any], *, sender) -> Dict[str, Any]:
         """Send email using a template with variable substitution"""
         template_id = str(data['template_id'])
         variables = data.get('variables', {})
@@ -2291,7 +2303,7 @@ class ClaimFollowUpService:
             'scheduled_at': data.get('scheduled_at'),
         }
 
-        return self.send_email(send_data)
+        return self.send_email(send_data, sender=sender)
 
     def generate_ai_email(self, data: Dict[str, Any]) -> Dict[str, str]:
         """Generate email content using AI"""

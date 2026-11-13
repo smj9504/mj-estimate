@@ -20,6 +20,7 @@ from app.domains.client.models import Claim, Client  # noqa: E402
 from app.domains.email_ingestion.email_client import FetchedEmail, IMAPClient  # noqa: E402
 from app.domains.email_ingestion.models import EmailAccount, ReceivedEmail  # noqa: E402
 from app.domains.email_ingestion.service import EmailIngestionService  # noqa: E402
+from app.domains.email_ingestion.access import SYSTEM_SENDER  # noqa: E402
 from app.domains.water_mitigation.adjuster_email_service import AdjusterEmailService  # noqa: E402
 from app.domains.water_mitigation.adjuster_inbox import (  # noqa: E402
     AdjusterInboxService,
@@ -169,7 +170,7 @@ def test_every_adjuster_is_a_preset_recipient_once(env):
         additional_adjusters=[THIRD_PARTY],
     )
 
-    info = AdjusterEmailService(env['database']).get_adjuster_info(str(job.id))
+    info = AdjusterEmailService(env['database']).get_adjuster_info(str(job.id), staff=SYSTEM_SENDER)
 
     assert [(p['name'], p['email'], p['role']) for p in info['preset_emails']] == [
         ('Pat Lee', 'pat@carrier.com', 'adjuster'),

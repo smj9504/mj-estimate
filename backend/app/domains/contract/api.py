@@ -22,7 +22,7 @@ from app.domains.auth.company_scope import (
 )
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.client.models import Claim
-from app.domains.contract.models import ClaimCompany, ContractInstance
+from app.domains.contract.models import ClaimCompany, ContractInstance, ContractTemplate
 from app.domains.contract.onsite_signing import SIGNING_PURPOSES
 from app.domains.contract.signature_lines import COMPANY_ROLE
 from app.domains.staff.models import Staff
@@ -62,6 +62,51 @@ def _get_claim_company_service():
     return ClaimCompanyService(get_database())
 
 
+def _is_uuid(value: object) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _require_own_company(db, staff, company_id, detail: str) -> None:
+    """403 unless company_id is one of the caller's (admins: any)."""
+    allowed = company_ids(db, staff)
+    if allowed is not None and str(company_id) not in allowed:
+        raise HTTPException(status_code=403, detail=detail)
+
+
+def _require_template(db, staff, template_id) -> ContractTemplate:
+    """A template of one of the caller's companies (admins: any). Another
+    company's template answers 404, like anything else out of their scope."""
+    template = None
+    if _is_uuid(template_id):
+        template = db.query(ContractTemplate).filter(
+            ContractTemplate.id == str(template_id)
+        ).first()
+    allowed = company_ids(db, staff)
+    if template is None or (allowed is not None and str(template.company_id) not in allowed):
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template
+
+
+def _signing_link_origin(requested: Optional[str]) -> str:
+    """Where a signing link points. The sender's page address is kept only when
+    it is one of the app's own addresses (FRONTEND_URL or a CORS origin), so a
+    request can't point a customer's signing link at another site."""
+    from app.core.config import settings
+
+    frontend = (getattr(settings, 'FRONTEND_URL', '') or '').strip().rstrip('/')
+    known = {o.strip().rstrip('/') for o in settings.CORS_ORIGINS if o and o.strip() != '*'}
+    if frontend:
+        known.add(frontend)
+    requested = (requested or '').strip().rstrip('/')
+    if requested and requested in known:
+        return requested
+    return frontend or 'http://localhost:3000'
+
+
 # ============================================================
 # Contract Templates
 # ============================================================
@@ -71,13 +116,20 @@ def list_templates(
     company_id: Optional[str] = None,
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """List all contract templates, optionally filtered by company"""
+    """List the contract templates of the caller's companies (admins: all),
+    optionally of one company"""
+    allowed = company_ids(db, current_staff)
+    if company_id and (not _is_uuid(company_id) or (allowed is not None and company_id not in allowed)):
+        return {"templates": [], "total": 0}
     try:
         if company_id:
             templates = service.get_by_company(company_id)
         else:
             templates = service.get_all_with_company()
+        if allowed is not None:
+            templates = [t for t in templates if str(t.get('company_id')) in allowed]
         return {"templates": templates, "total": len(templates)}
     except Exception as e:
         logger.error(f"Error listing templates: {e}")
@@ -96,8 +148,15 @@ async def create_template(
     file: UploadFile = File(...),
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Create a contract template with PDF upload"""
+    if not _is_uuid(company_id):
+        raise HTTPException(status_code=400, detail="Pick a company")
+    _require_own_company(
+        db, current_staff, company_id,
+        "You can only add templates for a company you belong to",
+    )
     try:
         if signing_purpose and signing_purpose not in SIGNING_PURPOSES:
             raise HTTPException(status_code=400, detail="Unknown signing purpose")
@@ -149,7 +208,9 @@ def get_template(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    _require_template(db, current_staff, template_id)
     try:
         template = service.get_by_id(template_id)
         if not template:
@@ -167,7 +228,9 @@ def update_template(
     data: ContractTemplateUpdate,
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    _require_template(db, current_staff, template_id)
     try:
         result = service.update(template_id, data.dict(exclude_unset=True))
         if not result:
@@ -185,8 +248,10 @@ async def replace_template_pdf(
     file: UploadFile = File(...),
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Replace the PDF file of an existing template"""
+    _require_template(db, current_staff, template_id)
     try:
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
@@ -224,7 +289,22 @@ def delete_template(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    _require_template(db, current_staff, template_id)
+    # Deleting the row would take every contract made from it with it (ORM
+    # cascade), signed ones included. Those stay; the template can be turned off.
+    used = db.query(ContractInstance.id).filter(
+        ContractInstance.template_id == str(template_id)
+    ).count()
+    if used:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{used} contract{'s were' if used != 1 else ' was'} made from this template, "
+                "so it can't be deleted. Turn it off (Inactive) instead."
+            ),
+        )
     try:
         success = service.delete(template_id)
         if not success:
@@ -491,6 +571,15 @@ def create_contract(
     require_claim(db, current_staff, claim_id)
     if data.client_id:
         require_client(db, current_staff, data.client_id)
+    # The issuing company picks the mailbox the signing link is sent from, so it
+    # has to be one of the caller's, and the template has to be that company's.
+    _require_own_company(
+        db, current_staff, data.company_id,
+        "You can only issue contracts for a company you belong to",
+    )
+    template = _require_template(db, current_staff, data.template_id)
+    if str(template.company_id) != str(data.company_id):
+        raise HTTPException(status_code=400, detail="That template belongs to another company")
     try:
         contract_data = data.dict()
         contract_data['claim_id'] = claim_id
@@ -865,6 +954,11 @@ def send_contract_email(
             raise HTTPException(
                 status_code=404, detail="Contract not found"
             )
+        # It goes out from the issuing company's mailbox, under its name
+        _require_own_company(
+            db, current_staff, contract.get('company_id'),
+            "Only someone at the issuing company can send this contract",
+        )
 
         token = contract.get('signing_token')
         if not token:
@@ -890,12 +984,7 @@ def send_contract_email(
         service.update(contract_id, {'sent_to_emails': _json.dumps(merged)})
 
         # Build signing URL from frontend origin
-        origin = data.get('origin_url', '').rstrip('/')
-        if not origin:
-            from app.core.config import settings
-            origin = getattr(
-                settings, 'FRONTEND_URL', ''
-            ) or 'http://localhost:3000'
+        origin = _signing_link_origin(data.get('origin_url'))
         signing_url = f"{origin}/sign/{token}"
 
         # Build email from template
@@ -977,6 +1066,7 @@ def send_contract_email(
                 skip_signature=True,
             )
         else:
+            from app.core.config import settings
             smtp_user = getattr(settings, 'SMTP_USER', '')
             if not smtp_user:
                 raise HTTPException(
@@ -1126,6 +1216,10 @@ def send_reminder(
                 status_code=404,
                 detail="Contract not found",
             )
+        _require_own_company(
+            db, current_staff, contract.get('company_id'),
+            "Only someone at the issuing company can send this contract",
+        )
 
         token = contract.get('signing_token')
         if not token:
@@ -1143,14 +1237,7 @@ def send_reminder(
             )
 
         # Build signing URL
-        origin = data.get(
-            'origin_url', ''
-        ).rstrip('/')
-        if not origin:
-            from app.core.config import settings
-            origin = getattr(
-                settings, 'FRONTEND_URL', ''
-            ) or 'http://localhost:3000'
+        origin = _signing_link_origin(data.get('origin_url'))
         signing_url = f"{origin}/sign/{token}"
 
         # Build reminder email
@@ -1374,8 +1461,10 @@ def get_field_mappings(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Get field mappings and available fields for a template"""
+    _require_template(db, current_staff, template_id)
     try:
         return service.get_field_mappings(template_id)
     except ValueError as e:
@@ -1390,8 +1479,10 @@ def update_field_mappings(
     data: FieldMappingUpdate,
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Save field mappings for a template"""
+    _require_template(db, current_staff, template_id)
     try:
         mappings = [m.dict() for m in data.field_mappings]
         result = service.update_field_mappings(

@@ -156,7 +156,7 @@ def create_job(
             # The row itself, which the sync writes to; the service only hands back dicts
             wm_job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == created_job['id']).first()
             if wm_job:
-                sync_result = sync_client_from_wm_job(db, wm_job, homeowner_new=True)
+                sync_result = sync_client_from_wm_job(db, wm_job, homeowner_new=True, staff=current_staff)
                 created_job['client_sync'] = sync_result
         except Exception as sync_err:
             logger.warning(f"Client sync after WM job create failed (non-fatal): {sync_err}")
@@ -279,7 +279,7 @@ def fill_in_job(
     try:
         from app.domains.client.client_sync_service import sync_client_from_wm_job
         db.refresh(wm_job)
-        sync_client_from_wm_job(db, wm_job, homeowner_new='homeowner_name' in filled)
+        sync_client_from_wm_job(db, wm_job, homeowner_new='homeowner_name' in filled, staff=current_staff)
     except Exception as sync_err:
         logger.warning(f"Client sync after filling in WM job failed (non-fatal): {sync_err}")
 
@@ -386,7 +386,7 @@ def get_job_client(
     job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    client = ClientSyncService(db).find_client(job)
+    client = ClientSyncService(db, current_staff).find_client(job)
     if not client or not can_see_client(db, current_staff, client.id):
         return None
     return {'id': str(client.id), 'name': client.display_name}
@@ -397,7 +397,8 @@ def update_job(
     job_id: UUID,
     job_update: JobUpdate,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff),
 ):
     """Update job"""
     from app.domains.client.client_sync_service import sync_client_from_wm_job
@@ -418,7 +419,7 @@ def update_job(
     try:
         wm_job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == job_id).first()
         if wm_job:
-            sync_client_from_wm_job(db, wm_job, homeowner_new=not had_homeowner)
+            sync_client_from_wm_job(db, wm_job, homeowner_new=not had_homeowner, staff=current_staff)
     except Exception as sync_err:
         logger.warning(f"Client sync after WM job update failed (non-fatal): {sync_err}")
 
@@ -6194,7 +6195,9 @@ def get_adjuster_email_info(job_id: UUID, current_staff=Depends(get_current_staf
     """Get adjuster/PA info, document readiness, and email accounts for sending."""
     service = get_adjuster_email_service()
     try:
-        info = service.get_adjuster_info(str(job_id), sender_email=current_staff.email)
+        info = service.get_adjuster_info(
+            str(job_id), sender_email=current_staff.email, staff=current_staff,
+        )
         readiness = service.get_document_readiness(str(job_id))
         return {**info, "documents": readiness}
     except ValueError as e:
@@ -6283,7 +6286,9 @@ class SendToAdjusterRequest(BaseModel):
 
 
 @router.post("/jobs/{job_id}/send-to-adjuster", dependencies=[_job_access])
-async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
+async def send_to_adjuster(
+    job_id: UUID, data: SendToAdjusterRequest, current_staff=Depends(get_current_staff),
+):
     """Send water mitigation documents to insurance adjuster via email.
 
     Attaches selected documents (photo_report, invoice, w9, cos, ewa, sketch).
@@ -6299,7 +6304,7 @@ async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
         # duration, which has caused Render to kill the instance as
         # unresponsive mid-send.
         result = await asyncio.to_thread(
-            service.send_to_adjuster, str(job_id), data.dict()
+            service.send_to_adjuster, str(job_id), data.dict(), sender=current_staff,
         )
         return result
     except DocumentResourceError as e:
@@ -6353,7 +6358,9 @@ class FollowUpEmailRequest(BaseModel):
 
 
 @router.post("/jobs/{job_id}/send-followup", dependencies=[_job_access])
-async def send_followup_email(job_id: UUID, data: FollowUpEmailRequest):
+async def send_followup_email(
+    job_id: UUID, data: FollowUpEmailRequest, current_staff=Depends(get_current_staff),
+):
     """Send follow-up email to adjuster. Does NOT update documents_sent_date.
     Optionally re-attach selected documents.
     """
@@ -6365,7 +6372,7 @@ async def send_followup_email(job_id: UUID, data: FollowUpEmailRequest):
         # can't stall the event loop (and the health check) long enough for
         # Render to kill the instance mid-send.
         result = await asyncio.to_thread(
-            service.send_followup, str(job_id), data.dict()
+            service.send_followup, str(job_id), data.dict(), sender=current_staff,
         )
         return result
     except DocumentResourceError as e:
@@ -6396,7 +6403,9 @@ class SendDocumentsEmailRequest(BaseModel):
 
 
 @router.post("/jobs/{job_id}/send-documents", dependencies=[_job_access])
-async def send_documents_email(job_id: UUID, data: SendDocumentsEmailRequest):
+async def send_documents_email(
+    job_id: UUID, data: SendDocumentsEmailRequest, current_staff=Depends(get_current_staff),
+):
     """Email the documents selected in the Documents tab, as saved.
 
     Does NOT update documents_sent_date or the job status.
@@ -6408,7 +6417,7 @@ async def send_documents_email(job_id: UUID, data: SendDocumentsEmailRequest):
         # See send_to_adjuster above: offload the blocking downloads and SMTP
         # send so they can't stall the event loop.
         result = await asyncio.to_thread(
-            service.send_documents, str(job_id), data.dict()
+            service.send_documents, str(job_id), data.dict(), sender=current_staff,
         )
         return result
     except DocumentResourceError as e:

@@ -56,14 +56,17 @@ PRICE_TABLES = [
         "TRIM_RATES", "Trim", kind=MIXED, share=_TRIM,
         kinds={"baseboard_detach_reset_per_lf": LABOR, "baseboard_remove_per_lf": LABOR,
                "shoe_molding_remove_per_lf": LABOR},
+        shares={"baseboard_paint_per_lf": 0.15},
         labels={
             "baseboard_detach_reset_per_lf": "Baseboard - detach & reset",
             "baseboard_remove_per_lf": "Remove baseboard",
             "baseboard_mdf_per_lf": "Baseboard - MDF, install & paint",
+            "baseboard_paint_per_lf": "Baseboard - paint",
             "shoe_molding_remove_per_lf": "Remove shoe molding / quarter round",
             "shoe_molding_per_lf": "Shoe molding - install & paint",
             "quarter_round_per_lf": "Quarter round - install & paint",
             "tack_strip_per_lf": "Tack strip",
+            "toe_kick_reskin_per_lf": "Cabinet toe kick - reskin",
         },
     ),
     TableSpec(
@@ -71,9 +74,43 @@ PRICE_TABLES = [
         units={"toe_kick_per_lf": "LF"},
         labels={
             "toilet": "Toilet - detach & reset", "vanity": "Vanity - detach & reset",
+            "pedestal_sink": "Pedestal sink - detach & reset",
+            "utility_sink": "Utility sink / laundry tub - detach & reset",
             "toe_kick_per_lf": "Cabinet toe kick - detach & reset",
-            "appliance": "Appliance - detach & reset", "door": "Door - detach & reset",
+            "appliance": "Other appliance - detach & reset",
+            "refrigerator": "Refrigerator - detach & reset", "range": "Range - electric - detach & reset",
+            "range_gas": "Range - gas - detach & reset", "dishwasher": "Dishwasher - detach & reset",
+            "washer": "Washer - detach & reset", "dryer": "Dryer - electric - detach & reset",
+            "dryer_gas": "Dryer - gas - detach & reset",
+            "door": "Door - detach & reset",
             "door_undercut": "Door - undercut",
+        },
+    ),
+    TableSpec(
+        "CABINET_RATES", "Cabinets", kind=LABOR,
+        units={"base_detach_reset_per_lf": "LF", "island_detach_reset_per_lf": "LF", "panel_detach_reset_per_sf": "SF"},
+        labels={
+            "base_detach_reset_per_lf": "Base cabinets - detach & reset",
+            "island_detach_reset_per_lf": "Island - detach & reset",
+            "panel_detach_reset_per_sf": "Island back & end panels - detach & reset",
+        },
+    ),
+    TableSpec(
+        "REMOVAL_EXTRA_RATES", "Removal", kind=LABOR, title="Tear out extra", unit="SF",
+        labels={
+            "mortar_bed_per_sf": "Mortar bed under tile",
+            "tile_on_slab_per_sf": "Tile on a concrete slab",
+            "glue_down_concrete_per_sf": "Glued down over concrete",
+            "glue_down_wood_per_sf": "Glued down over a wood subfloor",
+            "vinyl_extra_layer_per_sf": "Another layer of vinyl",
+        },
+    ),
+    TableSpec(
+        "HVAC_RATES", "HVAC", kind=MIXED, share=0.60,
+        kinds={"floor_register_detach_reset": LABOR},
+        labels={
+            "floor_register_detach_reset": "Floor register - detach & reset",
+            "floor_register_replace": "Floor register - replace",
         },
     ),
     TableSpec(

@@ -51,6 +51,14 @@ def sees_everything(staff: Any) -> bool:
     return staff is not None and _role(staff) in ALL_DATA_ROLES
 
 
+# Logins for people outside the group: a public adjuster's office, a contractor
+OUTSIDE_ROLES = (StaffRole.public_adjuster, StaffRole.contractor)
+
+
+def is_outside_party(staff: Any) -> bool:
+    return staff is not None and _role(staff) in OUTSIDE_ROLES
+
+
 def staff_company_ids(db: Any, staff_id: Any) -> List[str]:
     from app.domains.staff.models import StaffCompany
 

@@ -909,7 +909,7 @@ def send_info_request(
     _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     try:
-        result = service.send_info_request(supplement_id, data)
+        result = service.send_info_request(supplement_id, data, sender=current_staff)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -935,7 +935,7 @@ def resend_info_request(
     _require_on_supplement(db, current_staff, SupplementFollowUp, followup_id, "Info request")
     service = _get_service()
     try:
-        result = service.resend_info_request(supplement_id, followup_id, data)
+        result = service.resend_info_request(supplement_id, followup_id, data, sender=current_staff)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1035,7 +1035,7 @@ def send_to_pa(
     refuse_public_adjuster(current_staff, "send bid items to a public adjuster")
     service = _get_service()
     try:
-        result = service.send_to_pa(supplement_id, data)
+        result = service.send_to_pa(supplement_id, data, sender=current_staff)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1115,7 +1115,7 @@ def reply_to_info_request(
                 "subject": subject,
                 "body_html": body_html,
                 "attachments": [],
-            })
+            }, sender=current_staff)
 
             from datetime import datetime, timezone
             now = datetime.now(timezone.utc)

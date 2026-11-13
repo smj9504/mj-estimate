@@ -31,6 +31,9 @@ from app.domains.supplement.service import (  # noqa: E402
 
 CLAIM_ID = '11111111-1111-1111-1111-111111111111'
 
+# Sent by an admin: any account may be used (access rules: test_email_account_guard.py)
+ADMIN = SimpleNamespace(id='99999999-9999-9999-9999-999999999999', role='admin')
+
 
 @compiles(JSONB, 'sqlite')
 def _jsonb_on_sqlite(type_, compiler, **kw):
@@ -86,7 +89,7 @@ def send(env, **data):
         'subject': 'Documents',
         'body_html': '<p>Attached.</p>',
         **data,
-    })
+    }, sender=ADMIN)
 
 
 def test_no_account_is_refused_and_nothing_goes_out(env):
@@ -155,10 +158,10 @@ def test_resend_goes_out_from_the_account_the_request_used(env, monkeypatch):
     payloads = []
     monkeypatch.setattr(
         ClaimFollowUpService, 'send_email',
-        lambda self, data: payloads.append(data) or {'id': None},
+        lambda self, data, **kw: payloads.append(data) or {'id': None},
     )
     SupplementService(env.database).resend_info_request(
-        str(followup.supplement_id), str(followup.id), {}
+        str(followup.supplement_id), str(followup.id), {}, sender=ADMIN,
     )
     [payload] = payloads
     assert payload['email_account_id'] == account_id
@@ -168,11 +171,11 @@ def test_resend_of_a_request_sent_from_the_server_address_is_refused(env, monkey
     followup = info_request(env, sent_from=None)
     monkeypatch.setattr(
         ClaimFollowUpService, 'send_email',
-        lambda self, data: pytest.fail('sent without an account'),
+        lambda self, data, **kw: pytest.fail('sent without an account'),
     )
     with pytest.raises(ValueError, match='no longer used'):
         SupplementService(env.database).resend_info_request(
-            str(followup.supplement_id), str(followup.id), {}
+            str(followup.supplement_id), str(followup.id), {}, sender=ADMIN,
         )
     assert 'new info request' in NO_ACCOUNT_ON_INFO_REQUEST
 

@@ -15,6 +15,7 @@ import {
   TEMPLATE_FIELDS, TEMPLATE_TYPE_OPTIONS, fieldLabel, fillTemplate, findPlaceholders,
   isBlankHtml, placeholderOf, templateTypeLabel, toEditorHtml,
 } from './emailTemplates';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 export interface TemplateDraft {
   subject: string;
@@ -294,11 +295,11 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
           </p>
           <div className="fu-tpl-preview-subject">
             <span className="fu-tpl-preview-label">Subject</span>
-            <span dangerouslySetInnerHTML={{ __html: markMissing(fillTemplate(subject, values, { html: true })) || '<span class="fu-muted">No subject</span>' }} />
+            <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(markMissing(fillTemplate(subject, values, { html: true }))) || '<span class="fu-muted">No subject</span>' }} />
           </div>
           <div
             className="fu-tpl-preview-body"
-            dangerouslySetInnerHTML={{ __html: markMissing(fillTemplate(body, values, { html: true })) }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(markMissing(fillTemplate(body, values, { html: true }))) }}
           />
         </div>
       )}

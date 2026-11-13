@@ -22,6 +22,7 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import { EstimateLineItem } from '../../services/estimateService';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 const { Text } = Typography;
 
@@ -157,7 +158,7 @@ const SimpleLineItems: React.FC<SimpleLineItemsProps> = ({
               </Text>
             )}
             {item.note && (
-              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: item.note }} />}>
+              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.note) }} />}>
                 <FileTextFilled style={{ color: '#1890ff', cursor: 'help', marginLeft: 8 }} />
               </Tooltip>
             )}

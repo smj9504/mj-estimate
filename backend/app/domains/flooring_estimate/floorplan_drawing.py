@@ -193,6 +193,11 @@ def _openings(d: Group, m: _Mapper, room: Mapping[str, Any], pts: Sequence[Point
         p1, p2, n = hit
         out = lambda p, k=WALL_T: (p[0] + n[0] * k, p[1] + n[1] * k)  # noqa: E731
         d.add(Polygon(m.flat([p1, p2, out(p2), out(p1)]), fillColor=gap_fill, strokeColor=None))
+        if op.get("kind") == "open_wall":
+            # No wall there: a dashed line where it would stand
+            d.add(Line(*m(out(p1, WALL_T / 2)), *m(out(p2, WALL_T / 2)), strokeColor=GREY, strokeWidth=0.5,
+                       strokeDashArray=[2, 1.5]))
+            continue
         for p in (p1, p2):
             d.add(Line(*m(p), *m(out(p)), strokeColor=WALL, strokeWidth=0.6))
         if str(op.get("swing") or "") != room_id:
@@ -228,6 +233,21 @@ def _room_points(room: Mapping[str, Any]) -> List[Point]:
     return points_of(room.get("points"))
 
 
+def _walls(d: Group, m: _Mapper, walls, room_ids=None):
+    """Walls built out into a room, as thick as they are"""
+    for wall in walls or []:
+        if room_ids is not None and str(wall.get("room_id")) not in room_ids:
+            continue
+        a, b = point(wall.get("a") or (0, 0)), point(wall.get("b") or (0, 0))
+        length = math.dist(a, b)
+        if length < 1e-6:
+            continue
+        half = float(wall.get("thickness") or WALL_T) / 2
+        nx, ny = -(b[1] - a[1]) / length * half, (b[0] - a[0]) / length * half
+        corners = [(a[0] + nx, a[1] + ny), (b[0] + nx, b[1] + ny), (b[0] - nx, b[1] - ny), (a[0] - nx, a[1] - ny)]
+        d.add(Polygon(m.flat(corners), fillColor=WALL, strokeColor=None))
+
+
 def room_thumbnail(
     level: Mapping[str, Any], room: Mapping[str, Any], width: float, height: float,
     material: Optional[str] = None, max_scale: float = 12.0,
@@ -249,6 +269,7 @@ def room_thumbnail(
     d.add(Polygon(m.flat(outer), fillColor=WALL, strokeColor=None))
     d.add(Polygon(m.flat(pts), fillColor=fill_for(material), strokeColor=None))
     _openings(d, m, room, pts, level.get("openings") or [], colors.white)
+    _walls(d, m, level.get("walls"), {str(room.get("id"))})
 
     labels = _Labels(width, height)
     cx, cy = m(centroid(pts))
@@ -297,6 +318,7 @@ def level_plan(
     openings = level.get("openings") or []
     for r in rooms:
         _openings(d, m, r, _room_points(r), openings, colors.white)
+    _walls(d, m, level.get("walls"))
 
     by_id = {str(r.get("id")): _room_points(r) for r in rooms}
     for run in level.get("cabinet_runs") or []:
@@ -374,6 +396,7 @@ def level_plan(
 FIXTURE_MARKS = {
     "toilet": "", "vanity": "Van", "island": "Island", "refrigerator": "Ref", "range": "Range",
     "dishwasher": "DW", "washer": "W", "dryer": "D", "other": "",
+    "pedestal_sink": "", "utility_sink": "Sink", "floor_register": "",
 }
 
 
@@ -392,6 +415,20 @@ def _fixture(d: Drawing, m: _Mapper, f: Mapping[str, Any]):
         # Tank against the wall, bowl in front
         g.add(Rect(-sw / 2, sh / 2 - sh * 0.3, sw, sh * 0.3, fillColor=colors.white, strokeColor=WALL, strokeWidth=0.5))
         g.add(Ellipse(0, -sh * 0.15, sw * 0.42, sh * 0.35, fillColor=colors.white, strokeColor=WALL, strokeWidth=0.5))
+    elif f.get("type") == "pedestal_sink":
+        # Basin, back to the wall, and the pedestal under it
+        g.add(Ellipse(0, 0, sw / 2, sh / 2, fillColor=colors.white, strokeColor=WALL, strokeWidth=0.5))
+        g.add(Ellipse(0, sh * 0.08, sw * 0.3, sh * 0.26, fillColor=colors.white, strokeColor=WALL, strokeWidth=0.4))
+    elif f.get("type") == "floor_register":
+        # A grille: the frame and its slats
+        g.add(Rect(-sw / 2, -sh / 2, sw, sh, fillColor=colors.white, strokeColor=WALL, strokeWidth=0.5))
+        for k in range(1, 6):
+            x = -sw / 2 + sw * k / 6
+            g.add(Line(x, -sh * 0.32, x, sh * 0.32, strokeColor=WALL, strokeWidth=0.3))
+    elif f.get("type") == "utility_sink":
+        g.add(Rect(-sw / 2, -sh / 2, sw, sh, fillColor=colors.white, strokeColor=WALL, strokeWidth=0.5))
+        g.add(Rect(-sw * 0.38, -sh * 0.38, sw * 0.76, sh * 0.62, fillColor=colors.white, strokeColor=WALL,
+                   strokeWidth=0.4))
     else:
         g.add(Rect(-sw / 2, -sh / 2, sw, sh, fillColor=colors.white, strokeColor=WALL, strokeWidth=0.5))
         mark = FIXTURE_MARKS.get(str(f.get("type") or ""), "")

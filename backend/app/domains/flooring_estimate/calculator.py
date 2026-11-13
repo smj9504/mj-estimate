@@ -38,7 +38,7 @@ from .geometry import (
     RoomMeasure, bounding_box, format_ft_in, is_axis_rectangle, levels_of, measure_sketch,
 )
 from .items import (
-    CATEGORY_ORDER, GENERAL_ITEMS, MAIN_LABELS, ROOM_ITEMS, RULES, ItemDef,
+    CATEGORY_ORDER, GENERAL_ITEMS, MAIN_LABELS, ROOM_ITEM_MAP, ROOM_ITEMS, RULES, ItemDef,
 )
 
 PRICE_DOMAIN = "flooring"
@@ -391,12 +391,25 @@ def room_rows(
 
     values = {
         "floor_sf": m.floor_sf, "base_lf": m.base_lf, "toe_kick_lf": m.toe_kick_lf,
+        "cabinet_run_lf": m.cabinet_run_lf, "island_lf": m.island_lf, "island_panel_sf": m.island_panel_sf,
+        "island_floored_count": m.island_floored_count,
         "door_count": m.door_count, "exterior_door_count": m.exterior_door_count,
         "toilet_count": m.toilet_count, "vanity_count": m.vanity_count,
+        "pedestal_sink_count": m.pedestal_sink_count, "utility_sink_count": m.utility_sink_count,
+        "register_count": m.register_count,
+        "refrigerator_count": m.refrigerator_count, "range_count": m.range_count,
+        "range_gas_count": m.range_gas_count, "dishwasher_count": m.dishwasher_count,
+        "washer_count": m.washer_count, "dryer_count": m.dryer_count, "dryer_gas_count": m.dryer_gas_count,
         "appliance_count": m.appliance_count, "transition_count": len(transition_to),
     }
     context = {**values, "new_material": scope.new_material, "any_removal": any_removal}
     job_room_items = job.get("room_items") or {}
+    # Shoe molding goes along the wall behind the base cabinets only when they come out
+    cabinets_out, _ = _switch(
+        _override(scope.items, "base_cabinet_detach_reset"), _override(job_room_items, "base_cabinet_detach_reset"),
+        RULES[ROOM_ITEM_MAP["base_cabinet_detach_reset"].rule](context),
+    )
+    values["shoe_lf"] = m.shoe_lf + (m.cabinet_run_lf if cabinets_out else 0.0)
     for item in ROOM_ITEMS:
         note = None
         if item.key == "transition" and transition_to:

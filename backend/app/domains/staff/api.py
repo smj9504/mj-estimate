@@ -21,9 +21,44 @@ from .service import StaffService
 from .models import StaffRole
 from app.core.database_factory import get_database
 from app.core.cache import get_cache, CacheService
-from app.domains.auth.dependencies import invalidate_staff_cache
+from app.domains.auth.dependencies import (
+    get_current_staff,
+    invalidate_staff_cache,
+    require_admin,
+)
 
 router = APIRouter()
+
+_ADMIN_ROLES = {"admin", "super_admin"}
+
+
+def _is_admin(staff) -> bool:
+    return str(getattr(staff.role, "value", staff.role)) in _ADMIN_ROLES
+
+
+async def _require_self_or_admin(
+    staff_id: UUID,
+    current_staff=Depends(get_current_staff),
+):
+    """A person's own Google Drive settings, or anyone's for an admin."""
+    if _is_admin(current_staff) or str(current_staff.id) == str(staff_id):
+        return current_staff
+    raise HTTPException(status_code=403, detail="You can only change your own settings")
+
+
+async def _require_own_password_change(
+    current_staff_id: UUID = Query(..., description="Current staff ID"),
+    current_staff=Depends(get_current_staff),
+):
+    if str(current_staff.id) != str(current_staff_id):
+        raise HTTPException(status_code=403, detail="You can only change your own password")
+    return current_staff
+
+
+# Everyone else's records: listing, creating, editing (role, email, password),
+# deactivating, permissions, audit logs. User Management uses /api/auth/staff.
+_ADMIN_ONLY = [Depends(require_admin)]
+_SELF_OR_ADMIN = [Depends(_require_self_or_admin)]
 
 
 def get_staff_service():
@@ -50,7 +85,7 @@ def login(
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
 
-@router.post("/change-password")
+@router.post("/change-password", dependencies=[Depends(_require_own_password_change)])
 def change_password(
     password_data: ChangePasswordRequest,
     current_staff_id: UUID = Query(..., description="Current staff ID"),
@@ -78,7 +113,7 @@ def change_password(
         raise HTTPException(status_code=500, detail=f"Password change failed: {str(e)}")
 
 
-@router.get("/", response_model=StaffListResponse)
+@router.get("/", response_model=StaffListResponse, dependencies=_ADMIN_ONLY)
 def get_staff_members(
     search: Optional[str] = Query(None, description="Search term"),
     role: Optional[StaffRole] = Query(None, description="Filter by role"),
@@ -106,7 +141,7 @@ def get_staff_members(
         raise HTTPException(status_code=500, detail=f"Error retrieving staff: {str(e)}")
 
 
-@router.get("/{staff_id}", response_model=StaffResponse)
+@router.get("/{staff_id}", response_model=StaffResponse, dependencies=_ADMIN_ONLY)
 def get_staff_member(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
@@ -124,7 +159,7 @@ def get_staff_member(
         raise HTTPException(status_code=500, detail=f"Error retrieving staff member: {str(e)}")
 
 
-@router.post("/", response_model=StaffResponse)
+@router.post("/", response_model=StaffResponse, dependencies=_ADMIN_ONLY)
 def create_staff_member(
     staff: StaffCreate,
     service: StaffService = Depends(get_staff_service)
@@ -141,7 +176,7 @@ def create_staff_member(
         raise HTTPException(status_code=400, detail=f"Error creating staff member: {str(e)}")
 
 
-@router.put("/{staff_id}", response_model=StaffResponse)
+@router.put("/{staff_id}", response_model=StaffResponse, dependencies=_ADMIN_ONLY)
 def update_staff_member(
     staff_id: UUID,
     staff: StaffUpdate,
@@ -170,7 +205,7 @@ def update_staff_member(
         raise HTTPException(status_code=400, detail=f"Update failed: {str(e)}")
 
 
-@router.delete("/{staff_id}")
+@router.delete("/{staff_id}", dependencies=_ADMIN_ONLY)
 def delete_staff_member(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
@@ -188,7 +223,7 @@ def delete_staff_member(
         raise HTTPException(status_code=400, detail=f"Error deactivating staff member: {str(e)}")
 
 
-@router.get("/{staff_id}/permissions", response_model=StaffPermissionResponse)
+@router.get("/{staff_id}/permissions", response_model=StaffPermissionResponse, dependencies=_ADMIN_ONLY)
 def get_staff_permissions(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
@@ -202,7 +237,7 @@ def get_staff_permissions(
         raise HTTPException(status_code=500, detail=f"Error retrieving permissions: {str(e)}")
 
 
-@router.put("/{staff_id}/permissions", response_model=StaffPermissionResponse)
+@router.put("/{staff_id}/permissions", response_model=StaffPermissionResponse, dependencies=_ADMIN_ONLY)
 def update_staff_permissions(
     staff_id: UUID,
     permissions: StaffPermissionUpdate,
@@ -225,7 +260,7 @@ def update_staff_permissions(
         raise HTTPException(status_code=400, detail=f"Error updating permissions: {str(e)}")
 
 
-@router.get("/audit-logs/", response_model=AuditLogResponse)
+@router.get("/audit-logs/", response_model=AuditLogResponse, dependencies=_ADMIN_ONLY)
 def get_audit_logs(
     staff_id: Optional[UUID] = Query(None, description="Filter by staff ID"),
     action: Optional[str] = Query(None, description="Filter by action"),
@@ -268,7 +303,7 @@ def get_staff_roles():
     }
 
 
-@router.get("/dashboard/stats")
+@router.get("/dashboard/stats", dependencies=_ADMIN_ONLY)
 def get_staff_dashboard_stats(
     company_id: Optional[UUID] = Query(None, description="Filter by company ID"),
     service: StaffService = Depends(get_staff_service)
@@ -282,7 +317,7 @@ def get_staff_dashboard_stats(
         raise HTTPException(status_code=500, detail=f"Error retrieving staff stats: {str(e)}")
 
 
-@router.post("/generate-number")
+@router.post("/generate-number", dependencies=_ADMIN_ONLY)
 def generate_staff_number(
     company_id: UUID = Query(..., description="Company ID"),
     service: StaffService = Depends(get_staff_service)
@@ -298,7 +333,7 @@ def generate_staff_number(
 
 # ========== Google Drive Settings Endpoints ==========
 
-@router.get("/{staff_id}/gdrive-settings", response_model=GoogleDriveSettingsResponse)
+@router.get("/{staff_id}/gdrive-settings", response_model=GoogleDriveSettingsResponse, dependencies=_SELF_OR_ADMIN)
 def get_gdrive_settings(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
@@ -322,7 +357,7 @@ def get_gdrive_settings(
         raise HTTPException(status_code=500, detail=f"Error retrieving Google Drive settings: {str(e)}")
 
 
-@router.put("/{staff_id}/gdrive-settings", response_model=GoogleDriveSettingsResponse)
+@router.put("/{staff_id}/gdrive-settings", response_model=GoogleDriveSettingsResponse, dependencies=_SELF_OR_ADMIN)
 def update_gdrive_settings(
     staff_id: UUID,
     settings_data: GoogleDriveSettingsUpdate,
@@ -383,7 +418,7 @@ def update_gdrive_settings(
         raise HTTPException(status_code=400, detail=f"Error updating Google Drive settings: {str(e)}")
 
 
-@router.post("/{staff_id}/gdrive-settings/test", response_model=GoogleDriveTestResponse)
+@router.post("/{staff_id}/gdrive-settings/test", response_model=GoogleDriveTestResponse, dependencies=_SELF_OR_ADMIN)
 def test_gdrive_connection(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
@@ -461,7 +496,7 @@ def test_gdrive_connection(
 
 # ========== Google OAuth 2.0 Endpoints ==========
 
-@router.get("/{staff_id}/gdrive-oauth/status", response_model=GoogleOAuthStatusResponse)
+@router.get("/{staff_id}/gdrive-oauth/status", response_model=GoogleOAuthStatusResponse, dependencies=_SELF_OR_ADMIN)
 def get_gdrive_oauth_status(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
@@ -504,7 +539,7 @@ def get_gdrive_oauth_status(
         raise HTTPException(status_code=500, detail=f"Error getting OAuth status: {str(e)}")
 
 
-@router.post("/{staff_id}/gdrive-oauth/init", response_model=GoogleOAuthInitResponse)
+@router.post("/{staff_id}/gdrive-oauth/init", response_model=GoogleOAuthInitResponse, dependencies=_SELF_OR_ADMIN)
 def init_gdrive_oauth(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
@@ -540,7 +575,7 @@ def init_gdrive_oauth(
         raise HTTPException(status_code=500, detail=f"Error initializing OAuth: {type(e).__name__}: {str(e)}")
 
 
-@router.post("/{staff_id}/gdrive-oauth/callback", response_model=GoogleOAuthCallbackResponse)
+@router.post("/{staff_id}/gdrive-oauth/callback", response_model=GoogleOAuthCallbackResponse, dependencies=_SELF_OR_ADMIN)
 def gdrive_oauth_callback(
     staff_id: UUID,
     callback_data: GoogleOAuthCallbackRequest,
@@ -588,7 +623,7 @@ def gdrive_oauth_callback(
         raise HTTPException(status_code=500, detail=f"Error processing OAuth callback: {str(e)}")
 
 
-@router.post("/{staff_id}/gdrive-oauth/disconnect")
+@router.post("/{staff_id}/gdrive-oauth/disconnect", dependencies=_SELF_OR_ADMIN)
 def disconnect_gdrive_oauth(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service),
@@ -638,7 +673,7 @@ def disconnect_gdrive_oauth(
         raise HTTPException(status_code=500, detail=f"Error disconnecting: {str(e)}")
 
 
-@router.get("/{staff_id}/gdrive-oauth/folders", response_model=GoogleDriveFolderListResponse)
+@router.get("/{staff_id}/gdrive-oauth/folders", response_model=GoogleDriveFolderListResponse, dependencies=_SELF_OR_ADMIN)
 def list_gdrive_folders(
     staff_id: UUID,
     parent_id: str = Query("root", description="Parent folder ID"),
@@ -671,7 +706,7 @@ def list_gdrive_folders(
         raise HTTPException(status_code=500, detail=f"Error listing folders: {str(e)}")
 
 
-@router.post("/{staff_id}/gdrive-oauth/folders", response_model=GoogleDriveFolderResponse)
+@router.post("/{staff_id}/gdrive-oauth/folders", response_model=GoogleDriveFolderResponse, dependencies=_SELF_OR_ADMIN)
 def create_gdrive_folder(
     staff_id: UUID,
     folder_data: GoogleDriveFolderCreateRequest,
@@ -708,7 +743,7 @@ def create_gdrive_folder(
         raise HTTPException(status_code=500, detail=f"Error creating folder: {str(e)}")
 
 
-@router.post("/{staff_id}/gdrive-oauth/select-folder")
+@router.post("/{staff_id}/gdrive-oauth/select-folder", dependencies=_SELF_OR_ADMIN)
 def select_gdrive_folder(
     staff_id: UUID,
     folder_data: GoogleDriveFolderSelectRequest,

@@ -60,9 +60,12 @@ def _is_uuid(value) -> bool:
         return False
 
 
-def _require_account(db, staff, account_id: str) -> None:
+def _require_account(db, staff, account_id: str, manage: bool = False) -> None:
     """404 unless the account is the staff member's own or belongs to one of
-    their companies"""
+    their companies. manage (edit, test, delete): someone else's own mailbox
+    is the owner's or an admin's alone - 403 for a colleague (audit 2026-11)."""
+    from app.domains.email_ingestion.access import may_manage
+
     ids = company_ids(db, staff)
     if ids is None:
         return
@@ -73,6 +76,12 @@ def _require_account(db, staff, account_id: str) -> None:
         return
     if row is None or not row[0] or str(row[0]) not in ids:
         raise HTTPException(status_code=404, detail="Account not found")
+    account = {"company_id": row[0], "owner_staff_id": row[1]}
+    if manage and not may_manage(db, staff, account):
+        raise HTTPException(
+            status_code=403,
+            detail="This is someone else's own mailbox. Only they or an admin can change it.",
+        )
 
 
 def _require_own_company(db, staff, company_id) -> None:
@@ -161,9 +170,12 @@ def list_accounts(
         ]
     ids = company_ids(db, current_staff)
     if ids is not None:
+        # The accounts they may send from (access.may_send_from): their
+        # companies' and their own mailboxes
         accounts = [
             a for a in accounts
-            if a.get('company_id') and str(a['company_id']) in ids
+            if (a.get('company_id') and str(a['company_id']) in ids)
+            or (a.get('owner_staff_id') and str(a['owner_staff_id']) == str(current_staff.id))
         ]
     return accounts
 
@@ -212,12 +224,21 @@ def update_account(
     db=Depends(get_db),
 ):
     """Update an email account"""
-    _require_account(db, current_staff, account_id)
+    from app.domains.email_ingestion.access import check_credential_destination
+
+    _require_account(db, current_staff, account_id, manage=True)
     if 'company_id' in data.dict(exclude_unset=True):
         _require_own_company(db, current_staff, data.company_id)
     service = _get_service()
+    update_data = data.dict(exclude_unset=True)
+    stored = service.get_account(account_id)
+    if not stored:
+        raise HTTPException(status_code=404, detail="Account not found")
     try:
-        update_data = data.dict(exclude_unset=True)
+        check_credential_destination(stored, update_data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
         account = service.update_account(account_id, update_data)
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
@@ -234,7 +255,7 @@ def delete_account(
     db=Depends(get_db),
 ):
     """Delete an email account"""
-    _require_account(db, current_staff, account_id)
+    _require_account(db, current_staff, account_id, manage=True)
     service = _get_service()
     result = service.delete_account(account_id)
     if not result:
@@ -249,7 +270,7 @@ def test_account(
     db=Depends(get_db),
 ):
     """Test IMAP connection for an account"""
-    _require_account(db, current_staff, account_id)
+    _require_account(db, current_staff, account_id, manage=True)
     service = _get_service()
     return service.test_account(account_id)
 

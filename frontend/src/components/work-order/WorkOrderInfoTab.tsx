@@ -46,6 +46,7 @@ import { workOrderService } from '../../services/workOrderService';
 import { companyService } from '../../services/companyService';
 import ActivityTimeline from './ActivityTimeline';
 import { returnToOf } from '../../utils/returnTo';
+import { sanitizeHtml } from '../../utils/safeHtml';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -693,7 +694,7 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
                 <Descriptions.Item label="Work Description">
                   <div
                     className="consultation-notes-content"
-                    dangerouslySetInnerHTML={{ __html: workOrder.work_description }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(workOrder.work_description) }}
                   />
                 </Descriptions.Item>
               )}
