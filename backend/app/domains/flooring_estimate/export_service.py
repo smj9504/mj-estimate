@@ -2,14 +2,17 @@
 Flooring estimate PDF, in one of three layouts (LAYOUTS), none of them
 Xactimate's (owner, 2026-11-13):
 
-  rooms     each room a card: its floor, a line of measurements and its
-            sketch, then its lines under work heads (tear out, floor, trim...)
+  rooms     each room a card: its sketch with its name, floor, amount and
+            measurements beside it, then its lines under work heads (tear
+            out, floor, trim...)
   trades    the whole house under each kind of work, room by room within it,
             after a summary by work beside the plan
   proposal  the work in words room by room with each room's amount, the
             itemized quantities at the back
 
-Every layout ends with the plan of every level and the terms. Built from a
+Line items are numbered in the order they print, the numbers running on
+through the document. Every layout ends with the plan of every level and the
+terms. Built from a
 calculated estimate (FlooringEstimateService.get_estimate): the
 measurements are the ones its lines were calculated from
 (calculated_rooms), the drawing is its sketch.
@@ -17,7 +20,8 @@ measurements are the ones its lines were calculated from
 
 import io
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from itertools import count
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -25,13 +29,14 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import (
-    HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    CondPageBreak, HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
+    TableStyle,
 )
 
 from . import pricing
 from .floorplan_drawing import level_plan, room_thumbnail
 from .geometry import (
-    CUT_TO_FIT, ON_TOP, fixture_words, fixtures_by_room, floor_fit_of, format_ft_in, levels_of,
+    CUT_TO_FIT, ON_TOP, fixture_words, fixtures_by_room, floor_fit_of, levels_of,
 )
 
 BRAND_DARK = colors.HexColor("#1a2332")
@@ -40,11 +45,6 @@ TEXT_GREY = colors.HexColor("#4a5568")
 BORDER_GREY = colors.HexColor("#e2e2e2")
 
 MARGIN = 0.6 * inch
-
-OPENING_WORDS = {
-    "opening": "Opening", "door": "Door", "bifold": "Bifold", "pocket": "Pocket door",
-    "slider": "Slider", "exterior_door": "Door",
-}
 
 TERMS = [
     "This estimate is valid for 30 days from the date issued.",
@@ -285,6 +285,8 @@ class FlooringExportService:
             "group": style("g", 7.3, True, BRAND_ACCENT, leading=9),
             "desc": style("d", 8.8, leading=11),
             "num": style("n", 8.8, leading=11, alignment=2),
+            "line_no": style("ln", 8.8, color=TEXT_GREY, leading=11, alignment=2),
+            "small_no": style("sn", 7.8, color=TEXT_GREY, leading=10.5, alignment=2),
             "sub": style("sb", 7.8, color=TEXT_GREY, leading=10, alignment=2),
             "small": style("sm", 7.8, color=TEXT_GREY, leading=10.5),
             "body": style("bd", 9.5, leading=13.5),
@@ -352,37 +354,41 @@ class FlooringExportService:
             out += [Paragraph(t, st["bullet" if t.startswith("•") else "terms"]) for t in fixture_notes]
         return out
 
-    def _lines_table(self, lines, st, w, area: bool = False, heads: bool = True) -> Table:
-        """Lines under their heads: description (with its note), quantity, unit
-        price, amount; a head's subtotal when it has more than one line. With
-        area, the room is a first column, said once per room within a head."""
-        widths = ([w * 0.17, w * 0.43] if area else [w * 0.58]) + [w * 0.15, w * 0.11, w * 0.14]
+    def _lines_table(self, lines, st, w, numbers: Iterator[int], area: bool = False, heads: bool = True) -> Table:
+        """Lines under their heads, each with its number (taken from numbers,
+        which run on through the document): description (with its note),
+        quantity, unit price, amount; a head's subtotal when it has more than
+        one line. With area, the room is a column after the number, said once
+        per room within a head. A page never ends on a head without its first
+        line, nor starts on a subtotal."""
+        widths = [w * 0.05] + ([w * 0.16, w * 0.39] if area else [w * 0.55]) + [w * 0.15, w * 0.11, w * 0.14]
         n = len(widths)
-        rows: List[List[Any]] = [([""] * (2 if area else 1)) + ["QTY", "UNIT PRICE", "AMOUNT"]]
+        rows: List[List[Any]] = [[""] * (n - 3) + ["QTY", "UNIT PRICE", "AMOUNT"]]
         style: List[Any] = [
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, 0), 7),
             ("TEXTCOLOR", (0, 0), (-1, 0), TEXT_GREY), ("ALIGN", (n - 3, 0), (-1, -1), "RIGHT"),
             ("VALIGN", (0, 0), (-1, -1), "TOP"), ("FONTSIZE", (0, 1), (-1, -1), 8.8),
             ("TEXTCOLOR", (0, 1), (-1, -1), BRAND_DARK),
             ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
-            ("LEFTPADDING", (0, 0), (0, -1), 2),
+            ("LEFTPADDING", (0, 0), (0, -1), 2), ("RIGHTPADDING", (0, 0), (0, -1), 5),
         ]
         groups = _grouped(lines) if heads else [("", list(lines))]
         for title, group in groups:
             if heads:
                 r = len(rows)
                 rows.append([Paragraph(title.upper(), st["group"])] + [""] * (n - 1))
-                style += [("SPAN", (0, r), (-1, r)), ("TOPPADDING", (0, r), (-1, r), 7)]
+                style += [("SPAN", (0, r), (-1, r)), ("TOPPADDING", (0, r), (-1, r), 7),
+                          ("NOSPLIT", (0, r), (-1, r + 1))]
             last_area = None
             for li in group:
                 desc = _escape(li.get("description"))
                 if li.get("notes"):
                     desc += f"<br/><font size=7.3 color='#4a5568'>{_escape(li['notes'])}</font>"
-                cells = [Paragraph(desc, st["desc"]), _qty(li), f"{float(li.get('unit_price') or 0):,.2f}",
-                         f"{float(li.get('total') or 0):,.2f}"]
+                cells = [Paragraph(f"{next(numbers)}.", st["line_no"]), Paragraph(desc, st["desc"]), _qty(li),
+                         f"{float(li.get('unit_price') or 0):,.2f}", f"{float(li.get('total') or 0):,.2f}"]
                 if area:
                     name = li.get("room_name") or "Whole job"
-                    cells.insert(0, Paragraph(_escape(name) if name != last_area else "", st["desc"]))
+                    cells.insert(1, Paragraph(_escape(name) if name != last_area else "", st["desc"]))
                     last_area = name
                 rows.append(cells)
                 style.append(("LINEBELOW", (0, len(rows) - 1), (-1, len(rows) - 1), 0.3, RULE))
@@ -390,25 +396,43 @@ class FlooringExportService:
                 r = len(rows)
                 rows.append([""] * (n - 3) + [Paragraph(f"{_escape(title)} subtotal", st["sub"]), "",
                                                Paragraph(f"{_total(group):,.2f}", st["sub"])])
-                style.append(("SPAN", (n - 3, r), (n - 2, r)))
+                style += [("SPAN", (n - 3, r), (n - 2, r)), ("NOSPLIT", (0, r - 1), (-1, r))]
         t = Table(rows, colWidths=widths, repeatRows=1)
         t.setStyle(TableStyle(style))
         return t
+
+    @staticmethod
+    def _starting_together(lead: List[Any], w: float, table: Optional[Table] = None, rows: int = 5) -> List[Any]:
+        """lead, then table: on the next page when lead and the table's first
+        rows (its column heads, the first work head and its first lines)
+        don't fit in what is left of this one; the rest of the table runs on
+        over the next pages, its column heads repeated. Not KeepTogether,
+        which sends a room taller than what is left to the next page whole
+        and leaves this one blank."""
+        tall = letter[1]
+        need = sum(f.wrap(w, tall)[1] + f.getSpaceBefore() + f.getSpaceAfter() for f in lead)
+        if table is None:
+            return [CondPageBreak(need), *lead]
+        table.wrap(w, tall)
+        need += sum(table._rowHeights[:rows])
+        return [CondPageBreak(need), *lead, table]
 
     # ── Room cards: each room a card, its lines under work heads ──
 
     def _room_cards(self, estimate, rooms, lines, levels, st, w) -> List[Any]:
         el: List[Any] = []
         names = {r["room_id"]: r.get("name") for r in rooms}
+        numbers = count(1)
         current_level = None
         summary: List[List[str]] = []
         for room in rooms:
             room_lines = [li for li in lines if li.get("room_id") == room["room_id"]]
             if not room_lines:
                 continue
+            lead: List[Any] = []
             if room.get("level_name") != current_level:
                 current_level = room.get("level_name")
-                el.append(Paragraph((current_level or "Rooms").upper(), st["level"]))
+                lead.append(Paragraph((current_level or "Rooms").upper(), st["level"]))
             total = _total(room_lines)
             short = "Refinish" if room.get("work") == "refinish" else \
                 pricing.MATERIALS.get(room.get("new_material") or "", {}).get("short", "—")
@@ -416,16 +440,16 @@ class FlooringExportService:
             title = _escape(room.get("name"))
             if room.get("subroom_of") and names.get(room["subroom_of"]):
                 title += f"  <font size=8 color='#4a5568'>in {_escape(names[room['subroom_of']])}</font>"
-            block = [self._card_head(title, _escape(_floor_words(room)), total, st, w),
-                     self._card_facts(room, levels.get(str(room.get("level_id"))), st, w),
-                     self._lines_table(room_lines, st, w), Spacer(1, 16)]
-            el.append(KeepTogether(block))
+            lead += [self._room_head(room, title, total, levels.get(str(room.get("level_id"))), st, w), Spacer(1, 4)]
+            el += self._starting_together(lead, w, self._lines_table(room_lines, st, w, numbers))
+            el.append(Spacer(1, 16))
 
         general = [li for li in lines if not li.get("room_id")]
         if general:
             total = _total(general)
-            el.append(KeepTogether([self._card_head("Whole job", "Once for the whole job", total, st, w),
-                                    Spacer(1, 2), self._lines_table(general, st, w), Spacer(1, 16)]))
+            el += self._starting_together([self._card_head("Whole job", "Once for the whole job", total, st, w),
+                                           Spacer(1, 2)], w, self._lines_table(general, st, w, numbers))
+            el.append(Spacer(1, 16))
             summary.append(["Whole job", "", "", _money(total)])
 
         total_sf = sum(float(r.get("floor_sf") or 0) for r in rooms)
@@ -447,37 +471,30 @@ class FlooringExportService:
         ]))
         return t
 
-    def _card_facts(self, room, level, st, w) -> Table:
-        """The room's sketch small, with its measurements and doorways beside it"""
+    def _room_head(self, room, title_html: str, total: float, level, st, w) -> Table:
+        """The room's card head: its sketch small, beside it its name, its new
+        floor and one line of measurements, its amount at the right. No
+        doorways or old floor (owner, 2026-11-13: too much words)."""
         f = lambda k: float(room.get(k) or 0)  # noqa: E731
         facts = [f"<b>{f('floor_sf'):,.2f}</b> SF floor", f"<b>{f('base_lf'):,.2f}</b> LF baseboard"]
         if f("cabinet_run_lf"):
             facts.append(f"<b>{f('cabinet_run_lf'):,.2f}</b> LF cabinets")
-        parts = [Paragraph(" &nbsp;·&nbsp; ".join(facts), st["desc"])]
-        openings = room.get("openings") or []
-        if openings:
-            text = ", ".join(
-                f"{format_ft_in(float(o.get('width_lf') or 0))} {OPENING_WORDS.get(o.get('kind'), 'opening').lower()} "
-                f"to {_escape(o.get('to_room_name') or 'outside')}"
-                for o in openings
-            )
-            parts.append(Paragraph(f"Doorways: {text}", st["small"]))
-        existing = room.get("existing_material")
-        if existing:
-            label = _escape(pricing.MATERIALS.get(existing, {}).get("label", existing))
-            parts.append(Paragraph(("Floor sanded: " if room.get("work") == "refinish" else "Coming out: ") + label,
-                                   st["small"]))
+        text = [Paragraph(title_html, st["card_title"]), Paragraph(_escape(_floor_words(room)), st["chip"]),
+                Spacer(1, 6), Paragraph(" &nbsp;·&nbsp; ".join(facts), st["desc"])]
         sketch_room = None
         if level:
             sketch_room = next((r for r in level.get("rooms") or [] if str(r.get("id")) == room["room_id"]), None)
         drawn = sketch_room or {"id": room["room_id"], "name": room.get("name"), "points": room.get("points") or []}
         thumb = room_thumbnail(level or {}, drawn, CARD_THUMB_W, CARD_THUMB_H, _floor_key(room))
-        # The sketch at the card's left edge, the facts right beside it
-        t = Table([[thumb, parts]], colWidths=[CARD_THUMB_W + 12, w - CARD_THUMB_W - 12])
+        thumb_w, total_w = CARD_THUMB_W + 15, w * 0.2
+        t = Table([[thumb, text, Paragraph(_money(total), st["card_total"])]],
+                  colWidths=[thumb_w, w - thumb_w - total_w, total_w])
         t.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (0, 0), 3),
-            ("LEFTPADDING", (1, 0), (1, 0), 6), ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("LINEBEFORE", (0, 0), (0, -1), 3, BRAND_ACCENT),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (0, 0), 9), ("LEFTPADDING", (1, 0), (1, 0), 6),
+            ("RIGHTPADDING", (2, 0), (2, 0), 9),
+            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ]))
         return t
 
@@ -494,6 +511,7 @@ class FlooringExportService:
         top.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (0, 0), 0),
                                  ("LEFTPADDING", (1, 0), (1, 0), 14)]))
         el: List[Any] = [Paragraph("Project Summary", st["section"]), top, Spacer(1, 18)]
+        numbers = count(1)
         for title, group in groups:
             head = Table([[Paragraph(_escape(title), st["card_title"]),
                            Paragraph(_money(_total(group)), st["card_total"])]], colWidths=[w * 0.7, w * 0.3])
@@ -501,7 +519,9 @@ class FlooringExportService:
                 ("LINEBELOW", (0, 0), (-1, -1), 1.2, BRAND_ACCENT), ("LEFTPADDING", (0, 0), (0, 0), 0),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]))
-            el += [KeepTogether([head, self._lines_table(group, st, w, area=True, heads=False)]), Spacer(1, 14)]
+            el += self._starting_together([head], w, self._lines_table(group, st, w, numbers, area=True, heads=False),
+                                          rows=4)
+            el.append(Spacer(1, 14))
         return el
 
     # ── Proposal: the work in words, room by room; the quantities at the back ──
@@ -534,7 +554,9 @@ class FlooringExportService:
                 if li.get("notes"):
                     text += f"<br/><font size=7.8 color='#4a5568'>{_escape(li['notes'])}</font>"
                 items.append(Paragraph(f"•&nbsp;&nbsp;{text}", st["scope"]))
-            return [head, Spacer(1, 3), Paragraph(sub, st["chip"]), Spacer(1, 4), *items, Spacer(1, 14)]
+            # The head with its first three items on one page, the rest free to run on
+            return [*self._starting_together([head, Spacer(1, 3), Paragraph(sub, st["chip"]), Spacer(1, 4),
+                                              *items[:3]], w), *items[3:], Spacer(1, 14)]
 
         for room in rooms:
             room_lines = [li for li in lines if li.get("room_id") == room["room_id"]]
@@ -544,10 +566,10 @@ class FlooringExportService:
             if room.get("subroom_of") and names.get(room["subroom_of"]):
                 title += f"  <font size=8 color='#4a5568'>in {_escape(names[room['subroom_of']])}</font>"
             sub = f"{_escape(_floor_words(room))} · {float(room.get('floor_sf') or 0):,.2f} SF"
-            el.append(KeepTogether(block(title, sub, room_lines)))
+            el += block(title, sub, room_lines)
         general = [li for li in lines if not li.get("room_id")]
         if general:
-            el.append(KeepTogether(block("Whole job", "Once for the whole job", general)))
+            el += block("Whole job", "Once for the whole job", general)
 
         total = Table([["Total", _money(float(estimate.get("total") or 0))]], colWidths=[w * 0.7, w * 0.3])
         total.setStyle(TableStyle([
@@ -561,21 +583,23 @@ class FlooringExportService:
         return el
 
     def _itemized_appendix(self, rooms, lines, st, w) -> List[Any]:
-        rows: List[List[Any]] = [["AREA", "DESCRIPTION", "QTY", "UNIT PRICE", "AMOUNT"]]
+        rows: List[List[Any]] = [["", "AREA", "DESCRIPTION", "QTY", "UNIT PRICE", "AMOUNT"]]
         last = None
-        for li in lines:
+        for i, li in enumerate(lines, 1):
             name = li.get("room_name") or "Whole job"
-            rows.append([Paragraph(_escape(name) if name != last else "", st["small"]),
+            rows.append([Paragraph(f"{i}.", st["small_no"]),
+                         Paragraph(_escape(name) if name != last else "", st["small"]),
                          Paragraph(_escape(li.get("description")), st["small"]), _qty(li),
                          f"{float(li.get('unit_price') or 0):,.2f}", f"{float(li.get('total') or 0):,.2f}"])
             last = name
-        t = Table(rows, colWidths=[w * 0.17, w * 0.45, w * 0.13, w * 0.11, w * 0.14], repeatRows=1)
+        t = Table(rows, colWidths=[w * 0.05, w * 0.15, w * 0.42, w * 0.13, w * 0.11, w * 0.14], repeatRows=1)
         t.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, 0), 7),
             ("TEXTCOLOR", (0, 0), (-1, 0), BRAND_ACCENT), ("LINEBELOW", (0, 0), (-1, 0), 1, BRAND_ACCENT),
             ("FONTSIZE", (0, 1), (-1, -1), 7.8), ("TEXTCOLOR", (0, 1), (-1, -1), BRAND_DARK),
-            ("ALIGN", (2, 0), (-1, -1), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (3, 0), (-1, -1), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LINEBELOW", (0, 1), (-1, -1), 0.3, RULE),
             ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("LEFTPADDING", (0, 0), (0, -1), 0), ("RIGHTPADDING", (0, 0), (0, -1), 4),
         ]))
         return [PageBreak(), Paragraph("Itemized Quantities", st["section"]), t]

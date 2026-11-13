@@ -796,12 +796,19 @@ def test_the_pdf_prints_each_room_as_a_card_with_its_lines_under_work_heads_then
 
     est = new_estimate(service)
     service.calculate(est["id"])
-    text = _pdf_text(FlooringExportService().generate_pdf(service.get_estimate(est["id"])))
+    estimate = service.get_estimate(est["id"])
+    text = _pdf_text(FlooringExportService().generate_pdf(estimate))
     assert "FLOORING ESTIMATE" in text
     for room in ("Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet"):
         assert room in text, room
-    # Each room's measurements in a line beside its sketch, its lines under work heads
-    assert "SF floor" in text and "LF baseboard" in text and "Doorways:" in text
+    # Each room's name, floor, amount and one line of measurements beside its
+    # sketch (no doorways or old floor), its lines numbered under work heads
+    assert "SF floor" in text and "LF baseboard" in text
+    assert "Doorways:" not in text and "Coming out:" not in text
+    # Every line numbered once, the numbers running on from room to room
+    import re
+    numbers =[int(n) for n in re.findall(r"^\s*(\d+)\.\s*$", text, re.M)]
+    assert numbers == list(range(1, len(estimate["line_items"]) + 1))
     for head in ("TEAR OUT", "FLOOR", "TRIM", "Trim subtotal"):
         assert head in text, head
     assert "15' 0\"" in text and "14' 2\"" in text
@@ -838,7 +845,7 @@ def test_the_pdf_by_trade_and_as_a_proposal(service):
 
     # An unknown layout falls back to room cards
     cards = _pdf_text(FlooringExportService().generate_pdf(estimate, layout="xactimate"))
-    assert "Doorways:" in cards
+    assert "SF floor" in cards
 
 
 def test_a_room_drawing_is_cropped_to_the_room_and_labelled(service):
@@ -1145,7 +1152,8 @@ def test_the_pdf_shows_a_sanded_room_as_refinished(service):
     text = _pdf_text(FlooringExportService().generate_pdf(calculated))
     assert "Sand & finish wood floor (natural finish)" in text
     assert "Hardwood · sand & finish wood floor (natural finish)" in text
-    assert "Floor sanded: Solid hardwood" in text and "Refinish" in text
+    # The card says so under the room's name, no separate "Floor sanded:" line
+    assert "Floor sanded:" not in text and "Refinish" in text
     assert "Hardwood - sand & refinish" in text
 
 
