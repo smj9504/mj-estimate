@@ -18,7 +18,7 @@ import FlooringProjectPanel, { type ProjectDraft } from '../components/flooring-
 import { useAutosave, type SaveStatus } from '../components/flooring-estimate/hooks/useAutosave';
 import RoomBody from '../components/rebuild-estimate/RoomBody';
 import SourcesCard from '../components/rebuild-estimate/SourcesCard';
-import { measureText, money, newRoom } from '../components/rebuild-estimate/lineEdit';
+import { asWording, measureText, money, newRoom, withWording } from '../components/rebuild-estimate/lineEdit';
 import rebuildEstimateService from '../services/rebuildEstimateService';
 import type { RebuildEstimate, RebuildLine, RebuildRoom, SourceKind } from '../types/rebuildEstimate';
 
@@ -90,6 +90,27 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
     },
     onError: (err: any) => message.error(err?.response?.status === 400
       ? 'Nothing to print yet: import an estimate or add a repair.' : "The PDF couldn't be made"),
+  });
+
+  // The sets a room can take, worded as the company words them
+  const { data: assemblies } = useQuery({
+    queryKey: ['rebuild-assemblies', id, estimate.company_id ?? null],
+    queryFn: () => rebuildEstimateService.assemblies(id),
+    staleTime: 5 * 60 * 1000,
+  });
+  // A line's words kept for its item: this estimate's lines of it take them now,
+  // the company's next estimates when they add it
+  const keepWording = useMutation({
+    mutationFn: (line: RebuildLine) => rebuildEstimateService.saveWording(id, {
+      code: line.code!, activity: line.activity!, text: asWording(line.description, line.section),
+    }),
+    onSuccess: (_, line) => {
+      setDraft((d) => ({ ...d, lines: withWording(d.lines, line.code!, line.activity!, asWording(line.description, line.section)) }));
+      queryClient.invalidateQueries({ queryKey: ['rebuild-assemblies', id] });
+      queryClient.invalidateQueries({ queryKey: ['rebuild-xactimate-search'] });
+      message.success(`Kept: ${line.code} is worded this way from now on`);
+    },
+    onError: () => message.error("The wording couldn't be kept"),
   });
 
   const [roomName, setRoomName] = useState('');
@@ -170,9 +191,12 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
               ),
               children: (
                 <RoomBody
+                  estimateId={id}
                   roomId={room.id}
                   room={room}
                   assembled={done}
+                  assemblies={assemblies}
+                  onSaveWording={(line) => keepWording.mutate(line)}
                   lines={draft.lines}
                   onLines={setLines}
                   onRoom={(patch) => setRoom(room.id, patch)}
@@ -207,11 +231,13 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
 
       <Card size="small" title={<span>General <Text type="secondary" style={{ fontWeight: 400 }}>— once for the whole job</Text></span>}
         extra={<Text strong>{money(byId.get(null)?.total)}</Text>}>
-        <RoomBody roomId={null} assembled={byId.get(null)} lines={draft.lines} onLines={setLines} />
+        <RoomBody estimateId={id} roomId={null} assembled={byId.get(null)} lines={draft.lines} onLines={setLines}
+          onSaveWording={(line) => keepWording.mutate(line)} />
       </Card>
       <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>
-        A repair from Xactimate is priced at the price list +10%, with material tax and (when it is on) O&amp;P in its
-        unit price. A price typed in is used as typed. Lines brought in keep the prices of the estimate they came from.
+        A repair from Xactimate is written in our words and priced at the price list +10%, with material tax and
+        (when it is on) O&amp;P in its unit price. A price typed in is used as typed. Lines brought in keep the prices
+        of the estimate they came from.
       </Text>
     </div>
   );

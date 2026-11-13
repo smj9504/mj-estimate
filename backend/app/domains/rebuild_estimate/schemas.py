@@ -13,6 +13,7 @@ class Measures(BaseModel):
     floor_sf: Optional[float] = Field(None, ge=0)
     ceiling_sf: Optional[float] = Field(None, ge=0)
     wall_sf: Optional[float] = Field(None, ge=0)
+    exterior_wall_sf: Optional[float] = Field(None, ge=0)
     perimeter_lf: Optional[float] = Field(None, ge=0)
     height_ft: Optional[float] = Field(None, ge=0)
 
@@ -32,6 +33,8 @@ class Activity(BaseModel):
     label: Optional[str] = None
     price: float = Field(..., ge=0)
     material_share: float = Field(0.0, ge=0, le=1)
+    # Our words for the line as this activity ({S}: the surface it is on)
+    wording: Optional[str] = Field(None, max_length=500)
 
 
 class Line(BaseModel):
@@ -44,12 +47,18 @@ class Line(BaseModel):
     unit: str = Field("EA", min_length=1, max_length=10)
     quantity: Optional[float] = Field(None, ge=0)               # none: the room's measure (basis)
     basis: Optional[str] = None
+    # A wall measure only part of the way up: the lower cut_height_ft (a
+    # flood cut) or what is above it; none: the whole height
+    cut_height_ft: Optional[float] = Field(None, gt=0, le=30)
+    cut_part: Literal["below", "above"] = "below"
     unit_price: Optional[float] = Field(None, ge=0)             # typed: used as it is
     # From the Xactimate price list, when it is one of its lines
     code: Optional[str] = Field(None, max_length=50)
     activity: Optional[Literal["&", "+", "-", "R", "M", "I"]] = None
     price_list: Optional[str] = Field(None, max_length=30)
     activities: List[Activity] = []
+    # Still in the price list's own words: to be written our way (owner, 2026-11-13)
+    xact_words: bool = False
     notes: Optional[str] = Field(None, max_length=500)
 
     @field_validator("basis")
@@ -99,6 +108,22 @@ class ImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal[KINDS]  # type: ignore[valid-type]
     estimate_id: str = Field(..., min_length=1, max_length=64)
+
+
+class WordingRequest(BaseModel):
+    """Our words for a price list line from now on ({S}: the surface)"""
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(..., min_length=1, max_length=50)
+    activity: Literal["&", "+", "-", "R", "M", "I"]
+    text: str = Field(..., min_length=1, max_length=500)
+
+    @field_validator("text")
+    @classmethod
+    def strip(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Write the words")
+        return value
 
 
 class SourceRoomRequest(BaseModel):

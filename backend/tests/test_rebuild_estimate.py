@@ -26,7 +26,7 @@ from app.domains.flooring_estimate.models import FlooringEstimate, FlooringEstim
 from app.domains.flooring_estimate.schemas import FlooringEstimateCreate, FlooringEstimateUpdate
 from app.domains.flooring_estimate.service import FlooringEstimateService
 from app.domains.rebuild_estimate.assemble import assemble, tax_rate
-from app.domains.rebuild_estimate.models import RebuildEstimate
+from app.domains.rebuild_estimate.models import RebuildEstimate, RebuildWording
 from app.domains.rebuild_estimate.schemas import (
     ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SourceRoomRequest,
 )
@@ -45,7 +45,7 @@ def session(tmp_path):
                   FlooringEstimate, FlooringEstimateLineItem, FlooringEstimateHistory,
                   BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory,
                   CabinetEstimate, CabinetBox, CabinetEstimateLineItem, CabinetEstimateHistory,
-                  RebuildEstimate, XactimateCategory, XactimateItem):
+                  RebuildEstimate, RebuildWording, XactimateCategory, XactimateItem):
         model.__table__.create(engine)
     s = SQLAlchemySession(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)())
     yield s
@@ -116,9 +116,13 @@ def test_a_flooring_estimate_comes_in_room_by_room_with_every_line(session, serv
     # Its rooms, with what the sketch measured (the bedroom 2 and bathroom left out of it aren't)
     rooms = {r["name"]: r for r in est["rooms"]}
     assert set(rooms) == {"Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet"}
-    assert rooms["Living Room"]["measures"]["floor_sf"] == pytest.approx(212.5)
-    assert rooms["Living Room"]["measures"]["wall_sf"] > 0
-    assert rooms["Living Room"]["measures"]["perimeter_lf"] == pytest.approx(58.33)
+    living = rooms["Living Room"]["measures"]
+    assert living["floor_sf"] == pytest.approx(212.5)
+    assert living["perimeter_lf"] == pytest.approx(58.33)
+    # The walls less the 6' opening to the kitchen and the 3' front door, 6' 8" high
+    assert living["wall_sf"] == pytest.approx(58.33 * 8 - 9 * 6.6667, abs=0.05)
+    # The outside walls: the front and the left side, less the front door
+    assert living["exterior_wall_sf"] == pytest.approx((15 + 14.1667) * 8 - 3 * 6.6667, abs=0.05)
 
     # Every line, priced as it was, under Floor; the whole-job lines in General
     living = floor["line_items"]
@@ -313,6 +317,85 @@ def test_a_repair_without_a_quantity_or_a_room_is_said_or_refused(session, servi
         RebuildEstimateUpdate(lines=[{"id": "b", "description": "x", "activity": "-", "activities": [PAINT]}])
 
 
+def test_the_walls_are_measured_less_their_doors_and_the_outside_walls_apart():
+    from app.domains.flooring_estimate.geometry import measure_sketch
+
+    m = {r.room_id: r for r in measure_sketch(house())}
+    # Kitchen: 51 LF x 8', less the 6' opening and the 3' one to the hall at 6' 8"
+    assert m["kitchen"].wall_net_sf == pytest.approx(408 - 9 * 6.6667, abs=0.05)
+    # Its outside walls: the back 14', the right 8', the L's 4' and 3' 6"
+    assert m["kitchen"].exterior_wall_lf == pytest.approx(29.5, abs=0.01)
+    # A hall between rooms has none; the gaps where inside walls meet don't count
+    assert m["hall"].exterior_wall_lf == 0
+    # An open wall takes the whole height out
+    sketch = house()
+    sketch["levels"][0]["openings"][0]["kind"] = "open_wall"
+    assert {r.room_id: r for r in measure_sketch(sketch)}["kitchen"].wall_net_sf == pytest.approx(
+        408 - 6 * 8 - 3 * 6.6667, abs=0.05)
+
+
+def test_a_flood_cut_takes_the_lower_part_of_the_walls_and_the_rest_is_painted_to_match(session, service):
+    est = new(service)
+    measures = {"floor_sf": 147, "wall_sf": 348, "exterior_wall_sf": 236, "perimeter_lf": 51, "height_ft": 8}
+    common = {"room_id": "k", "section": "wall", "unit": "SF", "unit_price": 1}
+    est = service.update(est["id"], RebuildEstimateUpdate(
+        rooms=[{"id": "k", "name": "Kitchen", "measures": measures}],
+        lines=[
+            {**common, "id": "dry", "description": "Drywall", "basis": "wall_sf", "cut_height_ft": 2},
+            {**common, "id": "ins", "description": "Insulation", "basis": "exterior_wall_sf", "cut_height_ft": 2},
+            {**common, "id": "top", "description": "Paint the rest", "basis": "wall_sf", "cut_height_ft": 2,
+             "cut_part": "above"},
+            {**common, "id": "all", "description": "Paint", "basis": "wall_sf"},
+            {**common, "id": "ceil", "section": "ceiling", "description": "Ceiling", "basis": "ceiling_sf",
+             "cut_height_ft": 2},
+        ],
+    ))
+    lines = {li["id"]: li for s in lines_of(est, "Kitchen").values() for li in s}
+    assert {k: li["quantity"] for k, li in lines.items()} == {
+        "dry": 87.0, "ins": 59.0, "top": 261.0, "all": 348.0, "ceil": 147.0}
+    # Said on the estimate
+    assert (lines["dry"]["notes"], lines["ins"]["notes"], lines["top"]["notes"], lines["all"]["notes"]) == (
+        "Lower 2' of the walls", "Lower 2' of the outside walls", "The walls above 2'", None)
+
+
+# ── Our words, not Xactimate's ──
+
+def test_a_line_is_worded_our_way_the_companys_words_first():
+    from app.domains.rebuild_estimate.wording import built_in, wording_for
+
+    assert built_in("DRY1/2", "&") == 'Drywall 1/2" - tear out, hang new, tape & finish'
+    assert built_in("INSBTF4+", "&") == "Insulation R-13 faced batt (2x4 wall) - remove & replace"
+    assert built_in("INSBTF4+", "M") == "Insulation R-13 faced batt (2x4 wall) - material only"
+    assert built_in("PNTSP", "+") == "{S} - seal/prime & paint, 1 coat each"
+    assert built_in("PNTB", "I") == "Baseboard - paint, 1 coat - labor only"
+    assert built_in("FCWLAM", "&") is None
+    saved = {("DRY1/2", "&"): 'Drywall 1/2" - new, taped & finished'}
+    assert wording_for("DRY1/2", "&", saved) == 'Drywall 1/2" - new, taped & finished'
+    assert wording_for("DRY1/2", "-", saved) == 'Drywall 1/2" - tear out'
+
+
+def test_a_company_keeps_its_own_words(session):
+    from app.domains.rebuild_estimate.wording import save_wording, saved_wordings
+
+    mine, theirs = str(uuid.uuid4()), str(uuid.uuid4())
+    save_wording(session, None, "FCWLAM", "&", "Laminate floor - replace")
+    save_wording(session, mine, "FCWLAM", "&", "Laminate - tear out & lay new")
+    save_wording(session, mine, "FCWLAM", "&", "Laminate - remove & lay new")    # changed, not added
+    assert saved_wordings(session, mine)[("FCWLAM", "&")] == "Laminate - remove & lay new"
+    assert saved_wordings(session, theirs)[("FCWLAM", "&")] == "Laminate floor - replace"
+    assert session.query(RebuildWording).count() == 2
+
+
+def test_a_line_left_in_xactimates_words_is_pointed_out(session, service):
+    est = new(service)
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        {"id": "a", "description": "Snaplock Laminate - simulated wood flooring", "unit": "SF", "quantity": 10,
+         "code": "FCWLAM", "activity": "&", "activities": [{"activity": "&", "price": 7.70, "material_share": 0.43}],
+         "xact_words": True},
+    ]))
+    assert any("Xactimate's words" in w for w in est["assembled"]["warnings"])
+
+
 # ── The Xactimate price list ──
 
 def test_searching_the_price_list_finds_the_latest_month_with_each_activity(session):
@@ -336,6 +419,54 @@ def test_searching_the_price_list_finds_the_latest_month_with_each_activity(sess
     # By its code too
     assert search(session, "dry1/2")[0]["code"] == "DRY1/2"
     assert search(session, "carpet") == []
+    # In our words
+    assert acts["&"]["wording"] == 'Drywall 1/2" - tear out, hang new, tape & finish' and found[0]["ours"]
+
+
+def test_the_plain_item_comes_before_its_variants_and_ours_before_the_rest(session):
+    from app.domains.rebuild_estimate.xactimate_search import search
+
+    session.add(XactimateCategory(category_code="DRY", category_name="Drywall"))
+    for code, words in (("DRY1/2FT", "hung & fire taped only"), ("DRY1/4", "hung, taped, floated, ready for paint"),
+                        ("DRY1/2", "hung, taped, floated, ready for paint")):
+        session.add(XactimateItem(item_code=code, category_code="DRY", description=f"drywall - {words}", unit="SF",
+                                  activity="+", untaxed_unit_price=3, price_year=2026, price_month=11))
+    session.flush()
+    assert [m["code"] for m in search(session, "drywall hung")] == ["DRY1/2", "DRY1/4", "DRY1/2FT"]
+    assert [m["ours"] for m in search(session, "drywall hung")] == [True, False, False]
+
+
+def _price_list(session, *codes):
+    rows = {
+        "DRY1/2": ("DRY", "&", 3.80, 3.26, 0.54, 0.76), "PNTSP": ("PNT", "+", 1.38, None, None, 0.23),
+        "PNTP": ("PNT", "+", 0.96, None, None, 0.17), "INSBTF4+": ("INS", "&", 1.63, 1.32, 0.31, 0.80),
+    }
+    for cat in {rows[c][0] for c in codes}:
+        session.add(XactimateCategory(category_code=cat, category_name=cat))
+    for code in codes:
+        cat, act, price, rep_price, rem, mat = rows[code]
+        session.add(XactimateItem(item_code=code, category_code=cat, description=f"{code} item {{V}}", unit="SF",
+                                  activity=act, untaxed_unit_price=price, replace_price=rep_price, remove_price=rem,
+                                  material_cost=mat, price_year=2026, price_month=11, price_list="NOV26"))
+    session.flush()
+
+
+def test_a_set_brings_its_lines_in_our_words_and_leaves_out_what_the_list_lacks(session):
+    from app.domains.rebuild_estimate.assemblies import assemblies
+
+    _price_list(session, "DRY1/2", "PNTSP", "PNTP")
+    sets = {a["key"]: a for a in assemblies(session, {})}
+    walls = sets["walls_drywall"]
+    assert walls["asks_cut"] is True
+    assert [(i["code"], i["activity"], i["basis"], i["cut_part"], i["only_with_cut"]) for i in walls["items"]] == [
+        ("DRY1/2", "&", "wall_sf", "below", False), ("PNTSP", "+", "wall_sf", "below", False),
+        ("PNTP", "+", "wall_sf", "above", True),
+    ]
+    assert walls["items"][1]["match"]["activities"][0]["wording"] == "{S} - seal/prime & paint, 1 coat each"
+    # No insulation in this price list: the set comes without it; none of the
+    # masking, film or cleaning lines: those sets aren't offered
+    assert [i["code"] for i in sets["walls_drywall_insulation"]["items"]] == ["DRY1/2", "PNTSP", "PNTP"]
+    assert "paint_prep" not in sets and "final_clean" not in sets
 
 
 # ── The PDF ──

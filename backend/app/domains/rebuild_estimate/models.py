@@ -57,3 +57,19 @@ class RebuildEstimate(Base, BaseModel):
     notes = Column(Text, nullable=True)
 
     claim_ref = relationship("Claim", lazy="select")
+
+
+class RebuildWording(Base, BaseModel):
+    """A company's own words for a price list line, by its code and the
+    activity it is added as (wording.py). No company: everyone's."""
+    __tablename__ = "rebuild_wordings"
+    __table_args__ = (
+        Index("ix_rebuild_wordings_code", "item_code", "activity"),
+        {"extend_existing": True},
+    )
+
+    company_id = Column(UUIDType(), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    item_code = Column(String(50), nullable=False)
+    activity = Column(String(2), nullable=False)
+    text = Column(String(500), nullable=False)
+    updated_by_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)

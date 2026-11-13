@@ -13,68 +13,73 @@
  "profit_pct": 0.1,
  "total": 13822.38,
  "notes": null,
- "created_at": "2026-11-13 18:34:34",
- "updated_at": "2026-11-13 18:34:34",
+ "created_at": "2026-11-13 18:57:54",
+ "updated_at": "2026-11-13 18:57:55",
  "claim_number": null,
  "client_name": null,
  "client_id": null,
  "rooms": [
   {
-   "id": "9f54a197ea6a",
+   "id": "b44bf4185718",
    "name": "Living Room",
    "level_name": "Main Level",
    "measures": {
     "floor_sf": 212.5,
     "ceiling_sf": 212.5,
-    "wall_sf": 466.67,
+    "wall_sf": 406.67,
+    "exterior_wall_sf": 213.33,
     "perimeter_lf": 58.33,
     "height_ft": 8.0
    }
   },
   {
-   "id": "45ea335a6cb9",
+   "id": "d1ed73e11c4b",
    "name": "Kitchen",
    "level_name": "Main Level",
    "measures": {
     "floor_sf": 147.0,
     "ceiling_sf": 147.0,
-    "wall_sf": 408.0,
+    "wall_sf": 348.0,
+    "exterior_wall_sf": 236.0,
     "perimeter_lf": 51.0,
     "height_ft": 8.0
    }
   },
   {
-   "id": "829a86c4c149",
+   "id": "064c79a7d9d2",
    "name": "Hallway",
    "level_name": "Main Level",
    "measures": {
     "floor_sf": 48.67,
     "ceiling_sf": 48.67,
-    "wall_sf": 258.67,
+    "wall_sf": 188.67,
+    "exterior_wall_sf": 0.0,
     "perimeter_lf": 32.33,
     "height_ft": 8.0
    }
   },
   {
-   "id": "1fff6e4028a5",
+   "id": "8daa8a05d09d",
    "name": "Bedroom 1",
    "level_name": "Main Level",
    "measures": {
     "floor_sf": 172.5,
     "ceiling_sf": 172.5,
-    "wall_sf": 424.0,
+    "wall_sf": 377.33,
+    "exterior_wall_sf": 168.0,
     "perimeter_lf": 53.0,
     "height_ft": 8.0
    }
   },
   {
-   "id": "6e056ff5b73c",
+   "id": "b17ca6c29cf6",
    "name": "Closet",
    "level_name": "Main Level",
    "measures": {
     "floor_sf": 11.0,
     "ceiling_sf": 11.0,
-    "wall_sf": 120.0,
+    "wall_sf": 90.0,
+    "exterior_wall_sf": 60.0,
     "perimeter_lf": 15.0,
     "height_ft": 8.0
    }
@@ -83,14 +88,14 @@
  "lines": [],
  "sources": [
   {
-   "id": "12844e83d1e9",
+   "id": "ec96874ea197",
    "kind": "flooring",
-   "estimate_id": "22c0ef97-5d2b-4a7e-a90a-3fbe5f13c4cc",
+   "estimate_id": "52c6d813-ec3b-4939-82ca-3a86890b402e",
    "label": "Flooring estimate",
    "op_included": false,
    "total": 8614.38,
    "line_count": 31,
-   "imported_at": "2026-11-13T18:34:34.585069+00:00",
+   "imported_at": "2026-11-13T18:57:55.223352+00:00",
    "rooms": [
     {
      "key": "room:living",
@@ -114,24 +119,24 @@
     }
    ],
    "room_map": {
-    "room:living": "9f54a197ea6a",
-    "room:kitchen": "45ea335a6cb9",
-    "room:hall": "829a86c4c149",
-    "room:bed1": "1fff6e4028a5",
-    "room:closet": "6e056ff5b73c"
+    "room:living": "b44bf4185718",
+    "room:kitchen": "d1ed73e11c4b",
+    "room:hall": "064c79a7d9d2",
+    "room:bed1": "8daa8a05d09d",
+    "room:closet": "b17ca6c29cf6"
    },
    "state": "current",
-   "path": "/flooring-estimates/22c0ef97-5d2b-4a7e-a90a-3fbe5f13c4cc"
+   "path": "/flooring-estimates/52c6d813-ec3b-4939-82ca-3a86890b402e"
   },
   {
-   "id": "6f2c312969a4",
+   "id": "c630dde7a570",
    "kind": "cabinet",
-   "estimate_id": "1c3247fd-8ec0-4384-af19-dfe295245b34",
+   "estimate_id": "303957f7-b2d7-4916-9912-ac57148b1d7e",
    "label": "Kitchen cabinet estimate",
    "op_included": true,
    "total": 5208.0,
    "line_count": 2,
-   "imported_at": "2026-11-13T18:34:34.571135+00:00",
+   "imported_at": "2026-11-13T18:57:55.200575+00:00",
    "rooms": [
     {
      "key": "kitchen",
@@ -139,22 +144,23 @@
     }
    ],
    "room_map": {
-    "kitchen": "45ea335a6cb9"
+    "kitchen": "d1ed73e11c4b"
    },
    "state": "current",
-   "path": "/cabinet-estimates/1c3247fd-8ec0-4384-af19-dfe295245b34"
+   "path": "/cabinet-estimates/303957f7-b2d7-4916-9912-ac57148b1d7e"
   }
  ],
  "assembled": {
   "rooms": [
    {
-    "id": "9f54a197ea6a",
+    "id": "b44bf4185718",
     "name": "Living Room",
     "level_name": "Main Level",
     "measures": {
      "floor_sf": 212.5,
      "ceiling_sf": 212.5,
-     "wall_sf": 466.67,
+     "wall_sf": 406.67,
+     "exterior_wall_sf": 213.33,
      "perimeter_lf": 58.33,
      "height_ft": 8.0
     },
@@ -172,9 +178,9 @@
         "unit_price": 0.75,
         "total": 159.38,
         "notes": null,
-        "id": "12844e83d1e9:0",
+        "id": "ec96874ea197:0",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 1
        },
@@ -187,9 +193,9 @@
         "unit_price": 7.95,
         "total": 1858.31,
         "notes": "Incl. 10% waste \u00b7 order 12 boxes @ 20 SF",
-        "id": "12844e83d1e9:1",
+        "id": "ec96874ea197:1",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 2
        },
@@ -202,9 +208,9 @@
         "unit_price": 2.36,
         "total": 116.42,
         "notes": null,
-        "id": "12844e83d1e9:2",
+        "id": "ec96874ea197:2",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 3
        },
@@ -217,9 +223,9 @@
         "unit_price": 0.26,
         "total": 12.83,
         "notes": null,
-        "id": "12844e83d1e9:3",
+        "id": "ec96874ea197:3",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 4
        },
@@ -232,9 +238,9 @@
         "unit_price": 3.83,
         "total": 188.93,
         "notes": null,
-        "id": "12844e83d1e9:4",
+        "id": "ec96874ea197:4",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 5
        },
@@ -247,9 +253,9 @@
         "unit_price": 46.48,
         "total": 46.48,
         "notes": "To Kitchen (ceramic)",
-        "id": "12844e83d1e9:5",
+        "id": "ec96874ea197:5",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 6
        }
@@ -260,13 +266,14 @@
     "total": 2382.35
    },
    {
-    "id": "45ea335a6cb9",
+    "id": "d1ed73e11c4b",
     "name": "Kitchen",
     "level_name": "Main Level",
     "measures": {
      "floor_sf": 147.0,
      "ceiling_sf": 147.0,
-     "wall_sf": 408.0,
+     "wall_sf": 348.0,
+     "exterior_wall_sf": 236.0,
      "perimeter_lf": 51.0,
      "height_ft": 8.0
     },
@@ -284,9 +291,9 @@
         "unit_price": 13.63,
         "total": 190.82,
         "notes": null,
-        "id": "12844e83d1e9:6",
+        "id": "ec96874ea197:6",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 7
        },
@@ -299,9 +306,9 @@
         "unit_price": 67.68,
         "total": 67.68,
         "notes": null,
-        "id": "12844e83d1e9:7",
+        "id": "ec96874ea197:7",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 8
        },
@@ -314,9 +321,9 @@
         "unit_price": 50.79,
         "total": 50.79,
         "notes": null,
-        "id": "12844e83d1e9:8",
+        "id": "ec96874ea197:8",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 9
        },
@@ -329,9 +336,9 @@
         "unit_price": 1.45,
         "total": 213.15,
         "notes": null,
-        "id": "12844e83d1e9:9",
+        "id": "ec96874ea197:9",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 10
        },
@@ -344,9 +351,9 @@
         "unit_price": 3.94,
         "total": 579.18,
         "notes": null,
-        "id": "12844e83d1e9:10",
+        "id": "ec96874ea197:10",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 11
        },
@@ -359,9 +366,9 @@
         "unit_price": 15.94,
         "total": 2584.51,
         "notes": "Incl. 10.3% waste for this room's shape \u00b7 order 11 boxes @ 15 SF \u00b7 1 corner notched",
-        "id": "12844e83d1e9:11",
+        "id": "ec96874ea197:11",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 12
        },
@@ -374,9 +381,9 @@
         "unit_price": 2.36,
         "total": 66.08,
         "notes": null,
-        "id": "12844e83d1e9:12",
+        "id": "ec96874ea197:12",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 13
        },
@@ -389,9 +396,9 @@
         "unit_price": 0.26,
         "total": 10.92,
         "notes": null,
-        "id": "12844e83d1e9:13",
+        "id": "ec96874ea197:13",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 14
        },
@@ -404,9 +411,9 @@
         "unit_price": 3.83,
         "total": 160.86,
         "notes": null,
-        "id": "12844e83d1e9:14",
+        "id": "ec96874ea197:14",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 15
        }
@@ -426,9 +433,9 @@
         "unit_price": 310.0,
         "total": 4340.0,
         "notes": null,
-        "id": "6f2c312969a4:0",
+        "id": "c630dde7a570:0",
         "source": "imported",
-        "source_id": "6f2c312969a4",
+        "source_id": "c630dde7a570",
         "source_label": "Kitchen cabinet estimate",
         "n": 16
        },
@@ -441,9 +448,9 @@
         "unit_price": 62.0,
         "total": 868.0,
         "notes": null,
-        "id": "6f2c312969a4:1",
+        "id": "c630dde7a570:1",
         "source": "imported",
-        "source_id": "6f2c312969a4",
+        "source_id": "c630dde7a570",
         "source_label": "Kitchen cabinet estimate",
         "n": 17
        }
@@ -454,13 +461,14 @@
     "total": 9131.99
    },
    {
-    "id": "829a86c4c149",
+    "id": "064c79a7d9d2",
     "name": "Hallway",
     "level_name": "Main Level",
     "measures": {
      "floor_sf": 48.67,
      "ceiling_sf": 48.67,
-     "wall_sf": 258.67,
+     "wall_sf": 188.67,
+     "exterior_wall_sf": 0.0,
      "perimeter_lf": 32.33,
      "height_ft": 8.0
     },
@@ -478,9 +486,9 @@
         "unit_price": 0.75,
         "total": 36.5,
         "notes": null,
-        "id": "12844e83d1e9:15",
+        "id": "ec96874ea197:15",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 18
        },
@@ -493,9 +501,9 @@
         "unit_price": 7.95,
         "total": 425.56,
         "notes": "Incl. 10% waste \u00b7 order 3 boxes @ 20 SF",
-        "id": "12844e83d1e9:16",
+        "id": "ec96874ea197:16",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 19
        },
@@ -508,9 +516,9 @@
         "unit_price": 2.36,
         "total": 51.52,
         "notes": null,
-        "id": "12844e83d1e9:17",
+        "id": "ec96874ea197:17",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 20
        },
@@ -523,9 +531,9 @@
         "unit_price": 0.26,
         "total": 5.68,
         "notes": null,
-        "id": "12844e83d1e9:18",
+        "id": "ec96874ea197:18",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 21
        },
@@ -538,9 +546,9 @@
         "unit_price": 3.83,
         "total": 83.61,
         "notes": null,
-        "id": "12844e83d1e9:19",
+        "id": "ec96874ea197:19",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 22
        },
@@ -553,9 +561,9 @@
         "unit_price": 46.48,
         "total": 185.92,
         "notes": "To Kitchen (ceramic), Bedroom 1 (carpet), Bedroom 2 (carpet - existing), Bathroom (ceramic - existing)",
-        "id": "12844e83d1e9:20",
+        "id": "ec96874ea197:20",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 23
        }
@@ -566,13 +574,14 @@
     "total": 788.79
    },
    {
-    "id": "1fff6e4028a5",
+    "id": "8daa8a05d09d",
     "name": "Bedroom 1",
     "level_name": "Main Level",
     "measures": {
      "floor_sf": 172.5,
      "ceiling_sf": 172.5,
-     "wall_sf": 424.0,
+     "wall_sf": 377.33,
+     "exterior_wall_sf": 168.0,
      "perimeter_lf": 53.0,
      "height_ft": 8.0
     },
@@ -590,9 +599,9 @@
         "unit_price": 0.75,
         "total": 129.38,
         "notes": null,
-        "id": "12844e83d1e9:21",
+        "id": "ec96874ea197:21",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 24
        },
@@ -605,9 +614,9 @@
         "unit_price": 39.58,
         "total": 804.66,
         "notes": "12' roll \u00b7 1 cut 15' 3\" incl. trim \u00b7 no seam",
-        "id": "12844e83d1e9:22",
+        "id": "ec96874ea197:22",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 25
        },
@@ -620,9 +629,9 @@
         "unit_price": 6.2,
         "total": 124.74,
         "notes": "Incl. 5% waste",
-        "id": "12844e83d1e9:23",
+        "id": "ec96874ea197:23",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 26
        },
@@ -635,9 +644,9 @@
         "unit_price": 0.61,
         "total": 28.06,
         "notes": null,
-        "id": "12844e83d1e9:24",
+        "id": "ec96874ea197:24",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 27
        }
@@ -648,13 +657,14 @@
     "total": 1086.84
    },
    {
-    "id": "6e056ff5b73c",
+    "id": "b17ca6c29cf6",
     "name": "Closet",
     "level_name": "Main Level",
     "measures": {
      "floor_sf": 11.0,
      "ceiling_sf": 11.0,
-     "wall_sf": 120.0,
+     "wall_sf": 90.0,
+     "exterior_wall_sf": 60.0,
      "perimeter_lf": 15.0,
      "height_ft": 8.0
     },
@@ -672,9 +682,9 @@
         "unit_price": 0.75,
         "total": 8.25,
         "notes": null,
-        "id": "12844e83d1e9:25",
+        "id": "ec96874ea197:25",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 28
        },
@@ -687,9 +697,9 @@
         "unit_price": 39.58,
         "total": 55.81,
         "notes": "Incl. 15% waste \u00b7 cut from roll remnant",
-        "id": "12844e83d1e9:26",
+        "id": "ec96874ea197:26",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 29
        },
@@ -702,9 +712,9 @@
         "unit_price": 6.2,
         "total": 7.94,
         "notes": "Incl. 5% waste",
-        "id": "12844e83d1e9:27",
+        "id": "ec96874ea197:27",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 30
        },
@@ -717,9 +727,9 @@
         "unit_price": 0.61,
         "total": 6.41,
         "notes": null,
-        "id": "12844e83d1e9:28",
+        "id": "ec96874ea197:28",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 31
        }
@@ -748,9 +758,9 @@
         "unit_price": 188.33,
         "total": 188.33,
         "notes": null,
-        "id": "12844e83d1e9:29",
+        "id": "ec96874ea197:29",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 32
        },
@@ -763,9 +773,9 @@
         "unit_price": 0.28,
         "total": 165.67,
         "notes": null,
-        "id": "12844e83d1e9:30",
+        "id": "ec96874ea197:30",
         "source": "imported",
-        "source_id": "12844e83d1e9",
+        "source_id": "ec96874ea197",
         "source_label": "Flooring estimate",
         "n": 33
        }
@@ -778,12 +788,12 @@
   ],
   "by_source": [
    {
-    "id": "12844e83d1e9",
+    "id": "ec96874ea197",
     "label": "Flooring estimate",
     "total": 8614.38
    },
    {
-    "id": "6f2c312969a4",
+    "id": "c630dde7a570",
     "label": "Kitchen cabinet estimate",
     "total": 5208.0
    }

@@ -1,6 +1,8 @@
 /**
  * Finds a repair in the Xactimate price list (the latest month loaded) by
- * its words or its code. Prices shown are ours: the list's +10%.
+ * its words or its code. Shown in our words where we have them (the
+ * company's, else ours), the rest marked as Xactimate's; prices shown are
+ * ours: the list's +10%.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -11,12 +13,13 @@ import type { XactimateMatch } from '../../types/rebuildEstimate';
 import { money } from './lineEdit';
 
 interface Props {
+  estimateId?: string;
   onPick: (match: XactimateMatch) => void;
   placeholder?: string;
   style?: React.CSSProperties;
 }
 
-const XactimatePicker: React.FC<Props> = ({ onPick, placeholder, style }) => {
+const XactimatePicker: React.FC<Props> = ({ estimateId, onPick, placeholder, style }) => {
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   useEffect(() => {
@@ -25,15 +28,16 @@ const XactimatePicker: React.FC<Props> = ({ onPick, placeholder, style }) => {
   }, [typed]);
 
   const { data: matches = [], isFetching } = useQuery({
-    queryKey: ['rebuild-xactimate-search', query],
-    queryFn: () => rebuildEstimateService.searchXactimate(query),
+    queryKey: ['rebuild-xactimate-search', estimateId ?? null, query],
+    queryFn: () => rebuildEstimateService.searchXactimate(query, estimateId),
     enabled: query.length >= 2,
     staleTime: 5 * 60 * 1000,
   });
   const options = useMemo(() => matches.map((m) => {
     const own = m.activities[0];
     const price = own ? `${money(own.marked_up ?? own.price)}/${m.unit}` : '';
-    return { value: m.code, label: `${m.code} · ${m.description} ${price ? `· ${price}` : ''}`.trim() };
+    const words = own?.wording ? own.wording.replace(/\{S\}/g, 'Surface') : `${m.description} (Xactimate's words)`;
+    return { value: m.code, label: `${m.code} · ${words} ${price ? `· ${price}` : ''}`.trim() };
   }), [matches]);
 
   return (

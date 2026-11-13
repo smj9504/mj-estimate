@@ -13,7 +13,13 @@ Xactimate price marked up (unit_prices.xactimate), material tax on its
 material share, and the estimate's O&P when it is on, all folded into the
 unit price, as on the flooring estimate. A price typed in is used as typed.
 Its quantity, unless typed, is the room's measure it follows (basis): the
-walls' SF for paint on the walls, the ceiling's for the ceiling...
+walls' SF (less doors and openings) for paint on the walls, the outside
+walls' for insulation, the ceiling's for the ceiling... A wall measure can be
+taken only part of the way up (a 2' or 4' flood cut, cut_height_ft) or only
+above that (the rest of the wall, painted to match).
+
+A line from the price list is written in our words, not Xactimate's (owner,
+2026-11-13: wording.py); one still in Xactimate's words is pointed out.
 """
 
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -45,9 +51,13 @@ BASES = {
     "floor_sf": ("Floor SF", "SF"),
     "ceiling_sf": ("Ceiling SF", "SF"),
     "wall_sf": ("Wall SF", "SF"),
+    "exterior_wall_sf": ("Outside wall SF", "SF"),
     "perimeter_lf": ("Perimeter LF", "LF"),
 }
-MEASURES = ("floor_sf", "ceiling_sf", "wall_sf", "perimeter_lf", "height_ft")
+# The measures a cut height applies to
+WALL_BASES = ("wall_sf", "exterior_wall_sf")
+MEASURES = ("floor_sf", "ceiling_sf", "wall_sf", "exterior_wall_sf", "perimeter_lf", "height_ft")
+DEFAULT_HEIGHT_FT = 8.0
 
 GENERAL = "General"
 
@@ -72,6 +82,30 @@ def measure(room: Optional[Mapping[str, Any]], basis: Optional[str]) -> Optional
         return None
 
 
+def line_measure(line: Mapping[str, Any], room: Optional[Mapping[str, Any]]) -> Optional[float]:
+    """The room's measure a line follows, only the part of the wall it is
+    for when it has a cut height: the lower part (the walls' SF times the
+    cut over the room's height: the doors take their share) or the rest"""
+    value = measure(room, line.get("basis"))
+    cut = line.get("cut_height_ft")
+    if value is None or not cut or line.get("basis") not in WALL_BASES:
+        return value
+    height = float((room.get("measures") or {}).get("height_ft") or DEFAULT_HEIGHT_FT)
+    share = min(float(cut) / height, 1.0)
+    if line.get("cut_part") == "above":
+        share = 1.0 - share
+    return round(value * share, 2)
+
+
+def cut_note(line: Mapping[str, Any]) -> Optional[str]:
+    """Which part of the wall a line is for, said on the estimate"""
+    cut = line.get("cut_height_ft")
+    if not cut or line.get("basis") not in WALL_BASES:
+        return None
+    walls = "outside walls" if line.get("basis") == "exterior_wall_sf" else "walls"
+    return f"The {walls} above {float(cut):g}'" if line.get("cut_part") == "above" else f"Lower {float(cut):g}' of the {walls}"
+
+
 def _activity(line: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
     for a in line.get("activities") or []:
         if a.get("activity") == line.get("activity"):
@@ -93,7 +127,7 @@ def added_price(line: Mapping[str, Any], tax: float, op_factor: float) -> Tuple[
 
 def _added_line(line: Mapping[str, Any], room: Optional[Mapping[str, Any]], tax: float, op_factor: float,
                 warnings: List[str], where: str) -> Dict[str, Any]:
-    auto = measure(room, line.get("basis"))
+    auto = line_measure(line, room)
     typed_qty = line.get("quantity")
     qty = round(float(typed_qty), 2) if typed_qty is not None else (auto if auto is not None else 0.0)
     unit_price, base, typed = added_price(line, tax, op_factor)
@@ -103,11 +137,14 @@ def _added_line(line: Mapping[str, Any], room: Optional[Mapping[str, Any]], tax:
                         f'{BASES.get(str(line.get("basis")), ("measure",))[0].lower()}.')
     if not typed and base is None:
         warnings.append(f'{where}: "{description}" has no price.')
+    if line.get("xact_words"):
+        warnings.append(f"{where}: \"{description}\" is in Xactimate's words: write it our way.")
     return {
         "id": line.get("id"), "source": "added", "section": line.get("section") or "other",
         "description": description, "quantity": qty, "unit": line.get("unit") or "EA",
-        "unit_price": unit_price, "total": round(qty * unit_price, 2), "notes": line.get("notes"),
-        "basis": line.get("basis"), "auto_qty": auto, "qty_typed": typed_qty is not None,
+        "unit_price": unit_price, "total": round(qty * unit_price, 2), "notes": line.get("notes") or cut_note(line),
+        "basis": line.get("basis"), "cut_height_ft": line.get("cut_height_ft"), "cut_part": line.get("cut_part"),
+        "auto_qty": auto, "qty_typed": typed_qty is not None, "xact_words": bool(line.get("xact_words")),
         "price_typed": typed, "base_price": base, "code": line.get("code"), "activity": line.get("activity"),
     }
 

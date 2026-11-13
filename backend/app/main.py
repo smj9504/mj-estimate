@@ -184,7 +184,7 @@ from app.domains.flooring_estimate.models import (  # noqa: F401  (registers the
     FlooringEstimate, FlooringEstimateLineItem, FlooringEstimateHistory
 )
 from app.domains.rebuild_estimate.api import router as rebuild_estimate_router
-from app.domains.rebuild_estimate.models import RebuildEstimate  # noqa: F401  (registers the table)
+from app.domains.rebuild_estimate.models import RebuildEstimate, RebuildWording  # noqa: F401  (registers the tables)
 from app.domains.siding_estimate.api import router as siding_estimate_router
 from app.domains.siding_estimate.models import (
     SidingEstimate, SidingEstimateLineItem

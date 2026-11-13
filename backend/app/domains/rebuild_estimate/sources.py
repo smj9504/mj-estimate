@@ -105,7 +105,11 @@ def _flooring(est: Any) -> Dict[str, Any]:
             "key": f"room:{r.get('room_id')}", "name": r.get("name") or "Room",
             "level_name": r.get("level_name"),
             "measures": {
-                "floor_sf": floor, "ceiling_sf": _num(r.get("ceiling_sf")) or floor, "wall_sf": _num(r.get("wall_sf")),
+                # The walls less their doors and openings (a flooring estimate
+                # calculated before those were measured has only the whole walls)
+                "floor_sf": floor, "ceiling_sf": _num(r.get("ceiling_sf")) or floor,
+                "wall_sf": _num(r.get("wall_net_sf") if r.get("wall_net_sf") is not None else r.get("wall_sf")),
+                "exterior_wall_sf": _num(r.get("exterior_wall_sf")),
                 "perimeter_lf": _num(r.get("perimeter_lf")), "height_ft": _num(r.get("height_ft")),
             },
         })

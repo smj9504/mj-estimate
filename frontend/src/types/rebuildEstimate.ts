@@ -7,12 +7,16 @@
 export type SourceKind = 'flooring' | 'bathroom' | 'cabinet';
 export type XactActivity = '&' | '+' | '-' | 'R' | 'M' | 'I';
 export type AddedSection = 'floor' | 'wall' | 'ceiling' | 'other';
-export type Basis = 'floor_sf' | 'ceiling_sf' | 'wall_sf' | 'perimeter_lf';
+export type Basis = 'floor_sf' | 'ceiling_sf' | 'wall_sf' | 'exterior_wall_sf' | 'perimeter_lf';
+export type CutPart = 'below' | 'above';
 
 export interface Measures {
   floor_sf?: number | null;
   ceiling_sf?: number | null;
+  /** Less the doors and openings */
   wall_sf?: number | null;
+  /** The outside walls alone, less their doors */
+  exterior_wall_sf?: number | null;
   perimeter_lf?: number | null;
   height_ft?: number | null;
 }
@@ -31,6 +35,8 @@ export interface ActivityPrice {
   price: number;
   marked_up?: number;
   material_share: number;
+  /** Our words for the line as this activity ({S}: the surface); none: only Xactimate's */
+  wording?: string | null;
 }
 
 /** A repair added on the rebuild estimate */
@@ -43,12 +49,17 @@ export interface RebuildLine {
   /** null: the room's measure (basis) */
   quantity: number | null;
   basis: Basis | null;
+  /** A wall measure only part of the way up (a flood cut), or what is above it */
+  cut_height_ft?: number | null;
+  cut_part?: CutPart;
   /** Typed: used as it is */
   unit_price: number | null;
   code?: string | null;
   activity?: XactActivity | null;
   price_list?: string | null;
   activities: ActivityPrice[];
+  /** Still in Xactimate's words: to be written our way */
+  xact_words?: boolean;
   notes?: string | null;
 }
 
@@ -161,4 +172,26 @@ export interface XactimateMatch {
   unit: string;
   price_list: string | null;
   activities: ActivityPrice[];
+  /** We have words for it */
+  ours?: boolean;
+}
+
+export interface AssemblyItem {
+  code: string;
+  activity: XactActivity;
+  section: AddedSection;
+  basis: Basis | null;
+  cut_part: CutPart | null;
+  /** Only when the set is for part of the wall (the rest painted to match) */
+  only_with_cut: boolean;
+  match: XactimateMatch;
+}
+
+/** Repairs added to a room together */
+export interface Assembly {
+  key: string;
+  label: string;
+  hint: string;
+  asks_cut: boolean;
+  items: AssemblyItem[];
 }

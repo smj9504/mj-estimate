@@ -46,6 +46,13 @@ Point = Tuple[float, float]
 # Opening kinds with a door leaf in them (doors to undercut, detach and reset)
 DOOR_KINDS = frozenset({"door", "bifold", "pocket", "slider", "exterior_door"})
 OPENING_KINDS = frozenset({"opening", "open_wall"}) | DOOR_KINDS
+# How much wall an opening takes out: a door or a cased opening is 6' 8"
+# high; an open wall is no wall at all, the room's full height
+DOOR_HEIGHT_FT = 6.6667
+# A room's side is an outside wall when no room is drawn within this of it
+# on the other side (the walls between rooms are drawn 4.5" thick)
+EXTERIOR_GAP_FT = 0.6
+MIN_EXTERIOR_RUN_FT = 1.0
 
 APPLIANCE_TYPES = frozenset({"refrigerator", "range", "dishwasher", "washer", "dryer"})
 # What stands beside the end of a cabinet run and hides its side (a
@@ -212,6 +219,11 @@ class RoomMeasure:
     # all round islands (the wall behind the cabinets only when they come out)
     shoe_lf: float = 0.0
     wall_sf: float = 0.0
+    # The walls with the doors and openings in them taken out (the rebuild
+    # estimate's drywall and paint), and the outside walls alone (insulation)
+    wall_net_sf: float = 0.0
+    exterior_wall_lf: float = 0.0
+    exterior_wall_sf: float = 0.0
     # Counts
     door_count: int = 0            # doors hung in this room (the side they swing into)
     exterior_door_count: int = 0
@@ -441,6 +453,37 @@ def fixture_words(kinds: Iterable[str]) -> str:
     return ", ".join(words)
 
 
+def exterior_length(points: Sequence[Point], others: Sequence[Sequence[Point]], step: float = 0.25) -> float:
+    """How much of a room's outline has no other room drawn just outside it:
+    each side looked at every few inches, a little past the wall"""
+    total = 0.0
+    n = len(points)
+    for i in range(n):
+        a, b = points[i], points[(i + 1) % n]
+        length = distance(a, b)
+        if length < 1e-6:
+            continue
+        ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+        normal = (uy, -ux)
+        mid = (a[0] + ux * length / 2, a[1] + uy * length / 2)
+        if point_in_polygon((mid[0] + normal[0] * 0.05, mid[1] + normal[1] * 0.05), points):
+            normal = (-normal[0], -normal[1])
+        pieces = max(1, int(round(length / step)))
+        piece = length / pieces
+        run = 0.0
+        for k in range(pieces):
+            t = (k + 0.5) * piece
+            p = (a[0] + ux * t + normal[0] * EXTERIOR_GAP_FT, a[1] + uy * t + normal[1] * EXTERIOR_GAP_FT)
+            if not any(point_in_polygon(p, pts) for pts in others):
+                run += piece
+                continue
+            # The gap where two inside walls meet isn't an outside wall
+            total += run if run >= MIN_EXTERIOR_RUN_FT else 0.0
+            run = 0.0
+        total += run if run >= MIN_EXTERIOR_RUN_FT else 0.0
+    return total
+
+
 def fixtures_by_room(level: Mapping[str, Any]) -> Dict[str, List[Mapping[str, Any]]]:
     """Each room's fixtures: the first room drawn that a fixture's center
     stands in"""
@@ -501,6 +544,16 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
                     id=str(opening.get("id") or ""), kind=kind, width_lf=width,
                     to_room_id=other, to_room_name=names.get(other) if other else None,
                 ))
+            # The wall it takes out, on each side of it
+            cut = None if kind == "open_wall" else width * DOOR_HEIGHT_FT
+            for room_id in ids:
+                m = by_id.get(room_id) if room_id else None
+                if m is None:
+                    continue
+                gone = width * m.height_ft if cut is None else min(cut, width * m.height_ft)
+                m.wall_net_sf -= gone
+                if exterior:
+                    m.exterior_wall_sf -= gone
             if kind in DOOR_KINDS:
                 swing = opening.get("swing")
                 hung_in = swing if swing in ids and swing else next(r for r in ids if r)
@@ -514,6 +567,12 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
             m = by_id.get(str(run.get("room_id")))
             if m is not None:
                 m.cabinet_run_lf += distance(point(run.get("a") or (0, 0)), point(run.get("b") or (0, 0)))
+
+        # Outside walls: the sides with no room drawn just past them
+        polygons = {room_id: m.points for room_id, m in by_id.items()}
+        for room_id, m in by_id.items():
+            others = [pts for other, pts in polygons.items() if other != room_id]
+            m.exterior_wall_lf = exterior_length(m.points, others)
 
         for m in by_id.values():
             m.inside_corners, m.angled_walls, m.angled_wall_lf = outline_shape(m.points)
@@ -598,6 +657,9 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
                 if (r.get("subroom_of") or None) == m.room_id
             )
         for m in ordered:
+            # (the openings were taken off these as they were read)
+            m.wall_net_sf = max(0.0, m.wall_sf + m.wall_net_sf)
+            m.exterior_wall_sf = max(0.0, m.exterior_wall_lf * m.height_ft + m.exterior_wall_sf)
             m.base_lf = max(0.0, m.perimeter_lf - m.openings_lf - m.cabinet_run_lf)
             m.shoe_lf = m.base_lf + m.cabinet_front_lf + m.cabinet_side_lf + m.island_perimeter_lf
             m.floor_sy = m.floor_sf / 9

@@ -18,9 +18,11 @@ from app.domains.auth.company_scope import (
 from app.domains.auth.dependencies import get_current_user
 
 from .models import RebuildEstimate
-from .schemas import ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SourceRoomRequest
+from .assemblies import assemblies
+from .schemas import ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SourceRoomRequest, WordingRequest
 from .service import RebuildEstimateService
 from .sources import model_of
+from .wording import save_wording, saved_wordings
 from .xactimate_search import search as xactimate_search
 
 router = APIRouter(prefix="/rebuild-estimates", tags=["Rebuild Estimates"])
@@ -34,6 +36,13 @@ def _found(result):
     if result is None:
         raise HTTPException(status_code=404, detail="Estimate not found")
     return result
+
+
+def _company_of(session, estimate_id: Optional[str]) -> Optional[str]:
+    if not estimate_id:
+        return None
+    company = session.query(RebuildEstimate.company_id).filter(RebuildEstimate.id == estimate_id).scalar()
+    return str(company) if company else None
 
 
 def _require_claim_move(session, staff, estimate_id: Optional[str], claim_id: Optional[str]) -> None:
@@ -50,12 +59,15 @@ def _require_claim_move(session, staff, estimate_id: Optional[str], claim_id: Op
 def search_xactimate(
     q: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(25, ge=1, le=100),
+    estimate_id: Optional[str] = Query(None, description="Word them as this estimate's company does"),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
     """Repairs from the latest Xactimate price list, each with the
-    activities it can be added as and their prices"""
-    return xactimate_search(session, q, limit)
+    activities it can be added as, their prices and our words for them"""
+    if estimate_id:
+        _require(session, current_user, estimate_id)
+    return xactimate_search(session, q, limit, saved_wordings(session, _company_of(session, estimate_id)))
 
 
 @router.get("")
@@ -116,6 +128,33 @@ def delete_estimate(
     if not RebuildEstimateService(session).delete(estimate_id):
         raise HTTPException(status_code=404, detail="Estimate not found")
     return {"message": "Estimate deleted"}
+
+
+@router.get("/{estimate_id}/assemblies")
+def list_assemblies(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The sets of repairs a room can take at once (new drywall primed and
+    painted, insulation, repainting...), worded as the company words them"""
+    _require(session, current_user, estimate_id)
+    return assemblies(session, saved_wordings(session, _company_of(session, estimate_id)))
+
+
+@router.put("/{estimate_id}/wordings")
+def put_wording(
+    estimate_id: str,
+    data: WordingRequest,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Keep these words for a price list line: every estimate of the
+    estimate's company (everyone's, when it has none) words it so from now on"""
+    _require(session, current_user, estimate_id)
+    save_wording(session, _company_of(session, estimate_id), data.code, data.activity, data.text,
+                 getattr(current_user, "id", None))
+    return {"code": data.code, "activity": data.activity, "text": data.text}
 
 
 @router.get("/{estimate_id}/importable")

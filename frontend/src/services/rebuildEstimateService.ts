@@ -4,7 +4,7 @@
 
 import api from './api';
 import type {
-  ImportableEstimate, RebuildEstimate, RebuildLine, RebuildRoom, SourceKind, XactimateMatch,
+  Assembly, ImportableEstimate, RebuildEstimate, RebuildLine, RebuildRoom, SourceKind, XactActivity, XactimateMatch,
 } from '../types/rebuildEstimate';
 
 const BASE_URL = '/api/rebuild-estimates';
@@ -64,8 +64,19 @@ export const rebuildEstimateService = {
     const { data } = await api.delete<RebuildEstimate>(`${BASE_URL}/${id}/sources/${sourceId}`);
     return data;
   },
-  async searchXactimate(q: string) {
-    const { data } = await api.get<XactimateMatch[]>(`${BASE_URL}/xactimate-search`, { params: { q } });
+  async searchXactimate(q: string, estimateId?: string) {
+    const { data } = await api.get<XactimateMatch[]>(`${BASE_URL}/xactimate-search`, {
+      params: { q, estimate_id: estimateId },
+    });
+    return data;
+  },
+  async assemblies(id: string) {
+    const { data } = await api.get<Assembly[]>(`${BASE_URL}/${id}/assemblies`);
+    return data;
+  },
+  /** Keep these words for a price list line, for every estimate of the company */
+  async saveWording(id: string, body: { code: string; activity: XactActivity; text: string }) {
+    const { data } = await api.put(`${BASE_URL}/${id}/wordings`, body);
     return data;
   },
   async downloadPdf(id: string) {

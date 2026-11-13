@@ -6,14 +6,22 @@ material (for the material tax).
 
 The line keeps what it was added with (the price, as Xactimate has it),
 so the estimate doesn't move when a newer month is loaded. The price is
-marked up when the line is priced (assemble.added_price).
+marked up when the line is priced (assemble.added_price). Each activity
+comes with our words for it where there are some (wording.py).
+
+The matches come in the order an estimator looks for them: the code typed
+exactly, then the lines we have words for (the ones in use), then the plain
+item before its variants (the shorter code: DRY1/2 before DRY1/2FT), then
+the shorter description.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from sqlalchemy import case, desc, func, or_
 
 from app.domains.unit_prices.xactimate import xact
+
+from .wording import wording_for, worded_codes
 
 ACTIVITY_LABELS = {
     "&": "R&R", "+": "Replace", "-": "Remove", "R": "Detach & Reset", "M": "Material only", "I": "Install only",
@@ -57,17 +65,37 @@ def activities(item: Any) -> List[Dict[str, Any]]:
     return out
 
 
-def search(session: Any, q: str, limit: int = 25) -> List[Dict[str, Any]]:
+def match_of(item: Any, saved: Mapping[Tuple[str, str], str]) -> Dict[str, Any]:
+    acts = activities(item)
+    for a in acts:
+        a["wording"] = wording_for(item.item_code, a["activity"], saved)
+    return {
+        "code": item.item_code, "category_code": item.category_code, "description": item.description,
+        "unit": item.unit or "EA", "price_list": item.price_list, "activities": acts,
+        "ours": any(a["wording"] for a in acts),
+    }
+
+
+def latest_month(session: Any) -> Optional[Tuple[int, int]]:
     from app.domains.xactimate.models import XactimateItem
 
-    words = [w for w in (q or "").split() if w]
-    if not words:
-        return []
-    latest = (
+    return (
         session.query(XactimateItem.price_year, XactimateItem.price_month)
         .order_by(desc(XactimateItem.price_year), desc(XactimateItem.price_month))
         .first()
     )
+
+
+def search(session: Any, q: str, limit: int = 25,
+           saved: Optional[Mapping[Tuple[str, str], str]] = None) -> List[Dict[str, Any]]:
+    from app.domains.xactimate.models import XactimateItem
+
+    saved = saved or {}
+
+    words = [w for w in (q or "").split() if w]
+    if not words:
+        return []
+    latest = latest_month(session)
     if latest is None:
         return []
     code = func.upper(XactimateItem.item_code)
@@ -78,15 +106,12 @@ def search(session: Any, q: str, limit: int = 25) -> List[Dict[str, Any]]:
         term = f"%{word}%"
         query = query.filter(or_(XactimateItem.description.ilike(term), XactimateItem.item_code.ilike(term)))
     items = (
-        query.order_by(case((code == q.strip().upper(), 0), else_=1), func.length(XactimateItem.description),
-                       XactimateItem.item_code)
+        query.order_by(
+            case((code == q.strip().upper(), 0), else_=1),
+            case((XactimateItem.item_code.in_(sorted(worded_codes(saved))), 0), else_=1),
+            func.length(XactimateItem.item_code), func.length(XactimateItem.description), XactimateItem.item_code,
+        )
         .limit(limit)
         .all()
     )
-    return [
-        {
-            "code": item.item_code, "category_code": item.category_code, "description": item.description,
-            "unit": item.unit or "EA", "price_list": item.price_list, "activities": activities(item),
-        }
-        for item in items
-    ]
+    return [match_of(item, saved) for item in items]
