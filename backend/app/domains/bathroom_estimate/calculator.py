@@ -12,6 +12,8 @@ from .layout_changes import layout_change_line_items
 from .lights import LIGHT_TYPES, light_groups
 from .mirrors import mirror_count, mirror_groups, price_by_width
 from .selections import Picks
+from app.domains.unit_prices.tables import in_active_book
+
 from .pricing import (
     get_permit_info,
     ACCESSORY_FINISH_MULTIPLIER,
@@ -2680,11 +2682,15 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                      qr_rate * labor_mult, "finish",
                      notes="Covers floor-to-baseboard gap;"
                            " moisture seal at floor transition")
+                # Its own paint rate since 2026-11-13; an estimate
+                # pinned to an older book keeps the trim rate
+                qr_paint = (PAINT_RATES["quarter_round_per_lf"]
+                            if in_active_book("PAINT_RATES.quarter_round_per_lf")
+                            else PAINT_RATES["trim_per_lf"])
                 _add(line_items, 6,
                      "Quarter round painting",
                      bb_lf, "LF",
-                     PAINT_RATES["trim_per_lf"]
-                     * bb_pg_mult * labor_mult, "finish")
+                     qr_paint * bb_pg_mult * labor_mult, "finish")
 
     # ────────────────────────────────────────
     # Phase 7: Accessories + Punch/Cleanup

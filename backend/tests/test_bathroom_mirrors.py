@@ -92,3 +92,28 @@ def test_no_mirror_line_without_d_and_r_and_a_new_mirror_is_torn_out_once_per_mi
     assert not [d for d in mirror_lines(est) if d.startswith("Detach & Reset - Mirror")]
     demo = next(li for li in calculate_estimate(est)["line_items"] if li["phase"] == 1 and "Mirror x" in (li["notes"] or ""))
     assert f"Mirror x2 ${2 * DEMO_RATES['mirror'] * MULT:,.2f}" in demo["notes"]
+
+
+# ── Quarter round: priced as the flooring estimate prices it (owner, 2026-11-13) ──
+
+def test_quarter_round_matches_the_flooring_estimate_and_a_pinned_book_keeps_its_paint_rate():
+    from app.domains.bathroom_estimate.pricing import PAINT_RATES, QUARTER_ROUND_PRICES
+    from app.domains.flooring_estimate.pricing import TRIM_RATES
+    from app.domains.unit_prices.tables import use_prices
+
+    assert QUARTER_ROUND_PRICES["mdf"] + PAINT_RATES["quarter_round_per_lf"] == pytest.approx(
+        TRIM_RATES["quarter_round_per_lf"])
+    est = estimate(walls_spec={"wall_finish": "paint", "paint_grade": "mid", "baseboard_material": "mdf",
+                               "quarter_round": True})
+
+    def quarter_round_lines():
+        return {li["description"]: li for li in calculate_estimate(est)["line_items"]
+                if li["description"].startswith("Quarter round")}
+
+    lines = quarter_round_lines()
+    assert lines["Quarter round - MDF (supply + install)"]["unit_price"] == pytest.approx(2.33 * MULT, abs=0.01)
+    assert lines["Quarter round painting"]["unit_price"] == pytest.approx(1.29 * MULT, abs=0.01)
+    # A book taken before the quarter round had its own paint rate: still the trim rate
+    with use_prices({"PAINT_RATES.trim_per_lf": [0.6, 3.5]}):
+        pinned = quarter_round_lines()
+    assert pinned["Quarter round painting"]["unit_price"] == pytest.approx(4.10 * MULT, abs=0.01)

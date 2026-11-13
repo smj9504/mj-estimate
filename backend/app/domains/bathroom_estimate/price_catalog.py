@@ -139,6 +139,7 @@ PRICE_TABLES = [
               kinds={"flange_repair": MIXED}, shares={"flange_repair": _PLUMBING}),
     # ── Paint, trim, accessories ──
     TableSpec("PAINT_RATES", "Paint & Trim", kind=MIXED, share=_FINISH,
+              labels={"quarter_round_per_lf": "Quarter round - seal & paint"},
               note="Mid grade; the paint grade and bath-paint premium multiply it."),
     TableSpec("PAINT_PREP", "Paint & Trim", kind=MIXED, share=_FINISH),
     TableSpec("BASEBOARD_PRICES", "Paint & Trim", kind=MIXED, share=_FINISH, unit="LF"),

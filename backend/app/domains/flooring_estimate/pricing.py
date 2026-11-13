@@ -7,7 +7,7 @@ same work, the same figure is used so the two estimates agree:
   LVT/SPC material 5.00/SF, ceramic 4.45 and porcelain 8.25/SF, tile floor
   labor 11.00/SF, floor tile removal 3.25/SF, self-leveling 5.30/SF,
   subfloor repair 9.45/SF, toilet and vanity detach & reset, MDF base
-  5.45/LF, MDF quarter round 3.55/LF, floor protection 0.55/SF, 10-yard
+  5.45/LF, floor protection 0.55/SF, 10-yard
   dumpster 420.
 Added 2026-11-12 from Xactimate line items, marked up by XACTIMATE_MARKUP
 (the owner's rule: never Xactimate's own figure; 10% over it). Each is
@@ -179,9 +179,15 @@ TRIM_RATES = {
     "baseboard_remove_per_lf": 0.80,
     "baseboard_mdf_per_lf": 5.45,         # = bathroom BASEBOARD_PRICES.mdf
     "baseboard_paint_per_lf": xact(2.13),     # PNT B2: left on the wall, two coats
-    "shoe_molding_remove_per_lf": 0.55,
+    # Xactimate's & lines for base shoe and quarter round (FNC SHOE / QR / QRH)
+    # each take 0.24/LF to remove; the rest is the new piece put in
+    "shoe_molding_remove_per_lf": xact(0.24),  # FNC QR: its removal (2.36 less M 1.02 and I 1.10)
     "shoe_molding_per_lf": 3.75,          # install and paint
-    "quarter_round_per_lf": 3.55,         # = bathroom QUARTER_ROUND_PRICES.mdf
+    # Paint grade, painted with the baseboard (owner's pick, 2026-11-13)
+    # (= bathroom QUARTER_ROUND_PRICES.mdf + PAINT_RATES.quarter_round_per_lf)
+    "quarter_round_per_lf": xact(1.02 + 1.10 + 1.17),          # FNC QR M + I, PNT SHOE seal & paint
+    # Hardwood, stained and finished to match a sanded floor
+    "quarter_round_stained_per_lf": xact(1.94 + 1.18 + 1.86),  # FNC QRH M + I, PNT SHOES stain & finish
     "tack_strip_per_lf": 0.60,
     "toe_kick_reskin_per_lf": xact(12.14),    # CAB PLYTK: new 1/4" prefinished skin over the old toe kick
 }
@@ -233,7 +239,8 @@ REMOVAL_EXTRA_RATES = {
 # (geometry.floor_fit_of: a toilet's flange, a floor register's duct), per
 # fixture. Folded into the room's new floor
 # line, not a line of its own (owner, 2026-11-13). Half an hour of the
-# installer's Xactimate hourly rate is my allowance, not Xactimate's.
+# installer's Xactimate hourly rate: an allowance, not an Xactimate line,
+# that the owner agreed to (2026-11-13).
 CUT_TO_FIT_RATES = {
     "tile_per_fixture": xact(128.61 * 0.5),   # FCT LAB: ceramic tile flooring installer, per hour
     "wood_per_fixture": xact(71.24 * 0.5),    # FCW LAB: wood floor covering installer, per hour

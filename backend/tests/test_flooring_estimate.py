@@ -495,6 +495,31 @@ def test_a_toe_kick_can_be_reskinned_along_the_cabinets_and_island():
     assert reskin["description"] == "Cabinet toe kick - reskin"
 
 
+def test_new_tile_or_wood_against_cabinets_brings_the_toe_kick_reskin():
+    sketch = house()
+    sketch["levels"][0]["fixtures"].append({"id": "i1", "type": "island", "x": 20, "y": 5, "w": 6, "h": 3})
+
+    def reskin(floor=None, **kitchen):
+        if floor:
+            kitchen["new_material"] = floor
+        rows = build_takeoff(estimate(sketch, scopes(kitchen=kitchen))).rows["kitchen"]
+        return next(r for r in rows if r.key == "toe_kick_reskin")
+
+    for floor in ("ceramic_tile", "porcelain_tile", "engineered_hardwood", "solid_hardwood"):
+        row = reskin(floor)
+        assert row.billed, floor
+        assert row.qty == pytest.approx(14 + 18)   # the cabinet fronts and the island all round
+    for floor in ("lvp", "laminate", "sheet_vinyl"):
+        assert not reskin(floor).billed, floor
+    # Sanded in place, the floor's height doesn't change
+    assert not reskin(work="refinish", existing_material="solid_hardwood").billed
+    # Switched off by hand on tile
+    assert not reskin("ceramic_tile", items={"toe_kick_reskin": {"on": False}}).billed
+    # No cabinets or island in the room: nothing to reskin
+    rows = build_takeoff(estimate(room_scopes=scopes(living={"new_material": "ceramic_tile"}))).rows["living"]
+    assert not next(r for r in rows if r.key == "toe_kick_reskin").billed
+
+
 def test_an_open_wall_is_a_side_with_no_wall_measured_like_a_doorway():
     sketch = house()
     openings = sketch["levels"][0]["openings"]
@@ -1055,6 +1080,26 @@ def test_every_room_can_be_sanded_from_the_job_and_a_room_can_say_otherwise():
     # A sanded floor counts toward the floors cleaned at the end
     clean = next(r for r in t.general if r.key == "final_clean")
     assert clean.qty > measured()["hall"].floor_sf
+
+
+def test_quarter_round_is_priced_from_xactimate_painted_or_stained_to_match_the_floor():
+    # Removal is FNC QR's own (0.24), the new piece FNC QR + PNT SHOE paint, or FNC QRH + PNT SHOES stain
+    t = pricing.TRIM_RATES
+    assert t["shoe_molding_remove_per_lf"] + t["quarter_round_per_lf"] == pytest.approx(3.88)
+    assert t["shoe_molding_remove_per_lf"] + t["quarter_round_stained_per_lf"] == pytest.approx(5.74)
+
+    sanded = {"work": "refinish", "existing_material": "solid_hardwood"}
+    rows = {r.key: r for r in build_takeoff(estimate(room_scopes=scopes(living=sanded))).rows["living"]}
+    assert rows["quarter_round"].billed and not rows["quarter_round_stained"].billed
+    # The stained one switched on takes the painted one's place; the base is still painted
+    stained = {**sanded, "items": {"quarter_round_stained": {"on": True}}}
+    rows = {r.key: r for r in build_takeoff(estimate(room_scopes=scopes(living=stained))).rows["living"]}
+    assert rows["quarter_round_stained"].billed and not rows["quarter_round"].billed
+    assert rows["baseboard_paint"].billed and rows["shoe_molding_remove"].billed
+    # Both switched on by hand: both kept
+    both = {**sanded, "items": {"quarter_round_stained": {"on": True}, "quarter_round": {"on": True}}}
+    rows = {r.key: r for r in build_takeoff(estimate(room_scopes=scopes(living=both))).rows["living"]}
+    assert rows["quarter_round_stained"].billed and rows["quarter_round"].billed
 
 
 def test_new_quarter_round_or_shoe_always_brings_the_baseboard_paint_unless_the_baseboard_is_new():

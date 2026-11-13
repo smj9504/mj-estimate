@@ -102,6 +102,10 @@ RULES: Dict[str, Callable[[Mapping], bool]] = {
     "hard_surface": lambda ctx: ctx["new_material"] in pricing.HARD_SURFACES,
     "keeps_base": lambda ctx: ctx["new_material"] in pricing.KEEPS_BASE_FLOORS,
     "refinish": lambda ctx: ctx["refinish"],
+    # New tile or wood against cabinets: the toe kicks get a new skin (owner,
+    # 2026-11-13); not under LVP, laminate or sheet vinyl
+    "tile_or_wood_cabinets": lambda ctx: ctx["new_material"] in pricing.TILES | pricing.WOOD_FLOORS
+    and ctx["toe_kick_lf"] > 0,
     # The baseboard stays: painted, its shoe or quarter round replaced
     "keeps_base_or_refinish": lambda ctx: ctx["new_material"] in pricing.KEEPS_BASE_FLOORS or ctx["refinish"],
     "wood": lambda ctx: ctx["new_material"] in pricing.WOOD_FLOORS,
@@ -129,6 +133,7 @@ RULE_LABELS = {
     "hard_surface": "On under a new hard-surface floor",
     "keeps_base": "On under new tile, LVP and laminate",
     "refinish": "On when the hardwood is sanded and refinished",
+    "tile_or_wood_cabinets": "On under new tile or wood where there are cabinets or an island",
     "keeps_base_or_refinish": "On under new tile, LVP and laminate, and when the hardwood is sanded",
     "wood": "On under a new wood floor",
     "carpet": "On under new carpet",
@@ -177,8 +182,8 @@ ROOM_ITEMS: List[ItemDef] = [
             "detach_reset", "LF", "DETACH_RESET_RATES.toe_kick_per_lf", "toe_kick_lf",
             hint="When the floor runs under the toe kick"),
     ItemDef("toe_kick_reskin", "Cabinet toe kick - reskin", "Cabinets",
-            "detach_reset", "LF", "TRIM_RATES.toe_kick_reskin_per_lf", "toe_kick_lf",
-            hint="New skin over a toe kick that is stained, swollen or scuffed"),
+            "detach_reset", "LF", "TRIM_RATES.toe_kick_reskin_per_lf", "toe_kick_lf", rule="tile_or_wood_cabinets",
+            hint="New skin over the toe kicks: on under new tile or wood, and over one stained, swollen or scuffed"),
     # Each appliance by its kind; a gas range or dryer is disconnected and reconnected
     *[ItemDef(f"{kind}_detach_reset", f"{label} - detach & reset", "Detach & Reset",
               "detach_reset", "EA", f"DETACH_RESET_RATES.{kind}", f"{kind}_count", rule=f"has_{kind}")
@@ -247,7 +252,10 @@ ROOM_ITEMS: List[ItemDef] = [
             hint="Along the baseboard, the cabinets' fronts and showing sides, and all round islands"),
     ItemDef("quarter_round", "Quarter round - install & paint", "Trim",
             "trim", "LF", "TRIM_RATES.quarter_round_per_lf", "shoe_lf", rule="refinish",
-            hint="New, when the hardwood is sanded"),
+            hint="New, when the hardwood is sanded; painted with the baseboard"),
+    ItemDef("quarter_round_stained", "Quarter round - hardwood, stain & finish", "Trim",
+            "trim", "LF", "TRIM_RATES.quarter_round_stained_per_lf", "shoe_lf",
+            hint="Stained to match a sanded floor, in place of the painted one"),
     ItemDef("tack_strip", "Tack strip", "Trim",
             "trim", "LF", "TRIM_RATES.tack_strip_per_lf", "base_lf", rule="carpet"),
     # Sanding the hardwood in place of a new floor (work "refinish")

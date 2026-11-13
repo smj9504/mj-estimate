@@ -86,7 +86,7 @@ PRICE_TABLES = [
         "TRIM_RATES", "Trim", kind=MIXED, share=_TRIM,
         kinds={"baseboard_detach_reset_per_lf": LABOR, "baseboard_remove_per_lf": LABOR,
                "shoe_molding_remove_per_lf": LABOR},
-        shares={"baseboard_paint_per_lf": 0.15},
+        shares={"baseboard_paint_per_lf": 0.15, "quarter_round_stained_per_lf": 0.45},
         labels={
             "baseboard_detach_reset_per_lf": "Baseboard - detach & reset",
             "baseboard_remove_per_lf": "Remove baseboard",
@@ -95,6 +95,7 @@ PRICE_TABLES = [
             "shoe_molding_remove_per_lf": "Remove shoe molding / quarter round",
             "shoe_molding_per_lf": "Shoe molding - install & paint",
             "quarter_round_per_lf": "Quarter round - install & paint",
+            "quarter_round_stained_per_lf": "Quarter round - hardwood, stain & finish",
             "tack_strip_per_lf": "Tack strip",
             "toe_kick_reskin_per_lf": "Cabinet toe kick - reskin",
         },

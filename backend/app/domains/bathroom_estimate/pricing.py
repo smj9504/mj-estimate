@@ -43,6 +43,9 @@ Detach & Reset costs), items already near market +5-8% (tile combo
 rates, plumbing fixture-connection labor, demo, paint/trim, materials).
 """
 
+# An Xactimate line item's price, marked up (the owner's one markup)
+from app.domains.unit_prices.xactimate import xact  # noqa: E402
+
 # ──────────────────────────────────────────────
 # Phase 1: Demo & Disposal
 # ──────────────────────────────────────────────
@@ -723,6 +726,10 @@ PAINT_RATES = {
     "wall_per_sf": 4.90,              # paint walls (prep + 2 coats; $4-$9/SF HomeWyse 2026)
     "ceiling_per_sf": 5.15,           # ceiling paint (overhead premium)
     "trim_per_lf": 4.10,              # baseboard/trim paint ($2.30-$4.88/LF)
+    # Seal & paint quarter round, as the flooring estimate prices it
+    # (owner, 2026-11-13). An estimate pinned to a book from before it
+    # keeps trim_per_lf until it is repriced (calculator).
+    "quarter_round_per_lf": xact(1.17),  # PNT SHOE
 }
 
 PAINT_PREP = {
@@ -762,15 +769,14 @@ TILE_BASEBOARD_PRICES = {
     "glass_mosaic": 22.00,            # $16-$25/LF installed
 }
 
-# Quarter round molding pricing (material + labor per LF)
-# Add-on to standard baseboard install; matches baseboard material
-# Sources: Angi 2026 ($3-$7/LF installed), HomeGuide 2026, CountBricks 2026
-# DMV mid-range: thin pin-nailer install, slightly faster than baseboard
-# 2026-08-26: +6-7% (Tier B)
+# Quarter round molding, supply + install per LF (painted on its own line,
+# PAINT_RATES.quarter_round_per_lf). Matches the baseboard material. Since
+# 2026-11-13 the Xactimate line's material + install, +10%, as the flooring
+# estimate prices it (owner): mdf + its paint = flooring's quarter round.
 QUARTER_ROUND_PRICES = {
-    "pvc": 4.05,                      # PVC quarter round (moisture-resistant, bath)
-    "mdf": 3.55,                      # MDF quarter round (budget, paintable)
-    "wood": 4.90,                     # Paint-grade pine quarter round
+    "pvc": xact(1.11 + 1.09),   # FNC QRP: polystyrene, moisture-resistant
+    "mdf": xact(1.02 + 1.10),   # FNC QR: paint grade
+    "wood": xact(1.53 + 1.10),  # FNC QR+: solid wood, stain grade
 }
 
 # Accessories (material + install per piece)
@@ -804,7 +810,6 @@ ACCESSORY_GRADE_MULTIPLIER = {
 # ──────────────────────────────────────────────
 # Detach & Reset (D&R) - Labor Only
 # ──────────────────────────────────────────────
-from app.domains.unit_prices.xactimate import xact  # noqa: E402
 # For water mitigation / restoration work: fixture is carefully removed,
 # stored, then reinstalled after wall/floor work is completed.
 # All costs are LABOR ONLY (no new material).

@@ -479,6 +479,7 @@ def room_rows(
             item, _basis_qty(item, values), RULES[item.rule](context),
             _override(scope.items, item.key), _override(job_room_items, item.key), note,
         ))
+    _one_quarter_round(rows)
     _paint_base_with_new_shoe(rows, m.name if scope.included else None, warnings)
     rows.extend(_custom_rows(scope.custom_items, warnings, m.name))
     order = {c: i for i, c in enumerate(CATEGORY_ORDER)}
@@ -486,12 +487,24 @@ def room_rows(
     return rows
 
 
+def _one_quarter_round(rows: List[Row]) -> None:
+    """The stained hardwood quarter round goes in place of the painted one:
+    switched on, it takes the painted one off, unless that was switched on
+    by hand too"""
+    by_key = {r.key: r for r in rows}
+    stained, painted = by_key.get("quarter_round_stained"), by_key.get("quarter_round")
+    if stained is not None and painted is not None and stained.billed and painted.on \
+            and painted.on_source == "default":
+        painted.on = painted.default_on = False
+
+
 def _paint_base_with_new_shoe(rows: List[Row], room_name: Optional[str], warnings: List[str]) -> None:
     """New shoe molding or quarter round always comes with the baseboard
     painted (owner, 2026-11-13), unless the baseboard itself is new. It comes
     on by itself; switched off by hand, the estimate says so."""
     by_key = {r.key: r for r in rows}
-    shoe = [by_key[k] for k in ("shoe_molding", "quarter_round") if k in by_key and by_key[k].billed]
+    shoe = [by_key[k] for k in ("shoe_molding", "quarter_round", "quarter_round_stained")
+            if k in by_key and by_key[k].billed]
     paint, new_base = by_key.get("baseboard_paint"), by_key.get("baseboard_install")
     if not shoe or paint is None or (new_base is not None and new_base.billed):
         return

@@ -127,6 +127,15 @@ def use_prices(values: Optional[Mapping[str, Sequence[float]]]):
         _ACTIVE.reset(token)
 
 
+def in_active_book(path: str) -> bool:
+    """Whether a price is there to read as it is: no book is active (the
+    defaults are read) or the active book has it. False for a price added
+    after the book was taken, so a calculator can keep a pinned estimate on
+    what it was priced with until it is put on today's prices."""
+    active = _ACTIVE.get()
+    return not active or path in active
+
+
 def material_share(path: str, default: float) -> float:
     """The material side's share of one price, from the active book.
 
