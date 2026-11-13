@@ -1,0 +1,34 @@
+[
+ {
+  "kind": "flooring",
+  "kind_label": "Flooring estimate",
+  "estimate_id": "22c0ef97-5d2b-4a7e-a90a-3fbe5f13c4cc",
+  "label": "Flooring estimate",
+  "status": "calculated",
+  "estimate_kind": "restore",
+  "option_label": null,
+  "property_address": "123 Example St",
+  "line_count": 31,
+  "total": 8614.38,
+  "calculated": true,
+  "updated_at": "2026-11-13 18:34:34",
+  "imported": true,
+  "path": "/flooring-estimates/22c0ef97-5d2b-4a7e-a90a-3fbe5f13c4cc"
+ },
+ {
+  "kind": "cabinet",
+  "kind_label": "Kitchen cabinet estimate",
+  "estimate_id": "1c3247fd-8ec0-4384-af19-dfe295245b34",
+  "label": "Kitchen cabinet estimate",
+  "status": "calculated",
+  "estimate_kind": "restore",
+  "option_label": null,
+  "property_address": "123 Example St",
+  "line_count": 2,
+  "total": 5208.0,
+  "calculated": true,
+  "updated_at": "2026-11-13 18:34:34",
+  "imported": false,
+  "path": "/cabinet-estimates/1c3247fd-8ec0-4384-af19-dfe295245b34"
+ }
+]

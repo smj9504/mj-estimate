@@ -105,6 +105,8 @@ const BathroomEstimateList = lazyWithRetry(() => import('./pages/BathroomEstimat
 const BathroomEstimateDetail = lazyWithRetry(() => import('./pages/BathroomEstimateDetail'));
 const FlooringEstimateList = lazyWithRetry(() => import('./pages/FlooringEstimateList'));
 const FlooringEstimateDetail = lazyWithRetry(() => import('./pages/FlooringEstimateDetail'));
+const RebuildEstimateList = lazyWithRetry(() => import('./pages/RebuildEstimateList'));
+const RebuildEstimateDetail = lazyWithRetry(() => import('./pages/RebuildEstimateDetail'));
 
 // Siding Estimate Pages
 const SidingEstimateList = lazyWithRetry(() => import('./pages/SidingEstimateList'));
@@ -981,6 +983,31 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <FlooringEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Rebuild Estimate: the trade estimates imported and the other repairs, room by room
+  {
+    path: "/rebuild-estimates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RebuildEstimateList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/rebuild-estimates/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RebuildEstimateDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>

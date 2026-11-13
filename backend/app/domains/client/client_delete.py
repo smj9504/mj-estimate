@@ -34,6 +34,7 @@ from app.domains.email_ingestion.models import EmailIngestionLog, ReceivedEmail
 from app.domains.estimate.models import Estimate
 from app.domains.field_visit.models import FieldVisit
 from app.domains.flooring_estimate.models import FlooringEstimate
+from app.domains.rebuild_estimate.models import RebuildEstimate
 from app.domains.file.models import File, VideoRendition
 from app.domains.file.video_service import OWNER_FILE, OWNER_WM_PHOTO
 from app.domains.integrations.models import CompanyCamPhoto
@@ -77,6 +78,7 @@ class _Linked:
     cabinet_estimates: List[Any]
     bathroom_estimates: List[Any]
     flooring_estimates: List[Any]
+    rebuild_estimates: List[Any]
     roofing_estimates: List[Any]
     siding_estimates: List[Any]
     material_orders: List[Any]
@@ -135,6 +137,7 @@ def _find_linked(db: Any, client_id: str) -> _Linked:
         cabinet_estimates=_estimate_groups(db, CabinetEstimate, claims),
         bathroom_estimates=_estimate_groups(db, BathroomEstimate, claims),
         flooring_estimates=_estimate_groups(db, FlooringEstimate, claims),
+        rebuild_estimates=_ids(db, RebuildEstimate.id, RebuildEstimate.claim_id.in_(claims)),
         roofing_estimates=_ids(db, RoofingEstimate.id, RoofingEstimate.claim_id.in_(claims)),
         siding_estimates=_ids(db, SidingEstimate.id, SidingEstimate.claim_id.in_(claims)),
         material_orders=_ids(db, MaterialOrder.id, MaterialOrder.claim_id.in_(claims)),
@@ -344,7 +347,8 @@ def linked_counts(db: Any, client_id: str) -> Optional[List[Dict[str, Any]]]:
         ('Invoices', len(linked.invoices)),
         ('Estimates', sum(len(ids) for ids in (
             linked.estimates, linked.cabinet_estimates, linked.bathroom_estimates,
-            linked.flooring_estimates, linked.roofing_estimates, linked.siding_estimates,
+            linked.flooring_estimates, linked.rebuild_estimates, linked.roofing_estimates,
+            linked.siding_estimates,
         ))),
         ('Work orders', len(linked.work_orders)),
         ('Material orders', len(linked.material_orders)),
@@ -426,6 +430,7 @@ def delete_client_and_everything(db: Any, client_id: str) -> Optional[List[Store
         (CabinetEstimate, linked.cabinet_estimates),
         (BathroomEstimate, linked.bathroom_estimates),
         (FlooringEstimate, linked.flooring_estimates),
+        (RebuildEstimate, linked.rebuild_estimates),
         (RoofingEstimate, linked.roofing_estimates),
         (SidingEstimate, linked.siding_estimates),
         (MaterialOrder, linked.material_orders),

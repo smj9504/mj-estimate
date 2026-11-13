@@ -183,6 +183,8 @@ from app.domains.flooring_estimate.api import router as flooring_estimate_router
 from app.domains.flooring_estimate.models import (  # noqa: F401  (registers the tables)
     FlooringEstimate, FlooringEstimateLineItem, FlooringEstimateHistory
 )
+from app.domains.rebuild_estimate.api import router as rebuild_estimate_router
+from app.domains.rebuild_estimate.models import RebuildEstimate  # noqa: F401  (registers the table)
 from app.domains.siding_estimate.api import router as siding_estimate_router
 from app.domains.siding_estimate.models import (
     SidingEstimate, SidingEstimateLineItem
@@ -1109,6 +1111,7 @@ app.include_router(
 app.include_router(cabinet_estimate_router, prefix="/api", tags=["Cabinet Estimates"])
 app.include_router(bathroom_estimate_router, prefix="/api", tags=["Bathroom Estimates"])
 app.include_router(flooring_estimate_router, prefix="/api", tags=["Flooring Estimates"])
+app.include_router(rebuild_estimate_router, prefix="/api", tags=["Rebuild Estimates"])
 app.include_router(siding_estimate_router, prefix="/api", tags=["Siding Estimates"])
 app.include_router(roofing_estimate_router, prefix="/api", tags=["Roofing Estimates"])
 # Product library (shared by kitchen and bathroom estimates)

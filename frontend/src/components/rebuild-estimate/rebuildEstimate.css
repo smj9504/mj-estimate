@@ -1,0 +1,63 @@
+/* A rebuild estimate's lines: number, description, quantity, unit price, amount */
+.rbe-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 13px;
+}
+.rbe-n {
+  width: 30px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rbe-desc {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.rbe-note {
+  font-size: 11px;
+  color: #8c8c8c;
+  line-height: 1.3;
+}
+.rbe-qty {
+  width: 120px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rbe-price {
+  width: 100px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rbe-total {
+  width: 96px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rbe-tail {
+  width: 28px;
+  flex: none;
+}
+
+/* On a phone the figures go under the description, in one row */
+@media (max-width: 640px) {
+  .rbe-desc {
+    flex-basis: calc(100% - 40px);
+  }
+  .rbe-qty {
+    margin-left: 38px;
+    text-align: left;
+    width: auto;
+  }
+  .rbe-price,
+  .rbe-total {
+    width: auto;
+  }
+}

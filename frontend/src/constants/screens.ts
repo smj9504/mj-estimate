@@ -55,6 +55,7 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
       { key: 'cabinet_estimates', label: 'Cabinet', paths: ['/cabinet-estimates'] },
       { key: 'bathroom_estimates', label: 'Bathroom', paths: ['/bathroom-estimates'] },
       { key: 'flooring_estimates', label: 'Flooring', paths: ['/flooring-estimates'] },
+      { key: 'rebuild_estimates', label: 'Rebuild', paths: ['/rebuild-estimates'] },
       { key: 'roofing_estimates', label: 'Roofing', paths: ['/roofing-estimates'] },
       { key: 'siding_estimates', label: 'Siding', paths: ['/siding-estimates'] },
       { key: 'material_prices', label: '자재 기본 단가', paths: ['/roofing/material-prices'] },

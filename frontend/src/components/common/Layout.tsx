@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Layout as AntLayout, Menu, Avatar, Dropdown, Space, Button, Modal } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
+  ApartmentOutlined,
   DashboardOutlined,
   FileTextOutlined,
   TeamOutlined,
@@ -232,6 +233,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/flooring-estimates',
             icon: <BlockOutlined />,
             label: 'Flooring',
+          },
+          {
+            key: '/rebuild-estimates',
+            icon: <ApartmentOutlined />,
+            label: 'Rebuild',
           },
           {
             key: '/roofing-estimates',

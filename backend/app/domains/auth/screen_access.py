@@ -35,6 +35,7 @@ SCREEN_KEYS: tuple = (
     "cabinet_estimates",
     "bathroom_estimates",
     "flooring_estimates",
+    "rebuild_estimates",
     "roofing_estimates",
     "siding_estimates",
     "material_prices",

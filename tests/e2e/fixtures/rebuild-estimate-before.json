@@ -1,0 +1,689 @@
+{
+ "id": "44444444-4444-4444-4444-444444444444",
+ "claim_id": null,
+ "company_id": null,
+ "created_by_id": null,
+ "status": "draft",
+ "property_address": "123 Example St",
+ "city": "Anytown",
+ "state": "VA",
+ "zip_code": "22030",
+ "include_overhead_profit": false,
+ "overhead_pct": 0.1,
+ "profit_pct": 0.1,
+ "total": 6452.42,
+ "notes": null,
+ "created_at": "2026-11-13 18:34:34",
+ "updated_at": "2026-11-13 18:34:34",
+ "claim_number": null,
+ "client_name": null,
+ "client_id": null,
+ "rooms": [
+  {
+   "id": "9f54a197ea6a",
+   "name": "Living Room",
+   "level_name": "Main Level",
+   "measures": {
+    "floor_sf": 212.5,
+    "ceiling_sf": 212.5,
+    "wall_sf": 466.67,
+    "perimeter_lf": 58.33,
+    "height_ft": 8.0
+   }
+  },
+  {
+   "id": "45ea335a6cb9",
+   "name": "Kitchen",
+   "level_name": "Main Level",
+   "measures": {
+    "floor_sf": 147.0,
+    "ceiling_sf": 147.0,
+    "wall_sf": 408.0,
+    "perimeter_lf": 51.0,
+    "height_ft": 8.0
+   }
+  },
+  {
+   "id": "829a86c4c149",
+   "name": "Hallway",
+   "level_name": "Main Level",
+   "measures": {
+    "floor_sf": 48.67,
+    "ceiling_sf": 48.67,
+    "wall_sf": 258.67,
+    "perimeter_lf": 32.33,
+    "height_ft": 8.0
+   }
+  },
+  {
+   "id": "1fff6e4028a5",
+   "name": "Bedroom 1",
+   "level_name": "Main Level",
+   "measures": {
+    "floor_sf": 172.5,
+    "ceiling_sf": 172.5,
+    "wall_sf": 424.0,
+    "perimeter_lf": 53.0,
+    "height_ft": 8.0
+   }
+  },
+  {
+   "id": "6e056ff5b73c",
+   "name": "Closet",
+   "level_name": "Main Level",
+   "measures": {
+    "floor_sf": 11.0,
+    "ceiling_sf": 11.0,
+    "wall_sf": 120.0,
+    "perimeter_lf": 15.0,
+    "height_ft": 8.0
+   }
+  }
+ ],
+ "lines": [],
+ "sources": [
+  {
+   "id": "12844e83d1e9",
+   "kind": "flooring",
+   "estimate_id": "22c0ef97-5d2b-4a7e-a90a-3fbe5f13c4cc",
+   "label": "Flooring estimate",
+   "op_included": false,
+   "total": 6452.42,
+   "line_count": 28,
+   "imported_at": "2026-11-13T18:34:34.458822+00:00",
+   "rooms": [
+    {
+     "key": "room:living",
+     "name": "Living Room"
+    },
+    {
+     "key": "room:kitchen",
+     "name": "Kitchen"
+    },
+    {
+     "key": "room:hall",
+     "name": "Hallway"
+    },
+    {
+     "key": "room:bed1",
+     "name": "Bedroom 1"
+    },
+    {
+     "key": "room:closet",
+     "name": "Closet"
+    }
+   ],
+   "room_map": {
+    "room:living": "9f54a197ea6a",
+    "room:kitchen": "45ea335a6cb9",
+    "room:hall": "829a86c4c149",
+    "room:bed1": "1fff6e4028a5",
+    "room:closet": "6e056ff5b73c"
+   },
+   "state": "changed",
+   "path": "/flooring-estimates/22c0ef97-5d2b-4a7e-a90a-3fbe5f13c4cc"
+  }
+ ],
+ "assembled": {
+  "rooms": [
+   {
+    "id": "9f54a197ea6a",
+    "name": "Living Room",
+    "level_name": "Main Level",
+    "measures": {
+     "floor_sf": 212.5,
+     "ceiling_sf": 212.5,
+     "wall_sf": 466.67,
+     "perimeter_lf": 58.33,
+     "height_ft": 8.0
+    },
+    "sections": [
+     {
+      "key": "floor",
+      "label": "Floor",
+      "lines": [
+       {
+        "room_key": "room:living",
+        "section": "floor",
+        "description": "Remove carpet & pad",
+        "quantity": 212.5,
+        "unit": "SF",
+        "unit_price": 0.75,
+        "total": 159.38,
+        "notes": null,
+        "id": "12844e83d1e9:0",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 1
+       },
+       {
+        "room_key": "room:living",
+        "section": "floor",
+        "description": "Luxury vinyl plank (LVP) - floating, straight lay",
+        "quantity": 233.75,
+        "unit": "SF",
+        "unit_price": 7.95,
+        "total": 1858.31,
+        "notes": "Incl. 10% waste \u00b7 order 12 boxes @ 20 SF",
+        "id": "12844e83d1e9:1",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 2
+       },
+       {
+        "room_key": "room:living",
+        "section": "floor",
+        "description": "Baseboard - paint",
+        "quantity": 49.33,
+        "unit": "LF",
+        "unit_price": 2.36,
+        "total": 116.42,
+        "notes": null,
+        "id": "12844e83d1e9:2",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 3
+       },
+       {
+        "room_key": "room:living",
+        "section": "floor",
+        "description": "Remove shoe molding / quarter round",
+        "quantity": 49.33,
+        "unit": "LF",
+        "unit_price": 0.26,
+        "total": 12.83,
+        "notes": null,
+        "id": "12844e83d1e9:3",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 4
+       },
+       {
+        "room_key": "room:living",
+        "section": "floor",
+        "description": "Shoe molding - install & paint",
+        "quantity": 49.33,
+        "unit": "LF",
+        "unit_price": 3.83,
+        "total": 188.93,
+        "notes": null,
+        "id": "12844e83d1e9:4",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 5
+       }
+      ],
+      "total": 2335.87
+     }
+    ],
+    "total": 2335.87
+   },
+   {
+    "id": "45ea335a6cb9",
+    "name": "Kitchen",
+    "level_name": "Main Level",
+    "measures": {
+     "floor_sf": 147.0,
+     "ceiling_sf": 147.0,
+     "wall_sf": 408.0,
+     "perimeter_lf": 51.0,
+     "height_ft": 8.0
+    },
+    "sections": [
+     {
+      "key": "floor",
+      "label": "Floor",
+      "lines": [
+       {
+        "room_key": "room:kitchen",
+        "section": "floor",
+        "description": "Refrigerator - detach & reset",
+        "quantity": 1.0,
+        "unit": "EA",
+        "unit_price": 67.68,
+        "total": 67.68,
+        "notes": null,
+        "id": "12844e83d1e9:5",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 6
+       },
+       {
+        "room_key": "room:kitchen",
+        "section": "floor",
+        "description": "Range - electric - detach & reset",
+        "quantity": 1.0,
+        "unit": "EA",
+        "unit_price": 50.79,
+        "total": 50.79,
+        "notes": null,
+        "id": "12844e83d1e9:6",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 7
+       },
+       {
+        "room_key": "room:kitchen",
+        "section": "floor",
+        "description": "Remove sheet vinyl flooring",
+        "quantity": 147.0,
+        "unit": "SF",
+        "unit_price": 1.45,
+        "total": 213.15,
+        "notes": null,
+        "id": "12844e83d1e9:7",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 8
+       },
+       {
+        "room_key": "room:kitchen",
+        "section": "floor",
+        "description": "Luxury vinyl plank (LVP) - floating, straight lay",
+        "quantity": 161.7,
+        "unit": "SF",
+        "unit_price": 7.95,
+        "total": 1285.51,
+        "notes": "Incl. 10% waste \u00b7 order 9 boxes @ 20 SF",
+        "id": "12844e83d1e9:8",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 9
+       },
+       {
+        "room_key": "room:kitchen",
+        "section": "floor",
+        "description": "Baseboard - paint",
+        "quantity": 28.0,
+        "unit": "LF",
+        "unit_price": 2.36,
+        "total": 66.08,
+        "notes": null,
+        "id": "12844e83d1e9:9",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 10
+       },
+       {
+        "room_key": "room:kitchen",
+        "section": "floor",
+        "description": "Remove shoe molding / quarter round",
+        "quantity": 42.0,
+        "unit": "LF",
+        "unit_price": 0.26,
+        "total": 10.92,
+        "notes": null,
+        "id": "12844e83d1e9:10",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 11
+       },
+       {
+        "room_key": "room:kitchen",
+        "section": "floor",
+        "description": "Shoe molding - install & paint",
+        "quantity": 42.0,
+        "unit": "LF",
+        "unit_price": 3.83,
+        "total": 160.86,
+        "notes": null,
+        "id": "12844e83d1e9:11",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 12
+       }
+      ],
+      "total": 1854.99
+     }
+    ],
+    "total": 1854.99
+   },
+   {
+    "id": "829a86c4c149",
+    "name": "Hallway",
+    "level_name": "Main Level",
+    "measures": {
+     "floor_sf": 48.67,
+     "ceiling_sf": 48.67,
+     "wall_sf": 258.67,
+     "perimeter_lf": 32.33,
+     "height_ft": 8.0
+    },
+    "sections": [
+     {
+      "key": "floor",
+      "label": "Floor",
+      "lines": [
+       {
+        "room_key": "room:hall",
+        "section": "floor",
+        "description": "Remove carpet & pad",
+        "quantity": 48.67,
+        "unit": "SF",
+        "unit_price": 0.75,
+        "total": 36.5,
+        "notes": null,
+        "id": "12844e83d1e9:12",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 13
+       },
+       {
+        "room_key": "room:hall",
+        "section": "floor",
+        "description": "Luxury vinyl plank (LVP) - floating, straight lay",
+        "quantity": 53.53,
+        "unit": "SF",
+        "unit_price": 7.95,
+        "total": 425.56,
+        "notes": "Incl. 10% waste \u00b7 order 3 boxes @ 20 SF",
+        "id": "12844e83d1e9:13",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 14
+       },
+       {
+        "room_key": "room:hall",
+        "section": "floor",
+        "description": "Baseboard - paint",
+        "quantity": 21.83,
+        "unit": "LF",
+        "unit_price": 2.36,
+        "total": 51.52,
+        "notes": null,
+        "id": "12844e83d1e9:14",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 15
+       },
+       {
+        "room_key": "room:hall",
+        "section": "floor",
+        "description": "Remove shoe molding / quarter round",
+        "quantity": 21.83,
+        "unit": "LF",
+        "unit_price": 0.26,
+        "total": 5.68,
+        "notes": null,
+        "id": "12844e83d1e9:15",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 16
+       },
+       {
+        "room_key": "room:hall",
+        "section": "floor",
+        "description": "Shoe molding - install & paint",
+        "quantity": 21.83,
+        "unit": "LF",
+        "unit_price": 3.83,
+        "total": 83.61,
+        "notes": null,
+        "id": "12844e83d1e9:16",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 17
+       },
+       {
+        "room_key": "room:hall",
+        "section": "floor",
+        "description": "Transition strip / reducer",
+        "quantity": 3.0,
+        "unit": "EA",
+        "unit_price": 46.48,
+        "total": 139.44,
+        "notes": "To Bedroom 1 (carpet), Bedroom 2 (carpet - existing), Bathroom (ceramic - existing)",
+        "id": "12844e83d1e9:17",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 18
+       }
+      ],
+      "total": 742.31
+     }
+    ],
+    "total": 742.31
+   },
+   {
+    "id": "1fff6e4028a5",
+    "name": "Bedroom 1",
+    "level_name": "Main Level",
+    "measures": {
+     "floor_sf": 172.5,
+     "ceiling_sf": 172.5,
+     "wall_sf": 424.0,
+     "perimeter_lf": 53.0,
+     "height_ft": 8.0
+    },
+    "sections": [
+     {
+      "key": "floor",
+      "label": "Floor",
+      "lines": [
+       {
+        "room_key": "room:bed1",
+        "section": "floor",
+        "description": "Remove carpet & pad",
+        "quantity": 172.5,
+        "unit": "SF",
+        "unit_price": 0.75,
+        "total": 129.38,
+        "notes": null,
+        "id": "12844e83d1e9:18",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 19
+       },
+       {
+        "room_key": "room:bed1",
+        "section": "floor",
+        "description": "Carpet - mid grade, installed",
+        "quantity": 20.33,
+        "unit": "SY",
+        "unit_price": 39.58,
+        "total": 804.66,
+        "notes": "12' roll \u00b7 1 cut 15' 3\" incl. trim \u00b7 no seam",
+        "id": "12844e83d1e9:19",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 20
+       },
+       {
+        "room_key": "room:bed1",
+        "section": "floor",
+        "description": "Carpet pad - 7/16\" rebond",
+        "quantity": 20.12,
+        "unit": "SY",
+        "unit_price": 6.2,
+        "total": 124.74,
+        "notes": "Incl. 5% waste",
+        "id": "12844e83d1e9:20",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 21
+       },
+       {
+        "room_key": "room:bed1",
+        "section": "floor",
+        "description": "Tack strip",
+        "quantity": 46.0,
+        "unit": "LF",
+        "unit_price": 0.61,
+        "total": 28.06,
+        "notes": null,
+        "id": "12844e83d1e9:21",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 22
+       }
+      ],
+      "total": 1086.84
+     }
+    ],
+    "total": 1086.84
+   },
+   {
+    "id": "6e056ff5b73c",
+    "name": "Closet",
+    "level_name": "Main Level",
+    "measures": {
+     "floor_sf": 11.0,
+     "ceiling_sf": 11.0,
+     "wall_sf": 120.0,
+     "perimeter_lf": 15.0,
+     "height_ft": 8.0
+    },
+    "sections": [
+     {
+      "key": "floor",
+      "label": "Floor",
+      "lines": [
+       {
+        "room_key": "room:closet",
+        "section": "floor",
+        "description": "Remove carpet & pad",
+        "quantity": 11.0,
+        "unit": "SF",
+        "unit_price": 0.75,
+        "total": 8.25,
+        "notes": null,
+        "id": "12844e83d1e9:22",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 23
+       },
+       {
+        "room_key": "room:closet",
+        "section": "floor",
+        "description": "Carpet - mid grade, installed",
+        "quantity": 1.41,
+        "unit": "SY",
+        "unit_price": 39.58,
+        "total": 55.81,
+        "notes": "Incl. 15% waste \u00b7 cut from roll remnant",
+        "id": "12844e83d1e9:23",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 24
+       },
+       {
+        "room_key": "room:closet",
+        "section": "floor",
+        "description": "Carpet pad - 7/16\" rebond",
+        "quantity": 1.28,
+        "unit": "SY",
+        "unit_price": 6.2,
+        "total": 7.94,
+        "notes": "Incl. 5% waste",
+        "id": "12844e83d1e9:24",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 25
+       },
+       {
+        "room_key": "room:closet",
+        "section": "floor",
+        "description": "Tack strip",
+        "quantity": 10.5,
+        "unit": "LF",
+        "unit_price": 0.61,
+        "total": 6.41,
+        "notes": null,
+        "id": "12844e83d1e9:25",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 26
+       }
+      ],
+      "total": 78.41
+     }
+    ],
+    "total": 78.41
+   },
+   {
+    "id": null,
+    "name": "General",
+    "level_name": null,
+    "measures": {},
+    "sections": [
+     {
+      "key": "other",
+      "label": "Other",
+      "lines": [
+       {
+        "room_key": null,
+        "section": "other",
+        "description": "Haul debris - pickup truck load, incl. dump fees",
+        "quantity": 1.0,
+        "unit": "EA",
+        "unit_price": 188.33,
+        "total": 188.33,
+        "notes": null,
+        "id": "12844e83d1e9:26",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 27
+       },
+       {
+        "room_key": null,
+        "section": "other",
+        "description": "Final cleaning - floors",
+        "quantity": 591.67,
+        "unit": "SF",
+        "unit_price": 0.28,
+        "total": 165.67,
+        "notes": null,
+        "id": "12844e83d1e9:27",
+        "source": "imported",
+        "source_id": "12844e83d1e9",
+        "source_label": "Flooring estimate",
+        "n": 28
+       }
+      ],
+      "total": 354.0
+     }
+    ],
+    "total": 354.0
+   }
+  ],
+  "by_source": [
+   {
+    "id": "12844e83d1e9",
+    "label": "Flooring estimate",
+    "total": 6452.42
+   }
+  ],
+  "added_total": 0,
+  "total": 6452.42,
+  "tax_rate": 0.06,
+  "warnings": []
+ },
+ "company_info": null
+}
