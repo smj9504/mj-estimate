@@ -19,6 +19,7 @@ import type {
   SketchLevel,
   SketchOpening,
   SketchRoom,
+  SketchWall,
 } from '../../../types/flooringEstimate';
 import { formatFeet, formatSf, parseFeet } from './utils/dimensions';
 import {
@@ -29,10 +30,10 @@ import {
 import { FIXTURE_LABELS } from './utils/sketchOps';
 import { midpoint, pinchView, spread, zoomAround, type Px, type View as ViewState } from './utils/view';
 
-export type SketchTool = 'select' | 'pan' | 'rect' | 'polygon' | 'opening' | 'cabinet' | 'fixture';
+export type SketchTool = 'select' | 'pan' | 'rect' | 'polygon' | 'opening' | 'openwall' | 'wall' | 'cabinet' | 'fixture';
 
 export type Selection =
-  | { kind: 'room' | 'opening' | 'cabinet' | 'fixture'; id: string }
+  | { kind: 'room' | 'opening' | 'cabinet' | 'fixture' | 'wall'; id: string }
   | null;
 
 export type CanvasAction =
@@ -43,6 +44,7 @@ export type CanvasAction =
   | { type: 'moveOpening'; id: string; a: FtPoint; b: FtPoint }
   | { type: 'addCabinetRun'; run: Omit<SketchCabinetRun, 'id'> }
   | { type: 'moveCabinetRun'; id: string; a: FtPoint; b: FtPoint }
+  | { type: 'addWall'; wall: Omit<SketchWall, 'id' | 'thickness'> }
   | { type: 'addFixture'; fixtureType: FixtureType; at: FtPoint }
   | { type: 'moveFixture'; id: string; x: number; y: number };
 
@@ -55,6 +57,7 @@ type Drag =
   | { kind: 'vertex'; roomId: string; index: number; base: FtPoint[]; points: FtPoint[]; moved: boolean; inserted: boolean }
   | { kind: 'opening'; id: string; edge: Edge; width: number; a: FtPoint; b: FtPoint; moved: boolean }
   | { kind: 'cabinet-new'; roomId: string; edge: Edge; from: number; to: number }
+  | { kind: 'wall-new'; roomId: string; edge: Edge; start: FtPoint; end: FtPoint }
   | { kind: 'cabinet'; id: string; edge: Edge; width: number; a: FtPoint; b: FtPoint; moved: boolean }
   | { kind: 'fixture'; id: string; offset: FtPoint; x: number; y: number; moved: boolean };
 
@@ -101,6 +104,8 @@ const COLORS = {
 
 const DOOR_KINDS = new Set(['door', 'exterior_door']);
 const DEFAULT_OPENING_FT = 3;
+/** A wall tool click without a drag: a wall this long, square to the wall clicked */
+const DEFAULT_WALL_FT = 2;
 const MIN_ROOM_FT = 1;
 
 const flat = (pts: Px[]) => pts.flatMap((p) => [p.x, p.y]);
@@ -319,6 +324,22 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
         onToolDone();
         return;
       }
+      case 'openwall': {
+        // The whole side, with no wall on it
+        const hit = wallAt(rooms, p, tolerance);
+        if (!hit) return;
+        const { a, b } = hit.edge;
+        const other = roomAcross(rooms, hit.roomId, hit.edge, a, b);
+        onAction({ type: 'addOpening', opening: { kind: 'open_wall', rooms: [hit.roomId, other], a, b } });
+        onToolDone();
+        return;
+      }
+      case 'wall': {
+        const hit = wallAt(rooms, p, tolerance);
+        if (!hit) return;
+        setDrag({ kind: 'wall-new', roomId: hit.roomId, edge: hit.edge, start: hit.point, end: hit.point });
+        return;
+      }
       case 'cabinet': {
         const hit = wallAt(rooms, p, tolerance);
         if (!hit) return;
@@ -389,6 +410,14 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
       case 'cabinet-new':
         setDrag({ ...drag, to: Math.max(0, Math.min(drag.edge.length, along(drag.edge, p))) });
         return;
+      case 'wall-new': {
+        // Level, upright or 45° unless Alt is held; its length on the grid
+        const q = e.evt.altKey ? p : constrainAngle(drag.start, p);
+        const len = distance(drag.start, q);
+        const k = len > 0 ? Math.round(len / grid) * grid / len : 0;
+        setDrag({ ...drag, end: { x: drag.start.x + (q.x - drag.start.x) * k, y: drag.start.y + (q.y - drag.start.y) * k } });
+        return;
+      }
       case 'fixture':
         setDrag({ ...drag, x: snapTo2(p.x - drag.offset.x), y: snapTo2(p.y - drag.offset.y), moved: true });
         return;
@@ -440,9 +469,30 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
       case 'fixture':
         if (d.moved) onAction({ type: 'moveFixture', id: d.id, x: d.x, y: d.y });
         return;
+      case 'wall-new': {
+        let { start, end } = d;
+        // A click is a short wall square to the wall clicked, into its room
+        if (distance(start, end) < 0.25) {
+          end = { x: start.x - d.edge.normal.x * DEFAULT_WALL_FT, y: start.y - d.edge.normal.y * DEFAULT_WALL_FT };
+        }
+        // It belongs to the room it stands in, which may be the one across the wall clicked
+        const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+        const inside = rooms.find((r) => pointInPolygon(mid, r.points));
+        let roomId = d.roomId;
+        if (inside && inside.id !== d.roomId) {
+          roomId = inside.id;
+          const near = edgesOf(inside.points)
+            .map((edge) => projectOnSegment(start, edge.a, edge.b))
+            .sort((x, y) => x.dist - y.dist)[0];
+          if (near) start = near.point;
+        }
+        onAction({ type: 'addWall', wall: { room_id: roomId, a: start, b: end } });
+        onToolDone();
+        return;
+      }
       default:
     }
-  }, [drag, onAction, onToolDone]);
+  }, [drag, onAction, onToolDone, rooms]);
 
   // A drag ends wherever the pointer is let go, on the canvas or not
   useEffect(() => {
@@ -502,6 +552,12 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
       setDrag({ kind, id, edge, width: distance(a, b), a, b, moved: false });
     };
 
+  const grabWall = (w: SketchWall) => (e: KonvaEventObject<PointerEvent>) => {
+    if (tool !== 'select') return;
+    e.cancelBubble = true;
+    onSelect({ kind: 'wall', id: w.id });
+  };
+
   const grabFixture = (f: SketchFixture) => (e: KonvaEventObject<PointerEvent>) => {
     if (tool !== 'select') return;
     e.cancelBubble = true;
@@ -554,8 +610,9 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
       }
       return f;
     });
-    return { roomPoints, openings, runs, fixtures };
-  }, [rooms, roomById, drag, level.openings, level.cabinet_runs, level.fixtures]);
+    const walls = (level.walls ?? []).map((w) => ({ ...w, a: shift(w.room_id, w.a), b: shift(w.room_id, w.b) }));
+    return { roomPoints, openings, runs, fixtures, walls };
+  }, [rooms, roomById, drag, level.openings, level.cabinet_runs, level.fixtures, level.walls]);
 
   // ── Grid ──
   const gridLines = useMemo(() => {
@@ -587,6 +644,18 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
     const gap = [o.a, o.b, out(o.b, WALL_T), out(o.a, WALL_T)].map(toPx);
     const isSelected = selection?.kind === 'opening' && selection.id === o.id;
     const w = distance(o.a, o.b);
+    if (o.kind === 'open_wall') {
+      // No wall: floor through it to the next room (the outside stays white), a dashed line where it would stand
+      return (
+        <Group key={o.id}>
+          <Line points={flat(gap)} closed fill={o.rooms[1] ? COLORS.floor : '#ffffff'}
+            stroke={isSelected ? COLORS.selected : undefined} strokeWidth={isSelected ? 2 : 0} hitStrokeWidth={12}
+            onPointerDown={grabSegment('opening', o.id, o.rooms[0], o.a, o.b)} />
+          <Line points={flat([out(o.a, WALL_T / 2), out(o.b, WALL_T / 2)].map(toPx))} stroke={COLORS.dim}
+            strokeWidth={1} dash={[6, 4]} listening={false} />
+        </Group>
+      );
+    }
     const parts: React.ReactNode[] = [
       <Line key="gap" points={flat(gap)} closed fill="#ffffff" stroke={isSelected ? COLORS.selected : COLORS.wall}
         strokeWidth={isSelected ? 2 : 0.75} hitStrokeWidth={12}
@@ -657,6 +726,23 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
     );
   };
 
+  const renderWall = (wall: SketchWall) => {
+    const len = distance(wall.a, wall.b);
+    if (len < 1e-6) return null;
+    const half = (wall.thickness || WALL_T) / 2;
+    const n = { x: (-(wall.b.y - wall.a.y) / len) * half, y: ((wall.b.x - wall.a.x) / len) * half };
+    const corners = [
+      { x: wall.a.x + n.x, y: wall.a.y + n.y }, { x: wall.b.x + n.x, y: wall.b.y + n.y },
+      { x: wall.b.x - n.x, y: wall.b.y - n.y }, { x: wall.a.x - n.x, y: wall.a.y - n.y },
+    ];
+    const isSelected = selection?.kind === 'wall' && selection.id === wall.id;
+    return (
+      <Line key={wall.id} points={flat(corners.map(toPx))} closed fill={COLORS.wall}
+        stroke={isSelected ? COLORS.selected : undefined} strokeWidth={isSelected ? 2 : 0} hitStrokeWidth={10}
+        onPointerDown={grabWall(wall)} />
+    );
+  };
+
   const renderFixture = (f: SketchFixture) => {
     const c = toPx(f);
     const w = f.w * view.scale;
@@ -673,12 +759,36 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
             <Ellipse x={0} y={h * 0.15} radiusX={w * 0.42} radiusY={h * 0.35} fill={COLORS.fixture}
               stroke={isSelected ? COLORS.selected : COLORS.wall} strokeWidth={isSelected ? 2 : 1} />
           </>
+        ) : f.type === 'pedestal_sink' ? (
+          // Basin, and the pedestal under it toward the wall
+          <>
+            <Ellipse x={0} y={0} radiusX={w / 2} radiusY={h / 2} fill={COLORS.fixture}
+              stroke={isSelected ? COLORS.selected : COLORS.wall} strokeWidth={isSelected ? 2 : 1} />
+            <Ellipse x={0} y={-h * 0.08} radiusX={w * 0.3} radiusY={h * 0.26} stroke={COLORS.wall} strokeWidth={0.75} />
+          </>
+        ) : f.type === 'floor_register' ? (
+          // A grille: the frame and its slats
+          <>
+            <Rect x={-w / 2} y={-h / 2} width={w} height={h} fill={COLORS.fixture}
+              stroke={isSelected ? COLORS.selected : COLORS.wall} strokeWidth={isSelected ? 2 : 1} />
+            {[1, 2, 3, 4, 5].map((k) => (
+              <Line key={k} points={[-w / 2 + (w * k) / 6, -h * 0.32, -w / 2 + (w * k) / 6, h * 0.32]}
+                stroke={COLORS.wall} strokeWidth={0.75} listening={false} />
+            ))}
+          </>
         ) : (
-          <Rect x={-w / 2} y={-h / 2} width={w} height={h} fill={COLORS.fixture}
-            stroke={isSelected ? COLORS.selected : COLORS.wall} strokeWidth={isSelected ? 2 : 1} cornerRadius={2} />
+          <>
+            <Rect x={-w / 2} y={-h / 2} width={w} height={h} fill={COLORS.fixture}
+              stroke={isSelected ? COLORS.selected : COLORS.wall} strokeWidth={isSelected ? 2 : 1} cornerRadius={2} />
+            {f.type === 'utility_sink' && (
+              <Rect x={-w * 0.38} y={-h * 0.24} width={w * 0.76} height={h * 0.62} stroke={COLORS.wall}
+                strokeWidth={0.75} cornerRadius={3} listening={false} />
+            )}
+          </>
         )}
         {/* Its name, where it fits on one line */}
-        {f.type !== 'toilet' && FIXTURE_LABELS[f.type].length * fixtureFont(w) * 0.6 <= w - 4 && (
+        {!['toilet', 'pedestal_sink', 'floor_register'].includes(f.type)
+          && FIXTURE_LABELS[f.type].length * fixtureFont(w) * 0.6 <= w - 4 && (
           <Text x={-w / 2} y={-5} width={w} align="center" text={FIXTURE_LABELS[f.type]} fontSize={fixtureFont(w)}
             wrap="none" fill={COLORS.dim} listening={false} />
         )}
@@ -822,7 +932,16 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
     const q = toPx(next);
     previews.push(<Text key="pl" x={q.x + 10} y={q.y + 8} text={formatFeet(distance(last, next))} fontSize={12} fill={COLORS.preview} listening={false} />);
   }
-  if ((tool === 'opening' || tool === 'cabinet') && pointer && !drag) {
+  if (drag?.kind === 'wall-new') {
+    const len = distance(drag.start, drag.end);
+    previews.push(<Line key="pw" points={flat([drag.start, drag.end].map(toPx))} stroke={COLORS.preview}
+      strokeWidth={Math.max(3, WALL_T * view.scale)} opacity={0.7} listening={false} />);
+    if (len > 0) {
+      const q = toPx(drag.end);
+      previews.push(<Text key="pwl" x={q.x + 10} y={q.y + 8} text={formatFeet(len)} fontSize={12} fill={COLORS.preview} listening={false} />);
+    }
+  }
+  if (['opening', 'openwall', 'wall', 'cabinet'].includes(tool) && pointer && !drag) {
     const hit = wallAt(rooms, pointer, tolerance);
     if (hit) {
       previews.push(<Line key="hw" points={flat([hit.edge.a, hit.edge.b].map(toPx))} stroke={COLORS.preview} strokeWidth={3} opacity={0.6} listening={false} />);
@@ -865,6 +984,7 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
           {roomLayer}
           {shown.runs.map(renderCabinetRun)}
           {shown.openings.map(renderOpening)}
+          {shown.walls.map(renderWall)}
           {shown.fixtures.map(renderFixture)}
           {labels}
           {handles}

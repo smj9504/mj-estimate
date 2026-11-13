@@ -39,6 +39,18 @@ const DOOR_ICON = (
     <path d="M2 14h12M4 14V3M4 3a11 11 0 0 1 10 11" />
   </svg>
 );
+const OPEN_WALL_ICON = (
+  <svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+    <path d="M2 3v10h12V3" />
+    <path d="M2 3h12" strokeDasharray="2 2" />
+  </svg>
+);
+const WALL_ICON = (
+  <svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+    <path d="M2 13h12" />
+    <rect x="7" y="4" width="2.5" height="9" fill="currentColor" stroke="none" />
+  </svg>
+);
 const CABINET_ICON = (
   <svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
     <rect x="1.5" y="4" width="13" height="8" />
@@ -82,6 +94,8 @@ const FLSketchToolbar: React.FC<ToolbarProps> = ({
             {toolButton('rect', 'Room', <BorderOutlined />, 'Drag out a rectangular room (R)')}
             {toolButton('polygon', 'Shape', POLYGON_ICON, 'Click corner by corner; type a wall length as you go (P)')}
             {toolButton('opening', 'Door', DOOR_ICON, 'Click a wall to put a doorway in it (D)')}
+            {toolButton('openwall', 'Open wall', OPEN_WALL_ICON, 'Click a wall to take it out: that side is open, with no wall or baseboard')}
+            {toolButton('wall', 'Wall', WALL_ICON, 'Drag out from a wall to build a wall onto it; a click makes a 2\' wall (W)')}
             {toolButton('cabinet', 'Cabinets', CABINET_ICON, 'Drag along a wall where base cabinets stand')}
             {toolButton('fixture', 'Fixture', <AimOutlined />, 'Click to place the fixture picked on the right')}
             <Select
@@ -94,6 +108,8 @@ const FLSketchToolbar: React.FC<ToolbarProps> = ({
               }}
               options={(Object.keys(FIXTURE_LABELS) as FixtureType[]).map((t) => ({ value: t, label: FIXTURE_LABELS[t] }))}
               aria-label="Fixture to place"
+              virtual={false}
+              listHeight={400}
             />
           </>
         )}

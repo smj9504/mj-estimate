@@ -14,8 +14,8 @@ import FLSketchInspector from './FLSketchInspector';
 import FLSketchToolbar from './FLSketchToolbar';
 import { useSketchAutosave } from './hooks/useSketchAutosave';
 import {
-  addCabinetRun, addFixture, addLevel, addOpening, addRoom, historyReducer, moveRoom, normalizeSketch,
-  removeCabinetRun, removeFixture, removeLevel, removeOpening, removeRoom, renameLevel, setRoomPoints,
+  addCabinetRun, addFixture, addLevel, addOpening, addRoom, addWall, historyReducer, moveRoom, normalizeSketch,
+  removeCabinetRun, removeFixture, removeLevel, removeOpening, removeRoom, removeWall, renameLevel, setRoomPoints,
   updateCabinetRun, updateFixture, updateOpening,
 } from './utils/sketchOps';
 
@@ -29,7 +29,7 @@ export interface FlooringSketchEditorProps {
   saveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
-const TOOL_KEYS: Record<string, SketchTool> = { v: 'select', r: 'rect', p: 'polygon', d: 'opening' };
+const TOOL_KEYS: Record<string, SketchTool> = { v: 'select', r: 'rect', p: 'polygon', d: 'opening', w: 'wall' };
 
 const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId, initialSketch, readOnly, onSaved, saveRef }) => {
   const [history, dispatch] = useReducer(historyReducer, initialSketch, (s) => ({
@@ -79,7 +79,7 @@ const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId,
   useEffect(() => {
     if (!selection) return;
     const lists = {
-      room: level.rooms, opening: level.openings, cabinet: level.cabinet_runs, fixture: level.fixtures,
+      room: level.rooms, opening: level.openings, cabinet: level.cabinet_runs, fixture: level.fixtures, wall: level.walls,
     } as const;
     if (!(lists[selection.kind] as { id: string }[]).some((x) => x.id === selection.id)) setSelection(null);
   }, [level, selection]);
@@ -118,6 +118,12 @@ const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId,
       case 'moveCabinetRun':
         apply(updateCabinetRun(s, lid, a.id, { a: a.a, b: a.b }));
         return;
+      case 'addWall': {
+        const r = addWall(s, lid, a.wall);
+        apply(r.sketch);
+        setSelection({ kind: 'wall', id: r.wallId });
+        return;
+      }
       case 'addFixture': {
         const r = addFixture(s, lid, a.fixtureType, a.at);
         apply(r.sketch);
@@ -135,7 +141,7 @@ const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId,
     if (!selection || readOnly) return;
     const s = presentRef.current;
     const remove = {
-      room: removeRoom, opening: removeOpening, cabinet: removeCabinetRun, fixture: removeFixture,
+      room: removeRoom, opening: removeOpening, cabinet: removeCabinetRun, fixture: removeFixture, wall: removeWall,
     }[selection.kind];
     apply(remove(s, level.id, selection.id));
     setSelection(null);

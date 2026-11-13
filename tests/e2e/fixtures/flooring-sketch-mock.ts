@@ -34,8 +34,9 @@ export interface SavedSketch {
     name: string;
     rooms: { id: string; name: string; height_ft: number; points: FtPoint[]; subroom_of?: string | null }[];
     openings: { id: string; kind: string; rooms: (string | null)[]; a: FtPoint; b: FtPoint }[];
-    cabinet_runs: { id: string; room_id: string; a: FtPoint; b: FtPoint }[];
+    cabinet_runs: { id: string; room_id: string; a: FtPoint; b: FtPoint; side_a?: boolean | null; side_b?: boolean | null }[];
     fixtures: { id: string; type: string; x: number; y: number; w: number; h: number }[];
+    walls?: { id: string; room_id: string; a: FtPoint; b: FtPoint; thickness: number }[];
   }[];
 }
 

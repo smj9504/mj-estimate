@@ -21,7 +21,8 @@ export interface SketchRoom {
   subroom_of?: string | null;
 }
 
-export type OpeningKind = 'opening' | 'door' | 'bifold' | 'pocket' | 'slider' | 'exterior_door';
+/** open_wall: a side with no wall at all, measured like a doorway as wide as that side */
+export type OpeningKind = 'opening' | 'open_wall' | 'door' | 'bifold' | 'pocket' | 'slider' | 'exterior_door';
 
 export interface SketchOpening {
   id: string;
@@ -42,11 +43,14 @@ export interface SketchCabinetRun {
   room_id: string;
   a: FtPoint;
   b: FtPoint;
+  /** Whether the cabinet's side shows at each end (it takes shoe molding); null or absent: worked out from the sketch */
+  side_a?: boolean | null;
+  side_b?: boolean | null;
 }
 
 export type FixtureType =
-  | 'toilet' | 'vanity' | 'island' | 'refrigerator' | 'range'
-  | 'dishwasher' | 'washer' | 'dryer' | 'other';
+  | 'toilet' | 'vanity' | 'pedestal_sink' | 'utility_sink' | 'island' | 'refrigerator' | 'range'
+  | 'dishwasher' | 'washer' | 'dryer' | 'floor_register' | 'other';
 
 export interface SketchFixture {
   id: string;
@@ -59,6 +63,18 @@ export interface SketchFixture {
   rotation: number;
   /** An island the new floor runs under (its area is floored) */
   floor_under?: boolean;
+  /** A range or dryer on gas: more to its detach & reset */
+  gas?: boolean;
+}
+
+/** A wall built out from one of a room's walls (a wall end, a partition): from a, on the room's wall, to b */
+export interface SketchWall {
+  id: string;
+  room_id: string;
+  a: FtPoint;
+  b: FtPoint;
+  /** Feet */
+  thickness: number;
 }
 
 export interface SketchLevel {
@@ -68,6 +84,7 @@ export interface SketchLevel {
   openings: SketchOpening[];
   cabinet_runs: SketchCabinetRun[];
   fixtures: SketchFixture[];
+  walls: SketchWall[];
 }
 
 export interface FlooringSketch {
@@ -159,14 +176,32 @@ export interface TakeoffRoom {
   perimeter_lf: number;
   openings_lf: number;
   cabinet_run_lf: number;
+  cabinet_front_lf: number;
+  cabinet_side_lf: number;
   base_lf: number;
   toe_kick_lf: number;
+  shoe_lf: number;
+  island_count: number;
+  island_floored_count: number;
+  island_lf: number;
+  island_perimeter_lf: number;
+  island_panel_sf: number;
   wall_sf: number;
   door_count: number;
   exterior_door_count: number;
   toilet_count: number;
   vanity_count: number;
+  pedestal_sink_count: number;
+  utility_sink_count: number;
   appliance_count: number;
+  refrigerator_count: number;
+  range_count: number;
+  range_gas_count: number;
+  dishwasher_count: number;
+  washer_count: number;
+  dryer_count: number;
+  dryer_gas_count: number;
+  register_count: number;
   included: boolean;
   new_material: FloorMaterial | null;
   pattern: LayPattern;

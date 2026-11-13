@@ -13,8 +13,9 @@ import type {
   SketchLevel,
   SketchOpening,
   SketchRoom,
+  SketchWall,
 } from '../../../../types/flooringEstimate';
-import { pointInPolygon, reattach, translate } from './geometry';
+import { WALL_T, pointInPolygon, reattach, translate } from './geometry';
 
 export const DEFAULT_LEVEL_NAME = 'Main Level';
 
@@ -22,24 +23,31 @@ export const DEFAULT_LEVEL_NAME = 'Main Level';
 export const FIXTURE_SIZES: Record<FixtureType, [number, number]> = {
   toilet: [1.6, 2.4],
   vanity: [2.5, 1.75],
+  pedestal_sink: [1.75, 1.5],
+  utility_sink: [2, 2],
   island: [6, 3],
   refrigerator: [3, 2.5],
   range: [2.5, 2.2],
   dishwasher: [2, 2],
   washer: [2.25, 2.25],
   dryer: [2.25, 2.25],
+  // A 4" x 10" register with its flange
+  floor_register: [1, 0.45],
   other: [2, 2],
 };
 
 export const FIXTURE_LABELS: Record<FixtureType, string> = {
   toilet: 'Toilet',
   vanity: 'Vanity',
+  pedestal_sink: 'Pedestal sink',
+  utility_sink: 'Utility sink',
   island: 'Island',
   refrigerator: 'Refrigerator',
   range: 'Range',
   dishwasher: 'Dishwasher',
   washer: 'Washer',
   dryer: 'Dryer',
+  floor_register: 'Floor register',
   other: 'Other',
 };
 
@@ -53,7 +61,7 @@ export function newId(prefix: string): string {
 }
 
 export function emptyLevel(name = DEFAULT_LEVEL_NAME, id?: string): SketchLevel {
-  return { id: id ?? newId('lvl'), name, rooms: [], openings: [], cabinet_runs: [], fixtures: [] };
+  return { id: id ?? newId('lvl'), name, rooms: [], openings: [], cabinet_runs: [], fixtures: [], walls: [] };
 }
 
 export function emptySketch(): FlooringSketch {
@@ -76,6 +84,7 @@ export function normalizeSketch(raw: unknown): FlooringSketch {
       openings: Array.isArray(l.openings) ? l.openings : [],
       cabinet_runs: Array.isArray(l.cabinet_runs) ? l.cabinet_runs : [],
       fixtures: Array.isArray(l.fixtures) ? l.fixtures : [],
+      walls: Array.isArray(l.walls) ? l.walls : [],
     })),
   };
 }
@@ -141,7 +150,7 @@ export function setRoomPoints(sketch: FlooringSketch, levelId: string, roomId: s
   }));
 }
 
-/** Moves a room with what is on it: its doorways, cabinet runs and the fixtures standing in it */
+/** Moves a room with what is on it: its doorways, cabinet runs, walls built out into it and the fixtures standing in it */
 export function moveRoom(sketch: FlooringSketch, levelId: string, roomId: string, dx: number, dy: number): FlooringSketch {
   const move = (p: FtPoint) => ({ x: p.x + dx, y: p.y + dy });
   return onLevel(sketch, levelId, (l) => {
@@ -152,12 +161,13 @@ export function moveRoom(sketch: FlooringSketch, levelId: string, roomId: string
       rooms: l.rooms.map((r) => (r.id === roomId ? { ...r, points: translate(r.points, dx, dy) } : r)),
       openings: l.openings.map((o) => (o.rooms[0] === roomId ? { ...o, a: move(o.a), b: move(o.b) } : o)),
       cabinet_runs: l.cabinet_runs.map((c) => (c.room_id === roomId ? { ...c, a: move(c.a), b: move(c.b) } : c)),
+      walls: l.walls.map((w) => (w.room_id === roomId ? { ...w, a: move(w.a), b: move(w.b) } : w)),
       fixtures: l.fixtures.map((f) => (pointInPolygon(f, room.points) ? { ...f, x: f.x + dx, y: f.y + dy } : f)),
     };
   });
 }
 
-/** Removes a room and what can't stand without it: its doorways and cabinet runs */
+/** Removes a room and what can't stand without it: its doorways, cabinet runs and walls */
 export function removeRoom(sketch: FlooringSketch, levelId: string, roomId: string): FlooringSketch {
   return onLevel(sketch, levelId, (l) => ({
     ...l,
@@ -166,6 +176,7 @@ export function removeRoom(sketch: FlooringSketch, levelId: string, roomId: stri
       .map((r) => (r.subroom_of === roomId ? { ...r, subroom_of: null } : r)),
     openings: l.openings.filter((o) => !o.rooms.includes(roomId)),
     cabinet_runs: l.cabinet_runs.filter((c) => c.room_id !== roomId),
+    walls: l.walls.filter((w) => w.room_id !== roomId),
   }));
 }
 
@@ -195,6 +206,17 @@ export const updateCabinetRun = (sketch: FlooringSketch, levelId: string, id: st
 
 export const removeCabinetRun = (sketch: FlooringSketch, levelId: string, id: string) =>
   onLevel(sketch, levelId, (l) => ({ ...l, cabinet_runs: l.cabinet_runs.filter((c) => c.id !== id) }));
+
+export function addWall(sketch: FlooringSketch, levelId: string, wall: Omit<SketchWall, 'id' | 'thickness'> & { thickness?: number }) {
+  const full: SketchWall = { id: newId('wall'), thickness: WALL_T, ...wall };
+  return { sketch: onLevel(sketch, levelId, (l) => ({ ...l, walls: [...l.walls, full] })), wallId: full.id };
+}
+
+export const updateWall = (sketch: FlooringSketch, levelId: string, id: string, patch: Partial<SketchWall>) =>
+  onLevel(sketch, levelId, (l) => ({ ...l, walls: l.walls.map((w) => (w.id === id ? { ...w, ...patch } : w)) }));
+
+export const removeWall = (sketch: FlooringSketch, levelId: string, id: string) =>
+  onLevel(sketch, levelId, (l) => ({ ...l, walls: l.walls.filter((w) => w.id !== id) }));
 
 export function addFixture(sketch: FlooringSketch, levelId: string, type: FixtureType, at: FtPoint) {
   const [w, h] = FIXTURE_SIZES[type];

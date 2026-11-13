@@ -13,12 +13,23 @@ drawn around the rooms; they are not part of the area.
         "rooms": [{"id", "name", "height_ft", "points": [{"x", "y"}, ...], "subroom_of"}],
         # An opening sits in the wall between two rooms (or a room and the
         # outside: null). a/b are its two jambs on the first room's side.
+        # An open wall is a side with no wall at all (a kitchen open to the
+        # family room): it is measured like a doorway as wide as that side.
         "openings": [{"id", "kind", "rooms": [room_id, room_id | null], "a": {...}, "b": {...},
                       "swing": room_id, "hinge": "a" | "b"}],
-        # Where base cabinets stand along a wall: no baseboard there
-        "cabinet_runs": [{"id", "room_id", "a": {...}, "b": {...}}],
-        # Things on the floor, by their center: toilets, vanities, islands, appliances
-        "fixtures": [{"id", "type", "x", "y", "w", "h", "rotation", "floor_under"}],
+        # Where base cabinets stand along a wall: no baseboard there. The
+        # cabinets' fronts and the sides that show take shoe molding; side_a
+        # / side_b say whether a side shows at that end (null: worked out)
+        "cabinet_runs": [{"id", "room_id", "a": {...}, "b": {...}, "side_a", "side_b"}],
+        # Things on the floor, by their center: toilets, vanities, pedestal sinks,
+        # utility sinks, islands, appliances, floor registers
+        # (a range or dryer may be on gas: "gas": true)
+        "fixtures": [{"id", "type", "x", "y", "w", "h", "rotation", "floor_under", "gas"}],
+        # A wall built out from one of the room's walls (a wall end, a
+        # partition): from a, on the room's wall, to b. Its faces take
+        # baseboard, and so does its end when it stops short in the room;
+        # it stands on what it covers of the floor.
+        "walls": [{"id", "room_id", "a": {...}, "b": {...}, "thickness"}],
       }],
     }
 """
@@ -31,10 +42,23 @@ Point = Tuple[float, float]
 
 # Opening kinds with a door leaf in them (doors to undercut, detach and reset)
 DOOR_KINDS = frozenset({"door", "bifold", "pocket", "slider", "exterior_door"})
-OPENING_KINDS = frozenset({"opening"}) | DOOR_KINDS
+OPENING_KINDS = frozenset({"opening", "open_wall"}) | DOOR_KINDS
 
 APPLIANCE_TYPES = frozenset({"refrigerator", "range", "dishwasher", "washer", "dryer"})
-FIXTURE_TYPES = frozenset({"toilet", "vanity", "island", "other"}) | APPLIANCE_TYPES
+# What stands beside the end of a cabinet run and hides its side (a
+# dishwasher sits in the run, so it doesn't)
+SIDE_HIDERS = frozenset({"refrigerator", "range", "washer", "dryer", "other"})
+
+CABINET_DEPTH_FT = 2.0
+# A base cabinet with its top, 34 1/2": how high an island's panels are
+CABINET_HEIGHT_FT = 2.875
+# An appliance this close to a run's end hides the cabinet's side
+SIDE_TOUCH_FT = 0.75
+# Appliances whose detach & reset differs on gas
+GAS_APPLIANCES = frozenset({"range", "dryer"})
+FIXTURE_TYPES = frozenset({
+    "toilet", "vanity", "pedestal_sink", "utility_sink", "island", "floor_register", "other",
+}) | APPLIANCE_TYPES
 
 
 def point(value: Any) -> Point:
@@ -137,16 +161,36 @@ class RoomMeasure:
     # Lengths
     perimeter_lf: float = 0.0
     openings_lf: float = 0.0
-    cabinet_run_lf: float = 0.0
+    cabinet_run_lf: float = 0.0    # along the walls the cabinets stand against
+    cabinet_front_lf: float = 0.0  # their fronts, less where another run meets them at a corner
+    cabinet_side_lf: float = 0.0   # their sides that show, at a run's free end
     base_lf: float = 0.0           # perimeter less openings and cabinet runs: where base trim goes
-    toe_kick_lf: float = 0.0       # cabinet runs plus the sides of islands
+    toe_kick_lf: float = 0.0       # cabinet fronts plus all round islands
+    island_count: int = 0
+    island_floored_count: int = 0  # islands the new floor runs under: they come out and go back
+    island_lf: float = 0.0         # islands' lengths
+    island_perimeter_lf: float = 0.0
+    island_panel_sf: float = 0.0   # an island's back and both ends, cabinet high
+    # Shoe molding: the baseboard, the cabinets' fronts and showing sides, and
+    # all round islands (the wall behind the cabinets only when they come out)
+    shoe_lf: float = 0.0
     wall_sf: float = 0.0
     # Counts
     door_count: int = 0            # doors hung in this room (the side they swing into)
     exterior_door_count: int = 0
     toilet_count: int = 0
     vanity_count: int = 0
-    appliance_count: int = 0
+    pedestal_sink_count: int = 0
+    utility_sink_count: int = 0    # a laundry tub / mop sink standing on the floor
+    appliance_count: int = 0       # every appliance; by kind below
+    refrigerator_count: int = 0
+    range_count: int = 0           # electric
+    range_gas_count: int = 0
+    dishwasher_count: int = 0
+    washer_count: int = 0
+    dryer_count: int = 0           # electric
+    dryer_gas_count: int = 0
+    register_count: int = 0        # HVAC floor registers
     openings: List[OpeningRef] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -156,6 +200,115 @@ class RoomMeasure:
             if isinstance(value, float):
                 data[key] = round(value, 2)
         return data
+
+
+# How close to a room's wall a built-out wall's end has to be to count as joined to it
+WALL_JOIN_FT = 0.05
+
+
+def _on_outline(p: Point, points: Sequence[Point]) -> bool:
+    n = len(points)
+    for i in range(n):
+        a, b = points[i], points[(i + 1) % n]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        len2 = dx * dx + dy * dy
+        t = 0.0 if len2 == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2))
+        if distance(p, (a[0] + dx * t, a[1] + dy * t)) <= WALL_JOIN_FT:
+            return True
+    return False
+
+
+def wall_faces(a: Point, b: Point, thickness: float, points: Sequence[Point]) -> Tuple[float, float]:
+    """A built-out wall's exposed length (both faces, and each end that
+    stops in the room) and the floor it stands on"""
+    length = distance(a, b)
+    free_ends = sum(1 for p in (a, b) if not _on_outline(p, points))
+    return 2 * length + free_ends * thickness, length * thickness
+
+
+def _outward_normal(points: Sequence[Point], a: Point, b: Point) -> Point:
+    """The outward normal of the room wall a..b lies on (the nearest one)"""
+    ccw = sum(points[i][0] * points[(i + 1) % len(points)][1] - points[(i + 1) % len(points)][0] * points[i][1]
+              for i in range(len(points))) > 0
+    mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    best, best_d = (0.0, 0.0), None
+    for i in range(len(points)):
+        p, q = points[i], points[(i + 1) % len(points)]
+        dx, dy = q[0] - p[0], q[1] - p[1]
+        length = math.hypot(dx, dy)
+        if length == 0:
+            continue
+        t = max(0.0, min(1.0, ((mid[0] - p[0]) * dx + (mid[1] - p[1]) * dy) / length ** 2))
+        d = distance(mid, (p[0] + dx * t, p[1] + dy * t))
+        if best_d is None or d < best_d:
+            u = (dx / length, dy / length)
+            best, best_d = ((u[1], -u[0]) if ccw else (-u[1], u[0])), d
+    return best
+
+
+def _near_fixture(p: Point, fixture: Mapping[str, Any], reach: float) -> bool:
+    """Whether p is within reach of a fixture's footprint, turned as drawn"""
+    cx, cy = float(fixture.get("x") or 0), float(fixture.get("y") or 0)
+    th = math.radians(float(fixture.get("rotation") or 0))
+    dx, dy = p[0] - cx, p[1] - cy
+    lx, ly = dx * math.cos(th) + dy * math.sin(th), -dx * math.sin(th) + dy * math.cos(th)
+    w, h = float(fixture.get("w") or 0), float(fixture.get("h") or 0)
+    return math.hypot(max(abs(lx) - w / 2, 0.0), max(abs(ly) - h / 2, 0.0)) <= reach
+
+
+def cabinet_layout(
+    runs: Sequence[Mapping[str, Any]], points: Sequence[Point], fixtures: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Per cabinet run of one room: its front (less where another run meets
+    it at a corner) and whether its side shows at each end. A side is hidden
+    by the wall at a corner, by another run, or by an appliance standing
+    beside it; one set on the run (side_a / side_b) is taken as set."""
+    frames = []
+    for run in runs:
+        a, b = point(run.get("a") or (0, 0)), point(run.get("b") or (0, 0))
+        length = distance(a, b)
+        if length < 1e-6:
+            continue
+        u = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+        frames.append((run, a, b, u, _outward_normal(points, a, b), length))
+
+    def in_run(p: Point, frame, pad: float = 0.01) -> bool:
+        _run, a, _b, u, n, length = frame
+        s = (p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1]
+        t = -((p[0] - a[0]) * n[0] + (p[1] - a[1]) * n[1])
+        return -pad <= s <= length + pad and -pad <= t <= CABINET_DEPTH_FT + pad
+
+    hiders = [f for f in fixtures if str(f.get("type") or "") in SIDE_HIDERS]
+    out: List[Dict[str, Any]] = []
+    for frame in frames:
+        run, a, b, u, n, length = frame
+        others = [f for f in frames if f is not frame]
+        # The front, a little at a time: what lies in another run is a corner
+        steps = max(1, int(math.ceil(length / 0.05)))
+        step = length / steps
+        front = 0.0
+        for k in range(steps):
+            s = (k + 0.5) * step
+            q = (a[0] + u[0] * s - n[0] * CABINET_DEPTH_FT * 0.999, a[1] + u[1] * s - n[1] * CABINET_DEPTH_FT * 0.999)
+            if not any(in_run(q, o) for o in others):
+                front += step
+        sides = {}
+        for key, end, away in (("a", a, (-u[0], -u[1])), ("b", b, u)):
+            set_on_run = run.get(f"side_{key}")
+            if set_on_run is not None:
+                sides[key] = bool(set_on_run)
+                continue
+            # Just past the end, halfway back to the wall
+            p = (end[0] + away[0] * 0.15 - n[0] * CABINET_DEPTH_FT / 2,
+                 end[1] + away[1] * 0.15 - n[1] * CABINET_DEPTH_FT / 2)
+            hidden = (
+                not point_in_polygon(p, points)
+                or any(in_run(p, o, 0.05) for o in others)
+                or any(_near_fixture(p, f, SIDE_TOUCH_FT) for f in hiders)
+            )
+            sides[key] = not hidden
+        out.append({"id": str(run.get("id") or ""), "front_lf": front, "side_a": sides["a"], "side_b": sides["b"]})
+    return out
 
 
 def levels_of(sketch: Optional[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
@@ -220,9 +373,19 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
         for run in level.get("cabinet_runs") or []:
             m = by_id.get(str(run.get("room_id")))
             if m is not None:
-                length = distance(point(run.get("a") or (0, 0)), point(run.get("b") or (0, 0)))
-                m.cabinet_run_lf += length
-                m.toe_kick_lf += length
+                m.cabinet_run_lf += distance(point(run.get("a") or (0, 0)), point(run.get("b") or (0, 0)))
+
+        for wall in level.get("walls") or []:
+            m = by_id.get(str(wall.get("room_id")))
+            if m is None:
+                continue
+            exposed, footprint = wall_faces(
+                point(wall.get("a") or (0, 0)), point(wall.get("b") or (0, 0)),
+                float(wall.get("thickness") or 0.375), m.points,
+            )
+            m.perimeter_lf += exposed
+            m.wall_sf += exposed * m.height_ft
+            m.floor_sf = max(0.0, m.floor_sf - footprint)
 
         for fixture in level.get("fixtures") or []:
             center = (float(fixture.get("x") or 0), float(fixture.get("y") or 0))
@@ -234,13 +397,43 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
                 owner.toilet_count += 1
             elif kind == "vanity":
                 owner.vanity_count += 1
+            elif kind == "pedestal_sink":
+                owner.pedestal_sink_count += 1
+            elif kind == "utility_sink":
+                owner.utility_sink_count += 1
+            elif kind == "floor_register":
+                owner.register_count += 1
             elif kind in APPLIANCE_TYPES:
                 owner.appliance_count += 1
+                gas = kind in GAS_APPLIANCES and bool(fixture.get("gas"))
+                field_name = f"{kind}_gas_count" if gas else f"{kind}_count"
+                setattr(owner, field_name, getattr(owner, field_name) + 1)
             elif kind == "island":
                 w, h = float(fixture.get("w") or 0), float(fixture.get("h") or 0)
-                owner.toe_kick_lf += 2 * (w + h)
-                if not fixture.get("floor_under"):
+                owner.island_count += 1
+                owner.island_lf += max(w, h)
+                owner.island_perimeter_lf += 2 * (w + h)
+                owner.island_panel_sf += (max(w, h) + 2 * min(w, h)) * CABINET_HEIGHT_FT
+                if fixture.get("floor_under"):
+                    owner.island_floored_count += 1
+                else:
                     owner.floor_sf = max(0.0, owner.floor_sf - w * h)
+
+        fixtures_of = {room_id: [] for room_id in by_id}
+        for fixture in level.get("fixtures") or []:
+            center = (float(fixture.get("x") or 0), float(fixture.get("y") or 0))
+            owner = next((m for m in by_id.values() if point_in_polygon(center, m.points)), None)
+            if owner is not None:
+                fixtures_of[owner.room_id].append(fixture)
+        runs_of = {room_id: [] for room_id in by_id}
+        for run in level.get("cabinet_runs") or []:
+            if str(run.get("room_id")) in runs_of:
+                runs_of[str(run.get("room_id"))].append(run)
+        for room_id, m in by_id.items():
+            for run in cabinet_layout(runs_of[room_id], m.points, fixtures_of[room_id]):
+                m.cabinet_front_lf += run["front_lf"]
+                m.cabinet_side_lf += CABINET_DEPTH_FT * (run["side_a"] + run["side_b"])
+            m.toe_kick_lf = m.cabinet_front_lf + m.island_perimeter_lf
 
         ordered: List[RoomMeasure] = []
         for room in rooms:
@@ -254,6 +447,7 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
             )
         for m in ordered:
             m.base_lf = max(0.0, m.perimeter_lf - m.openings_lf - m.cabinet_run_lf)
+            m.shoe_lf = m.base_lf + m.cabinet_front_lf + m.cabinet_side_lf + m.island_perimeter_lf
             m.floor_sy = m.floor_sf / 9
         measured.extend(ordered)
     return measured

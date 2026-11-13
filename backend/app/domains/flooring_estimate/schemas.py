@@ -75,6 +75,21 @@ class SketchCabinetRun(BaseModel):
     room_id: str
     a: SketchPoint
     b: SketchPoint
+    # Whether the cabinet's side shows at each end (it takes shoe molding);
+    # null: worked out from the sketch
+    side_a: Optional[bool] = None
+    side_b: Optional[bool] = None
+
+
+class SketchWall(BaseModel):
+    """A wall standing in a room: from a point on one of its walls (a), out
+    into the room (b), or across it to another wall"""
+    model_config = ConfigDict(extra="allow")
+    id: str = Field(..., min_length=1, max_length=64)
+    room_id: str
+    a: SketchPoint
+    b: SketchPoint
+    thickness: float = Field(0.375, gt=0, le=2)
 
 
 class SketchFixture(BaseModel):
@@ -87,6 +102,8 @@ class SketchFixture(BaseModel):
     h: float = Field(0, ge=0)
     rotation: float = 0
     floor_under: bool = False
+    # A range or dryer on gas: more to its detach & reset
+    gas: bool = False
 
     @field_validator("type")
     @classmethod
@@ -104,6 +121,7 @@ class SketchLevel(BaseModel):
     openings: List[SketchOpening] = []
     cabinet_runs: List[SketchCabinetRun] = []
     fixtures: List[SketchFixture] = []
+    walls: List[SketchWall] = []
 
 
 class FlooringSketch(BaseModel):
@@ -127,6 +145,9 @@ class FlooringSketch(BaseModel):
             for run in level.cabinet_runs:
                 if run.room_id not in known:
                     raise ValueError(f"Cabinet run {run.id} is in a room that isn't drawn: {run.room_id}")
+            for wall in level.walls:
+                if wall.room_id not in known:
+                    raise ValueError(f"Wall {wall.id} is in a room that isn't drawn: {wall.room_id}")
             for room in level.rooms:
                 if room.subroom_of and room.subroom_of not in known:
                     raise ValueError(f"{room.name} is a subroom of a room that isn't drawn")

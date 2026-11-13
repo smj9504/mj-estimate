@@ -113,6 +113,96 @@ test.describe('on the canvas', () => {
     expect(Math.hypot(door.b.x - door.a.x, door.b.y - door.a.y)).toBeCloseTo(3, 3);
   });
 
+  test('an open wall takes out the whole side between two rooms', async ({ page }) => {
+    const api = await open(page, sketchWith([
+      { id: 'a', name: 'Kitchen', points: rect(0, 0, 12, 10) },
+      { id: 'b', name: 'Family Room', points: rect(12.375, 0, 10, 10) },
+    ]));
+    const canvas = page.getByTestId('flooring-sketch-canvas');
+    await page.getByTestId('tool-openwall').click();
+    const wall = await pagePoint(canvas, { x: 12.1, y: 4 });
+    await page.mouse.click(wall.x, wall.y);
+
+    const inspector = page.getByTestId('opening-inspector');
+    await expect(inspector.getByText('Kitchen ↔ Family Room')).toBeVisible();
+    await expect(inspector.getByText('Open wall (no wall)')).toBeVisible();
+    await expect(inspector.getByText('Swings into')).toHaveCount(0);
+    await expect.poll(() => api.last()?.levels[0].openings.length).toBe(1);
+    const openWall = api.last()!.levels[0].openings[0];
+    expect(openWall.kind).toBe('open_wall');
+    expect(openWall.rooms).toEqual(['a', 'b']);
+    expect([openWall.a, openWall.b]).toEqual([{ x: 12, y: 0 }, { x: 12, y: 10 }]);
+    await canvas.screenshot({ path: test.info().outputPath('open-wall.png') });
+  });
+
+  test('a wall dragged out from a wall is built onto it', async ({ page }) => {
+    const api = await open(page, sketchWith([{ id: 'r1', name: 'Dining', points: rect(0, 0, 12, 10) }]));
+    const canvas = page.getByTestId('flooring-sketch-canvas');
+    await page.getByTestId('tool-wall').click();
+    const from = await pagePoint(canvas, { x: 6, y: 10.1 });
+    const to = await pagePoint(canvas, { x: 6.2, y: 6 });
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 6 });
+    await page.mouse.up();
+
+    const inspector = page.getByTestId('wall-inspector');
+    await expect(inspector).toBeVisible();
+    await expect.poll(() => api.last()?.levels[0].walls?.length).toBe(1);
+    const wall = api.last()!.levels[0].walls![0];
+    expect(wall.room_id).toBe('r1');
+    expect(wall.a.y).toBeCloseTo(10, 6);                    // on the wall it was drawn from
+    expect(wall.b.x).toBeCloseTo(wall.a.x, 6);              // held upright
+    expect(wall.thickness).toBe(0.375);
+
+    // Typed to 4': both faces and its end take baseboard, its footprint comes off the floor
+    await inspector.getByLabel('Wall length').fill('4');
+    await inspector.getByLabel('Wall length').press('Enter');
+    await expect(inspector.getByText('8.38 LF')).toBeVisible();
+    await expect.poll(() => {
+      const w = api.last()?.levels[0].walls?.[0];
+      return w ? Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y) : 0;
+    }).toBeCloseTo(4, 6);
+    await page.getByText('Dining', { exact: true }).last().click();
+    await expect(page.getByTestId('room-inspector').getByText('118.50 SF')).toBeVisible();
+    await canvas.screenshot({ path: test.info().outputPath('built-out-wall.png') });
+  });
+
+  test('a cabinet run shows its front and which sides show, and a side can be set', async ({ page }) => {
+    const initial = sketchWith([{ id: 'k', name: 'Kitchen', points: rect(0, 0, 14, 12) }]);
+    initial.levels[0].cabinet_runs = [
+      { id: 'top', room_id: 'k', a: { x: 4, y: 0 }, b: { x: 14, y: 0 } },
+      { id: 'right', room_id: 'k', a: { x: 14, y: 0 }, b: { x: 14, y: 8 } },
+    ];
+    const api = await open(page, initial);
+    const canvas = page.getByTestId('flooring-sketch-canvas');
+    const onRun = await pagePoint(canvas, { x: 9, y: 1 });
+    await page.mouse.click(onRun.x, onRun.y);
+
+    const inspector = page.getByTestId('cabinet-inspector');
+    await expect(inspector.getByText('8.00 LF')).toBeVisible();       // 10' less the 2' corner
+    await expect(inspector.getByText('Auto (shows)')).toBeVisible();  // stops 4' short of the left wall
+    await expect(inspector.getByText('Auto (hidden)')).toBeVisible(); // the corner end
+    await inspector.getByRole('combobox', { name: 'Side at start' }).click({ force: true });
+    await page.locator('.ant-select-item-option', { hasText: /^Hidden$/ }).click();
+    await expect.poll(() => api.last()?.levels[0].cabinet_runs.find((c) => c.id === 'top')?.side_a).toBe(false);
+  });
+
+  test('floor registers, pedestal and utility sinks can be placed', async ({ page }) => {
+    const api = await open(page, sketchWith([{ id: 'r1', name: 'Laundry', points: rect(0, 0, 12, 10) }]));
+    const canvas = page.getByTestId('flooring-sketch-canvas');
+    const spots = { floor_register: { x: 2, y: 2 }, pedestal_sink: { x: 6, y: 5 }, utility_sink: { x: 9, y: 7 } };
+    const labels = { floor_register: 'Floor register', pedestal_sink: 'Pedestal sink', utility_sink: 'Utility sink' };
+    for (const type of ['floor_register', 'pedestal_sink', 'utility_sink'] as const) {
+      await page.getByRole('combobox', { name: 'Fixture to place' }).click({ force: true });
+      await page.locator('.ant-select-item-option', { hasText: labels[type] }).click();
+      const at = await pagePoint(canvas, spots[type]);
+      await page.mouse.click(at.x, at.y);
+      await expect.poll(() => api.last()?.levels[0].fixtures.map((f) => f.type)).toContain(type);
+    }
+    await canvas.screenshot({ path: test.info().outputPath('new-fixtures.png') });
+  });
+
   test('a shape drawn corner by corner with typed lengths', async ({ page }) => {
     const api = await open(page, sketchWith([{ id: 'r1', name: 'Bedroom', points: rect(0, 0, 12, 10) }]));
     const canvas = page.getByTestId('flooring-sketch-canvas');

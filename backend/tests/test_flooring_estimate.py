@@ -176,6 +176,28 @@ def test_fixtures_count_in_the_room_they_stand_in_and_an_island_takes_its_floor(
     assert measured(sketch)["kitchen"].floor_sf == pytest.approx(147)
 
 
+def test_a_wall_built_out_from_a_wall_takes_baseboard_on_its_faces_and_its_end():
+    sketch = house()
+    level = sketch["levels"][0]
+    # A 4' wall end out of the living room's back wall, 4.5" thick, stopping in the room
+    level["walls"] = [{"id": "w1", "room_id": "living", "a": {"x": 6, "y": 14.1667}, "b": {"x": 6, "y": 10.1667},
+                       "thickness": 0.375}]
+    FlooringSketch.model_validate(sketch)
+    living = measured(sketch)["living"]
+    assert living.perimeter_lf == pytest.approx(58.33 + 2 * 4 + 0.375, abs=0.01)
+    assert living.base_lf == pytest.approx(58.33 - 9 + 8.375, abs=0.01)
+    assert living.floor_sf == pytest.approx(212.5 - 4 * 0.375, abs=0.01)
+
+    # Run across the room from wall to wall, it has no end showing
+    level["walls"][0]["b"] = {"x": 6, "y": 0}
+    across = measured(sketch)["living"]
+    assert across.perimeter_lf == pytest.approx(58.33 + 2 * 14.1667, abs=0.01)
+
+    level["walls"][0]["room_id"] = "garage"
+    with pytest.raises(ValidationError, match="isn't drawn"):
+        FlooringSketch.model_validate(sketch)
+
+
 def test_a_closet_comes_right_after_its_room():
     order = [m.room_id for m in measure_sketch(house())]
     assert order.index("closet") == order.index("bed1") + 1
@@ -244,13 +266,15 @@ def test_the_job_default_floor_fills_rooms_that_have_none():
 def test_items_start_on_only_where_the_sketch_makes_it_plain():
     t = build_takeoff(estimate())
     on = {room: {r.key for r in rows if r.on} for room, rows in t.rows.items()}
-    assert "baseboard_detach_reset" in on["living"]          # new hard floor
+    assert {"baseboard_paint", "shoe_molding_remove", "shoe_molding"} <= on["living"]   # new LVP
     assert "tack_strip" in on["bed1"]                         # new carpet
-    assert "baseboard_detach_reset" not in on["bed1"]
-    assert "appliance_detach_reset" in on["kitchen"]          # fridge and range drawn
+    assert "shoe_molding" not in on["bed1"]
+    assert {"refrigerator_detach_reset", "range_detach_reset"} <= on["kitchen"]   # fridge and range drawn
     assert "transition" in on["hall"]
-    for situational in ("shoe_molding", "quarter_round", "toe_kick_detach_reset", "door_undercut",
-                        "vanity_detach_reset", "contents_move", "self_leveling"):
+    for situational in ("baseboard_detach_reset", "baseboard_remove", "quarter_round", "toe_kick_detach_reset",
+                        "toe_kick_reskin", "door_undercut", "vanity_detach_reset", "register_replace",
+                        "appliance_detach_reset", "dishwasher_detach_reset", "range_gas_detach_reset",
+                        "contents_move", "self_leveling"):
         assert not any(situational in keys for keys in on.values()), situational
 
 
@@ -268,21 +292,210 @@ def test_trim_and_toe_kicks_are_measured_from_the_sketch():
     }}))
     kitchen = lines_of(calculate_estimate(est), "Kitchen")
     assert kitchen["toe_kick_detach_reset"]["quantity"] == pytest.approx(14)
-    assert kitchen["shoe_molding"]["quantity"] == pytest.approx(28)
+    # The baseboard's 28' and the 14' of cabinet front; the run's ends are against walls
+    assert kitchen["shoe_molding"]["quantity"] == pytest.approx(28 + 14)
     assert "baseboard_detach_reset" not in kitchen
 
 
 def test_a_room_choice_beats_the_job_choice_beats_the_default():
     est = estimate(
         room_scopes=scopes(hall={"items": {"shoe_molding": {"on": False}}}),
-        job_scope={"room_items": {"shoe_molding": {"on": True}, "baseboard_detach_reset": {"on": False}}},
+        job_scope={"room_items": {"shoe_molding": {"on": True}, "baseboard_paint": {"on": False}}},
     )
     t = build_takeoff(est)
     shoe = {room: next(r for r in rows if r.key == "shoe_molding") for room, rows in t.rows.items()}
     assert (shoe["living"].on, shoe["living"].on_source) == (True, "job")
     assert (shoe["hall"].on, shoe["hall"].on_source) == (False, "room")
-    base = next(r for r in t.rows["living"] if r.key == "baseboard_detach_reset")
+    assert (shoe["bed1"].on, shoe["bed1"].default_on, shoe["bed1"].on_source) == (True, False, "job")
+    base = next(r for r in t.rows["living"] if r.key == "baseboard_paint")
     assert (base.on, base.default_on, base.on_source) == (False, True, "job")
+
+
+def test_tile_and_lvp_keep_the_base_and_paint_it_a_wood_floor_replaces_it():
+    def trim_on(material):
+        t = build_takeoff(estimate(room_scopes=scopes(living={"new_material": material})))
+        return {r.key for r in t.rows["living"] if r.on and r.category == "trim"}
+
+    keeps = {"baseboard_paint", "shoe_molding_remove", "shoe_molding"}
+    for material in ("lvp", "laminate", "ceramic_tile", "porcelain_tile"):
+        assert trim_on(material) == keeps, material
+    replaced = {"baseboard_remove", "baseboard_install", "shoe_molding"}
+    for material in ("engineered_hardwood", "solid_hardwood"):
+        assert trim_on(material) == replaced, material
+    assert trim_on("carpet") == {"tack_strip"}
+
+
+# A kitchen 14' x 12' (x right, y down) with an L of base cabinets on its top
+# and right walls, a fridge on the left wall, and an island
+def kitchen_sketch(**island):
+    return {"version": 1, "units": "ft", "levels": [{
+        "id": "main", "name": "Main Level",
+        "rooms": [{"id": "k", "name": "Kitchen", "points": P((0, 0), (14, 0), (14, 12), (0, 12))}],
+        "openings": [],
+        "cabinet_runs": [
+            # Top wall from 4' in to the corner, right wall from the corner 8' down
+            {"id": "top", "room_id": "k", "a": {"x": 4, "y": 0}, "b": {"x": 14, "y": 0}},
+            {"id": "right", "room_id": "k", "a": {"x": 14, "y": 0}, "b": {"x": 14, "y": 8}},
+        ],
+        "fixtures": [{"id": "isl", "type": "island", "x": 7, "y": 7, "w": 6, "h": 3, **island}],
+    }]}
+
+
+def test_cabinets_take_shoe_molding_on_their_fronts_and_showing_sides_not_against_the_wall():
+    from app.domains.flooring_estimate.geometry import cabinet_layout
+
+    k = measured(kitchen_sketch())["k"]
+    # The L's fronts, less the 2' square where the runs meet at the corner
+    assert k.cabinet_front_lf == pytest.approx((10 - 2) + (8 - 2), abs=0.06)
+    # Both runs stop in the open at one end: the top run 4' from the left
+    # wall, the right run 8' down; the corner ends are against each other
+    assert k.cabinet_side_lf == pytest.approx(2 + 2)
+    perimeter = 52
+    assert k.base_lf == pytest.approx(perimeter - 18)
+    assert k.shoe_lf == pytest.approx(perimeter - 18 + 14 + 4 + 18, abs=0.06)
+    assert k.toe_kick_lf == pytest.approx(14 + 18, abs=0.06)
+
+    # A fridge beside the top run's end hides that side; one set on the run is taken as set
+    sketch = kitchen_sketch()
+    level = sketch["levels"][0]
+    level["fixtures"].append({"id": "f", "type": "refrigerator", "x": 2.5, "y": 1.25, "w": 3, "h": 2.5})
+    layout = {r["id"]: r for r in cabinet_layout(level["cabinet_runs"], [(0, 0), (14, 0), (14, 12), (0, 12)],
+                                                  level["fixtures"])}
+    assert (layout["top"]["side_a"], layout["top"]["side_b"]) == (False, False)
+    assert (layout["right"]["side_a"], layout["right"]["side_b"]) == (False, True)
+    level["cabinet_runs"][1]["side_b"] = False
+    assert measured(sketch)["k"].cabinet_side_lf == 0
+
+
+def test_shoe_molding_goes_behind_the_cabinets_only_when_they_come_out():
+    est = estimate(sketch=kitchen_sketch(), room_scopes={"k": {"new_material": "lvp", "existing_material": "lvp"}})
+    staying = lines_of(calculate_estimate(est), "Kitchen")
+    assert "base_cabinet_detach_reset" not in staying
+    est.room_scopes["k"]["items"] = {"base_cabinet_detach_reset": {"on": True}}
+    out = lines_of(calculate_estimate(est), "Kitchen")
+    assert out["base_cabinet_detach_reset"]["quantity"] == pytest.approx(18)
+    assert out["base_cabinet_detach_reset"]["unit_price"] == pricing.CABINET_RATES["base_detach_reset_per_lf"]
+    assert out["shoe_molding"]["quantity"] == pytest.approx(staying["shoe_molding"]["quantity"] + 18)
+    assert out["shoe_molding_remove"]["quantity"] == pytest.approx(out["shoe_molding"]["quantity"])
+
+
+def test_an_island_takes_shoe_molding_all_round_and_comes_out_when_the_floor_runs_under_it():
+    around = {"k": {"new_material": "lvp", "existing_material": "lvp"}}
+    left = lines_of(calculate_estimate(estimate(sketch=kitchen_sketch(), room_scopes=around)), "Kitchen")
+    assert "island_detach_reset" not in left                      # the floor goes round it
+    under = lines_of(calculate_estimate(estimate(sketch=kitchen_sketch(floor_under=True), room_scopes=around)),
+                     "Kitchen")
+    assert under["island_detach_reset"]["quantity"] == pytest.approx(6)
+    assert under["shoe_molding"]["quantity"] == pytest.approx(left["shoe_molding"]["quantity"])
+    assert "island_panel_detach_reset" not in under               # only when asked for
+    est = estimate(sketch=kitchen_sketch(floor_under=True),
+                   room_scopes={"k": {**around["k"], "items": {"island_panel_detach_reset": {"on": True}}}})
+    panels = lines_of(calculate_estimate(est), "Kitchen")["island_panel_detach_reset"]
+    assert panels["quantity"] == pytest.approx((6 + 2 * 3) * 2.875)
+    assert panels["unit"] == "SF"
+
+
+def test_a_vanity_drawn_brings_its_detach_and_reset():
+    sketch = house()
+    sketch["levels"][0]["fixtures"].append({"id": "v", "type": "vanity", "x": 21, "y": 25.3, "w": 2.5, "h": 1.75})
+    est = estimate(sketch=sketch, room_scopes=scopes(bath={"included": True, "new_material": "porcelain_tile"}))
+    assert lines_of(calculate_estimate(est), "Bathroom")["vanity_detach_reset"]["quantity"] == 1
+
+
+def test_tear_out_extras_are_offered_and_priced_over_xactimate():
+    est = estimate(room_scopes=scopes(bath={
+        "included": True, "new_material": "porcelain_tile",
+        "items": {"mortar_bed_removal": {"on": True}, "tile_on_slab_removal": {"on": True}},
+    }))
+    bath = lines_of(calculate_estimate(est), "Bathroom")
+    assert bath["mortar_bed_removal"]["quantity"] == pytest.approx(40)
+    assert bath["mortar_bed_removal"]["unit_price"] == pytest.approx(round(1.66 * pricing.XACTIMATE_MARKUP, 2))
+    assert bath["tile_on_slab_removal"]["unit_price"] == pytest.approx(round(2.13 * pricing.XACTIMATE_MARKUP, 2))
+    for key in ("glue_down_removal_concrete", "glue_down_removal_wood", "vinyl_extra_layer_removal"):
+        assert key not in bath                                    # only when switched on
+    assert 1.10 <= pricing.XACTIMATE_MARKUP <= 1.15
+
+
+def test_registers_and_sinks_drawn_on_the_floor_bring_their_detach_and_reset():
+    sketch = house()
+    sketch["levels"][0]["fixtures"] += [
+        {"id": "r1", "type": "floor_register", "x": 3, "y": 13, "w": 1, "h": 0.45},
+        {"id": "r2", "type": "floor_register", "x": 12, "y": 13, "w": 1, "h": 0.45},
+        {"id": "s1", "type": "pedestal_sink", "x": 21, "y": 25.3, "w": 1.75, "h": 1.5},
+        {"id": "s2", "type": "utility_sink", "x": 17.5, "y": 22, "w": 2, "h": 2},
+    ]
+    FlooringSketch.model_validate(sketch)
+    rooms = measured(sketch)
+    assert rooms["living"].register_count == 2
+    assert rooms["bath"].pedestal_sink_count == 1
+    assert rooms["hall"].utility_sink_count == 1
+
+    est = estimate(sketch=sketch, room_scopes=scopes(bath={"included": True, "new_material": "porcelain_tile"}))
+    result = calculate_estimate(est)
+    living, bath, hall = (lines_of(result, name) for name in ("Living Room", "Bathroom", "Hallway"))
+    register = living["register_detach_reset"]
+    assert (register["quantity"], register["unit_price"]) == (2, pricing.HVAC_RATES["floor_register_detach_reset"])
+    assert "register_replace" not in living                   # only when the old one won't do
+    assert bath["pedestal_sink_detach_reset"]["quantity"] == 1
+    assert bath["toilet_detach_reset"]["quantity"] == 1
+    assert hall["utility_sink_detach_reset"]["quantity"] == 1
+    assert "pedestal_sink_detach_reset" not in living
+
+
+def test_each_appliance_is_detached_and_reset_at_its_own_price_gas_or_electric():
+    sketch = house()
+    fixtures = sketch["levels"][0]["fixtures"]
+    fixtures[1]["gas"] = True                                  # the range is on gas
+    fixtures += [
+        {"id": "f5", "type": "dishwasher", "x": 18, "y": 1, "w": 2, "h": 2},
+        {"id": "f6", "type": "washer", "x": 17, "y": 14, "w": 2, "h": 2},
+        {"id": "f7", "type": "dryer", "x": 17, "y": 17, "w": 2, "h": 2, "gas": True},
+    ]
+    rooms = measured(sketch)
+    kitchen = rooms["kitchen"]
+    assert (kitchen.appliance_count, kitchen.refrigerator_count, kitchen.range_count, kitchen.range_gas_count,
+            kitchen.dishwasher_count) == (3, 1, 0, 1, 1)
+    assert (rooms["hall"].washer_count, rooms["hall"].dryer_gas_count, rooms["hall"].dryer_count) == (1, 1, 0)
+
+    result = calculate_estimate(estimate(sketch=sketch))
+    lines = lines_of(result, "Kitchen")
+    rates = pricing.DETACH_RESET_RATES
+    for key, rate in (("refrigerator", "refrigerator"), ("range_gas", "range_gas"), ("dishwasher", "dishwasher")):
+        line = lines[f"{key}_detach_reset"]
+        assert (line["quantity"], line["unit_price"]) == (1, rates[rate]), key
+    assert lines["range_gas_detach_reset"]["description"] == "Range - gas - detach & reset"
+    assert "range_detach_reset" not in lines and "appliance_detach_reset" not in lines
+    hall = lines_of(result, "Hallway")
+    assert hall["dryer_gas_detach_reset"]["unit_price"] == rates["dryer_gas"]
+    assert hall["washer_detach_reset"]["quantity"] == 1
+    # Gas costs more to move than electric
+    assert rates["range_gas"] > rates["range"] and rates["dryer_gas"] > rates["dryer"]
+
+
+def test_a_toe_kick_can_be_reskinned_along_the_cabinets_and_island():
+    sketch = house()
+    sketch["levels"][0]["fixtures"].append({"id": "i1", "type": "island", "x": 20, "y": 5, "w": 6, "h": 3,
+                                            "floor_under": True})
+    est = estimate(sketch=sketch, room_scopes=scopes(kitchen={"items": {"toe_kick_reskin": {"on": True}}}))
+    reskin = lines_of(calculate_estimate(est), "Kitchen")["toe_kick_reskin"]
+    assert reskin["quantity"] == pytest.approx(14 + 18)
+    assert reskin["description"] == "Cabinet toe kick - reskin"
+
+
+def test_an_open_wall_is_a_side_with_no_wall_measured_like_a_doorway():
+    sketch = house()
+    openings = sketch["levels"][0]["openings"]
+    # The living room open to the kitchen along the whole of the kitchen's side
+    openings[0] = {"id": "o1", "kind": "open_wall", "rooms": ["living", "kitchen"],
+                   "a": {"x": 15, "y": 0}, "b": {"x": 15, "y": 11.5}}
+    FlooringSketch.model_validate(sketch)
+    rooms = measured(sketch)
+    assert rooms["living"].base_lf == pytest.approx(58.33 - 11.5 - 3, abs=0.01)
+    assert rooms["kitchen"].base_lf == pytest.approx(51 - 11.5 - 3 - 14)
+    assert rooms["living"].door_count == 1                    # the front door only
+    # Where the floor changes across it, it takes a transition
+    est = estimate(sketch=sketch, room_scopes=scopes(kitchen={"new_material": "porcelain_tile"}))
+    assert lines_of(calculate_estimate(est), "Living Room")["transition"]["notes"] == "To Kitchen (porcelain)"
 
 
 def test_transitions_go_where_the_floor_changes():
@@ -313,10 +526,10 @@ def test_the_general_section_covers_the_job():
 
 def test_a_typed_quantity_and_price_are_used_as_entered():
     est = estimate(
-        room_scopes=scopes(living={"items": {"baseboard_detach_reset": {"qty": 40, "unit_price": 3.10, "note": "Front wall only"}}}),
+        room_scopes=scopes(living={"items": {"baseboard_paint": {"qty": 40, "unit_price": 3.10, "note": "Front wall only"}}}),
         include_overhead_profit=True,
     )
-    base = lines_of(calculate_estimate(est), "Living Room")["baseboard_detach_reset"]
+    base = lines_of(calculate_estimate(est), "Living Room")["baseboard_paint"]
     assert (base["quantity"], base["unit_price"], base["total"]) == (40, 3.10, 124.0)
     assert base["notes"] == "Front wall only"
 
@@ -353,10 +566,10 @@ def test_custom_items_on_a_room_and_on_the_job():
 
 
 def test_a_price_book_prices_the_estimate():
-    with use_prices({"FLOORING_MATERIAL.lvp": [6.00, 0], "TRIM_RATES.baseboard_detach_reset_per_lf": [0, 3.00]}):
+    with use_prices({"FLOORING_MATERIAL.lvp": [6.00, 0], "TRIM_RATES.baseboard_paint_per_lf": [0, 3.00]}):
         living = lines_of(calculate_estimate(estimate()), "Living Room")
     assert living["install"]["unit_price"] == pytest.approx(round(6.00 * 1.06 + pricing.FLOORING_INSTALL_LABOR["lvp"], 2))
-    assert living["baseboard_detach_reset"]["unit_price"] == 3.00
+    assert living["baseboard_paint"]["unit_price"] == 3.00
 
 
 def test_the_total_is_the_sum_of_lines_each_qty_times_price():
@@ -427,7 +640,10 @@ def test_an_estimate_shows_every_room_and_item_before_it_is_calculated(service):
     keys = [item["key"] for item in rooms["living"]["items"]]
     assert {"install", "removal", "shoe_molding", "toilet_detach_reset", "toe_kick_detach_reset"} <= set(keys)
     shoe = next(item for item in rooms["living"]["items"] if item["key"] == "shoe_molding")
-    assert (shoe["on"], shoe["auto_qty"], shoe["estimated_total"]) == (False, pytest.approx(49.33, abs=0.01), 0.0)
+    assert (shoe["on"], shoe["auto_qty"]) == (True, pytest.approx(49.33, abs=0.01))
+    assert shoe["estimated_total"] > 0
+    reskin = next(item for item in rooms["kitchen"]["items"] if item["key"] == "toe_kick_reskin")
+    assert (reskin["on"], reskin["auto_qty"], reskin["estimated_total"]) == (False, pytest.approx(14), 0.0)
 
 
 def test_choices_survive_recalculation(service):
@@ -578,6 +794,49 @@ def test_a_room_drawing_is_cropped_to_the_room_and_labelled(service):
     # Every wall of the L, the short ones too
     for length in ("14' 0\"", "8' 0\"", "4' 0\"", "3' 6\"", "10' 0\"", "11' 6\""):
         assert length in texts, length
+
+
+def test_the_plan_draws_open_walls_registers_and_sinks():
+    from app.domains.flooring_estimate.floorplan_drawing import level_plan, room_thumbnail
+
+    level = house()["levels"][0]
+    level["openings"][0] = {"id": "o1", "kind": "open_wall", "rooms": ["living", "kitchen"],
+                            "a": {"x": 15, "y": 0}, "b": {"x": 15, "y": 11.5}}
+    level["walls"] = [{"id": "w1", "room_id": "living", "a": {"x": 6, "y": 14.1667}, "b": {"x": 6, "y": 10.1667}}]
+    level["fixtures"] += [
+        {"id": "r1", "type": "floor_register", "x": 3, "y": 13, "w": 1, "h": 0.45, "rotation": 90},
+        {"id": "s1", "type": "pedestal_sink", "x": 21, "y": 25.3, "w": 1.75, "h": 1.5},
+        {"id": "s2", "type": "utility_sink", "x": 17.5, "y": 22, "w": 2, "h": 2},
+    ]
+    ids = [r["id"] for r in level["rooms"]]
+    plan = level_plan(level, 500, 400, {i: "lvp" for i in ids}, ids)
+    thumb = room_thumbnail(level, level["rooms"][0], 148, 124, "lvp")
+
+    def dashed(node, found):
+        for child in getattr(node, "contents", []):
+            if getattr(child, "strokeDashArray", None) == [2, 1.5]:
+                found.append(child)
+            dashed(child, found)
+        return found
+
+    # A dashed line where the open wall would stand, drawn from each room's side
+    assert len(dashed(plan, [])) == 2
+    assert len(dashed(thumb, [])) == 1
+
+    def wall_polygons(node, found):
+        for child in getattr(node, "contents", []):
+            if type(child).__name__ == "Polygon" and len(child.points) == 8:
+                found.append(child.points)
+            wall_polygons(child, found)
+        return found
+
+    # The built-out wall: 4' by 4.5" at the plan's scale
+    sizes = []
+    for pts in wall_polygons(thumb, []):
+        xs, ys = pts[0::2], pts[1::2]
+        sizes.append((round(max(xs) - min(xs), 1), round(max(ys) - min(ys), 1)))
+    scale = min((148 - 30) / (15 + 0.75), (124 - 30) / (14.1667 + 0.75), 12.0)
+    assert (round(0.375 * scale, 1), round(4 * scale, 1)) in sizes
 
 
 def test_the_pdf_waits_for_a_calculation(session):

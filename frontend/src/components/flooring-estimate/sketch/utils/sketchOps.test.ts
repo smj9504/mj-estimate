@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { rectPoints } from './geometry';
 import {
-  HISTORY_LIMIT, addCabinetRun, addFixture, addLevel, addOpening, addRoom, emptySketch, historyReducer,
-  moveRoom, normalizeSketch, removeLevel, removeRoom, setRoomPoints,
+  FIXTURE_LABELS, FIXTURE_SIZES, HISTORY_LIMIT, addCabinetRun, addFixture, addLevel, addOpening, addRoom, addWall,
+  emptySketch, historyReducer, moveRoom, normalizeSketch, removeLevel, removeRoom, removeWall, setRoomPoints,
+  updateWall,
 } from './sketchOps';
 
 function twoRooms() {
@@ -55,6 +56,31 @@ describe('rooms', () => {
     s = addRoom(bed.sketch, 'main', rectPoints(0, 10.375, 5, 2), { subroom_of: bed.roomId }).sketch;
     const level = removeRoom(s, 'main', bed.roomId).levels[0];
     expect(level.rooms[0].subroom_of).toBeNull();
+  });
+});
+
+describe('walls built out into a room', () => {
+  it('start 4.5" thick, move with their room and go with it', () => {
+    const { sketch, kitchen } = twoRooms();
+    const added = addWall(sketch, 'main', { room_id: kitchen, a: { x: 16, y: 10 }, b: { x: 16, y: 8 } });
+    expect(added.sketch.levels[0].walls).toEqual([
+      { id: added.wallId, room_id: kitchen, a: { x: 16, y: 10 }, b: { x: 16, y: 8 }, thickness: 0.375 },
+    ]);
+    const moved = moveRoom(added.sketch, 'main', kitchen, 1, 2).levels[0].walls[0];
+    expect([moved.a, moved.b]).toEqual([{ x: 17, y: 12 }, { x: 17, y: 10 }]);
+    const thicker = updateWall(added.sketch, 'main', added.wallId, { thickness: 0.5 }).levels[0].walls[0];
+    expect(thicker.thickness).toBe(0.5);
+    expect(removeWall(added.sketch, 'main', added.wallId).levels[0].walls).toEqual([]);
+    expect(removeRoom(added.sketch, 'main', kitchen).levels[0].walls).toEqual([]);
+  });
+});
+
+describe('fixtures', () => {
+  it('has the floor register, pedestal sink and utility sink to place', () => {
+    for (const type of ['floor_register', 'pedestal_sink', 'utility_sink'] as const) {
+      expect(FIXTURE_LABELS[type]).toBeTruthy();
+      expect(FIXTURE_SIZES[type][0]).toBeGreaterThan(0);
+    }
   });
 });
 

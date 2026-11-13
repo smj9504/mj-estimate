@@ -6,9 +6,14 @@ Initial defaults, 2026-11. Where the bathroom catalog already prices the
 same work, the same figure is used so the two estimates agree:
   LVT/SPC material 5.00/SF, ceramic 4.45 and porcelain 8.25/SF, tile floor
   labor 11.00/SF, floor tile removal 3.25/SF, self-leveling 5.30/SF,
-  subfloor repair 9.45/SF, toilet detach & reset 225, 30" vanity detach &
-  reset 274, MDF base 5.45/LF, MDF quarter round 3.55/LF, floor
-  protection 0.55/SF, 10-yard dumpster 420.
+  subfloor repair 9.45/SF, toilet and vanity detach & reset, MDF base
+  5.45/LF, MDF quarter round 3.55/LF, floor protection 0.55/SF, 10-yard
+  dumpster 420.
+Added 2026-11-12 from Xactimate line items, marked up by XACTIMATE_MARKUP
+(the owner's rule: never Xactimate's own figure; 10% over it). Each is
+written as xact(<Xactimate price>) with the line's code beside it. Toilet,
+vanity and toe kick detach & reset moved onto Xactimate the same way on
+2026-11-13, in the bathroom catalog too.
 The rest are mid-range DMV placeholders that have not been researched yet.
 Check them with the update-unit-prices skill before relying on them; a
 company can also set its own on the unit prices screen.
@@ -17,6 +22,10 @@ Prices include material and labor unless the table says otherwise
 (price_catalog.py says which side each one is). Material sales tax and
 O&P are added by the calculator, never typed in here.
 """
+
+# What we charge over an Xactimate line item's price: one markup for every
+# estimate, set in unit_prices/xactimate.py
+from app.domains.unit_prices.xactimate import XACTIMATE_MARKUP, xact  # noqa: F401
 
 # ──────────────────────────────────────────────
 # What can be installed, and what can be torn out
@@ -58,6 +67,11 @@ HARD_SURFACES = frozenset({
     "lvp", "laminate", "engineered_hardwood", "solid_hardwood", "ceramic_tile", "porcelain_tile",
 })
 TILES = frozenset({"ceramic_tile", "porcelain_tile"})
+# What happens to the baseboard (the owner's rule, 2026-11-12): under tile,
+# LVP and laminate it stays on the wall and is painted, with new shoe
+# molding; under a wood floor it is torn off and replaced
+KEEPS_BASE_FLOORS = frozenset({"lvp", "laminate", "ceramic_tile", "porcelain_tile"})
+WOOD_FLOORS = frozenset({"engineered_hardwood", "solid_hardwood"})
 # Floating floors that are laid over a separate underlayment roll
 UNDERLAYMENT_FLOORS = frozenset({"laminate", "engineered_hardwood"})
 
@@ -106,6 +120,7 @@ PAD_WASTE_PCT = 5
 # ──────────────────────────────────────────────
 # Prices
 # ──────────────────────────────────────────────
+
 
 # Floor material, per SF (carpet per SY), before waste
 FLOORING_MATERIAL = {
@@ -163,20 +178,55 @@ TRIM_RATES = {
     "baseboard_detach_reset_per_lf": 2.35,
     "baseboard_remove_per_lf": 0.80,
     "baseboard_mdf_per_lf": 5.45,         # = bathroom BASEBOARD_PRICES.mdf
+    "baseboard_paint_per_lf": xact(2.13),     # PNT B2: left on the wall, two coats
     "shoe_molding_remove_per_lf": 0.55,
     "shoe_molding_per_lf": 3.75,          # install and paint
     "quarter_round_per_lf": 3.55,         # = bathroom QUARTER_ROUND_PRICES.mdf
     "tack_strip_per_lf": 0.60,
+    "toe_kick_reskin_per_lf": xact(12.14),    # CAB PLYTK: new 1/4" prefinished skin over the old toe kick
 }
 
 # Moving what is in the way and putting it back, labor
 DETACH_RESET_RATES = {
-    "toilet": 225,                        # = bathroom DETACH_RESET_COSTS.toilet
-    "vanity": 274,                        # = bathroom DETACH_RESET_COSTS.vanity 30"
-    "toe_kick_per_lf": 5.25,
-    "appliance": 85,
+    "toilet": xact(395.96),               # PLM TLTRS (= bathroom DETACH_RESET_COSTS.toilet)
+    # CAB VANTRS 2.5 LF + PLM SNKRS: a 30" vanity with its top, and its sink
+    # (= bathroom DETACH_RESET_COSTS.vanity 30")
+    "vanity": xact(90.96 * 2.5 + 244.52),
+    "pedestal_sink": xact(462.02),        # PLM PSNKRS: disconnect, lift, reset and reconnect
+    "utility_sink": xact(483.02),         # PLM LTUBRS: laundry tub / mop sink, supply, drain and faucet
+    "toe_kick_per_lf": xact(9.54),        # CAB TKRS
+    "appliance": 85,                      # one the sketch has no kind for
+    "refrigerator": xact(61.53),          # APP RFRS
+    "range": xact(46.17),                 # APP RGRS: electric, pull out, unplug, reset
+    "range_gas": xact(261.16),            # APP RGGRS: gas, shut off, disconnect, reconnect, leak check
+    "dishwasher": xact(380.98),           # APP DWRS: out from under the counter, water, drain, power
+    "washer": xact(59.87),                # APP WSHRS
+    "dryer": xact(46.17),                 # APP DRYRS: electric
+    "dryer_gas": xact(224.48),            # APP DRYGRS
     "door": 48,
     "door_undercut": 38,
+}
+
+# Floor registers (heat / AC) set in the floor
+HVAC_RATES = {
+    "floor_register_detach_reset": xact(8.16),  # HVC REGFRS: lifted for the new floor, set back
+    "floor_register_replace": xact(25.11),      # HVC REGF: the old one rusted, bent or the wrong size
+}
+
+# Cabinets the new floor goes under, labor
+CABINET_RATES = {
+    "base_detach_reset_per_lf": xact(83.51),    # CAB LOWRS: lower (base) units
+    "island_detach_reset_per_lf": xact(83.51),  # CAB LOWRS: an island is base units too
+    "panel_detach_reset_per_sf": xact(19.72),   # CAB APNLRS: an island's back and end panels
+}
+
+# More labor to tear out a floor than the floor's own removal, per SF
+REMOVAL_EXTRA_RATES = {
+    "mortar_bed_per_sf": xact(1.66),            # FCT MORTAR (its remove side): tile set thick in a mortar bed
+    "tile_on_slab_per_sf": xact(2.13),          # FCT CNCRM: tile bonded to a concrete slab
+    "glue_down_concrete_per_sf": xact(1.83),    # FCV PLKGDC / FCW GADDC: glued-down plank or wood over concrete
+    "glue_down_wood_per_sf": xact(3.67),        # FCV PLKGDW / FCW GADDW: glued down over a wood subfloor
+    "vinyl_extra_layer_per_sf": xact(0.38),     # FCV AVALR: another layer of vinyl under the top one
 }
 
 # Where one floor meets another

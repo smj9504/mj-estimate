@@ -7,22 +7,32 @@
 import React, { useState } from 'react';
 import { Button, Divider, Input, Popconfirm, Select, Space, Switch, Typography } from 'antd';
 import { DeleteOutlined, PlusOutlined, RotateRightOutlined, SwapOutlined } from '@ant-design/icons';
-import type { FlooringSketch, FixtureType, OpeningKind, SketchLevel } from '../../../types/flooringEstimate';
+import type { FlooringSketch, FixtureType, FtPoint, OpeningKind, SketchLevel } from '../../../types/flooringEstimate';
 import FeetInput from './FeetInput';
 import type { Selection } from './FLSketchCanvas';
 import { formatFeet, formatSf } from './utils/dimensions';
 import {
-  WALL_T, bbox, distance, edgesOf, measureRoom, offsetPolygon, rectPoints, resizeEdge, spanOnEdge,
+  CABINET_DEPTH_FT, WALL_T, bbox, cabinetLayout, distance, edgesOf, measureRoom, offsetPolygon, projectOnSegment,
+  rectPoints, resizeEdge, spanOnEdge, wallFaces,
 } from './utils/geometry';
 import {
-  FIXTURE_LABELS, addRoom, removeCabinetRun, removeFixture, removeOpening, removeRoom, setRoomPoints,
-  updateCabinetRun, updateFixture, updateOpening, updateRoom,
+  FIXTURE_LABELS, addRoom, removeCabinetRun, removeFixture, removeOpening, removeRoom, removeWall, setRoomPoints,
+  updateCabinetRun, updateFixture, updateOpening, updateRoom, updateWall,
 } from './utils/sketchOps';
 
 const { Text } = Typography;
 
+/** The wall of a room a stretch (an opening's jambs) lies on */
+function nearestEdge(points: FtPoint[], a: FtPoint, b: FtPoint) {
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  return edgesOf(points)
+    .map((edge) => ({ edge, dist: projectOnSegment(mid, edge.a, edge.b).dist }))
+    .sort((x, y) => x.dist - y.dist)[0]?.edge ?? null;
+}
+
 export const OPENING_LABELS: Record<OpeningKind, string> = {
   opening: 'Opening (no door)',
+  open_wall: 'Open wall (no wall)',
   door: 'Door',
   bifold: 'Bifold door',
   pocket: 'Pocket door',
@@ -162,13 +172,17 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
             options={(Object.keys(OPENING_LABELS) as OpeningKind[])
               .filter((k) => (o.rooms[1] ? k !== 'exterior_door' : true))
               .map((k) => ({ value: k, label: OPENING_LABELS[k] }))}
-            onChange={(kind) => onApply(updateOpening(sketch, level.id, o.id, { kind }))} />
+            onChange={(kind) => {
+              // An open wall takes the whole side
+              const edge = kind === 'open_wall' && host ? nearestEdge(host.points, o.a, o.b) : null;
+              onApply(updateOpening(sketch, level.id, o.id, edge ? { kind, a: edge.a, b: edge.b } : { kind }));
+            }} />
         </Row>
         <Row label="Width">
           <FeetInput value={width} disabled={readOnly} aria-label="Opening width" onCommit={setWidth} />
         </Row>
         <Figure label="Between" value={`${roomName(o.rooms[0])} ↔ ${roomName(o.rooms[1])}`} />
-        {o.kind !== 'opening' && (
+        {o.kind !== 'opening' && o.kind !== 'open_wall' && (
           <>
             <Row label="Swings into">
               <Select size="small" style={{ width: 160 }} disabled={readOnly} value={o.swing || o.rooms[0]}
@@ -184,7 +198,9 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
           </>
         )}
         <Text type="secondary" style={{ fontSize: 12 }}>
-          Its width comes off the baseboard of both rooms; where the floor changes, it takes a transition.
+          {o.kind === 'open_wall'
+            ? 'No wall on this side: no baseboard along it. Where the floor changes, it takes a transition.'
+            : 'Its width comes off the baseboard of both rooms; where the floor changes, it takes a transition.'}
         </Text>
         {!readOnly && (
           <Button danger size="small" icon={<DeleteOutlined />} block style={{ marginTop: 8 }}
@@ -202,6 +218,29 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
     if (!c) return null;
     const host = level.rooms.find((r) => r.id === c.room_id);
     const length = distance(c.a, c.b);
+    const layout = cabinetLayout(level, c.room_id).find((x) => x.id === c.id);
+    // What each end would be left to the sketch, for the Auto choice to say
+    const auto = cabinetLayout(
+      { ...level, cabinet_runs: level.cabinet_runs.map((x) => (x.id === c.id ? { ...x, side_a: null, side_b: null } : x)) },
+      c.room_id,
+    ).find((x) => x.id === c.id);
+    const sideRow = (key: 'side_a' | 'side_b', label: string, autoShows: boolean | undefined) => {
+      const set = c[key];
+      const value = set === true ? 'shows' : set === false ? 'hidden' : 'auto';
+      return (
+        <Row label={label}>
+          <Select size="small" style={{ width: 160 }} disabled={readOnly} value={value} aria-label={label}
+            options={[
+              { value: 'auto', label: `Auto (${autoShows ? 'shows' : 'hidden'})` },
+              { value: 'shows', label: 'Shows' },
+              { value: 'hidden', label: 'Hidden' },
+            ]}
+            onChange={(v) => onApply(updateCabinetRun(sketch, level.id, c.id, {
+              [key]: v === 'auto' ? null : v === 'shows',
+            }))} />
+        </Row>
+      );
+    };
     return (
       <div data-testid="cabinet-inspector">
         <Figure label="Room" value={host?.name ?? ''} />
@@ -211,8 +250,13 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
             onApply(updateCabinetRun(sketch, level.id, c.id, { b: { x: c.a.x + dir.x * ft, y: c.a.y + dir.y * ft } }));
           }} />
         </Row>
+        {layout && <Figure label="Front" value={`${layout.frontLf.toFixed(2)} LF`} />}
+        {sideRow('side_a', 'Side at start', auto?.sideA)}
+        {sideRow('side_b', 'Side at end', auto?.sideB)}
         <Text type="secondary" style={{ fontSize: 12 }}>
-          No baseboard along base cabinets; the run is what a toe kick detach &amp; reset is measured from.
+          No baseboard along base cabinets. Shoe molding runs along their front and each side that shows
+          ({CABINET_DEPTH_FT}&apos; deep), and along the wall behind them only when they are detached; the toe kick is
+          the front.
         </Text>
         {!readOnly && (
           <Button danger size="small" icon={<DeleteOutlined />} block style={{ marginTop: 8 }}
@@ -225,13 +269,47 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
     );
   };
 
+  const wallPanel = () => {
+    const w = level.walls.find((x) => x.id === selection?.id);
+    if (!w) return null;
+    const host = level.rooms.find((r) => r.id === w.room_id);
+    const length = distance(w.a, w.b);
+    const faces = host ? wallFaces(w.a, w.b, w.thickness || WALL_T, host.points) : null;
+    return (
+      <div data-testid="wall-inspector">
+        <Figure label="Room" value={host?.name ?? ''} />
+        <Row label="Length">
+          <FeetInput value={length} disabled={readOnly} min={0.25} aria-label="Wall length" onCommit={(ft) => {
+            const dir = { x: (w.b.x - w.a.x) / (length || 1), y: (w.b.y - w.a.y) / (length || 1) };
+            onApply(updateWall(sketch, level.id, w.id, { b: { x: w.a.x + dir.x * ft, y: w.a.y + dir.y * ft } }));
+          }} />
+        </Row>
+        <Row label="Thickness">
+          <FeetInput value={w.thickness || WALL_T} disabled={readOnly} min={0.1} aria-label="Wall thickness"
+            onCommit={(thickness) => onApply(updateWall(sketch, level.id, w.id, { thickness }))} />
+        </Row>
+        {faces && <Figure label="Baseboard along it" value={`${faces.exposedLf.toFixed(2)} LF`} />}
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Both faces take baseboard, and its end too when it stops in the room; the floor it stands on comes off.
+        </Text>
+        {!readOnly && (
+          <Button danger size="small" icon={<DeleteOutlined />} block style={{ marginTop: 8 }}
+            onClick={() => {
+              onApply(removeWall(sketch, level.id, w.id));
+              onSelect(null);
+            }}>Delete wall</Button>
+        )}
+      </div>
+    );
+  };
+
   const fixturePanel = () => {
     const f = level.fixtures.find((x) => x.id === selection?.id);
     if (!f) return null;
     return (
       <div data-testid="fixture-inspector">
         <Row label="Type">
-          <Select size="small" style={{ width: 150 }} value={f.type} disabled={readOnly}
+          <Select size="small" style={{ width: 150 }} value={f.type} disabled={readOnly} virtual={false} listHeight={400}
             options={(Object.keys(FIXTURE_LABELS) as FixtureType[]).map((t) => ({ value: t, label: FIXTURE_LABELS[t] }))}
             onChange={(type) => onApply(updateFixture(sketch, level.id, f.id, { type }))} />
         </Row>
@@ -243,6 +321,12 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
           <FeetInput value={f.h} disabled={readOnly} aria-label="Fixture depth"
             onCommit={(h) => onApply(updateFixture(sketch, level.id, f.id, { h }))} />
         </Row>
+        {(f.type === 'range' || f.type === 'dryer') && (
+          <Row label="On gas">
+            <Switch size="small" checked={!!f.gas} disabled={readOnly} aria-label="On gas"
+              onChange={(gas) => onApply(updateFixture(sketch, level.id, f.id, { gas }))} />
+          </Row>
+        )}
         {f.type === 'island' && (
           <Row label="Floor runs under it">
             <Switch size="small" checked={!!f.floor_under} disabled={readOnly}
@@ -269,7 +353,8 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
   const panel = selection?.kind === 'room' ? roomPanel()
     : selection?.kind === 'opening' ? openingPanel()
       : selection?.kind === 'cabinet' ? cabinetPanel()
-        : selection?.kind === 'fixture' ? fixturePanel() : null;
+        : selection?.kind === 'fixture' ? fixturePanel()
+          : selection?.kind === 'wall' ? wallPanel() : null;
 
   const total = level.rooms.reduce((sum, r) => sum + measureRoom(level, r).floorSf, 0);
 
@@ -279,7 +364,7 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <>
           <Text strong>
             {selection?.kind === 'room' ? 'Room' : selection?.kind === 'opening' ? 'Opening'
-              : selection?.kind === 'cabinet' ? 'Cabinet run' : 'Fixture'}
+              : selection?.kind === 'cabinet' ? 'Cabinet run' : selection?.kind === 'wall' ? 'Wall' : 'Fixture'}
           </Text>
           <div style={{ marginTop: 8 }}>{panel}</div>
           <Divider style={{ margin: '12px 0' }} />

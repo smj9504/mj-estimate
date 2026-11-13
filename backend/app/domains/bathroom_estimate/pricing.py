@@ -804,33 +804,34 @@ ACCESSORY_GRADE_MULTIPLIER = {
 # ──────────────────────────────────────────────
 # Detach & Reset (D&R) - Labor Only
 # ──────────────────────────────────────────────
+from app.domains.unit_prices.xactimate import xact  # noqa: E402
 # For water mitigation / restoration work: fixture is carefully removed,
 # stored, then reinstalled after wall/floor work is completed.
 # All costs are LABOR ONLY (no new material).
 #
-# ⚠ SOURCE CORRECTED 2026-09-18: these are NOT Xactimate D&R codes, despite
-# the earlier attribution. Actual Xactimate lines are far lower (toilet detach
-# $86.53, base cabinet detach $54.23, vanity tear-out $16.05/LF) — this table
-# runs roughly 2.5-4x those. These are RETAIL GC rates.
-# Do NOT submit these figures on an insurance claim as if they were Xactimate
-# pricing; they will be adjusted down. For insurance work, apply a ~0.40
-# factor (see DR_MODE / XACTIMATE_MODE in the v2 reference, not yet built).
-# Sources: Angi, CountBricks, HomeWyse 2025-2026 (retail GC market rates)
-# 2026-08-26: +16-18% (Tier A — this is 100% install/removal labor, same
-# underpriced-install-labor gap the vanity-install research exposed)
+# Toilet and vanity follow Xactimate's own detach & reset lines, marked up
+# (xact(), the owner's rule, 2026-11-13; the flooring estimate uses the same
+# figures). The 2026-09-18 note that Xactimate runs far lower compared the
+# wrong lines: TLTRS (toilet detach & reset, 11/2026) is $395.96, not the
+# $86.53 detach-only line.
+# The rest are retail GC rates (Angi, CountBricks, HomeWyse 2025-2026;
+# 2026-08-26: +16-18%), not Xactimate pricing; mirror was set against
+# carrier lines (below).
 DETACH_RESET_COSTS = {
     # Toilet: disconnect water, remove wax ring, store, reinstall w/ new wax ring
-    "toilet": 225,                    # ~1.5 hrs plumber ($125-$250)
-    # Vanity + sink: disconnect plumbing, remove, store, reinstall & reconnect
-    # Larger vanities need 2-person crew, more time, bigger storage footprint
-    # Sources: Xactimate D&R, Angi 2025-2026, HomeGuide
+    "toilet": xact(395.96),           # PLM TLTRS
+    # Vanity + sink: the vanity and its top lifted as one piece (CAB VANTRS
+    # $90.96/LF: "excludes manipulation of faucet and sink") plus each sink
+    # disconnected from its supplies and p-trap and reset (PLM SNKRS $244.52).
+    # 60" and up taken as a double vanity, two sinks. A pedestal or wall-mount
+    # sink is priced off this table by its width too (calculator).
     "vanity": {
-        24: 241,                      # small single vanity, ~1.5 hrs ($150-$250)
-        30: 274,                      # standard single, ~1.75 hrs ($175-$275)
-        36: 335,                      # standard single, ~2.5 hrs ($200-$350)
-        48: 422,                      # large single, ~3 hrs, may need 2 ppl ($275-$425)
-        60: 517,                      # double vanity, 2-person crew, ~3.5 hrs ($350-$500)
-        72: 614,                      # large double, 2-person crew, ~4 hrs ($400-$600)
+        24: xact(90.96 * 2 + 244.52),
+        30: xact(90.96 * 2.5 + 244.52),
+        36: xact(90.96 * 3 + 244.52),
+        48: xact(90.96 * 4 + 244.52),
+        60: xact(90.96 * 5 + 244.52 * 2),
+        72: xact(90.96 * 6 + 244.52 * 2),
     },
     # Bathtub: disconnect plumbing, remove, store, reinstall
     "bathtub_standard": 548,          # ~4 hrs ($350-$550)

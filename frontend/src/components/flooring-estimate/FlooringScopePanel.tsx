@@ -26,12 +26,15 @@ import {
 
 const { Text } = Typography;
 
-const GROUP_ORDER = ['Flooring', 'Trim', 'Detach & Reset', 'Prep', 'Transitions', 'Contents', 'Stairs'];
+const GROUP_ORDER = ['Flooring', 'Tear out', 'Trim', 'Detach & Reset', 'Cabinets', 'Prep', 'Transitions', 'Contents', 'Stairs'];
 /** Always listed; the rest of a room's items show when on, or when asked for */
 const ALWAYS_SHOWN = new Set(['Flooring', 'Trim']);
 /** Bases worth saying under an item: counts read off the sketch */
 const SAY_BASIS = new Set([
-  'toilet_count', 'vanity_count', 'appliance_count', 'door_count', 'exterior_door_count', 'transition_count', 'toe_kick_lf',
+  'toilet_count', 'vanity_count', 'pedestal_sink_count', 'utility_sink_count', 'register_count', 'appliance_count',
+  'refrigerator_count', 'range_count', 'range_gas_count', 'dishwasher_count', 'washer_count', 'dryer_count',
+  'dryer_gas_count', 'island_lf', 'island_panel_sf', 'cabinet_run_lf',
+  'door_count', 'exterior_door_count', 'transition_count', 'toe_kick_lf',
 ]);
 const UNITS = ['EA', 'SF', 'LF', 'SY', 'HR', 'LS'];
 

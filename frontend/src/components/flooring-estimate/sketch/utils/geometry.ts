@@ -336,6 +336,81 @@ export function spanOnEdge(edge: Edge, at: number, width: number): { a: FtPoint;
   return { a: pointAt(start), b: pointAt(start + w) };
 }
 
+// ── Cabinets (the same as the server's cabinet_layout) ──
+
+export const CABINET_DEPTH_FT = 2;
+/** An appliance this close to a run's end hides the cabinet's side */
+export const SIDE_TOUCH_FT = 0.75;
+/** What stands beside a run's end and hides its side (a dishwasher sits in the run) */
+const SIDE_HIDERS = new Set(['refrigerator', 'range', 'washer', 'dryer', 'other']);
+
+export interface CabinetRunLayout {
+  id: string;
+  frontLf: number;
+  sideA: boolean;
+  sideB: boolean;
+}
+
+/**
+ * Per cabinet run of a room: its front (less where another run meets it at
+ * a corner) and whether its side shows at each end. A side is hidden by the
+ * wall at a corner, by another run, or by an appliance beside it; one set on
+ * the run is taken as set.
+ */
+export function cabinetLayout(level: SketchLevel, roomId: string): CabinetRunLayout[] {
+  const room = level.rooms.find((r) => r.id === roomId);
+  if (!room) return [];
+  const edges = edgesOf(room.points);
+  const frames = level.cabinet_runs
+    .filter((run) => run.room_id === roomId && distance(run.a, run.b) > 1e-6)
+    .map((run) => {
+      const length = distance(run.a, run.b);
+      const u = { x: (run.b.x - run.a.x) / length, y: (run.b.y - run.a.y) / length };
+      const mid = { x: (run.a.x + run.b.x) / 2, y: (run.a.y + run.b.y) / 2 };
+      const edge = edges.reduce((best, e) =>
+        (projectOnSegment(mid, e.a, e.b).dist < projectOnSegment(mid, best.a, best.b).dist ? e : best), edges[0]);
+      return { run, length, u, n: edge.normal };
+    });
+  type Frame = (typeof frames)[number];
+  const inRun = (p: FtPoint, f: Frame, pad = 0.01) => {
+    const s = (p.x - f.run.a.x) * f.u.x + (p.y - f.run.a.y) * f.u.y;
+    const t = -((p.x - f.run.a.x) * f.n.x + (p.y - f.run.a.y) * f.n.y);
+    return s >= -pad && s <= f.length + pad && t >= -pad && t <= CABINET_DEPTH_FT + pad;
+  };
+  const hiders = level.fixtures.filter((f) => SIDE_HIDERS.has(f.type) && pointInPolygon(f, room.points));
+  const nearFixture = (p: FtPoint) => hiders.some((f) => {
+    const th = ((f.rotation || 0) * Math.PI) / 180;
+    const dx = p.x - f.x;
+    const dy = p.y - f.y;
+    const lx = dx * Math.cos(th) + dy * Math.sin(th);
+    const ly = -dx * Math.sin(th) + dy * Math.cos(th);
+    return Math.hypot(Math.max(Math.abs(lx) - f.w / 2, 0), Math.max(Math.abs(ly) - f.h / 2, 0)) <= SIDE_TOUCH_FT;
+  });
+  return frames.map((frame) => {
+    const others = frames.filter((f) => f !== frame);
+    const { run, length, u, n } = frame;
+    const steps = Math.max(1, Math.ceil(length / 0.05));
+    const step = length / steps;
+    let frontLf = 0;
+    for (let k = 0; k < steps; k++) {
+      const s = (k + 0.5) * step;
+      const q = { x: run.a.x + u.x * s - n.x * CABINET_DEPTH_FT * 0.999, y: run.a.y + u.y * s - n.y * CABINET_DEPTH_FT * 0.999 };
+      if (!others.some((o) => inRun(q, o))) frontLf += step;
+    }
+    const side = (end: FtPoint, away: FtPoint, set: boolean | null | undefined) => {
+      if (set !== null && set !== undefined) return set;
+      const p = { x: end.x + away.x * 0.15 - n.x * CABINET_DEPTH_FT / 2, y: end.y + away.y * 0.15 - n.y * CABINET_DEPTH_FT / 2 };
+      return !(!pointInPolygon(p, room.points) || others.some((o) => inRun(p, o, 0.05)) || nearFixture(p));
+    };
+    return {
+      id: run.id,
+      frontLf,
+      sideA: side(run.a, { x: -u.x, y: -u.y }, run.side_a),
+      sideB: side(run.b, u, run.side_b),
+    };
+  });
+}
+
 // ── Measurements (the same as the server's, for the editor to show as it is drawn) ──
 
 export interface RoomMeasure {
@@ -347,9 +422,31 @@ export interface RoomMeasure {
   wallSf: number;
 }
 
+/** How close to a room's wall a built-out wall's end has to be to count as joined to it */
+export const WALL_JOIN_FT = 0.05;
+
+const onOutline = (p: FtPoint, points: FtPoint[]) =>
+  edgesOf(points).some((e) => projectOnSegment(p, e.a, e.b).dist <= WALL_JOIN_FT);
+
+/**
+ * A built-out wall's exposed length (both faces, and each end that stops in
+ * the room) and the floor it stands on
+ */
+export function wallFaces(a: FtPoint, b: FtPoint, thickness: number, points: FtPoint[]) {
+  const length = distance(a, b);
+  const freeEnds = [a, b].filter((p) => !onOutline(p, points)).length;
+  return { exposedLf: 2 * length + freeEnds * thickness, footprintSf: length * thickness };
+}
+
 export function measureRoom(level: SketchLevel, room: SketchRoom): RoomMeasure {
   let floorSf = polygonArea(room.points);
-  const perimeterLf = polygonPerimeter(room.points);
+  let perimeterLf = polygonPerimeter(room.points);
+  for (const w of level.walls ?? []) {
+    if (w.room_id !== room.id) continue;
+    const { exposedLf, footprintSf } = wallFaces(w.a, w.b, w.thickness || WALL_T, room.points);
+    perimeterLf += exposedLf;
+    floorSf = Math.max(0, floorSf - footprintSf);
+  }
   const openingsLf = level.openings
     .filter((o) => o.rooms.includes(room.id))
     .reduce((sum, o) => sum + distance(o.a, o.b), 0);
