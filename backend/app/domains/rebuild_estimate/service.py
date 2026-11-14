@@ -16,6 +16,7 @@ from app.domains.auth.company_scope import document_condition, scoped
 from .assemble import assemble
 from .models import RebuildEstimate
 from .schemas import ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SourceRoomRequest
+from .sketch_rooms import sketch_room_count, sync_rooms
 from .sources import KIND_LABELS, KIND_PATHS, KINDS, fingerprint, importable, label_of, model_of, snapshot
 
 _FIELDS = (
@@ -74,6 +75,7 @@ class RebuildEstimateService:
         row.update({
             "rooms": est.rooms or [],
             "lines": est.lines or [],
+            "sketch_data": est.sketch_data,
             "sources": [self._source_info(src) for src in est.sources or []],
             "assembled": assemble(est),
             "company_info": self._company_info(est),
@@ -175,7 +177,45 @@ class RebuildEstimateService:
                     raise _bad(f'"{li["description"]}" is on a room that isn\'t on the estimate.')
             est.lines = lines
             flag_modified(est, "lines")
+        # The rooms drawn stay as drawn, whatever a page a save behind sends
+        self._sync_sketch(est)
         self._total(est)
+
+    def _sync_sketch(self, est: RebuildEstimate) -> None:
+        if not est.sketch_data and not any(r.get("sketch_room_id") for r in est.rooms or []):
+            return
+        rooms = sync_rooms(list(est.rooms or []), est.sketch_data, est.lines or [], est.sources or [])
+        if rooms != (est.rooms or []):
+            est.rooms = rooms
+            flag_modified(est, "rooms")
+
+    # ── Its own sketch ──
+
+    def save_sketch(self, estimate_id: str, sketch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The drawing as the editor saves it; the rooms follow it"""
+        est = self._find(estimate_id)
+        if est is None:
+            return None
+        est.sketch_data = sketch
+        flag_modified(est, "sketch_data")
+        self._sync_sketch(est)
+        self._total(est)
+        self.session.flush()
+        return self.get(estimate_id)
+
+    def copy_flooring_sketch(self, estimate_id: str, flooring_id: str) -> Optional[Dict[str, Any]]:
+        """Start from a flooring estimate's sketch, while nothing is drawn here.
+        Its rooms keep their ids, so the rooms that estimate brought in are
+        the rooms drawn."""
+        est = self._find(estimate_id)
+        if est is None:
+            return None
+        if sketch_room_count(est.sketch_data):
+            raise _bad("This estimate's sketch already has rooms drawn.")
+        flooring = self._original_any("flooring", flooring_id)
+        if not sketch_room_count(flooring.sketch_data):
+            raise _bad("That flooring estimate has no rooms drawn.")
+        return self.save_sketch(estimate_id, copy.deepcopy(flooring.sketch_data))
 
     def _total(self, est: RebuildEstimate) -> None:
         est.total = assemble(est)["total"]
@@ -221,17 +261,23 @@ class RebuildEstimateService:
                     "property_address": other.property_address,
                     "line_count": len(lines), "total": round(sum(float(li.total or 0) for li in lines), 2),
                     "calculated": bool(lines),
+                    # Rooms drawn on it: its sketch can start this one's
+                    "sketch_rooms": sketch_room_count(other.sketch_data) if kind == "flooring" else 0,
                     "updated_at": other.updated_at or other.created_at,
                     "imported": (kind, str(other.id)) in imported,
                     "path": f"{KIND_PATHS[kind]}/{other.id}",
                 })
         return out
 
-    def _original(self, kind: str, estimate_id: str) -> Any:
+    def _original_any(self, kind: str, estimate_id: str) -> Any:
         model = model_of(kind)
         original = self.session.query(model).filter(model.id == estimate_id).first()
         if original is None:
             raise HTTPException(status_code=404, detail="Estimate not found")
+        return original
+
+    def _original(self, kind: str, estimate_id: str) -> Any:
+        original = self._original_any(kind, estimate_id)
         if not importable(kind, original):
             raise _bad(f"Calculate the {KIND_LABELS[kind].lower()} first: it has no lines to bring in yet.")
         return original

@@ -19,7 +19,10 @@ from app.domains.auth.dependencies import get_current_user
 
 from .models import RebuildEstimate
 from .assemblies import assemblies
-from .schemas import ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SourceRoomRequest, WordingRequest
+from .schemas import (
+    ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SketchCopy, SketchSave, SourceRoomRequest,
+    WordingRequest,
+)
 from .service import RebuildEstimateService
 from .sources import model_of
 from .wording import save_wording, saved_wordings
@@ -128,6 +131,32 @@ def delete_estimate(
     if not RebuildEstimateService(session).delete(estimate_id):
         raise HTTPException(status_code=404, detail="Estimate not found")
     return {"message": "Estimate deleted"}
+
+
+@router.put("/{estimate_id}/sketch")
+def save_sketch(
+    estimate_id: str,
+    data: SketchSave,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The estimate's own sketch, saved as it is drawn: each room drawn is a
+    room of the estimate, measured from the drawing"""
+    _require(session, current_user, estimate_id)
+    return _found(RebuildEstimateService(session).save_sketch(estimate_id, data.sketch_data.model_dump()))
+
+
+@router.post("/{estimate_id}/sketch/copy")
+def copy_sketch(
+    estimate_id: str,
+    data: SketchCopy,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Start the sketch from a flooring estimate's (nothing drawn here yet)"""
+    _require(session, current_user, estimate_id)
+    require_document(session, current_user, model_of("flooring"), data.flooring_estimate_id, "Estimate")
+    return _found(RebuildEstimateService(session).copy_flooring_sketch(estimate_id, data.flooring_estimate_id))
 
 
 @router.get("/{estimate_id}/assemblies")

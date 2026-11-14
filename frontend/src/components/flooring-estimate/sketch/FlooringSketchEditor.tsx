@@ -2,7 +2,8 @@
  * Flooring sketch editor: rooms drawn to scale, wall to wall, level by
  * level, with their doorways, base cabinets and the fixtures standing on
  * the floor. Everything the estimate measures comes from here. It saves as
- * it is drawn.
+ * it is drawn: to the flooring estimate, or through save (the rebuild
+ * estimate draws its own with it).
  */
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -12,26 +13,30 @@ import type { FixtureType, FlooringEstimate, FlooringSketch } from '../../../typ
 import FLSketchCanvas, { type CanvasAction, type Selection, type SketchTool } from './FLSketchCanvas';
 import FLSketchInspector from './FLSketchInspector';
 import FLSketchToolbar from './FLSketchToolbar';
-import { useSketchAutosave } from './hooks/useSketchAutosave';
+import { useSketchAutosave, type SketchSave } from './hooks/useSketchAutosave';
 import {
   addCabinetRun, addFixture, addLevel, addOpening, addRoom, addWall, historyReducer, moveRoom, normalizeSketch,
   removeCabinetRun, removeFixture, removeLevel, removeOpening, removeRoom, removeWall, renameLevel, setRoomPoints,
   updateCabinetRun, updateFixture, updateOpening,
 } from './utils/sketchOps';
 
-export interface FlooringSketchEditorProps {
+export interface FlooringSketchEditorProps<R = FlooringEstimate> {
   estimateId: string;
   /** The sketch as saved; read once (key the editor by estimate) */
   initialSketch: FlooringSketch | null | undefined;
   readOnly?: boolean;
-  onSaved?: (estimate: FlooringEstimate) => void;
+  /** Where it saves; the flooring estimate's sketch when not given */
+  save?: SketchSave<R>;
+  onSaved?: (result: R) => void;
   /** Set to a function that saves any change still waiting (the page calls it before calculating) */
   saveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 const TOOL_KEYS: Record<string, SketchTool> = { v: 'select', r: 'rect', p: 'polygon', d: 'opening', w: 'wall' };
 
-const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId, initialSketch, readOnly, onSaved, saveRef }) => {
+function FlooringSketchEditor<R = FlooringEstimate>({
+  estimateId, initialSketch, readOnly, save, onSaved, saveRef,
+}: FlooringSketchEditorProps<R>) {
   const [history, dispatch] = useReducer(historyReducer, initialSketch, (s) => ({
     past: [], present: normalizeSketch(s), future: [],
   }));
@@ -48,7 +53,7 @@ const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId,
   const [zoomRequest, setZoomRequest] = useState({ factor: 1, n: 0 });
   const [levelDialog, setLevelDialog] = useState<{ mode: 'add' | 'rename'; name: string } | null>(null);
 
-  const { status, saveNow } = useSketchAutosave(estimateId, sketch, onSaved, !readOnly);
+  const { status, saveNow } = useSketchAutosave<R>(estimateId, sketch, onSaved, !readOnly, save);
   useEffect(() => {
     if (!saveRef) return undefined;
     saveRef.current = saveNow;
@@ -297,6 +302,6 @@ const FlooringSketchEditor: React.FC<FlooringSketchEditorProps> = ({ estimateId,
       </Modal>
     </div>
   );
-};
+}
 
 export default FlooringSketchEditor;

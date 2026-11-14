@@ -534,3 +534,120 @@ def test_assemble_with_nothing_in_it():
     est = RebuildEstimate(rooms=[], sources=[], lines=[], state="VA", zip_code="22030",
                           include_overhead_profit=False, overhead_pct=0.1, profit_pct=0.1)
     assert assemble(est)["rooms"] == [] and assemble(est)["total"] == 0
+
+
+# ── Its own sketch ──
+
+def _drawn(est):
+    return {r["name"]: r for r in est["rooms"] if r.get("sketch_room_id")}
+
+
+def test_each_room_drawn_is_a_room_measured_from_the_drawing(session, service):
+    from app.domains.flooring_estimate.geometry import measure_sketch
+
+    est = new(service)
+    est = service.save_sketch(est["id"], house())
+    rooms = _drawn(est)
+    assert set(rooms) == {"Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet", "Bedroom 2", "Bathroom"}
+    kitchen = {m.room_id: m for m in measure_sketch(house())}["kitchen"]
+    assert rooms["Kitchen"]["measures"] == {
+        "floor_sf": pytest.approx(kitchen.floor_sf, abs=0.01), "ceiling_sf": pytest.approx(kitchen.ceiling_sf, abs=0.01),
+        "wall_sf": pytest.approx(kitchen.wall_net_sf, abs=0.01),
+        "exterior_wall_sf": pytest.approx(kitchen.exterior_wall_sf, abs=0.01),
+        "perimeter_lf": pytest.approx(kitchen.perimeter_lf, abs=0.01), "height_ft": 8.0,
+    }
+    assert rooms["Kitchen"]["level_name"] == "Main Level" and rooms["Kitchen"]["id"] == "sk-kitchen"
+
+    # Renamed and made taller on the sketch, the room follows
+    sketch = house()
+    sketch["levels"][0]["rooms"][1].update(name="Kitchen / Dining", height_ft=9)
+    est = service.save_sketch(est["id"], sketch)
+    rooms = _drawn(est)
+    assert "Kitchen" not in rooms and rooms["Kitchen / Dining"]["measures"]["height_ft"] == 9
+    assert rooms["Kitchen / Dining"]["id"] == "sk-kitchen"
+
+
+def test_a_room_taken_off_the_sketch_goes_unless_it_holds_lines(session, service):
+    est = new(service)
+    est = service.save_sketch(est["id"], house())
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        {"id": "a", "room_id": "sk-bed2", "section": "wall", "description": "Paint the walls - one coat", "unit": "SF",
+         "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+    ]))
+    sketch = house()
+    level = sketch["levels"][0]
+    level["rooms"] = [r for r in level["rooms"] if r["id"] not in ("bed2", "bath")]
+    level["openings"] = [o for o in level["openings"] if not {"bed2", "bath"} & set(o["rooms"])]
+    est = service.save_sketch(est["id"], sketch)
+    rooms = {r["name"]: r for r in est["rooms"]}
+    # The empty bathroom is gone; bedroom 2 stays with its repair, as last measured, no longer drawn
+    assert "Bathroom" not in rooms
+    assert rooms["Bedroom 2"]["sketch_room_id"] is None and rooms["Bedroom 2"]["measures"]["floor_sf"] > 100
+    assert lines_of(est, "Bedroom 2")["wall"][0]["description"] == "Paint the walls - one coat"
+
+    # Drawn again (an undo), it is the same room again
+    est = service.save_sketch(est["id"], house())
+    assert _drawn(est)["Bedroom 2"]["id"] == "sk-bed2" and _drawn(est)["Bathroom"]["id"] == "sk-bath"
+
+
+def test_a_page_a_save_behind_cannot_change_the_rooms_drawn(session, service):
+    est = new(service)
+    est = service.save_sketch(est["id"], house())
+    stale = [dict(r, measures={"floor_sf": 1}, name="Old name") if r["id"] == "sk-living" else r
+             for r in est["rooms"] if r["id"] != "sk-hall"]
+    est = service.update(est["id"], RebuildEstimateUpdate(rooms=stale))
+    rooms = _drawn(est)
+    assert rooms["Living Room"]["measures"]["floor_sf"] == pytest.approx(212.5)
+    assert "Hallway" in rooms and "Old name" not in rooms
+
+
+def test_a_room_drawn_joins_the_room_an_estimate_brought_in(session, service):
+    est = new(service)
+    est = service.import_source(est["id"], ImportRequest(kind="cabinet", estimate_id=cabinets(session)))
+    kitchen_id = next(r["id"] for r in est["rooms"] if r["name"] == "Kitchen")
+    # Drawn, then named Kitchen: the kitchen estimate's room is the one drawn, no second kitchen
+    sketch = house()
+    sketch["levels"][0]["rooms"][1]["name"] = "Room 2"
+    est = service.save_sketch(est["id"], sketch)
+    assert [r["name"] for r in est["rooms"]].count("Room 2") == 1
+    est = service.save_sketch(est["id"], house())
+    kitchens = [r for r in est["rooms"] if r["name"] == "Kitchen"]
+    assert len(kitchens) == 1 and kitchens[0]["id"] == kitchen_id
+    assert kitchens[0]["sketch_room_id"] == "kitchen" and kitchens[0]["measures"]["floor_sf"] > 100
+    assert lines_of(est, "Kitchen")["cabinets"]
+
+
+def test_the_sketch_can_start_from_the_flooring_estimates(session, service):
+    floor_id = flooring(session)
+    est = new(service)
+    est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=floor_id))
+    brought = {r["name"]: r["id"] for r in est["rooms"]}
+    admin = type("Staff", (), {"id": "x", "role": "admin"})()
+    offered = [o for o in service.importable(est["id"], admin) if o["kind"] == "flooring"]
+    assert offered[0]["sketch_rooms"] == 7
+
+    est = service.copy_flooring_sketch(est["id"], floor_id)
+    rooms = {r["name"]: r for r in est["rooms"]}
+    # The rooms it brought in are the rooms drawn; the two it left out are drawn too
+    assert len(est["rooms"]) == 7
+    for name, room_id in brought.items():
+        assert rooms[name]["id"] == room_id and rooms[name]["sketch_room_id"]
+    assert rooms["Bedroom 2"]["id"] == "sk-bed2"
+    with pytest.raises(HTTPException):
+        service.copy_flooring_sketch(est["id"], floor_id)
+
+
+def test_the_pdf_draws_the_rooms_drawn(session, service):
+    from pypdf import PdfReader
+
+    from app.domains.rebuild_estimate.export_service import RebuildExportService
+
+    est = new(service)
+    est = service.save_sketch(est["id"], house())
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        {"id": "a", "room_id": "sk-kitchen", "section": "wall", "description": "Paint the walls - one coat",
+         "unit": "SF", "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+    ]))
+    text = "\n".join(p.extract_text() for p in PdfReader(RebuildExportService().generate_pdf(est)).pages)
+    # The drawing's wall lengths print beside the room's name
+    assert "Kitchen" in text and "Main Level" in text and "14' 0\"" in text

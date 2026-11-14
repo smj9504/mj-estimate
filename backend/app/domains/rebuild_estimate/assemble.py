@@ -212,6 +212,7 @@ def assemble(est: Any) -> Dict[str, Any]:
             "id": room_id, "name": room.get("name") if room else GENERAL,
             "level_name": room.get("level_name") if room else None,
             "measures": dict(room.get("measures") or {}) if room else {},
+            "sketch_room_id": room.get("sketch_room_id") if room else None,
             "sections": sections,
             "total": round(sum(s["total"] for s in sections), 2),
         })

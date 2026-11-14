@@ -1,25 +1,29 @@
 /**
  * Rebuild estimate: the job, the estimates brought in, and each room with
  * its lines (the floor, the cabinets, a bathroom's phases from those
- * estimates; the walls and ceiling and anything else added here).
+ * estimates; the walls and ceiling and anything else added here); and its
+ * own sketch, each room drawn a room of the estimate measured from it.
  *
- * What is typed saves as it is typed; bringing an estimate in, refreshing
- * or removing one saves first, then answers with the estimate as it is.
+ * What is typed saves as it is typed, the sketch as it is drawn; bringing
+ * an estimate in, refreshing or removing one saves both first, then answers
+ * with the estimate as it is.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Alert, Button, Card, Collapse, Empty, Grid, Input, Skeleton, Space, Tag, Typography, message,
+  Alert, Button, Card, Collapse, Empty, Grid, Input, Skeleton, Space, Tabs, Tag, Typography, message,
 } from 'antd';
 import { FilePdfOutlined, PlusOutlined } from '@ant-design/icons';
 import FlooringProjectPanel, { type ProjectDraft } from '../components/flooring-estimate/FlooringProjectPanel';
 import { useAutosave, type SaveStatus } from '../components/flooring-estimate/hooks/useAutosave';
 import RoomBody from '../components/rebuild-estimate/RoomBody';
+import SketchTab, { drawnRoomCount } from '../components/rebuild-estimate/SketchTab';
 import SourcesCard from '../components/rebuild-estimate/SourcesCard';
 import { asWording, measureText, money, newRoom, withWording } from '../components/rebuild-estimate/lineEdit';
 import rebuildEstimateService from '../services/rebuildEstimateService';
+import type { FlooringSketch } from '../types/flooringEstimate';
 import type { RebuildEstimate, RebuildLine, RebuildRoom, SourceKind } from '../types/rebuildEstimate';
 
 const { Title, Text } = Typography;
@@ -48,10 +52,19 @@ const SAVE_TEXT: Record<SaveStatus, string> = {
   saved: 'Saved', pending: 'Unsaved changes', saving: 'Saving…', error: 'Not saved',
 };
 
+const TABS = ['estimate', 'sketch'] as const;
+type Tab = typeof TABS[number];
+
 const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
   const id = initial.id;
   const queryClient = useQueryClient();
   const isMobile = !Grid.useBreakpoint().md;
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = (TABS as readonly string[]).includes(params.get('tab') || '') ? (params.get('tab') as Tab) : 'estimate';
+  const setTab = (next: string) => setParams((p) => {
+    p.set('tab', next);
+    return p;
+  }, { replace: true });
   const { data: estimate = initial } = useQuery({
     queryKey: ['rebuild-estimate', id],
     queryFn: () => rebuildEstimateService.getById(id),
@@ -67,11 +80,44 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
   const saveDraft = useCallback((d: Draft) => rebuildEstimateService.update(id, d), [id]);
   const { status, saveNow } = useAutosave(draft, saveDraft, { delay: 700, onSaved: showSaved });
 
+  // The sketch saves as it is drawn, what is typed first; the rooms drawn
+  // come back measured (the server keeps the rooms in step with it)
+  const sketchSave = useRef<(() => Promise<void>) | null>(null);
+  const [sketchStart, setSketchStart] = useState<{ sketch: FlooringSketch | null | undefined; n: number }>(
+    () => ({ sketch: initial.sketch_data, n: 0 }),
+  );
+  const saveSketch = useCallback(async (sketch: FlooringSketch) => {
+    await saveNow();
+    return rebuildEstimateService.saveSketch(id, sketch);
+  }, [id, saveNow]);
+  const onSketchSaved = useCallback((saved: RebuildEstimate) => {
+    showSaved(saved);
+    setDraft((d) => ({ ...d, rooms: saved.rooms }));
+  }, [showSaved]);
+  const saveAll = useCallback(async () => {
+    await sketchSave.current?.();
+    await saveNow();
+  }, [saveNow]);
+
+  const copySketch = useMutation({
+    mutationFn: async (flooringId: string) => {
+      await saveAll();
+      return rebuildEstimateService.copySketch(id, flooringId);
+    },
+    onSuccess: (saved) => {
+      showSaved(saved);
+      setDraft((d) => ({ ...d, rooms: saved.rooms }));
+      // The editor starts again from the sketch copied
+      setSketchStart((s) => ({ sketch: saved.sketch_data, n: s.n + 1 }));
+    },
+    onError: (err: any) => message.error(err?.response?.data?.detail || "The sketch couldn't be copied"),
+  });
+
   // Bringing an estimate in (refreshing, moving, removing one): save what is
-  // typed first, then take the rooms and lines as the server has them
+  // typed and drawn first, then take the rooms and lines as the server has them
   const sourceOp = useMutation({
     mutationFn: async (op: () => Promise<RebuildEstimate>) => {
-      await saveNow();
+      await saveAll();
       return op();
     },
     onSuccess: (saved) => {
@@ -85,7 +131,7 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
 
   const pdf = useMutation({
     mutationFn: async () => {
-      await saveNow();
+      await saveAll();
       await rebuildEstimateService.downloadPdf(id);
     },
     onError: (err: any) => message.error(err?.response?.status === 400
@@ -120,26 +166,11 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
   const setRoom = (roomId: string, patch: Partial<RebuildRoom>) =>
     change({ rooms: draft.rooms.map((r) => (r.id === roomId ? { ...r, ...patch } : r)) });
   const address = [draft.property_address, draft.city, draft.state].filter(Boolean).join(', ');
+  const drawnCount = drawnRoomCount(estimate.sketch_data);
+  const levels = new Set(draft.rooms.map((r) => r.level_name).filter(Boolean));
 
-  return (
-    <div style={{ padding: isMobile ? 0 : 16 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
-        <Space align="baseline" wrap>
-          <Title level={4} style={{ margin: 0 }}>Rebuild Estimate</Title>
-          {address && <Text type="secondary">{address}</Text>}
-          {estimate.claim_number && <Tag>#{estimate.claim_number}</Tag>}
-        </Space>
-        <Space wrap>
-          <Text type="secondary" data-testid="rebuild-save-status">{SAVE_TEXT[status]}</Text>
-          <Text strong data-testid="rebuild-total">{money(assembled.total)}</Text>
-          <Button icon={<FilePdfOutlined />} loading={pdf.isPending} onClick={() => pdf.mutate()}>PDF</Button>
-        </Space>
-      </div>
-      {status === 'error' && (
-        <Alert type="error" showIcon style={{ marginBottom: 8 }} message="Your last changes weren't saved"
-          action={<Button size="small" onClick={() => void saveNow()}>Try again</Button>} />
-      )}
-
+  const estimateTab = (
+    <>
       <Collapse
         size="small"
         style={{ marginBottom: 12 }}
@@ -169,7 +200,9 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
 
       {draft.rooms.length === 0 ? (
         <Card size="small" style={{ marginBottom: 12 }}>
-          <Empty description="No rooms yet: import an estimate (its rooms come with it) or add a room." />
+          <Empty description="No rooms yet: draw them on the sketch, import an estimate (its rooms come with it) or add a room.">
+            <Button size="small" onClick={() => setTab('sketch')}>Draw the rooms</Button>
+          </Empty>
         </Card>
       ) : (
         <Collapse
@@ -184,6 +217,7 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8, width: '100%' }}>
                   <Space size={8} wrap>
                     <Text strong>{room.name}</Text>
+                    {levels.size > 1 && room.level_name && <Tag style={{ marginInlineEnd: 0 }}>{room.level_name}</Tag>}
                     {words && <Text type="secondary" style={{ fontSize: 12 }}>{words}</Text>}
                   </Space>
                   <Text strong>{money(done?.total)}</Text>
@@ -200,6 +234,7 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
                   lines={draft.lines}
                   onLines={setLines}
                   onRoom={(patch) => setRoom(room.id, patch)}
+                  onOpenSketch={() => setTab('sketch')}
                   onDelete={() => change({
                     rooms: draft.rooms.filter((r) => r.id !== room.id),
                     lines: draft.lines.filter((l) => l.room_id !== room.id),
@@ -239,6 +274,57 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
         (when it is on) O&amp;P in its unit price. A price typed in is used as typed. Lines brought in keep the prices
         of the estimate they came from.
       </Text>
+    </>
+  );
+
+  return (
+    <div style={{ padding: isMobile ? 0 : 16 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
+        <Space align="baseline" wrap>
+          <Title level={4} style={{ margin: 0 }}>Rebuild Estimate</Title>
+          {address && <Text type="secondary">{address}</Text>}
+          {estimate.claim_number && <Tag>#{estimate.claim_number}</Tag>}
+        </Space>
+        <Space wrap>
+          <Text type="secondary" data-testid="rebuild-save-status">{SAVE_TEXT[status]}</Text>
+          <Text strong data-testid="rebuild-total">{money(assembled.total)}</Text>
+          <Button icon={<FilePdfOutlined />} loading={pdf.isPending} onClick={() => pdf.mutate()}>PDF</Button>
+        </Space>
+      </div>
+      {status === 'error' && (
+        <Alert type="error" showIcon style={{ marginBottom: 8 }} message="Your last changes weren't saved"
+          action={<Button size="small" onClick={() => void saveNow()}>Try again</Button>} />
+      )}
+
+      <Tabs
+        activeKey={tab}
+        onChange={setTab}
+        items={[
+          {
+            key: 'estimate',
+            label: `Rooms & repairs${draft.rooms.length ? ` (${draft.rooms.length})` : ''}`,
+            children: estimateTab,
+          },
+          {
+            key: 'sketch',
+            label: `Sketch${drawnCount ? ` (${drawnCount})` : ''}`,
+            children: (
+              <SketchTab
+                key={sketchStart.n}
+                estimateId={id}
+                initialSketch={sketchStart.sketch}
+                savedSketch={estimate.sketch_data}
+                sourceCount={estimate.sources.length}
+                save={saveSketch}
+                onSaved={onSketchSaved}
+                saveRef={sketchSave}
+                copying={copySketch.isPending}
+                onCopy={(flooringId) => copySketch.mutate(flooringId)}
+              />
+            ),
+          },
+        ]}
+      />
     </div>
   );
 };

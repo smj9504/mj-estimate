@@ -1,5 +1,6 @@
 /**
- * Saves the sketch as it is drawn (see useAutosave).
+ * Saves the sketch as it is drawn (see useAutosave): to the flooring
+ * estimate, or wherever the page says (the rebuild estimate's own sketch).
  */
 
 import { useCallback } from 'react';
@@ -11,15 +12,20 @@ export type { SaveStatus } from '../../hooks/useAutosave';
 
 export const AUTOSAVE_DELAY_MS = 1200;
 
-export function useSketchAutosave(
+export type SketchSave<R> = (sketch: FlooringSketch) => Promise<R>;
+
+export function useSketchAutosave<R = FlooringEstimate>(
   estimateId: string,
   sketch: FlooringSketch,
-  onSaved?: (estimate: FlooringEstimate) => void,
+  onSaved?: (result: R) => void,
   enabled = true,
+  saveTo?: SketchSave<R>,
 ) {
   const save = useCallback(
-    (value: FlooringSketch) => flooringEstimateService.saveSketch(estimateId, value),
-    [estimateId],
+    (value: FlooringSketch) => (saveTo
+      ? saveTo(value)
+      : (flooringEstimateService.saveSketch(estimateId, value) as Promise<unknown> as Promise<R>)),
+    [estimateId, saveTo],
   );
   return useAutosave(sketch, save, { delay: AUTOSAVE_DELAY_MS, enabled, onSaved });
 }

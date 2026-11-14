@@ -52,6 +52,19 @@ const ASSEMBLIES = [{
   ],
 }];
 
+// The flooring estimate's sketch, as copied: two of its rooms drawn
+const SKETCH = {
+  version: 1, units: 'ft',
+  levels: [{
+    id: 'main', name: 'Main Level',
+    rooms: BEFORE.rooms.slice(0, 2).map((r: { id: string; name: string }, i: number) => ({
+      id: r.id, name: r.name, height_ft: 8, subroom_of: null,
+      points: [{ x: i * 12.375, y: 0 }, { x: i * 12.375 + 12, y: 0 }, { x: i * 12.375 + 12, y: 10 }, { x: i * 12.375, y: 10 }],
+    })),
+    openings: [], cabinet_runs: [], fixtures: [], walls: [],
+  }],
+};
+
 const json = (route: Route, body: unknown) =>
   route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 
@@ -60,7 +73,10 @@ async function mockApi(page: Page) {
     localStorage.setItem('auth_token', 'e2e-test-token');
     localStorage.setItem('auth_user', JSON.stringify(user));
   }, [USER]);
-  const api = { updates: [] as any[], imports: [] as any[], refreshes: [] as string[], wordings: [] as any[] };
+  const api = {
+    updates: [] as any[], imports: [] as any[], refreshes: [] as string[], wordings: [] as any[],
+    sketches: [] as any[], copies: [] as any[],
+  };
   let current = structuredClone(BEFORE);
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
@@ -69,7 +85,31 @@ async function mockApi(page: Page) {
     const base = '/api/rebuild-estimates';
     if (p.endsWith('/api/auth/me')) return json(route, USER);
     if (p.endsWith(`${base}/xactimate-search`)) return json(route, url.searchParams.get('q')?.includes('paint') ? [PAINT] : []);
-    if (p.endsWith(`${base}/${ID}/importable`)) return json(route, IMPORTABLE);
+    if (p.endsWith(`${base}/${ID}/importable`)) {
+      // (the flooring estimate has its seven rooms drawn)
+      return json(route, IMPORTABLE.map((o: { kind: string }) => ({ ...o, sketch_rooms: o.kind === 'flooring' ? 7 : 0 })));
+    }
+    if (p.endsWith(`${base}/${ID}/sketch`) && method === 'PUT') {
+      // As the server does: each room drawn is a room, measured from the drawing
+      const sketch = route.request().postDataJSON().sketch_data;
+      api.sketches.push(sketch);
+      const drawn = sketch.levels.flatMap((l: any) => l.rooms.map((r: any) => ({ ...r, level: l.name })));
+      const kept = current.rooms.filter((r: any) => !r.sketch_room_id);
+      current = {
+        ...current,
+        sketch_data: sketch,
+        rooms: [...kept, ...drawn.map((r: any) => ({
+          id: `sk-${r.id}`, name: r.name, level_name: r.level, sketch_room_id: r.id,
+          measures: { floor_sf: 120, ceiling_sf: 120, wall_sf: 340.67, exterior_wall_sf: 0, perimeter_lf: 44, height_ft: 8 },
+        }))],
+      };
+      return json(route, current);
+    }
+    if (p.endsWith(`${base}/${ID}/sketch/copy`)) {
+      api.copies.push(route.request().postDataJSON());
+      current = { ...current, sketch_data: SKETCH, rooms: current.rooms.map((r: any) => ({ ...r, sketch_room_id: r.id })) };
+      return json(route, current);
+    }
     if (p.endsWith(`${base}/${ID}/assemblies`)) return json(route, ASSEMBLIES);
     if (p.endsWith(`${base}/${ID}/wordings`)) {
       api.wordings.push(route.request().postDataJSON());
@@ -193,4 +233,52 @@ test("a line left in Xactimate's words is marked, and words written for it are k
   await expect.poll(() => api.wordings).toEqual([
     { code: 'PNTSP', activity: '+', text: '{S} - prime and paint, one coat each' },
   ]);
+});
+
+test('a room drawn on the sketch is a room of the estimate, measured from the drawing', async ({ page }) => {
+  const api = await mockApi(page);
+  await page.goto(`/rebuild-estimates/${ID}?tab=sketch`);
+  const sketch = page.getByTestId('rebuild-sketch');
+  await sketch.getByLabel('New room name').fill('Laundry');
+  await sketch.getByLabel('New room length').fill('12');
+  await sketch.getByLabel('New room length').press('Enter');
+  await sketch.getByLabel('New room width').fill('10');
+  await sketch.getByLabel('New room width').press('Enter');
+  await sketch.getByTestId('add-sized-room').click();
+
+  await expect.poll(() => api.sketches.length).toBeGreaterThan(0);
+  expect(api.sketches[api.sketches.length - 1].levels[0].rooms[0].name).toBe('Laundry');
+  await expect(page.getByRole('tab', { name: 'Sketch (1)' })).toBeVisible();
+
+  // On the estimate: its measures from the sketch, its name and measures changed there
+  await page.getByRole('tab', { name: /Rooms & repairs/ }).click();
+  const header = page.locator('.ant-collapse-header', { hasText: 'Laundry' });
+  await expect(header.getByText('120 SF floor', { exact: false })).toBeVisible();
+  await header.click();
+  const roomId = api.sketches[api.sketches.length - 1].levels[0].rooms[0].id;
+  const room = page.getByTestId(`rebuild-room-sk-${roomId}`);
+  await expect(room.getByLabel('Room name')).toBeDisabled();
+  await expect(room.getByLabel('Walls SF', { exact: true })).toBeDisabled();
+  await expect(room.getByRole('button', { name: 'Remove room' })).toHaveCount(0);
+  // The page's next save carries the room as the server has it
+  await room.getByTestId('room-on-sketch').click();
+  await expect(page.getByTestId('rebuild-sketch')).toBeVisible();
+  await expect.poll(() => (api.updates[api.updates.length - 1]?.rooms || [])
+    .some((r: any) => r.sketch_room_id === roomId)).toBe(true);
+});
+
+test("an empty sketch starts from the flooring estimate's, its rooms the rooms drawn", async ({ page }) => {
+  const api = await mockApi(page);
+  await page.goto(`/rebuild-estimates/${ID}?tab=sketch`);
+  const offer = page.getByText("Start from the flooring estimate's sketch");
+  await expect(offer).toBeVisible();
+  await page.getByRole('button', { name: 'Copy its sketch' }).click();
+  expect(api.copies).toEqual([{ flooring_estimate_id: IMPORTABLE.find((o: { kind: string }) => o.kind === 'flooring').estimate_id }]);
+
+  await expect(offer).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Sketch (2)' })).toBeVisible();
+  // The editor starts again from the copy: its rooms are on the canvas's list
+  await expect(page.getByTestId('rebuild-sketch').getByText(BEFORE.rooms[0].name).first()).toBeVisible();
+  await page.getByRole('tab', { name: /Rooms & repairs/ }).click();
+  await expect(page.getByTestId(`rebuild-room-${roomId('Living Room')}`).getByLabel('Room name')).toBeDisabled();
 });

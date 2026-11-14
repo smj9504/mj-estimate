@@ -12,7 +12,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Button, Input, InputNumber, Popconfirm, Select, Space, Tag, Tooltip, Typography } from 'antd';
-import { DeleteOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons';
 import type {
   AddedSection, AssembledLine, AssembledRoom, Assembly, Basis, CutPart, RebuildLine, RebuildRoom, XactActivity,
 } from '../../types/rebuildEstimate';
@@ -41,6 +41,8 @@ interface Props {
   onDelete?: () => void;
   /** Keep a line's words for its item from now on */
   onSaveWording?: (line: RebuildLine) => void;
+  /** A room drawn on the sketch is renamed, measured and removed there */
+  onOpenSketch?: () => void;
 }
 
 const MEASURE_FIELDS: { key: keyof RebuildRoom['measures']; label: string; unit: string; hint?: string }[] = [
@@ -78,8 +80,9 @@ const CUT_OPTIONS = [
 ];
 
 const RoomBody: React.FC<Props> = ({
-  estimateId, roomId, room, assembled, assemblies, lines, onLines, onRoom, onDelete, onSaveWording,
+  estimateId, roomId, room, assembled, assemblies, lines, onLines, onRoom, onDelete, onSaveWording, onOpenSketch,
 }) => {
+  const drawn = !!room?.sketch_room_id;
   const [section, setSection] = useState<AddedSection>(roomId ? 'wall' : 'other');
   const [setCut, setSetCut] = useState<number>(0);
   const mine = lines.filter((l) => (l.room_id ?? null) === roomId);
@@ -169,20 +172,29 @@ const RoomBody: React.FC<Props> = ({
     <div data-testid={`rebuild-room-${roomId ?? 'general'}`}>
       {room && onRoom && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <Input size="small" value={room.name} style={{ width: 200 }} aria-label="Room name"
-            onChange={(e) => onRoom({ name: e.target.value })} />
+          <Tooltip title={drawn ? 'Drawn on the sketch: rename it there' : undefined}>
+            <Input size="small" value={room.name} style={{ width: 200 }} aria-label="Room name" disabled={drawn}
+              onChange={(e) => onRoom({ name: e.target.value })} />
+          </Tooltip>
           {MEASURE_FIELDS.map((f) => (
-            <Tooltip key={f.key} title={f.hint}>
+            <Tooltip key={f.key} title={drawn ? `${f.hint ? `${f.hint}. ` : ''}Measured from the sketch` : f.hint}>
               <InputNumber size="small" min={0} style={{ width: f.key === 'height_ft' ? 132 : 188 }}
                 value={room.measures[f.key] ?? null} addonBefore={f.label} suffix={f.unit}
-                aria-label={`${f.label} ${f.unit}`}
+                aria-label={`${f.label} ${f.unit}`} disabled={drawn}
                 // Ceiling: the floor's when not measured on its own; height: 8'
                 placeholder={f.key === 'ceiling_sf' && room.measures.floor_sf ? String(room.measures.floor_sf)
                   : f.key === 'height_ft' ? '8' : undefined}
                 onChange={(v) => onRoom({ measures: { ...room.measures, [f.key]: v ?? null } })} />
             </Tooltip>
           ))}
-          {onDelete && (
+          {drawn && (
+            <Tooltip title="Its name and measures come from the sketch; take it off the sketch to remove it">
+              <Button size="small" type="link" icon={<EditOutlined />} onClick={onOpenSketch} data-testid="room-on-sketch">
+                On the sketch
+              </Button>
+            </Tooltip>
+          )}
+          {onDelete && !drawn && (
             imported.length ? (
               <Tooltip title="It holds lines brought in from an estimate: remove or move that estimate first">
                 <Button size="small" type="text" disabled icon={<DeleteOutlined />}>Remove room</Button>

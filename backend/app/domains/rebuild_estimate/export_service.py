@@ -2,13 +2,14 @@
 The rebuild estimate as a PDF: a summary of the rooms and what went into
 them, then each room with its lines under its sections (floor, cabinets,
 a bathroom's phases, wall, ceiling...), numbered through the document, as a
-contractor's estimate reads (owner, 2026-11-13). Unit prices have material
+contractor's estimate reads (owner, 2026-11-13). A room drawn on the
+estimate's sketch has its drawing beside its name. Unit prices have material
 tax and O&P in them; nothing is added below the total.
 """
 
 import io
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -19,8 +20,11 @@ from reportlab.platypus import (
 )
 
 from app.domains.flooring_estimate.export_service import (
-    BRAND_ACCENT, BRAND_DARK, BORDER_GREY, MARGIN, TEXT_GREY, _canvas_maker, _company_block, _escape, _money,
+    BRAND_ACCENT, BRAND_DARK, BORDER_GREY, CARD_THUMB_H, CARD_THUMB_W, MARGIN, TEXT_GREY, _canvas_maker,
+    _company_block, _escape, _money,
 )
+from app.domains.flooring_estimate.floorplan_drawing import room_thumbnail
+from app.domains.flooring_estimate.geometry import levels_of
 
 CARD_BG = colors.HexColor("#eef2f7")
 RULE = colors.HexColor("#e6e9ee")
@@ -33,6 +37,17 @@ TERMS = [
     "not included; they will be documented with photos and priced as a written change order before work goes on.",
     "Any change to the scope after signing requires a written change order.",
 ]
+
+
+def _drawn(sketch: Optional[Mapping[str, Any]], room_id: Optional[str]) -> Optional[Tuple[Mapping, Mapping]]:
+    """The level and the room as drawn on the sketch"""
+    if not room_id:
+        return None
+    for level in levels_of(sketch):
+        for room in level.get("rooms") or []:
+            if str(room.get("id")) == room_id and len(room.get("points") or []) >= 3:
+                return level, room
+    return None
 
 
 def _measure_words(measures: Mapping[str, Any]) -> str:
@@ -65,7 +80,7 @@ class RebuildExportService:
         el += self._summary(estimate, assembled, st, w)
         for room in rooms:
             if room.get("sections"):    # a room with nothing in it yet isn't printed
-                el += self._room(room, st, w)
+                el += self._room(room, st, w, _drawn(estimate.get("sketch_data"), room.get("sketch_room_id")))
 
         grand = Table([["Grand total", _money(float(assembled.get("total") or 0))]], colWidths=[w * 0.7, w * 0.3])
         grand.setStyle(TableStyle([
@@ -161,18 +176,36 @@ class RebuildExportService:
             out += [Spacer(1, 6), Paragraph("Made up of: " + "; ".join(parts) + ".", st["small"])]
         return out + [Spacer(1, 14)]
 
-    def _room(self, room, st, w) -> List[Any]:
-        head = Table([[Paragraph(_escape(room.get("name")), st["card_title"]),
-                       Paragraph(_money(float(room.get("total") or 0)), st["card_total"])]],
-                     colWidths=[w * 0.7, w * 0.3])
-        head.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("LINEBEFORE", (0, 0), (0, -1), 3, BRAND_ACCENT),
-            ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        intro: List[Any] = [head]
+    def _room(self, room, st, w, drawn: Optional[Tuple[Mapping, Mapping]] = None) -> List[Any]:
         words = _measure_words(room.get("measures") or {})
-        if words:
-            intro += [Spacer(1, 3), Paragraph(_escape(words), st["chip"])]
+        total = Paragraph(_money(float(room.get("total") or 0)), st["card_total"])
+        intro: List[Any]
+        if drawn:
+            # Its drawing small, beside it its name and measures, its amount at the right
+            text: List[Any] = [Paragraph(_escape(room.get("name")), st["card_title"])]
+            if room.get("level_name"):
+                text.append(Paragraph(_escape(room["level_name"]), st["small"]))
+            if words:
+                text += [Spacer(1, 4), Paragraph(_escape(words), st["chip"])]
+            thumb_w = CARD_THUMB_W + 15
+            head = Table([[room_thumbnail(drawn[0], drawn[1], CARD_THUMB_W, CARD_THUMB_H), text, total]],
+                         colWidths=[thumb_w, w * 0.8 - thumb_w, w * 0.2])
+            head.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("LINEBEFORE", (0, 0), (0, -1), 3, BRAND_ACCENT),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (0, 0), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            intro = [head]
+        else:
+            head = Table([[Paragraph(_escape(room.get("name")), st["card_title"]), total]],
+                         colWidths=[w * 0.7, w * 0.3])
+            head.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("LINEBEFORE", (0, 0), (0, -1), 3, BRAND_ACCENT),
+                ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            intro = [head]
+            if words:
+                intro += [Spacer(1, 3), Paragraph(_escape(words), st["chip"])]
 
         widths = [w * 0.06, w * 0.5, w * 0.14, w * 0.14, w * 0.16]
         rows: List[List[Any]] = [["#", "Description", "Qty", "Unit price", "Amount"]]
@@ -205,4 +238,4 @@ class RebuildExportService:
         table = Table(rows, colWidths=widths, repeatRows=1)
         table.setStyle(TableStyle(styles))
         # A room starts where its head and a few lines fit
-        return [CondPageBreak(1.6 * inch), *intro, Spacer(1, 4), table, Spacer(1, 16)]
+        return [CondPageBreak((2.8 if drawn else 1.6) * inch), *intro, Spacer(1, 4), table, Spacer(1, 16)]

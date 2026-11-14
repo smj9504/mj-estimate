@@ -4,6 +4,8 @@
  * none of them covers are added room by room.
  */
 
+import type { FlooringSketch } from './flooringEstimate';
+
 export type SourceKind = 'flooring' | 'bathroom' | 'cabinet';
 export type XactActivity = '&' | '+' | '-' | 'R' | 'M' | 'I';
 export type AddedSection = 'floor' | 'wall' | 'ceiling' | 'other';
@@ -26,6 +28,8 @@ export interface RebuildRoom {
   name: string;
   level_name?: string | null;
   measures: Measures;
+  /** Drawn on the estimate's sketch: its name, level and measures come from there */
+  sketch_room_id?: string | null;
 }
 
 export interface ActivityPrice {
@@ -111,6 +115,7 @@ export interface AssembledRoom {
   name: string;
   level_name?: string | null;
   measures: Measures;
+  sketch_room_id?: string | null;
   sections: AssembledSection[];
   total: number;
 }
@@ -137,6 +142,8 @@ export interface RebuildEstimate {
   source_labels?: string[];
   rooms: RebuildRoom[];
   lines: RebuildLine[];
+  /** Its own sketch: each room drawn is a room above */
+  sketch_data?: FlooringSketch | null;
   sources: ImportedSource[];
   assembled: {
     rooms: AssembledRoom[];
@@ -160,6 +167,8 @@ export interface ImportableEstimate {
   line_count: number;
   total: number;
   calculated: boolean;
+  /** A flooring estimate's rooms drawn: its sketch can start this one's */
+  sketch_rooms?: number;
   updated_at: string | null;
   imported: boolean;
   path: string;

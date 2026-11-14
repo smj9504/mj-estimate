@@ -4,6 +4,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domains.flooring_estimate.schemas import FlooringSketch
+
 from .assemble import ADDED_SECTIONS, BASES
 from .sources import KINDS
 
@@ -24,6 +26,8 @@ class Room(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     level_name: Optional[str] = Field(None, max_length=100)
     measures: Measures = Measures()
+    # Drawn on the estimate's sketch: its name, level and measures come from there
+    sketch_room_id: Optional[str] = Field(None, max_length=64)
 
 
 class Activity(BaseModel):
@@ -138,3 +142,14 @@ class SourceRoomRequest(BaseModel):
             raise ValueError("Give a room, or a name for a new one")
         return self
 
+
+
+class SketchSave(BaseModel):
+    """The estimate's own sketch, as the editor saves it"""
+    sketch_data: FlooringSketch
+
+
+class SketchCopy(BaseModel):
+    """Start the sketch from a flooring estimate's"""
+    model_config = ConfigDict(extra="forbid")
+    flooring_estimate_id: str = Field(..., min_length=1, max_length=64)

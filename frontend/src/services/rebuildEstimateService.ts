@@ -3,6 +3,7 @@
  */
 
 import api from './api';
+import type { FlooringSketch } from '../types/flooringEstimate';
 import type {
   Assembly, ImportableEstimate, RebuildEstimate, RebuildLine, RebuildRoom, SourceKind, XactActivity, XactimateMatch,
 } from '../types/rebuildEstimate';
@@ -43,6 +44,18 @@ export const rebuildEstimateService = {
   },
   async delete(id: string) {
     await api.delete(`${BASE_URL}/${id}`);
+  },
+  /** Its own sketch, as drawn: the rooms drawn come back measured */
+  async saveSketch(id: string, sketch: FlooringSketch) {
+    const { data } = await api.put<RebuildEstimate>(`${BASE_URL}/${id}/sketch`, { sketch_data: sketch });
+    return data;
+  },
+  /** Start its sketch from a flooring estimate's (nothing drawn yet) */
+  async copySketch(id: string, flooringEstimateId: string) {
+    const { data } = await api.post<RebuildEstimate>(`${BASE_URL}/${id}/sketch/copy`, {
+      flooring_estimate_id: flooringEstimateId,
+    });
+    return data;
   },
   async importable(id: string) {
     const { data } = await api.get<ImportableEstimate[]>(`${BASE_URL}/${id}/importable`);

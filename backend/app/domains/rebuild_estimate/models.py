@@ -12,6 +12,8 @@ paint on the walls and ceilings...) are added on, room by room (owner,
            each imported estimate as it was when imported (sources.py)
   lines    [{id, room_id, section, description, quantity, basis, ...}]
            the repairs added here (assemble.py)
+  sketch_data  its own sketch, drawn with the flooring estimate's editor;
+           each room drawn is a room above (sketch_rooms.py)
 """
 
 from sqlalchemy import Boolean, Column, Float, ForeignKey, Index, String, Text
@@ -45,6 +47,7 @@ class RebuildEstimate(Base, BaseModel):
     rooms = Column(JSONB, nullable=True)
     sources = Column(JSONB, nullable=True)
     lines = Column(JSONB, nullable=True)
+    sketch_data = Column(JSONB, nullable=True)
 
     # O&P on the repairs added here, folded into their unit prices. An
     # imported estimate's lines keep the O&P they were priced with.
