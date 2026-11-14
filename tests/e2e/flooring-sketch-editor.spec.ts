@@ -135,6 +135,36 @@ test.describe('on the canvas', () => {
     await canvas.screenshot({ path: test.info().outputPath('open-wall.png') });
   });
 
+  test('a window clicked into a wall comes off the walls, not the baseboard', async ({ page }) => {
+    const api = await open(page, sketchWith([{ id: 'a', name: 'Bedroom', points: rect(0, 0, 12, 10) }]));
+    const canvas = page.getByTestId('flooring-sketch-canvas');
+    await page.getByTestId('tool-window').click();
+    const wall = await pagePoint(canvas, { x: 6, y: 0.1 });
+    await page.mouse.click(wall.x, wall.y);
+
+    const inspector = page.getByTestId('opening-inspector');
+    await expect(inspector.getByText('Bedroom ↔ Outside')).toBeVisible();
+    await expect(inspector.getByText('Swings into')).toHaveCount(0);
+    await expect.poll(() => api.last()?.levels[0].openings.length).toBe(1);
+    const window = api.last()!.levels[0].openings[0];
+    expect(window.kind).toBe('window');
+    expect(window.rooms).toEqual(['a', null]);
+    expect(Math.hypot(window.b.x - window.a.x, window.b.y - window.a.y)).toBeCloseTo(3, 3);
+
+    await inspector.getByLabel('Window height').fill(`3' 6"`);
+    await inspector.getByLabel('Window height').press('Enter');
+    await expect.poll(() => api.last()?.levels[0].openings[0].height_ft).toBeCloseTo(3.5, 3);
+
+    // The room: 44 LF of baseboard still, its walls less the 3' by 3' 6" of glass
+    const inside = await pagePoint(canvas, { x: 6, y: 6 });
+    await page.getByTestId('tool-select').click();
+    await page.mouse.click(inside.x, inside.y);
+    const room = page.getByTestId('room-inspector');
+    await expect(room.getByText('44.00 LF').last()).toBeVisible();
+    await expect(room.getByText(`${(44 * 8 - 3 * 3.5).toFixed(2)} SF`)).toBeVisible();
+    await canvas.screenshot({ path: test.info().outputPath('window.png') });
+  });
+
   test('a wall dragged out from a wall is built onto it', async ({ page }) => {
     const api = await open(page, sketchWith([{ id: 'r1', name: 'Dining', points: rect(0, 0, 12, 10) }]));
     const canvas = page.getByTestId('flooring-sketch-canvas');

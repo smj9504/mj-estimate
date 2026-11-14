@@ -4,8 +4,8 @@ A rebuild estimate's own sketch, and the rooms it keeps in step with it.
 The sketch is drawn with the flooring estimate's editor and measured the
 same way (flooring_estimate.geometry.measure_sketch). Each room drawn is a
 room of the estimate (sketch_room_id) whose name, level and measures come
-from the drawing: the floor and ceiling, the walls less their doors and
-openings, the outside walls, the perimeter and the height.
+from the drawing: the floor and ceiling, the walls less their doors,
+openings and windows, the outside walls, the perimeter and the height.
 
   - A room drawn takes, in this order: the room already drawn as it; a room
     the flooring estimate brought in as that same drawn room (a sketch

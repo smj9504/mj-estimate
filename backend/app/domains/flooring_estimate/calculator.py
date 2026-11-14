@@ -39,7 +39,8 @@ from app.domains.unit_prices.tables import material_share
 from . import pricing
 from .price_catalog import LABOR_LABELS
 from .geometry import (
-    CABINET_HEIGHT_FT, RoomMeasure, bounding_box, distance, fixture_words, point, format_ft_in, is_axis_rectangle, levels_of, measure_sketch,
+    CABINET_HEIGHT_FT, RoomMeasure, bounding_box, distance, fixture_words, point, format_ft_in, is_axis_rectangle, is_window, levels_of,
+    measure_sketch,
 )
 from .items import (
     CATEGORY_ORDER, GENERAL_ITEMS, MAIN_LABELS, ROOM_ITEM_MAP, ROOM_ITEMS, RULES, ItemDef,
@@ -448,6 +449,8 @@ def shape_waste(
     for level in levels_of(sketch):
         for opening in level.get("openings") or []:
             ids = [str(r) if r else None for r in (opening.get("rooms") or [])][:2]
+            if is_window(opening):
+                continue
             if len(ids) < 2 or None in ids or ids[0] == ids[1] or ids[0] not in parent or ids[1] not in parent:
                 continue
             if lays(ids[0]) != lays(ids[1]):
@@ -511,7 +514,7 @@ def transitions(
     for level in levels_of(sketch):
         for opening in level.get("openings") or []:
             ids = [str(r) if r else None for r in (opening.get("rooms") or [])][:2]
-            if len(ids) < 2 or None in ids:
+            if len(ids) < 2 or None in ids or is_window(opening):
                 continue
             sides = [_floor_on_each_side(rooms, scopes, r) for r in ids]
             if not any(new for _, new in sides):

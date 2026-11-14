@@ -48,7 +48,7 @@ interface Props {
 const MEASURE_FIELDS: { key: keyof RebuildRoom['measures']; label: string; unit: string; hint?: string }[] = [
   { key: 'floor_sf', label: 'Floor', unit: 'SF' },
   { key: 'ceiling_sf', label: 'Ceiling', unit: 'SF' },
-  { key: 'wall_sf', label: 'Walls', unit: 'SF', hint: 'Every wall, less the doors and openings' },
+  { key: 'wall_sf', label: 'Walls', unit: 'SF', hint: 'Every wall, less the doors, openings and windows' },
   { key: 'exterior_wall_sf', label: 'Outside walls', unit: 'SF', hint: 'The outside walls alone, less their doors (insulation)' },
   { key: 'perimeter_lf', label: 'Perimeter', unit: 'LF' },
   { key: 'height_ft', label: 'Height', unit: 'ft', hint: 'Ceiling height: a flood cut is its share of the walls' },

@@ -13,7 +13,7 @@ Xactimate price marked up (unit_prices.xactimate), material tax on its
 material share, and the estimate's O&P when it is on, all folded into the
 unit price, as on the flooring estimate. A price typed in is used as typed.
 Its quantity, unless typed, is the room's measure it follows (basis): the
-walls' SF (less doors and openings) for paint on the walls, the outside
+walls' SF (less doors, openings and windows) for paint on the walls, the outside
 walls' for insulation, the ceiling's for the ceiling... A wall measure can be
 taken only part of the way up (a 2' or 4' flood cut, cut_height_ft) or only
 above that (the rest of the wall, painted to match).

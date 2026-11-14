@@ -536,6 +536,35 @@ def test_an_open_wall_is_a_side_with_no_wall_measured_like_a_doorway():
     assert lines_of(calculate_estimate(est), "Living Room")["transition"]["notes"] == "To Kitchen (porcelain)"
 
 
+def test_a_window_comes_off_the_walls_not_the_baseboard_and_takes_no_transition():
+    before = measured()
+    sketch = house()
+    sketch["levels"][0]["openings"] += [
+        # 4' wide, 3' high, in the living room's outside wall
+        {"id": "w1", "kind": "window", "rooms": ["living", None], "a": {"x": 0, "y": 4}, "b": {"x": 0, "y": 8},
+         "height_ft": 3},
+        # Between the living room and the bedroom, its height left to the default 4'
+        {"id": "w2", "kind": "window", "rooms": ["living", "bed1"], "a": {"x": 2, "y": 14.1667}, "b": {"x": 5, "y": 14.1667}},
+    ]
+    FlooringSketch.model_validate(sketch)
+    after = measured(sketch)
+    living, bed1 = after["living"], after["bed1"]
+    # The glass comes off the walls (and the outside window off the outside walls)...
+    assert living.wall_net_sf == pytest.approx(before["living"].wall_net_sf - 4 * 3 - 3 * 4, abs=0.01)
+    assert living.exterior_wall_sf == pytest.approx(before["living"].exterior_wall_sf - 4 * 3, abs=0.01)
+    assert bed1.wall_net_sf == pytest.approx(before["bed1"].wall_net_sf - 3 * 4, abs=0.01)
+    # ...the baseboard runs under it, and it is no door
+    assert living.base_lf == before["living"].base_lf and bed1.base_lf == before["bed1"].base_lf
+    assert living.door_count == before["living"].door_count
+    assert [o.id for o in living.openings] == ["o1", "o2"]
+    # LVP one side, carpet the other: a doorway would take a transition, a window doesn't
+    assert "transition" not in lines_of(calculate_estimate(estimate(sketch=sketch)), "Living Room")
+
+    sketch["levels"][0]["openings"][-1]["height_ft"] = 0
+    with pytest.raises(ValidationError):
+        FlooringSketch.model_validate(sketch)
+
+
 def test_transitions_go_where_the_floor_changes():
     result = calculate_estimate(estimate())
     hall = lines_of(result, "Hallway")["transition"]
@@ -958,6 +987,19 @@ def test_the_plan_draws_open_walls_registers_and_sinks():
     # A dashed line where the open wall would stand, drawn from each room's side
     assert len(dashed(plan, [])) == 2
     assert len(dashed(thumb, [])) == 1
+
+    def lines(node, found):
+        for child in getattr(node, "contents", []):
+            if type(child).__name__ == "Line":
+                found.append(child)
+            lines(child, found)
+        return found
+
+    # A window: its frame across the wall at each end and three lines along it
+    level["openings"].append({"id": "w1", "kind": "window", "rooms": ["living", None],
+                              "a": {"x": 0, "y": 4}, "b": {"x": 0, "y": 8}})
+    with_window = room_thumbnail(level, level["rooms"][0], 148, 124, "lvp")
+    assert len(lines(with_window, [])) == len(lines(thumb, [])) + 5
 
     def wall_polygons(node, found):
         for child in getattr(node, "contents", []):

@@ -23,14 +23,15 @@ import type {
 } from '../../../types/flooringEstimate';
 import { formatFeet, formatSf, parseFeet } from './utils/dimensions';
 import {
-  WALL_T, bbox, centroid, constrainAngle, distance, edgesOf, measureRoom, moveVertex, offsetPolygon,
+  WALL_T, bbox, centroid, constrainAngle, distance, edgesOf, isWindow, measureRoom, moveVertex, offsetPolygon,
   insertVertex, pointInPolygon, projectOnSegment, rectPoints, removeVertex, resizeEdge, roomAcross, snapLines,
   snapPoint, snapShift, spanOnEdge, translate, wallAt, type Edge,
 } from './utils/geometry';
 import { FIXTURE_LABELS } from './utils/sketchOps';
 import { midpoint, pinchView, spread, zoomAround, type Px, type View as ViewState } from './utils/view';
 
-export type SketchTool = 'select' | 'pan' | 'rect' | 'polygon' | 'opening' | 'openwall' | 'wall' | 'cabinet' | 'fixture';
+export type SketchTool =
+  | 'select' | 'pan' | 'rect' | 'polygon' | 'opening' | 'window' | 'openwall' | 'wall' | 'cabinet' | 'fixture';
 
 export type Selection =
   | { kind: 'room' | 'opening' | 'cabinet' | 'fixture' | 'wall'; id: string }
@@ -104,6 +105,7 @@ const COLORS = {
 
 const DOOR_KINDS = new Set(['door', 'exterior_door']);
 const DEFAULT_OPENING_FT = 3;
+const DEFAULT_WINDOW_FT = 3;
 /** A wall tool click without a drag: a wall this long, square to the wall clicked */
 const DEFAULT_WALL_FT = 2;
 const MIN_ROOM_FT = 1;
@@ -321,6 +323,16 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
             ? { kind: 'door', rooms: [hit.roomId, other], ...span, swing: other, hinge: 'a' }
             : { kind: 'exterior_door', rooms: [hit.roomId, null], ...span, swing: hit.roomId, hinge: 'a' },
         });
+        onToolDone();
+        return;
+      }
+      case 'window': {
+        // In the wall clicked, between the rooms either side of it (or the outside)
+        const hit = wallAt(rooms, p, tolerance);
+        if (!hit) return;
+        const span = spanOnEdge(hit.edge, hit.t * hit.edge.length, DEFAULT_WINDOW_FT);
+        const other = roomAcross(rooms, hit.roomId, hit.edge, span.a, span.b);
+        onAction({ type: 'addOpening', opening: { kind: 'window', rooms: [hit.roomId, other], ...span } });
         onToolDone();
         return;
       }
@@ -661,6 +673,12 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
         strokeWidth={isSelected ? 2 : 0.75} hitStrokeWidth={12}
         onPointerDown={grabSegment('opening', o.id, o.rooms[0], o.a, o.b)} />,
     ];
+    if (isWindow(o)) {
+      // The glass, down the middle of the wall
+      parts.push(<Line key="pane" points={flat([out(o.a, WALL_T / 2), out(o.b, WALL_T / 2)].map(toPx))}
+        stroke={COLORS.wall} strokeWidth={1.25} listening={false} />);
+      return <Group key={o.id}>{parts}</Group>;
+    }
     // Into the first room, or through the wall into the other one
     const intoOther = o.swing && o.swing !== o.rooms[0];
     const base = (p: FtPoint) => (intoOther ? out(p, WALL_T) : p);
@@ -941,7 +959,7 @@ const FLSketchCanvas: React.FC<FLSketchCanvasProps> = ({
       previews.push(<Text key="pwl" x={q.x + 10} y={q.y + 8} text={formatFeet(len)} fontSize={12} fill={COLORS.preview} listening={false} />);
     }
   }
-  if (['opening', 'openwall', 'wall', 'cabinet'].includes(tool) && pointer && !drag) {
+  if (['opening', 'window', 'openwall', 'wall', 'cabinet'].includes(tool) && pointer && !drag) {
     const hit = wallAt(rooms, pointer, tolerance);
     if (hit) {
       previews.push(<Line key="hw" points={flat([hit.edge.a, hit.edge.b].map(toPx))} stroke={COLORS.preview} strokeWidth={3} opacity={0.6} listening={false} />);

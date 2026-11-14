@@ -14,8 +14,8 @@ import FeetInput from './FeetInput';
 import type { Selection } from './FLSketchCanvas';
 import { formatFeet, formatSf } from './utils/dimensions';
 import {
-  CABINET_DEPTH_FT, WALL_T, bbox, cabinetLayout, distance, edgesOf, measureRoom, offsetPolygon, projectOnSegment,
-  rectPoints, resizeEdge, spanOnEdge, wallFaces,
+  CABINET_DEPTH_FT, WALL_T, bbox, cabinetLayout, distance, edgesOf, isWindow, measureRoom, offsetPolygon, projectOnSegment,
+  rectPoints, resizeEdge, spanOnEdge, wallFaces, windowHeight,
 } from './utils/geometry';
 import {
   FIXTURE_LABELS, FLOOR_FIT_LABELS, addRoom, floorFitOf, removeCabinetRun, removeFixture, removeOpening, removeRoom, removeWall, setRoomPoints,
@@ -40,6 +40,7 @@ export const OPENING_LABELS: Record<OpeningKind, string> = {
   pocket: 'Pocket door',
   slider: 'Sliding door',
   exterior_door: 'Exterior door',
+  window: 'Window',
 };
 
 interface InspectorProps {
@@ -117,6 +118,7 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <Figure label="Floor perimeter" value={`${m.perimeterLf.toFixed(2)} LF`} />
         <Figure label="Baseboard, less openings" value={`${m.baseLf.toFixed(2)} LF`} />
         <Figure label="Walls" value={formatSf(m.wallSf)} />
+        <Figure label="Walls, less doors & windows" value={formatSf(m.wallNetSf)} />
         <Divider style={{ margin: '8px 0' }} />
         <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
           On the sketch: drag a corner to move it, drag a wall&apos;s middle dot to bend the wall at a new corner,
@@ -183,8 +185,14 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <Row label="Width">
           <FeetInput value={width} disabled={readOnly} aria-label="Opening width" onCommit={setWidth} />
         </Row>
+        {isWindow(o) && (
+          <Row label="Height">
+            <FeetInput value={windowHeight(o)} disabled={readOnly} min={0.5} aria-label="Window height"
+              onCommit={(ft) => onApply(updateOpening(sketch, level.id, o.id, { height_ft: ft }))} />
+          </Row>
+        )}
         <Figure label="Between" value={`${roomName(o.rooms[0])} ↔ ${roomName(o.rooms[1])}`} />
-        {o.kind !== 'opening' && o.kind !== 'open_wall' && (
+        {o.kind !== 'opening' && o.kind !== 'open_wall' && !isWindow(o) && (
           <>
             <Row label="Swings into">
               <Select size="small" style={{ width: 160 }} disabled={readOnly} value={o.swing || o.rooms[0]}
@@ -202,14 +210,16 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <Text type="secondary" style={{ fontSize: 12 }}>
           {o.kind === 'open_wall'
             ? 'No wall on this side: no baseboard along it. Where the floor changes, it takes a transition.'
-            : 'Its width comes off the baseboard of both rooms; where the floor changes, it takes a transition.'}
+            : isWindow(o)
+              ? 'Its width times its height comes off the walls (drywall and paint); the baseboard runs under it.'
+              : 'Its width comes off the baseboard of both rooms; where the floor changes, it takes a transition.'}
         </Text>
         {!readOnly && (
           <Button danger size="small" icon={<DeleteOutlined />} block style={{ marginTop: 8 }}
             onClick={() => {
               onApply(removeOpening(sketch, level.id, o.id));
               onSelect(null);
-            }}>Delete opening</Button>
+            }}>{isWindow(o) ? 'Delete window' : 'Delete opening'}</Button>
         )}
       </div>
     );

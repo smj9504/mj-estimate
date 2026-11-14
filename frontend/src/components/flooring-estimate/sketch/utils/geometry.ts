@@ -7,7 +7,7 @@
  * feet; the canvas maps feet to pixels only to draw.
  */
 
-import type { FtPoint, SketchLevel, SketchRoom } from '../../../../types/flooringEstimate';
+import type { FtPoint, SketchLevel, SketchOpening, SketchRoom } from '../../../../types/flooringEstimate';
 
 /** An interior wall: 2x4 stud and drywall both sides, 4.5" */
 export const WALL_T = 0.375;
@@ -418,10 +418,30 @@ export function cabinetLayout(level: SketchLevel, roomId: string): CabinetRunLay
 export interface RoomMeasure {
   floorSf: number;
   perimeterLf: number;
+  /** The doorways and open walls: no baseboard across them (a window isn't one) */
   openingsLf: number;
   cabinetRunLf: number;
   baseLf: number;
   wallSf: number;
+  /** The walls less what the doors, openings and windows take out of them */
+  wallNetSf: number;
+}
+
+/** A door or a cased opening takes 6' 8" of the wall out; an open wall, the room's full height */
+export const DOOR_HEIGHT_FT = 6.6667;
+/** A window's height when none is set */
+export const WINDOW_HEIGHT_FT = 4;
+
+export const isWindow = (o: Pick<SketchOpening, 'kind'>) => o.kind === 'window';
+export const windowHeight = (o: Pick<SketchOpening, 'height_ft'>) =>
+  (o.height_ft && o.height_ft > 0 ? o.height_ft : WINDOW_HEIGHT_FT);
+
+/** How much of a room's walls an opening takes out (as the server measures it) */
+export function openingWallSf(o: SketchOpening, roomHeight: number): number {
+  const width = distance(o.a, o.b);
+  if (o.kind === 'open_wall') return width * roomHeight;
+  if (isWindow(o)) return width * Math.min(windowHeight(o), roomHeight);
+  return Math.min(width * DOOR_HEIGHT_FT, width * roomHeight);
 }
 
 /** How close to a room's wall a built-out wall's end has to be to count as joined to it */
@@ -454,9 +474,9 @@ export function measureRoom(level: SketchLevel, room: SketchRoom): RoomMeasure {
     perimeterLf += exposedLf - coveredLf;
     floorSf = Math.max(0, floorSf - footprintSf);
   }
-  const openingsLf = level.openings
-    .filter((o) => o.rooms.includes(room.id))
-    .reduce((sum, o) => sum + distance(o.a, o.b), 0);
+  const own = level.openings.filter((o) => o.rooms.includes(room.id));
+  // The baseboard runs under a window
+  const openingsLf = own.filter((o) => !isWindow(o)).reduce((sum, o) => sum + distance(o.a, o.b), 0);
   const cabinetRunLf = level.cabinet_runs
     .filter((r) => r.room_id === room.id)
     .reduce((sum, r) => sum + distance(r.a, r.b), 0);
@@ -465,12 +485,15 @@ export function measureRoom(level: SketchLevel, room: SketchRoom): RoomMeasure {
       floorSf = Math.max(0, floorSf - f.w * f.h);
     }
   }
+  const height = room.height_ft || 8;
+  const wallSf = perimeterLf * height;
   return {
     floorSf,
     perimeterLf,
     openingsLf,
     cabinetRunLf,
     baseLf: Math.max(0, perimeterLf - openingsLf - cabinetRunLf),
-    wallSf: perimeterLf * (room.height_ft || 8),
+    wallSf,
+    wallNetSf: Math.max(0, wallSf - own.reduce((sum, o) => sum + openingWallSf(o, height), 0)),
   };
 }

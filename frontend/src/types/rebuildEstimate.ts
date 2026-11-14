@@ -15,7 +15,7 @@ export type CutPart = 'below' | 'above';
 export interface Measures {
   floor_sf?: number | null;
   ceiling_sf?: number | null;
-  /** Less the doors and openings */
+  /** Less the doors, openings and windows */
   wall_sf?: number | null;
   /** The outside walls alone, less their doors */
   exterior_wall_sf?: number | null;

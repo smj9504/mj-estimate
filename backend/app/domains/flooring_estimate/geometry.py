@@ -15,8 +15,10 @@ drawn around the rooms; they are not part of the area.
         # outside: null). a/b are its two jambs on the first room's side.
         # An open wall is a side with no wall at all (a kitchen open to the
         # family room): it is measured like a doorway as wide as that side.
+        # A window is no way through: the baseboard and the wall under and
+        # over it stay, only its width times its height comes off the walls.
         "openings": [{"id", "kind", "rooms": [room_id, room_id | null], "a": {...}, "b": {...},
-                      "swing": room_id, "hinge": "a" | "b"}],
+                      "swing": room_id, "hinge": "a" | "b", "height_ft": (a window's)}],
         # Where base cabinets stand along a wall: no baseboard there. The
         # cabinets' fronts and the sides that show take shoe molding; side_a
         # / side_b say whether a side shows at that end (null: worked out)
@@ -45,10 +47,14 @@ Point = Tuple[float, float]
 
 # Opening kinds with a door leaf in them (doors to undercut, detach and reset)
 DOOR_KINDS = frozenset({"door", "bifold", "pocket", "slider", "exterior_door"})
-OPENING_KINDS = frozenset({"opening", "open_wall"}) | DOOR_KINDS
+# In the wall, but no way through it: no baseboard break, no transition
+WINDOW_KINDS = frozenset({"window"})
+OPENING_KINDS = frozenset({"opening", "open_wall"}) | DOOR_KINDS | WINDOW_KINDS
 # How much wall an opening takes out: a door or a cased opening is 6' 8"
 # high; an open wall is no wall at all, the room's full height
 DOOR_HEIGHT_FT = 6.6667
+# A window's height when none is given
+WINDOW_HEIGHT_FT = 4.0
 # A room's side is an outside wall when no room is drawn within this of it
 # on the other side (the walls between rooms are drawn 4.5" thick)
 EXTERIOR_GAP_FT = 0.6
@@ -219,7 +225,7 @@ class RoomMeasure:
     # all round islands (the wall behind the cabinets only when they come out)
     shoe_lf: float = 0.0
     wall_sf: float = 0.0
-    # The walls with the doors and openings in them taken out (the rebuild
+    # The walls with the doors, openings and windows in them taken out (the rebuild
     # estimate's drywall and paint), and the outside walls alone (insulation)
     wall_net_sf: float = 0.0
     exterior_wall_lf: float = 0.0
@@ -386,6 +392,18 @@ def cabinet_layout(
     return out
 
 
+def is_window(opening: Mapping[str, Any]) -> bool:
+    return str(opening.get("kind") or "") in WINDOW_KINDS
+
+
+def window_height(opening: Mapping[str, Any]) -> float:
+    try:
+        high = float(opening.get("height_ft") or 0)
+    except (TypeError, ValueError):
+        high = 0.0
+    return high if high > 0 else WINDOW_HEIGHT_FT
+
+
 def levels_of(sketch: Optional[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
     return list((sketch or {}).get("levels") or [])
 
@@ -534,6 +552,18 @@ def measure_sketch(sketch: Optional[Mapping[str, Any]]) -> List[RoomMeasure]:
             width = distance(point(opening.get("a") or (0, 0)), point(opening.get("b") or (0, 0)))
             kind = str(opening.get("kind") or "opening")
             exterior = len(ids) < 2 or None in ids
+            if kind in WINDOW_KINDS:
+                # Only the glass comes off the walls: the baseboard runs under it
+                high = window_height(opening)
+                for room_id in ids:
+                    m = by_id.get(room_id) if room_id else None
+                    if m is None:
+                        continue
+                    gone = width * min(high, m.height_ft)
+                    m.wall_net_sf -= gone
+                    if exterior:
+                        m.exterior_wall_sf -= gone
+                continue
             for i, room_id in enumerate(ids):
                 m = by_id.get(room_id) if room_id else None
                 if m is None:

@@ -45,7 +45,7 @@ ASSEMBLIES: List[Dict[str, Any]] = [
     },
     {
         "key": "walls_paint", "label": "Walls - repaint, 2 coats", "asks_cut": False,
-        "hint": "The walls, less doors and openings",
+        "hint": "The walls, less doors, openings and windows",
         "items": [_item("PNTP2", "+", "wall", "wall_sf")],
     },
     {

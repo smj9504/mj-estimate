@@ -21,8 +21,11 @@ export interface SketchRoom {
   subroom_of?: string | null;
 }
 
-/** open_wall: a side with no wall at all, measured like a doorway as wide as that side */
-export type OpeningKind = 'opening' | 'open_wall' | 'door' | 'bifold' | 'pocket' | 'slider' | 'exterior_door';
+/**
+ * open_wall: a side with no wall at all, measured like a doorway as wide as that side.
+ * window: no way through; only its width times its height comes off the walls (the baseboard runs under it).
+ */
+export type OpeningKind = 'opening' | 'open_wall' | 'door' | 'bifold' | 'pocket' | 'slider' | 'exterior_door' | 'window';
 
 export interface SketchOpening {
   id: string;
@@ -36,6 +39,8 @@ export interface SketchOpening {
   swing?: string | null;
   /** The jamb it hangs on */
   hinge?: 'a' | 'b' | null;
+  /** A window's height (WINDOW_HEIGHT_FT when not set) */
+  height_ft?: number | null;
 }
 
 export interface SketchCabinetRun {

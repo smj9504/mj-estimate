@@ -334,6 +334,18 @@ def test_the_walls_are_measured_less_their_doors_and_the_outside_walls_apart():
         408 - 6 * 8 - 3 * 6.6667, abs=0.05)
 
 
+def test_a_window_comes_off_the_walls_of_the_room_drawn(session, service):
+    sketch = house()
+    # A 4' 2" by 3' window in the kitchen's back wall, which is an outside wall
+    sketch["levels"][0]["openings"].append({"id": "w1", "kind": "window", "rooms": ["kitchen", None],
+                                            "a": {"x": 20, "y": 0}, "b": {"x": 24.1667, "y": 0}, "height_ft": 3})
+    plain = _drawn(service.save_sketch(new(service)["id"], house()))["Kitchen"]["measures"]
+    kitchen = _drawn(service.save_sketch(new(service)["id"], sketch))["Kitchen"]["measures"]
+    assert kitchen["wall_sf"] == pytest.approx(plain["wall_sf"] - 4.1667 * 3, abs=0.01)
+    assert kitchen["exterior_wall_sf"] == pytest.approx(plain["exterior_wall_sf"] - 4.1667 * 3, abs=0.01)
+    assert kitchen["perimeter_lf"] == plain["perimeter_lf"]
+
+
 def test_a_flood_cut_takes_the_lower_part_of_the_walls_and_the_rest_is_painted_to_match(session, service):
     est = new(service)
     measures = {"floor_sf": 147, "wall_sf": 348, "exterior_wall_sf": 236, "perimeter_lf": 51, "height_ft": 8}
