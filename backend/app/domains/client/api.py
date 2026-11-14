@@ -263,6 +263,11 @@ def search_claims(
                 'client_name': client.display_name,
                 'client_nickname': client.nickname,
                 'address': address,
+                # The parts on their own, for forms that keep the street apart from the rest
+                'street': client.address,
+                'city': client.city,
+                'state': client.state,
+                'zip_code': client.zipcode,
             })
         return {"claims": claims, "total": len(claims)}
     except Exception as e:

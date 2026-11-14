@@ -141,7 +141,13 @@ export interface ClaimSearchResult {
   client_name: string;
   /** What staff call the client among themselves; most have none */
   client_nickname?: string | null;
+  /** Street, city and state in one line, for showing */
   address: string;
+  /** The same address in parts, for filling a form */
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
 }
 
 export const claimService = {

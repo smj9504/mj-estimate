@@ -25,6 +25,23 @@ const JOB_ID = '11111111-1111-1111-1111-111111111111';
 const PROJECT_ID = '22222222-2222-2222-2222-222222222222';
 const SIDING_ID = '33333333-3333-3333-3333-333333333333';
 const EXTRACTION_ID = '44444444-4444-4444-4444-444444444444';
+const FLOORING_ID = '55555555-5555-5555-5555-555555555555';
+const REBUILD_ESTIMATE_ID = '66666666-6666-6666-6666-666666666666';
+
+const ESTIMATE_ADDRESS = { property_address: null, city: null, state: null, zip_code: null };
+const FLOORING_ESTIMATE = {
+  id: FLOORING_ID, claim_id: null, company_id: null, status: 'draft', group_id: null, project_type: 'insurance',
+  kind: 'restore', option_label: null, ...ESTIMATE_ADDRESS, sketch_data: null, room_scopes: {}, job_scope: {},
+  overview_text: null, include_overhead_profit: false, overhead_pct: 0.1, profit_pct: 0.1, subtotal: null, total: null,
+  warning_flags: [], methodology_notes: null, notes: null, price_book: null, line_items: [], takeoff: null,
+  claim_number: null, client_name: null, created_at: null, updated_at: null,
+};
+const REBUILD_ESTIMATE = {
+  id: REBUILD_ESTIMATE_ID, claim_id: null, company_id: null, status: 'draft', ...ESTIMATE_ADDRESS,
+  include_overhead_profit: false, overhead_pct: 0.1, profit_pct: 0.1, total: 0, notes: null,
+  rooms: [], lines: [], sources: [],
+  assembled: { rooms: [], by_source: [], added_total: 0, total: 0, tax_rate: 0, warnings: [] },
+};
 
 const SUGGESTIONS = {
   suggestions: [{
@@ -77,6 +94,21 @@ async function open(page: Page, url: string, options: Options = {}) {
     }
 
     if (path === `/api/siding-estimates/${SIDING_ID}`) return json({ id: SIDING_ID, property_address: '1 Old Rd', measurements: {}, line_items: [] });
+
+    // Autosaves answer with what was sent, as the server would
+    const saved = (estimate: object) => json({ ...estimate, ...(route.request().postDataJSON() ?? {}) });
+    if (path === `/api/flooring-estimates/${FLOORING_ID}`) return route.request().method() === 'PUT' ? saved(FLOORING_ESTIMATE) : json(FLOORING_ESTIMATE);
+    if (path === '/api/flooring-estimates/pricing-info') return json({});
+    if (path === '/api/clients/claims/search') {
+      return json({
+        claims: [{
+          id: 'claim-1', client_id: 'client-1', claim_number: 'CLM-100', claim_type: 'insurance', client_name: 'Pat Example',
+          address: `${STREET}, ${CITY}, ${STATE}`, street: STREET, city: CITY, state: STATE, zip_code: ZIP,
+        }],
+        total: 1,
+      });
+    }
+    if (path === `/api/rebuild-estimates/${REBUILD_ESTIMATE_ID}`) return route.request().method() === 'PUT' ? saved(REBUILD_ESTIMATE) : json(REBUILD_ESTIMATE);
 
     if (path === '/api/insurance-extractions') return json([{ id: EXTRACTION_ID, carrier: 'State Farm', item_count: 3, parser_metadata: { header: { insured: 'Smith' } } }]);
     if (path === `/api/insurance-extractions/${EXTRACTION_ID}`) return json({ id: EXTRACTION_ID, carrier: 'State Farm', item_count: 3, parser_metadata: { header: { insured: 'Smith' } }, items: [] });
@@ -150,6 +182,42 @@ test.describe('address boxes suggest addresses', () => {
     await expect(page.getByRole('dialog').getByLabel('State')).toHaveValue(STATE);
     await expect(page.getByRole('dialog').getByLabel('Zip Code')).toHaveValue(ZIP);
   });
+
+  // Flooring and Rebuild estimates share one project panel
+  for (const [name, url] of [
+    ['flooring estimate', `/flooring-estimates/${FLOORING_ID}?tab=project`],
+    ['rebuild estimate', `/rebuild-estimates/${REBUILD_ESTIMATE_ID}`],
+  ]) {
+    test(`${name}: the street stays in the box, the rest goes to its own fields`, async ({ page }) => {
+      await open(page, url);
+      const panel = page.getByTestId('flooring-project-panel');
+      // The captions aren't <label>s: the field is the innermost block holding one
+      const field = (caption: string) => panel.locator('div').filter({ has: page.getByText(caption, { exact: true }) }).last();
+
+      const box = field('Property address').locator('input');
+      await pick(page, box);
+
+      await expect(box).toHaveValue(THE_STREET);
+      await expect(field('City').locator('input')).toHaveValue(CITY);
+      await expect(field('State').locator('.ant-select-selection-item')).toHaveText(STATE);
+      await expect(field('Zip').locator('input')).toHaveValue(ZIP);
+    });
+
+    test(`${name}: picking the claim splits its address the same way`, async ({ page }) => {
+      test.skip(REAL_GOOGLE, 'no address lookup here');
+      await open(page, url);
+      const panel = page.getByTestId('flooring-project-panel');
+      const field = (caption: string) => panel.locator('div').filter({ has: page.getByText(caption, { exact: true }) }).last();
+
+      await field('Claim').locator('input').pressSequentially('Pat', { delay: 20 });
+      await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: 'Pat Example' }).click();
+
+      await expect(field('Property address').locator('input')).toHaveValue(STREET);
+      await expect(field('City').locator('input')).toHaveValue(CITY);
+      await expect(field('State').locator('.ant-select-selection-item')).toHaveText(STATE);
+      await expect(field('Zip').locator('input')).toHaveValue(ZIP);
+    });
+  }
 
   test('rebuild project keeps the whole address', async ({ page }) => {
     await open(page, `/rebuild-projects?project=${PROJECT_ID}`);

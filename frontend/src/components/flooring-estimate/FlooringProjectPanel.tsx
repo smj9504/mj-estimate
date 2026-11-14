@@ -68,8 +68,13 @@ const FlooringProjectPanel: React.FC<ProjectPanelProps> = ({ value, clientName, 
               value={value.claim_id ?? undefined}
               onChange={(id, claim) => onChange({
                 claim_id: id ?? null,
-                // A new job takes the claim's address
-                ...(claim && !value.property_address ? { property_address: claim.address } : {}),
+                // A new job takes the claim's address, the street in its box and the rest in theirs
+                ...(claim && !value.property_address ? {
+                  property_address: claim.street ?? claim.address,
+                  city: claim.city ?? null,
+                  state: claim.state ?? null,
+                  zip_code: claim.zip_code ?? null,
+                } : {}),
               })}
             />
           </Field>
