@@ -247,9 +247,9 @@ def test_a_poll_finishes_each_message_before_downloading_the_next(monkeypatch):
     session = MagicMock()
     session.commit.side_effect = lambda: log.append('commit')
     log_repo = MagicMock()
-    log_repo.exists_by_message_id_and_hash.return_value = False
+    log_repo.get_by_message_id_and_hash.return_value = None
     account_repo = MagicMock()
-    account_repo.get_by_id.return_value = {'email_address': 'us@example.com'}
+    account_repo.get_by_id.return_value = {'id': 'account-1', 'email_address': 'us@example.com'}
 
     service = email_service.EmailIngestionService(database=MagicMock())
     monkeypatch.setattr(service, '_get_session', lambda: session)
@@ -265,6 +265,7 @@ def test_a_poll_finishes_each_message_before_downloading_the_next(monkeypatch):
 
     monkeypatch.setattr(service, '_save_received_email', save)
     monkeypatch.setattr(service, '_process_attachment', process)
+    monkeypatch.setattr(service, '_claim_filing', lambda *args: None)  # not filed on a claim
     monkeypatch.setattr(email_repository, 'get_email_account_repository', lambda s: account_repo)
     monkeypatch.setattr(email_repository, 'get_email_ingestion_log_repository', lambda s: log_repo)
     monkeypatch.setattr(email_service, '_load_sent_attachment_index', lambda s: (set(), set()))

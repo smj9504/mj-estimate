@@ -29,6 +29,20 @@ from app.domains.auth.service import AuthService
 client = TestClient(app, raise_server_exceptions=False)
 
 
+@pytest.fixture(autouse=True)
+def placeholder_db(monkeypatch):
+    """The gate opens a DB session before it checks a token. No query runs
+    here (the staff check is stood in for, or the token fails to decode), but
+    the real get_db connects with whatever settings the first test module to
+    import the app saw: in a full run with no .env that is no DATABASE_URL and
+    the gate answers 503; with a .env it is that database. A bare object keeps
+    these tests off both, and any query that does creep in loud."""
+    def get_db():
+        yield object()
+
+    monkeypatch.setattr(login_gate, "get_db", get_db)
+
+
 def api_routes():
     return [r for r in app.routes if isinstance(r, APIRoute)]
 

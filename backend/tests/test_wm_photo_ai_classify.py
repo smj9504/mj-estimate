@@ -219,6 +219,8 @@ def test_companycam_sync_saves_fingerprint_tags_and_ai_category(db, wm_service, 
 
     monkeypatch.setattr("app.domains.integrations.companycam.client.CompanyCamClient", FakeCompanyCam)
     monkeypatch.setattr("app.core.cache.get_cache", lambda: SimpleNamespace(get=no_status, set=no_status))
+    # Classifying synced photos is opt-in (a paid call per photo), on top of AI being enabled
+    monkeypatch.setattr(settings, "AUTO_CLASSIFY_SYNCED_PHOTOS", True)
 
     result = asyncio.run(wm_service.sync_companycam_photos(uuid4()))
 

@@ -834,7 +834,9 @@ class RebuildService:
 
         total_pages = len(reader.pages)
         for page_num in range(total_pages):
-            page = reader.pages[page_num]
+            # Attach the page to the writer before merging: pypdf 7+
+            # refuses to merge into a page still owned by a PdfReader.
+            page = writer.add_page(reader.pages[page_num])
             pw = float(page.mediabox.width)
             ph = float(page.mediabox.height)
             is_last_page = page_num == total_pages - 1
@@ -846,7 +848,6 @@ class RebuildService:
             loose_signature = is_last_page and sig_bytes and not sig_boxes
             loose_text = is_last_page and additional_text
             if not (page_texts or page_sigs or page_dates or page_initials or loose_signature or loose_text):
-                writer.add_page(page)
                 continue
 
             overlay_buffer = BytesIO()
@@ -900,7 +901,6 @@ class RebuildService:
             overlay_reader = PdfReader(overlay_buffer)
             if overlay_reader.pages:
                 page.merge_page(overlay_reader.pages[0])
-            writer.add_page(page)
 
         pdf_buffer = BytesIO()
         writer.write(pdf_buffer)

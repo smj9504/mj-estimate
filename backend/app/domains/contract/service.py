@@ -713,7 +713,9 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
 
             # Process each page
             for page_num in range(len(reader.pages)):
-                page = reader.pages[page_num]
+                # Attach the page to the writer before merging: pypdf 7+
+                # refuses to merge into a page still owned by a PdfReader.
+                page = writer.add_page(reader.pages[page_num])
                 page_box = page.mediabox
                 page_width = float(page_box.width)
                 page_height = float(page_box.height)
@@ -761,8 +763,6 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                     overlay_reader = PdfReader(overlay_buffer)
                     if overlay_reader.pages:
                         page.merge_page(overlay_reader.pages[0])
-
-                writer.add_page(page)
 
             # Write to buffer and upload to cloud storage
             pdf_buffer = BytesIO()
@@ -1460,7 +1460,9 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             page_sigs[pg].append((mapping, img_data))
 
         for page_num in range(len(reader.pages)):
-            page = reader.pages[page_num]
+            # Attach the page to the writer before merging: pypdf 7+
+            # refuses to merge into a page still owned by a PdfReader.
+            page = writer.add_page(reader.pages[page_num])
             page_box = page.mediabox
             pw = float(page_box.width)
             ph = float(page_box.height)
@@ -1532,8 +1534,6 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 overlay_reader = PdfReader(overlay_buf)
                 if overlay_reader.pages:
                     page.merge_page(overlay_reader.pages[0])
-
-            writer.add_page(page)
 
         # Write and upload
         out_buf = BytesIO()
