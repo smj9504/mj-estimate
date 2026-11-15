@@ -132,7 +132,7 @@ def test_mail_accounts_read_passwords_saved_the_old_way(keys):
     saved_before = old_mail_password(OLD_SECRET, "imap-pass")
     keys(OLD_SECRET)
     assert decrypt_password(saved_before) == "imap-pass"
-    saved_now = encrypt_password("new-pass")
+    saved_now = encrypt_password("new-pass")  # ggignore
     assert encryption.on_current_key(saved_now)
 
     keys(NEW_SECRET, data_key=Fernet.generate_key().decode(), previous_secrets=OLD_SECRET)
