@@ -18,7 +18,7 @@ import type {
 } from '../../types/rebuildEstimate';
 import XactimatePicker from './XactimatePicker';
 import {
-  ADDED_SECTIONS, BASES, CUT_HEIGHTS, SECTIONS, WALL_BASES, assemblyLines, lineFromXactimate, money, removeLine,
+  ADDED_SECTIONS, BASES, CUT_HEIGHTS, SECTIONS, WALL_BASES, addToRoom, assemblyLines, lineFromXactimate, money, removeLine,
   typedLine, updateLine, withActivity, worded,
 } from './lineEdit';
 import './rebuildEstimate.css';
@@ -237,7 +237,7 @@ const RoomBody: React.FC<Props> = ({
               options={assemblies.map((a) => ({ value: a.key, label: a.label, title: a.hint }))}
               onChange={(key: string) => {
                 const assembly = assemblies.find((a) => a.key === key);
-                if (assembly) onLines([...lines, ...assemblyLines(assembly, roomId, setCut || null)]);
+                if (assembly) onLines(addToRoom(lines, roomId, assemblyLines(assembly, roomId, setCut || null), assemblies));
               }} />
             <Tooltip title="How far up the walls a set's new drywall and insulation go; the rest of the wall is painted to match">
               <Select size="small" value={setCut} style={{ width: 120 }} options={CUT_OPTIONS} aria-label="Set height"
@@ -250,8 +250,9 @@ const RoomBody: React.FC<Props> = ({
             onChange={setSection} aria-label="Add under" />
         )}
         <XactimatePicker estimateId={estimateId}
-          onPick={(match) => onLines([...lines, lineFromXactimate(match, roomId, section)])} />
-        <Button size="small" icon={<PlusOutlined />} onClick={() => onLines([...lines, typedLine(roomId, section)])}>
+          onPick={(match) => onLines(addToRoom(lines, roomId, [lineFromXactimate(match, roomId, section)], assemblies))} />
+        <Button size="small" icon={<PlusOutlined />}
+          onClick={() => onLines(addToRoom(lines, roomId, [typedLine(roomId, section)], assemblies))}>
           Type a line
         </Button>
       </Space>

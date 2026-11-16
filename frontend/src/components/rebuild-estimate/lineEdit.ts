@@ -146,6 +146,23 @@ export function assemblyLines(assembly: Assembly, roomId: string, cut: number | 
     }));
 }
 
+/** The set a room takes with its first repair: its final clean-up, as the flooring estimate has one (owner, 2026-11-16) */
+export const FINAL_CLEAN_SET = 'final_clean';
+
+/**
+ * Repairs added to a room. With the room's first, its final clean-up comes
+ * too, on its floor area, unless one is among them; taken off, it stays off.
+ */
+export function addToRoom(
+  lines: RebuildLine[], roomId: string | null, added: RebuildLine[], assemblies?: Assembly[] | null,
+): RebuildLine[] {
+  const clean = assemblies?.find((a) => a.key === FINAL_CLEAN_SET);
+  const first = !!roomId && !lines.some((l) => l.room_id === roomId);
+  const codes = new Set((clean?.items || []).map((i) => i.code));
+  if (!clean || !roomId || !first || added.some((l) => l.code && codes.has(l.code))) return [...lines, ...added];
+  return [...lines, ...added, ...assemblyLines(clean, roomId, null)];
+}
+
 export function typedLine(roomId: string | null, section: AddedSection): RebuildLine {
   return {
     id: newId(), room_id: roomId, section, description: 'Repair', unit: 'EA', quantity: 1, basis: null,

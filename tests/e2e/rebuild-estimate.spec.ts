@@ -50,6 +50,16 @@ const ASSEMBLIES = [{
     { code: 'PNTSP', activity: '+', section: 'wall', basis: 'wall_sf', cut_part: 'below', only_with_cut: false, match: PAINT_OURS },
     { code: 'PNTP', activity: '+', section: 'wall', basis: 'wall_sf', cut_part: 'above', only_with_cut: true, match: ONE_COAT },
   ],
+}, {
+  key: 'final_clean', label: 'Final construction clean-up', hint: 'The room\'s floor area', asks_cut: false,
+  items: [{
+    code: 'CLNFINALR', activity: '+', section: 'other', basis: 'floor_sf', cut_part: null, only_with_cut: false,
+    match: {
+      code: 'CLNFINALR', category_code: 'CLN', description: 'Final cleaning - construction - Residential', unit: 'SF',
+      price_list: 'VAAR8X_NOV26',
+      activities: [{ activity: '+', label: 'Replace', price: 0.37, marked_up: 0.41, material_share: 0, wording: 'Final construction clean-up' }],
+    },
+  }],
 }];
 
 // The flooring estimate's sketch, as copied: two of its rooms drawn
@@ -189,11 +199,16 @@ test("a repair from Xactimate goes on the room's walls, its quantity following t
   await page.keyboard.type('paint');
   await page.locator('.ant-select-item-option', { hasText: 'PNTSP' }).click();
 
-  await expect(room.getByLabel('Repair description')).toHaveValue('Seal/prime (1 coat) then paint (1 coat) the walls');
+  await expect(room.getByLabel('Repair description').first()).toHaveValue('Seal/prime (1 coat) then paint (1 coat) the walls');
   await expect.poll(() => api.updates[api.updates.length - 1]?.lines?.[0]).toMatchObject({
     room_id: roomId('Kitchen'), section: 'wall', code: 'PNTSP', activity: '+', unit: 'SF',
     quantity: null, basis: 'wall_sf', unit_price: null,
     activities: [{ activity: '+', price: 1.38, material_share: 0.1812 }],
+  });
+  // The room's first repair brings its final clean-up, on its floor
+  expect(api.updates[api.updates.length - 1].lines[1]).toMatchObject({
+    room_id: roomId('Kitchen'), section: 'other', code: 'CLNFINALR', activity: '+', basis: 'floor_sf',
+    description: 'Final construction clean-up',
   });
 });
 
@@ -207,13 +222,15 @@ test("a set goes on the lower 2' of the walls, the rest painted to match, all in
   await room.getByRole('combobox', { name: 'Add a set' }).click();
   await page.locator('.ant-select-item-option', { hasText: 'Walls - new drywall, primed & painted' }).click();
 
-  await expect(room.getByLabel('Repair description')).toHaveCount(3);
+  // With the room's first repairs, its final clean-up on its floor
+  await expect(room.getByLabel('Repair description')).toHaveCount(4);
   await expect.poll(() => (api.updates[api.updates.length - 1]?.lines || []).map((l: any) => (
     [l.description, l.basis, l.cut_height_ft, l.cut_part, l.xact_words]
   ))).toEqual([
     ['Drywall 1/2" - tear out, hang new, tape & finish', 'wall_sf', 2, 'below', false],
     ['Walls - seal/prime & paint, 1 coat each', 'wall_sf', 2, 'below', false],
     ['Walls - paint, 1 coat', 'wall_sf', 2, 'above', false],
+    ['Final construction clean-up', 'floor_sf', null, 'below', false],
   ]);
 });
 
@@ -227,7 +244,7 @@ test("a line left in Xactimate's words is marked, and words written for it are k
   await page.locator('.ant-select-item-option', { hasText: "Xactimate's words" }).click();
   await expect(room.getByText("Xactimate's words")).toBeVisible();
 
-  await room.getByLabel('Repair description').fill('Walls - prime and paint, one coat each');
+  await room.getByLabel('Repair description').first().fill('Walls - prime and paint, one coat each');
   await expect(room.getByText("Xactimate's words")).toHaveCount(0);
   await room.getByRole('button', { name: 'Keep wording' }).click();
   await expect.poll(() => api.wordings).toEqual([

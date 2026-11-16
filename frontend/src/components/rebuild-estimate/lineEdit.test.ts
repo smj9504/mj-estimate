@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Assembly, XactimateMatch } from '../../types/rebuildEstimate';
 import {
-  asWording, assemblyLines, defaultBasis, describe as words, lineFromXactimate, typedLine, withActivity, withWording,
+  addToRoom, asWording, assemblyLines, defaultBasis, describe as words, lineFromXactimate, typedLine, withActivity, withWording,
 } from './lineEdit';
 
 const paint: XactimateMatch = {
@@ -99,5 +99,40 @@ describe('a set of repairs', () => {
   it('full height: no paint to match', () => {
     const lines = assemblyLines(set, 'k', null);
     expect(lines.map((l) => [l.code, l.cut_height_ft])).toEqual([['DRY1/2', null], ['PNTSP', null]]);
+  });
+});
+
+describe('a final clean-up with a room\'s first repair', () => {
+  const clean: XactimateMatch = {
+    code: 'CLNFINALR', category_code: 'CLN', description: 'Final cleaning - construction - Residential', unit: 'SF',
+    price_list: 'VAAR8X_NOV26',
+    activities: [{ activity: '+', label: 'Replace', price: 0.37, marked_up: 0.41, material_share: 0, wording: 'Final construction clean-up' }],
+  };
+  const sets: Assembly[] = [{
+    key: 'final_clean', label: 'Final construction clean-up', hint: '', asks_cut: false,
+    items: [{ code: 'CLNFINALR', activity: '+', section: 'other', basis: 'floor_sf', cut_part: null, only_with_cut: false, match: clean }],
+  }];
+
+  it('comes with the first repair, on the room\'s floor', () => {
+    const lines = addToRoom([], 'k', [lineFromXactimate(paint, 'k', 'wall')], sets);
+    expect(lines.map((l) => [l.code, l.room_id, l.section, l.basis, l.description])).toEqual([
+      ['PNTSP', 'k', 'wall', 'wall_sf', 'Walls - seal/prime & paint, 1 coat each'],
+      ['CLNFINALR', 'k', 'other', 'floor_sf', 'Final construction clean-up'],
+    ]);
+  });
+
+  it('once: not with the next repair, nor back once taken off', () => {
+    const first = addToRoom([], 'k', [lineFromXactimate(paint, 'k', 'wall')], sets);
+    expect(addToRoom(first, 'k', [typedLine('k', 'wall')], sets).filter((l) => l.code === 'CLNFINALR')).toHaveLength(1);
+    const without = first.filter((l) => l.code !== 'CLNFINALR');
+    expect(addToRoom(without, 'k', [typedLine('k', 'wall')], sets).some((l) => l.code === 'CLNFINALR')).toBe(false);
+  });
+
+  it('not twice when the clean-up is the repair added, nor on the general section', () => {
+    expect(addToRoom([], 'k', assemblyLines(sets[0], 'k', null), sets)).toHaveLength(1);
+    expect(addToRoom([], null, [typedLine(null, 'other')], sets)).toHaveLength(1);
+    // Another room's repairs don't count
+    const other = addToRoom([], 'b', [typedLine('b', 'wall')], sets);
+    expect(addToRoom(other, 'k', [typedLine('k', 'wall')], sets).filter((l) => l.code === 'CLNFINALR')).toHaveLength(2);
   });
 });
