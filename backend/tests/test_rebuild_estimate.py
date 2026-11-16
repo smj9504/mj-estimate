@@ -753,6 +753,58 @@ def test_a_flooring_estimates_sketch_comes_in_with_it_and_goes_with_it(session, 
     assert [r["name"] for r in est["rooms"]] == ["Den"]
 
 
+def basement(*rooms):
+    """A basement drawn here already, on a level of the same id as the flooring estimate's"""
+    return {"version": 1, "units": "ft", "levels": [{
+        "id": "main", "name": "Basement", "openings": [], "cabinet_runs": [], "fixtures": [], "walls": [],
+        "rooms": [{"id": rid, "name": name, "points": P((0, 0), (10, 0), (10, 10), (0, 10))} for rid, name in rooms],
+    }]}
+
+
+def test_a_room_of_the_same_name_on_another_level_is_another_room(session, service):
+    floor_id = flooring(session)
+    est = new(service)
+    est = service.save_sketch(est["id"], basement(("bclo", "Closet")))
+    est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=floor_id))
+    # The main level's closet isn't the basement's: its lines go in its own room, by its name
+    closets = {r["level_name"]: r for r in est["rooms"] if r["name"] == "Closet"}
+    assert set(closets) == {"Basement", "Main Level"}
+    assert est["sources"][0]["room_map"]["room:closet"] == closets["Main Level"]["id"]
+    assert closets["Main Level"]["sketch_room_id"] == "closet"
+    by_room = {r["id"]: r for r in est["assembled"]["rooms"]}
+    assert not by_room[closets["Basement"]["id"]]["sections"]
+    assert by_room[closets["Main Level"]["id"]]["sections"]
+
+
+def test_the_pdf_goes_by_level(session, service):
+    from pypdf import PdfReader
+
+    from app.domains.rebuild_estimate.export_service import RebuildExportService
+
+    floor_id = flooring(session)
+    est = new(service)
+    est = service.save_sketch(est["id"], basement(("den", "Den")))
+    est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=floor_id))
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        {"id": "a", "room_id": "sk-den", "section": "wall", "description": "Paint the walls - one coat", "unit": "SF",
+         "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+    ]))
+    rooms = [r for r in est["assembled"]["rooms"] if r["sections"]]
+    main = sum(r["total"] for r in rooms if r.get("level_name") == "Main Level")
+    den = next(r for r in rooms if r["name"] == "Den")
+    text = "\n".join(p.extract_text() for p in PdfReader(RebuildExportService().generate_pdf(est)).pages)
+    summary = text[:text.index("Made up of")]
+    # Each level with its total, its rooms under it; the job-wide lines after the levels
+    at = {word: summary.index(word) for word in ("Basement", "Den", "Main Level", "Kitchen", "General", "Total")}
+    assert at["Basement"] < at["Den"] < at["Main Level"] < at["Kitchen"] < at["General"] < at["Total"]
+    assert f"${den['total']:,.2f}" in summary[at["Basement"]:at["Den"]]
+    assert f"${main:,.2f}" in summary[at["Main Level"]:at["Kitchen"]]
+    # The pages after it: a heading for each level over its rooms
+    rest = text[len(summary):]
+    assert rest.index("Basement") < rest.index("Den") < rest.index("Main Level") < rest.index("Living Room")
+    assert f"{sum(1 for r in rooms if r.get('level_name') == 'Main Level')} rooms" in rest
+
+
 def test_the_sketch_can_start_from_the_flooring_estimates(session, service):
     floor_id = flooring(session)
     est = new(service)

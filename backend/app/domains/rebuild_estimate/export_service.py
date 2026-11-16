@@ -2,7 +2,9 @@
 The rebuild estimate as a PDF: a summary of the rooms and what went into
 them, then each room with its lines under its sections (floor, cabinets,
 a bathroom's phases, wall, ceiling...), numbered through the document, as a
-contractor's estimate reads (owner, 2026-11-13). A room drawn on the
+contractor's estimate reads (owner, 2026-11-13). The rooms go by level
+(Basement, Main Level...), each level headed with its total, in the summary
+and in the pages after it (owner, 2026-11-16). A room drawn on the
 estimate's sketch has its drawing beside its name. Unit prices have material
 tax and O&P in them; nothing is added below the total.
 """
@@ -50,6 +52,33 @@ def _drawn(sketch: Optional[Mapping[str, Any]], room_id: Optional[str]) -> Optio
     return None
 
 
+UNLEVELED = "Other rooms"
+
+
+def _by_level(rooms: List[Mapping[str, Any]]) -> List[Tuple[Optional[str], List[Mapping[str, Any]]]]:
+    """The rooms with something in them by level, in the order the levels
+    come; rooms on no level after them, the estimate-wide General last. No
+    headings (None) when no room is on a level."""
+    shown = [r for r in rooms if r.get("sections")]
+    general = [r for r in shown if r.get("id") is None]
+    groups: Dict[str, List[Mapping[str, Any]]] = {}
+    for room in shown:
+        if room.get("id") is not None:
+            groups.setdefault(str(room.get("level_name") or "").strip(), []).append(room)
+    if not any(groups):
+        return [(None, [r for g in groups.values() for r in g] + general)] if shown else []
+    out: List[Tuple[Optional[str], List[Mapping[str, Any]]]] = [(level, g) for level, g in groups.items() if level]
+    if "" in groups:
+        out.append((UNLEVELED, groups[""]))
+    if general:
+        out.append((None, general))
+    return out
+
+
+def _sum(rooms: List[Mapping[str, Any]]) -> float:
+    return round(sum(float(r.get("total") or 0) for r in rooms), 2)
+
+
 def _measure_words(measures: Mapping[str, Any]) -> str:
     parts = []
     for key, unit, word in (("floor_sf", "SF", "floor"), ("wall_sf", "SF", "walls"),
@@ -78,9 +107,16 @@ class RebuildExportService:
 
         el: List[Any] = self._header(estimate, st, w, quote_no, address)
         el += self._summary(estimate, assembled, st, w)
-        for room in rooms:
-            if room.get("sections"):    # a room with nothing in it yet isn't printed
-                el += self._room(room, st, w, _drawn(estimate.get("sketch_data"), room.get("sketch_room_id")))
+        # (a room with nothing in it yet isn't printed)
+        for level, level_rooms in _by_level(rooms):
+            first = True
+            for room in level_rooms:
+                drawn = _drawn(estimate.get("sketch_data"), room.get("sketch_room_id"))
+                if level and first:
+                    # The level's heading stays with its first room
+                    el += [CondPageBreak((3.3 if drawn else 2.1) * inch), self._level_head(level, level_rooms, st, w)]
+                el += self._room(room, st, w, drawn)
+                first = False
 
         grand = Table([["Grand total", _money(float(assembled.get("total") or 0))]], colWidths=[w * 0.7, w * 0.3])
         grand.setStyle(TableStyle([
@@ -116,6 +152,10 @@ class RebuildExportService:
             "company": style("c", 9, color=TEXT_GREY, leading=13),
             "right": style("r", 9, color=TEXT_GREY, leading=13, alignment=2),
             "section": style("s", 11, True, spaceBefore=12, spaceAfter=8),
+            "level": style("lv", 13, True, leading=16),
+            "level_total": style("lt", 13, True, leading=16, alignment=2),
+            "sum_level": style("sl", 9.5, True, leading=12),
+            "sum_level_total": style("st", 9.5, True, leading=12, alignment=2),
             "card_title": style("ct", 12, True, leading=15),
             "card_total": style("cm", 12, True, leading=15, alignment=2),
             "chip": style("ch", 8.5, color=BRAND_ACCENT, leading=11),
@@ -153,20 +193,30 @@ class RebuildExportService:
 
     def _summary(self, estimate, assembled, st, w) -> List[Any]:
         """Each room's amount, then what the estimate is made of"""
-        rows = [["Room", "Amount"]]
-        for room in assembled.get("rooms") or []:
-            if room.get("sections"):
-                rows.append([room.get("name") or "", _money(float(room.get("total") or 0))])
-        rows.append(["Total", _money(float(assembled.get("total") or 0))])
-        table = Table(rows, colWidths=[w * 0.7, w * 0.3])
-        table.setStyle(TableStyle([
+        rows: List[List[Any]] = [["Room", "Amount"]]
+        styles = [
             ("FONTSIZE", (0, 0), (-1, -1), 9), ("TEXTCOLOR", (0, 0), (-1, -1), BRAND_DARK),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("TEXTCOLOR", (0, 0), (-1, 0), BRAND_ACCENT),
             ("LINEBELOW", (0, 0), (-1, 0), 1, BRAND_ACCENT), ("LINEBELOW", (0, 1), (-1, -2), 0.4, RULE),
             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"), ("LINEABOVE", (0, -1), (-1, -1), 1, BRAND_DARK),
             ("ALIGN", (1, 0), (1, -1), "RIGHT"), ("LEFTPADDING", (0, 0), (0, -1), 0),
             ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ]))
+        ]
+        for level, level_rooms in _by_level(assembled.get("rooms") or []):
+            if level:
+                # The level and its total, its rooms under it
+                rows.append([Paragraph(_escape(level), st["sum_level"]),
+                             Paragraph(_money(_sum(level_rooms)), st["sum_level_total"])])
+                at = len(rows) - 1
+                styles += [("BACKGROUND", (0, at), (-1, at), CARD_BG), ("LEFTPADDING", (0, at), (0, at), 6),
+                           ("TOPPADDING", (0, at), (-1, at), 5), ("BOTTOMPADDING", (0, at), (-1, at), 5)]
+            for room in level_rooms:
+                rows.append([room.get("name") or "", _money(float(room.get("total") or 0))])
+                if level:
+                    styles.append(("LEFTPADDING", (0, len(rows) - 1), (0, len(rows) - 1), 18))
+        rows.append(["Total", _money(float(assembled.get("total") or 0))])
+        table = Table(rows, colWidths=[w * 0.7, w * 0.3])
+        table.setStyle(TableStyle(styles))
         out: List[Any] = [Paragraph("Summary", st["section"]), table]
         parts = [f"{_escape(s.get('label'))} ({_money(float(s.get('total') or 0))})"
                  for s in assembled.get("by_source") or []]
@@ -176,15 +226,27 @@ class RebuildExportService:
             out += [Spacer(1, 6), Paragraph("Made up of: " + "; ".join(parts) + ".", st["small"])]
         return out + [Spacer(1, 14)]
 
+    def _level_head(self, level: str, rooms: List[Mapping[str, Any]], st, w) -> Table:
+        """A level's name and its total, over its rooms"""
+        count = f"{len(rooms)} room{'' if len(rooms) == 1 else 's'}"
+        head = Table([[Paragraph(f"{_escape(level)} <font size=8.5 color='#4a5568'>&nbsp; {count}</font>", st["level"]),
+                       Paragraph(_money(_sum(rooms)), st["level_total"])]], colWidths=[w * 0.7, w * 0.3])
+        head.setStyle(TableStyle([
+            ("LINEBELOW", (0, 0), (-1, -1), 1.5, BRAND_DARK), ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        head.spaceAfter = 10
+        return head
+
     def _room(self, room, st, w, drawn: Optional[Tuple[Mapping, Mapping]] = None) -> List[Any]:
         words = _measure_words(room.get("measures") or {})
         total = Paragraph(_money(float(room.get("total") or 0)), st["card_total"])
         intro: List[Any]
         if drawn:
             # Its drawing small, beside it its name and measures, its amount at the right
+            # (its level heads the rooms on it)
             text: List[Any] = [Paragraph(_escape(room.get("name")), st["card_title"])]
-            if room.get("level_name"):
-                text.append(Paragraph(_escape(room["level_name"]), st["small"]))
             if words:
                 text += [Spacer(1, 4), Paragraph(_escape(words), st["chip"])]
             thumb_w = CARD_THUMB_W + 15
