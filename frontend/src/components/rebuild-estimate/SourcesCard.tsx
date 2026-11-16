@@ -71,6 +71,7 @@ const SourcesCard: React.FC<Props> = ({ estimateId, sources, rooms, busy, onImpo
                     </Button>
                   ),
                   <Popconfirm key="remove" title="Take its lines out of this estimate?" okText="Remove"
+                    description="The rooms it brought in go too, unless repairs were added to them or they are drawn on the sketch."
                     okButtonProps={{ danger: true }} onConfirm={() => onRemove(src.id)}>
                     <Button size="small" type="text" danger>Remove</Button>
                   </Popconfirm>,

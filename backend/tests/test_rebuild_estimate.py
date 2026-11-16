@@ -216,16 +216,40 @@ def test_a_bathroom_finds_the_one_room_named_for_it(session, service):
     assert "bath_4" in lines_of(est, "Primary Bath")
 
 
-def test_removing_an_import_takes_its_lines_and_leaves_the_rooms(session, service):
+def test_removing_an_import_takes_its_lines_and_the_rooms_it_brought(session, service):
     est = new(service)
     est = service.import_source(est["id"], ImportRequest(kind="cabinet", estimate_id=cabinets(session)))
-    room_id = est["rooms"][0]["id"]
     # A room holding imported lines can't go
     with pytest.raises(HTTPException, match="holds the lines imported"):
         service.update(est["id"], RebuildEstimateUpdate(rooms=[]))
     est = service.remove_source(est["id"], est["sources"][0]["id"])
     assert est["sources"] == [] and est["total"] == 0
-    assert [r["id"] for r in est["rooms"]] == [room_id]
+    assert est["rooms"] == []
+
+
+def test_a_room_still_holding_something_stays_when_its_import_goes(session, service):
+    est = new(service)
+    est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=flooring(session)))
+    est = service.import_source(est["id"], ImportRequest(kind="cabinet", estimate_id=cabinets(session)))
+    room = {r["name"]: r["id"] for r in est["rooms"]}
+    # A repair added to the living room; the kitchen holds the kitchen estimate's lines too
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        {"id": "a", "room_id": room["Living Room"], "section": "wall", "description": "Paint the walls - one coat",
+         "unit": "SF", "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+    ]))
+    # Drawn on the sketch: the hall is the sketch's
+    sketch = house()
+    sketch["levels"][0]["rooms"] = [r for r in sketch["levels"][0]["rooms"] if r["id"] == "hall"]
+    sketch["levels"][0]["openings"] = []
+    sketch["levels"][0]["cabinet_runs"] = []
+    sketch["levels"][0]["fixtures"] = []
+    est = service.save_sketch(est["id"], sketch)
+    assert next(r for r in est["rooms"] if r["name"] == "Hallway").get("sketch_room_id") == "hall"
+
+    floors = next(s for s in est["sources"] if s["kind"] == "flooring")
+    est = service.remove_source(est["id"], floors["id"])
+    assert sorted(r["name"] for r in est["rooms"]) == ["Hallway", "Kitchen", "Living Room"]
+    assert [s["kind"] for s in est["sources"]] == ["cabinet"]
 
 
 def test_only_calculated_estimates_come_in(session, service):

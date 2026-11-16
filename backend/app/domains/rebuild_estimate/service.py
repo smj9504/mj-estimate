@@ -16,7 +16,7 @@ from app.domains.auth.company_scope import document_condition, scoped
 from .assemble import assemble
 from .models import RebuildEstimate
 from .schemas import ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SourceRoomRequest
-from .sketch_rooms import sketch_room_count, sync_rooms
+from .sketch_rooms import held_rooms, sketch_room_count, sync_rooms
 from .sources import KIND_LABELS, KIND_PATHS, KINDS, fingerprint, importable, label_of, model_of, snapshot
 
 _FIELDS = (
@@ -355,13 +355,21 @@ class RebuildEstimateService:
         return self.get(estimate_id)
 
     def remove_source(self, estimate_id: str, source_id: str) -> Optional[Dict[str, Any]]:
-        """Its lines leave; the rooms it brought stay, with whatever was added to them"""
+        """Its lines leave, and the rooms it brought go with them (owner,
+        2026-11-16): all but a room still holding something, a repair added
+        to it or another estimate's lines, or drawn on the sketch"""
         est = self._find(estimate_id)
         if est is None:
             return None
         sources = copy.deepcopy(est.sources or [])
-        self._source(sources, source_id)
-        est.sources = [s for s in sources if s["id"] != source_id]
+        src = self._source(sources, source_id)
+        left = [s for s in sources if s["id"] != source_id]
+        brought = {str(room_id) for room_id in (src.get("room_map") or {}).values()}
+        keep = held_rooms(est.lines or [], left)
+        est.rooms = [r for r in est.rooms or []
+                     if str(r.get("id")) not in brought or str(r.get("id")) in keep or r.get("sketch_room_id")]
+        est.sources = left
+        flag_modified(est, "rooms")
         flag_modified(est, "sources")
         self._total(est)
         self.session.flush()
