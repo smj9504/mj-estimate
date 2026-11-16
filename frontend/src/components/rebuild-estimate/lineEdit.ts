@@ -170,10 +170,26 @@ export function typedLine(roomId: string | null, section: AddedSection): Rebuild
   };
 }
 
-/** Another activity of the same item: its words follow */
+/** What an activity does, at the end of our words ("Quarter round 3/4\" - install"), as the server words them (wording._ACTION) */
+export const ACTION_WORDS: Record<XactActivity, string> = {
+  '&': 'remove & replace', '+': 'install', '-': 'remove', R: 'detach & reset', M: 'material only', I: 'labor only',
+};
+const ACTION_ENDINGS = (Object.values(ACTION_WORDS) as string[]).sort((a, b) => b.length - a.length);
+
+/**
+ * Another activity of the same item: its words follow. Words kept for that
+ * activity come first; words of ours that end in what the line does
+ * ("... - install") take the new activity's ending; Xactimate's words take
+ * its prefix ("Remove ...", "R&R ...").
+ */
 export function withActivity(line: RebuildLine, activity: XactActivity): RebuildLine {
   const ours = line.activities.find((a) => a.activity === activity)?.wording;
   if (ours) return { ...line, activity, description: worded(ours, line.section), xact_words: false };
+  const bare = PREFIXES.reduce((d, p) => (d.startsWith(p) ? d.slice(p.length) : d), line.description.trim());
+  const ending = ACTION_ENDINGS.find((w) => bare.toLowerCase().endsWith(` - ${w}`));
+  if (ending) {
+    return { ...line, activity, description: `${bare.slice(0, bare.length - ending.length)}${ACTION_WORDS[activity]}` };
+  }
   return { ...line, activity, description: describe(line.description, activity, line.section) };
 }
 

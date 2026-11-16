@@ -136,3 +136,35 @@ describe('a final clean-up with a room\'s first repair', () => {
     expect(addToRoom(other, 'k', [typedLine('k', 'wall')], sets).filter((l) => l.code === 'CLNFINALR')).toHaveLength(2);
   });
 });
+
+describe('another activity, on words of ours with no words kept for it', () => {
+  const quarterRound: XactimateMatch = {
+    code: 'FNCQR', category_code: 'FNC', description: 'Quarter round - 3/4"', unit: 'LF', price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'R&R', price: 2.36, material_share: 0.4, wording: null },
+      { activity: '+', label: 'Replace', price: 2.12, material_share: 0.45, wording: null },
+      { activity: '-', label: 'Remove', price: 0.24, material_share: 0, wording: null },
+      { activity: 'R', label: 'Detach & Reset', price: 1.96, material_share: 0, wording: null },
+    ],
+  };
+  const ours = (description: string, activity: '+' | 'R' | '-') => ({
+    ...lineFromXactimate(quarterRound, 'k', 'floor', { activity }), description, xact_words: false,
+  });
+
+  it('takes the new activity\'s ending', () => {
+    expect(withActivity(ours('Quarter round 3/4" - install', '+'), '-').description).toBe('Quarter round 3/4" - remove');
+    expect(withActivity(ours('Quarter round 3/4" - detach & reset', 'R'), '+').description).toBe('Quarter round 3/4" - install');
+    expect(withActivity(ours('Quarter round 3/4" - remove', '-'), '&').description).toBe('Quarter round 3/4" - remove & replace');
+    expect(withActivity(ours('Quarter round 3/4" - remove & replace', '-'), 'R').description).toBe('Quarter round 3/4" - detach & reset');
+  });
+
+  it('mends words a prefix was put on before', () => {
+    expect(withActivity(ours('Remove Quarter round 3/4" - install', '-'), '-').description).toBe('Quarter round 3/4" - remove');
+  });
+
+  it('leaves Xactimate\'s words to their prefix', () => {
+    const xact = lineFromXactimate(quarterRound, 'k', 'floor', { activity: '+' });
+    expect(xact.description).toBe('Quarter round - 3/4"');
+    expect(withActivity(xact, 'R').description).toBe('Detach & Reset Quarter round - 3/4"');
+  });
+});
