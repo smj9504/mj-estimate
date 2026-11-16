@@ -78,7 +78,7 @@ const SKETCH = {
 const json = (route: Route, body: unknown) =>
   route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, opts: { importBringsSketch?: boolean } = {}) {
   await page.addInitScript(([user]) => {
     localStorage.setItem('auth_token', 'e2e-test-token');
     localStorage.setItem('auth_user', JSON.stringify(user));
@@ -131,6 +131,8 @@ async function mockApi(page: Page) {
     if (p.endsWith(`${base}/${ID}/sources`) && method === 'POST') {
       api.imports.push(route.request().postDataJSON());
       current = structuredClone(AFTER_IMPORT);
+      // As the server does for a flooring estimate: its sketch comes in with it
+      if (opts.importBringsSketch) current = { ...current, sketch_data: SKETCH };
       return json(route, current);
     }
     const refresh = p.match(/\/sources\/([^/]+)\/refresh$/);
@@ -174,6 +176,20 @@ test('each room shows the lines brought in under their sections, and a recalcula
   expect(api.refreshes).toEqual([BEFORE.sources[0].id]);
   await expect(page.getByTestId('rebuild-total')).toHaveText(
     `$${REFRESHED.assembled.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+});
+
+test("an import that brings a sketch in shows it on the sketch tab", async ({ page }) => {
+  await mockApi(page, { importBringsSketch: true });
+  await page.goto(`/rebuild-estimates/${ID}`);
+  await expect(page.getByRole('tab', { name: 'Sketch', exact: true })).toBeVisible();
+  await page.getByTestId('import-estimate').click();
+  await page.getByTestId('importable-cabinet').getByRole('button', { name: 'Import' }).click();
+
+  await expect(page.getByRole('tab', { name: 'Sketch (2)' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Sketch (2)' }).click();
+  const sketch = page.getByTestId('rebuild-sketch');
+  await expect(sketch.getByText(BEFORE.rooms[0].name).first()).toBeVisible();
+  await expect(sketch.getByText("Start from the flooring estimate's sketch")).toHaveCount(0);
 });
 
 test('the kitchen estimate is imported into the kitchen, under its floor', async ({ page }) => {

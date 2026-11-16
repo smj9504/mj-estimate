@@ -43,7 +43,9 @@ def with_cors(app):
                 allow_credentials=True,
                 allow_methods=['*'],
                 allow_headers=['*'],
-                expose_headers=['Retry-After', 'X-Request-ID'],
+                # Content-Disposition: a page on another origin names a file it
+                # downloads (a PDF) as the server does, the property's address in it
+                expose_headers=['Retry-After', 'X-Request-ID', 'Content-Disposition'],
             )
             cached_origins = origins
         await middleware(scope, receive, send)

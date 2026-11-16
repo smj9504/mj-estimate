@@ -72,6 +72,53 @@ def held_rooms(lines: Iterable[Mapping[str, Any]], sources: Iterable[Mapping[str
     return held
 
 
+def _drawn_ids(level: Mapping[str, Any]) -> Set[str]:
+    return {str(r.get("id")) for r in level.get("rooms") or []}
+
+
+def add_flooring_sketch(own: Optional[Mapping[str, Any]], theirs: Optional[Mapping[str, Any]],
+                        source_id: str, label: str = "") -> Optional[Dict[str, Any]]:
+    """An imported flooring estimate's sketch on the estimate's own: its
+    levels with rooms drawn added (marked with the import, from_source), the
+    estimate's own levels kept and an empty one given up. A level already
+    here (its rooms drawn here, copied before) isn't added twice; a level or
+    room id or level name taken here gets its own. Its rooms keep their ids
+    where they can, so each is the room the import brought in."""
+    their_levels = [lv for lv in levels_of(theirs) if any(len(r.get("points") or []) >= 3 for r in lv.get("rooms") or [])]
+    if not their_levels:
+        return copy.deepcopy(dict(own)) if own else None
+    base: Dict[str, Any] = copy.deepcopy(dict(own)) if own else {"version": 1, "units": "ft", "levels": []}
+    kept = [lv for lv in base.get("levels") or [] if lv.get("rooms")]
+    room_ids = {rid for lv in kept for rid in _drawn_ids(lv)}
+    level_ids = {str(lv.get("id")) for lv in kept}
+    names = {str(lv.get("name") or "") for lv in kept}
+    tag = str(source_id)[:6]
+    for level in their_levels:
+        level = copy.deepcopy(dict(level))
+        if _drawn_ids(level) & room_ids:
+            continue
+        if str(level.get("id")) in level_ids:
+            level["id"] = f"{level.get('id')}-{tag}"
+        if str(level.get("name") or "") in names:
+            level["name"] = f"{level.get('name') or 'Level'} ({label or 'imported'})"
+        level["from_source"] = str(source_id)
+        kept.append(level)
+        level_ids.add(str(level["id"]))
+        names.add(str(level["name"]))
+        room_ids |= _drawn_ids(level)
+    base["levels"] = kept
+    return base
+
+
+def drop_source_levels(sketch: Optional[Mapping[str, Any]], source_id: str) -> Optional[Dict[str, Any]]:
+    """The levels an import brought onto the sketch, taken off with it"""
+    if not sketch:
+        return None
+    out = copy.deepcopy(dict(sketch))
+    out["levels"] = [lv for lv in out.get("levels") or [] if str(lv.get("from_source") or "") != str(source_id)]
+    return out
+
+
 def merged_into(sketch: Optional[Mapping[str, Any]]) -> Dict[str, str]:
     """Each room combined into another on the sketch: its id -> the room it is part of now"""
     out: Dict[str, str] = {}

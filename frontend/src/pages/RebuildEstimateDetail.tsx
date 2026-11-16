@@ -124,8 +124,13 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
       return op();
     },
     onSuccess: (saved) => {
+      const before = queryClient.getQueryData<RebuildEstimate>(['rebuild-estimate', id])?.sketch_data;
       showSaved(saved);
       setDraft((d) => ({ ...d, rooms: saved.rooms, lines: saved.lines }));
+      // A flooring estimate brings its sketch in with it (and takes it out again): the editor starts from it
+      if (JSON.stringify(before ?? null) !== JSON.stringify(saved.sketch_data ?? null)) {
+        setSketchStart((s) => ({ sketch: saved.sketch_data, n: s.n + 1 }));
+      }
       queryClient.invalidateQueries({ queryKey: ['rebuild-estimates'] });
     },
     onError: (err: any) => message.error(err?.response?.data?.detail || "That couldn't be done"),
