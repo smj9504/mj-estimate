@@ -92,7 +92,10 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
   }, [id, saveNow]);
   const onSketchSaved = useCallback((saved: RebuildEstimate) => {
     showSaved(saved);
-    setDraft((d) => ({ ...d, rooms: saved.rooms }));
+    // The lines as the server has them then: rooms combined on the sketch take theirs with them
+    // (the same item's as one), and rooms separated again get theirs back. What was typed here
+    // was saved before the sketch.
+    setDraft((d) => ({ ...d, rooms: saved.rooms, lines: saved.lines }));
   }, [showSaved]);
   const saveAll = useCallback(async () => {
     await sketchSave.current?.();

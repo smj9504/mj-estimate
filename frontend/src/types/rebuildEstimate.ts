@@ -30,6 +30,8 @@ export interface RebuildRoom {
   measures: Measures;
   /** Drawn on the estimate's sketch: its name, level and measures come from there */
   sketch_room_id?: string | null;
+  /** The rooms combined into it, as they were with their lines: kept by the server to separate them again */
+  combined?: Record<string, unknown>[] | null;
 }
 
 export interface ActivityPrice {

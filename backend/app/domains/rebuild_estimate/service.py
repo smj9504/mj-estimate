@@ -16,7 +16,7 @@ from app.domains.auth.company_scope import document_condition, scoped
 from .assemble import assemble
 from .models import RebuildEstimate
 from .schemas import ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SourceRoomRequest
-from .sketch_rooms import held_rooms, sketch_room_count, sync_rooms
+from .sketch_rooms import fold_merged, held_rooms, sketch_room_count, sync_rooms
 from .sources import KIND_LABELS, KIND_PATHS, KINDS, fingerprint, importable, label_of, model_of, snapshot
 
 _FIELDS = (
@@ -184,7 +184,13 @@ class RebuildEstimateService:
     def _sync_sketch(self, est: RebuildEstimate) -> None:
         if not est.sketch_data and not any(r.get("sketch_room_id") for r in est.rooms or []):
             return
-        rooms = sync_rooms(list(est.rooms or []), est.sketch_data, est.lines or [], est.sources or [])
+        rooms, lines, sources, moved = fold_merged(
+            list(est.rooms or []), est.sketch_data, list(est.lines or []), list(est.sources or []))
+        if moved:
+            est.lines, est.sources = lines, sources
+            flag_modified(est, "lines")
+            flag_modified(est, "sources")
+        rooms = sync_rooms(rooms, est.sketch_data, lines, sources)
         if rooms != (est.rooms or []):
             est.rooms = rooms
             flag_modified(est, "rooms")

@@ -165,6 +165,51 @@ test.describe('on the canvas', () => {
     await canvas.screenshot({ path: test.info().outputPath('window.png') });
   });
 
+  test('rooms picked together are combined into one across the wall between them', async ({ page }) => {
+    const initial = sketchWith([
+      { id: 'a', name: 'Bedroom', points: rect(0, 0, 12, 10) },
+      { id: 'b', name: 'Den', points: rect(12.375, 0, 8, 10) },
+      { id: 'c', name: 'Office', points: rect(0, 10.375, 12, 8) },
+    ]);
+    initial.levels[0].openings = [
+      { id: 'o1', kind: 'open_wall', rooms: ['a', 'b'], a: { x: 12, y: 0 }, b: { x: 12, y: 10 } },
+      { id: 'o2', kind: 'door', rooms: ['c', 'a'], a: { x: 4, y: 10.375 }, b: { x: 7, y: 10.375 } },
+    ];
+    const api = await open(page, initial);
+    await zoomOut(page, 2);
+    const canvas = page.getByTestId('flooring-sketch-canvas');
+    const inside = await pagePoint(canvas, { x: 5, y: 5 });
+    await page.mouse.click(inside.x, inside.y);
+    const inspector = page.getByTestId('room-inspector');
+    await expect(inspector.getByLabel('Room name')).toHaveValue('Bedroom');
+
+    await inspector.getByRole('combobox', { name: 'Rooms to combine with' }).click();
+    await page.locator('.ant-select-item-option', { hasText: 'Den' }).click();
+    await page.keyboard.press('Escape');
+    await inspector.getByRole('button', { name: 'Combine rooms' }).click();
+    await page.getByRole('button', { name: 'Combine', exact: true }).click();
+
+    await expect.poll(() => api.last()?.levels[0].rooms.length).toBe(2);
+    const level = api.last()!.levels[0];
+    const bed = level.rooms.find((r) => r.id === 'a')!;
+    expect((bed as { merged_from?: string[] }).merged_from).toEqual(['b']);
+    // Both floors and the strip where the wall between them stood
+    expect(polygonArea(bed.points)).toBeCloseTo(120 + 80 + 0.375 * 10, 1);
+    // The open side between them went with the wall; the office's door is the combined room's
+    expect(level.openings.map((o) => [o.id, o.rooms])).toEqual([['o2', ['c', 'a']]]);
+    await expect(inspector.getByText('203.75 SF').first()).toBeVisible();
+    await canvas.screenshot({ path: test.info().outputPath('combined.png') });
+
+    // Separated again: both rooms and the open side between them as they were
+    await expect(inspector.getByText('Combined from Bedroom, Den')).toBeVisible();
+    await inspector.getByRole('button', { name: 'Separate rooms' }).click();
+    await page.getByRole('button', { name: 'Separate', exact: true }).click();
+    await expect.poll(() => api.last()?.levels[0].rooms.length).toBe(3);
+    const apart = api.last()!.levels[0];
+    expect(apart.rooms.map((r) => [r.id, polygonArea(r.points)])).toEqual([['a', 120], ['b', 80], ['c', 96]]);
+    expect(apart.openings.map((o) => [o.id, o.rooms]).sort()).toEqual([['o1', ['a', 'b']], ['o2', ['c', 'a']]]);
+  });
+
   test('a wall dragged out from a wall is built onto it', async ({ page }) => {
     const api = await open(page, sketchWith([{ id: 'r1', name: 'Dining', points: rect(0, 0, 12, 10) }]));
     const canvas = page.getByTestId('flooring-sketch-canvas');

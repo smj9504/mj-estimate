@@ -19,6 +19,10 @@ export interface SketchRoom {
   points: FtPoint[];
   /** A closet or alcove listed under its room */
   subroom_of?: string | null;
+  /** The rooms combined into this one: what was on them is now on it (the rebuild estimate's lines) */
+  merged_from?: string[];
+  /** The rooms as they were before the last combine, and the doorways it took out: to separate them again */
+  combined_from?: { rooms: SketchRoom[]; openings: SketchOpening[] } | null;
 }
 
 /**

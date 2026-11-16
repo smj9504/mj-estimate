@@ -1,6 +1,6 @@
 """What a rebuild estimate takes and gives."""
 
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -28,6 +28,8 @@ class Room(BaseModel):
     measures: Measures = Measures()
     # Drawn on the estimate's sketch: its name, level and measures come from there
     sketch_room_id: Optional[str] = Field(None, max_length=64)
+    # Rooms combined into it on the sketch, as they were with their lines, the latest last (sketch_rooms)
+    combined: Optional[List[Dict[str, Any]]] = None
 
 
 class Activity(BaseModel):

@@ -35,7 +35,7 @@ from app.domains.unit_prices.models import PriceBook, UnitPriceChange, UnitPrice
 from app.domains.unit_prices.xactimate import xact
 from app.domains.xactimate.models import XactimateCategory, XactimateItem
 
-from test_flooring_estimate import house, scopes  # noqa: E402  (also lets SQLite take JSONB)
+from test_flooring_estimate import P, house, scopes  # noqa: E402  (also lets SQLite take JSONB)
 
 
 @pytest.fixture
@@ -635,6 +635,65 @@ def test_a_room_taken_off_the_sketch_goes_unless_it_holds_lines(session, service
     # Drawn again (an undo), it is the same room again
     est = service.save_sketch(est["id"], house())
     assert _drawn(est)["Bedroom 2"]["id"] == "sk-bed2" and _drawn(est)["Bathroom"]["id"] == "sk-bath"
+
+
+def test_rooms_combined_on_the_sketch_go_into_one_and_their_lines_with_them(session, service):
+    est = new(service)
+    est = service.save_sketch(est["id"], house())
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        # Following the kitchen's walls, the living room's, and one typed
+        {"id": "k", "room_id": "sk-kitchen", "section": "wall", "description": "Walls - paint, 1 coat", "unit": "SF",
+         "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+        {"id": "l", "room_id": "sk-living", "section": "wall", "description": "Walls - paint, 1 coat", "unit": "SF",
+         "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+        {"id": "t", "room_id": "sk-kitchen", "section": "other", "description": "Haul debris", "unit": "EA",
+         "quantity": 1, "unit_price": 100},
+    ]))
+    walls = {r["id"]: r["measures"]["wall_sf"] for r in est["rooms"]}
+    before = est["total"]
+
+    # The kitchen combined into the living room
+    sketch = house()
+    level = sketch["levels"][0]
+    level["rooms"] = [r for r in level["rooms"] if r["id"] != "kitchen"]
+    living = level["rooms"][0]
+    living["points"] = P((0, 0), (29.375, 0), (29.375, 11.5), (15, 11.5), (15, 14.1667), (0, 14.1667))
+    living["merged_from"] = ["kitchen"]
+    level["openings"] = [o for o in level["openings"] if "kitchen" not in o["rooms"]]
+    level["cabinet_runs"] = [{**c, "room_id": "living"} for c in level["cabinet_runs"]]
+    est = service.save_sketch(est["id"], sketch)
+
+    assert "Kitchen" not in {r["name"] for r in est["rooms"]}
+    lines = {li["id"]: li for li in est["lines"]}
+    assert {li["room_id"] for li in lines.values()} == {"sk-living"}
+    # The same item on both rooms is one line, its quantities added up (each as it was measured,
+    # so nothing counted twice), the sum kept to read; another item stays its own line
+    assert set(lines) == {"l", "t"}
+    k, living = walls["sk-kitchen"], walls["sk-living"]
+    assert lines["l"]["quantity"] == pytest.approx(living + k) and lines["l"]["basis"] is None
+    assert lines["l"]["qty_formula"] == f"{living:.2f}".rstrip("0").rstrip(".") + " + " + f"{k:.2f}".rstrip("0").rstrip(".")
+    assert lines["t"]["quantity"] == 1
+    assert est["total"] == pytest.approx(before)
+
+    # Separated again (or undone) on the sketch: the kitchen and the lines as they were
+    apart = service.save_sketch(est["id"], house())
+    assert {r["name"] for r in apart["rooms"]} >= {"Kitchen", "Living Room"}
+    back = {li["id"]: li for li in apart["lines"]}
+    assert set(back) == {"k", "l", "t"}
+    assert back["k"]["room_id"] == "sk-kitchen" and back["k"]["quantity"] is None and back["k"]["basis"] == "wall_sf"
+    assert back["l"]["room_id"] == "sk-living" and back["l"]["quantity"] is None
+    assert back["t"]["room_id"] == "sk-kitchen"
+    assert not next(r for r in apart["rooms"] if r["name"] == "Living Room").get("combined")
+    assert apart["total"] == pytest.approx(before)
+    est = service.save_sketch(est["id"], sketch)
+    # A page a save behind, still with the kitchen and its lines, is taken in the same way
+    stale = service.update(est["id"], RebuildEstimateUpdate(
+        rooms=[{**r, "measures": {k: v for k, v in r["measures"].items() if v is not None}} for r in est["rooms"]]
+        + [{"id": "sk-kitchen", "name": "Kitchen", "sketch_room_id": "kitchen", "measures": {"wall_sf": 300}}],
+        lines=[{**li, "room_id": "sk-kitchen"} if li["id"] == "t" else li for li in est["lines"]],
+    ))
+    assert "Kitchen" not in {r["name"] for r in stale["rooms"]}
+    assert {li["room_id"] for li in stale["lines"]} == {"sk-living"}
 
 
 def test_a_page_a_save_behind_cannot_change_the_rooms_drawn(session, service):

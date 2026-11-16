@@ -4,9 +4,9 @@
  * floor area.
  */
 
-import React, { useState } from 'react';
-import { Button, Divider, Input, Popconfirm, Select, Space, Switch, Typography } from 'antd';
-import { DeleteOutlined, PlusOutlined, RotateRightOutlined, SwapOutlined } from '@ant-design/icons';
+import React, { useEffect, useState } from 'react';
+import { Button, Divider, Input, Popconfirm, Select, Space, Switch, Typography, message } from 'antd';
+import { DeleteOutlined, MergeCellsOutlined, PlusOutlined, RotateRightOutlined, SplitCellsOutlined, SwapOutlined } from '@ant-design/icons';
 import type {
   FlooringSketch, FixtureType, FloorFit, FtPoint, OpeningKind, SketchLevel,
 } from '../../../types/flooringEstimate';
@@ -18,7 +18,7 @@ import {
   rectPoints, resizeEdge, spanOnEdge, wallFaces, windowHeight,
 } from './utils/geometry';
 import {
-  FIXTURE_LABELS, FLOOR_FIT_LABELS, addRoom, floorFitOf, removeCabinetRun, removeFixture, removeOpening, removeRoom, removeWall, setRoomPoints,
+  FIXTURE_LABELS, FLOOR_FIT_LABELS, addRoom, combineRooms, floorFitOf, separateRoom, removeCabinetRun, removeFixture, removeOpening, removeRoom, removeWall, setRoomPoints,
   updateCabinetRun, updateFixture, updateOpening, updateRoom, updateWall,
 } from './utils/sketchOps';
 
@@ -70,6 +70,9 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
   const [newName, setNewName] = useState('');
   const [newLength, setNewLength] = useState(12);
   const [newWidth, setNewWidth] = useState(12);
+  // The rooms picked to combine the selected room with
+  const [combineWith, setCombineWith] = useState<string[]>([]);
+  useEffect(() => setCombineWith([]), [selection?.id]);
   const roomName = (id: string | null | undefined) =>
     (id && level.rooms.find((r) => r.id === id)?.name) || 'Outside';
 
@@ -137,6 +140,56 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
             </Row>
           ))}
         </div>
+        {!readOnly && room.combined_from?.rooms?.length ? (
+          <div style={{ marginTop: 10 }}>
+            <Divider style={{ margin: '0 0 8px' }} />
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+              Combined from {room.combined_from.rooms.map((r) => r.name).join(', ')}
+            </Text>
+            <Popconfirm
+              title="Separate the rooms again?"
+              description="Each comes back as it was when combined, with what was on it then."
+              okText="Separate"
+              onConfirm={() => {
+                onApply(separateRoom(sketch, level.id, room.id));
+                onSelect(null);
+              }}
+            >
+              <Button size="small" icon={<SplitCellsOutlined />} block>Separate rooms</Button>
+            </Popconfirm>
+          </div>
+        ) : null}
+        {!readOnly && level.rooms.length > 1 && (
+          <div data-testid="combine-rooms" style={{ marginTop: 10 }}>
+            <Divider style={{ margin: '0 0 8px' }} />
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+              Combine with other rooms: one room across the walls between them, as {room.name}
+            </Text>
+            <Select mode="multiple" size="small" style={{ width: '100%' }} placeholder="Rooms to combine it with"
+              aria-label="Rooms to combine with" value={combineWith} onChange={setCombineWith} maxTagCount="responsive"
+              options={level.rooms.filter((r) => r.id !== room.id).map((r) => ({ value: r.id, label: r.name }))} />
+            <Popconfirm
+              title={`Combine into ${room.name}?`}
+              description="The walls and doorways between them go; what is on the other rooms becomes this room's. Undo brings them back."
+              okText="Combine"
+              disabled={!combineWith.length}
+              onConfirm={() => {
+                const result = combineRooms(sketch, level.id, room.id, combineWith);
+                if ('error' in result) {
+                  message.error(result.error);
+                  return;
+                }
+                onApply(result.sketch);
+                setCombineWith([]);
+                onSelect({ kind: 'room', id: room.id });
+              }}
+            >
+              <Button size="small" icon={<MergeCellsOutlined />} block style={{ marginTop: 6 }} disabled={!combineWith.length}>
+                Combine rooms
+              </Button>
+            </Popconfirm>
+          </div>
+        )}
         {!readOnly && (
           <Popconfirm title={`Delete ${room.name}?`} description="Its doorways and cabinet runs go with it."
             okText="Delete" okButtonProps={{ danger: true }}
