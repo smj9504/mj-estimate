@@ -274,8 +274,10 @@ test('a room drawn on the sketch is a room of the estimate, measured from the dr
   await header.click();
   const roomId = api.sketches[api.sketches.length - 1].levels[0].rooms[0].id;
   const room = page.getByTestId(`rebuild-room-sk-${roomId}`);
-  await expect(room.getByLabel('Room name')).toBeDisabled();
-  await expect(room.getByLabel('Walls SF', { exact: true })).toBeDisabled();
+  // Its name and measures are the sketch's: shown, not typed
+  await expect(room.getByLabel('Room name')).toHaveCount(0);
+  await expect(room.getByLabel('Walls SF', { exact: true })).toHaveCount(0);
+  await expect(room.getByTestId('room-facts')).toContainText('Floor120 SF');
   await expect(room.getByRole('button', { name: 'Remove room' })).toHaveCount(0);
   // The page's next save carries the room as the server has it
   await room.getByTestId('room-on-sketch').click();
@@ -297,5 +299,8 @@ test("an empty sketch starts from the flooring estimate's, its rooms the rooms d
   // The editor starts again from the copy: its rooms are on the canvas's list
   await expect(page.getByTestId('rebuild-sketch').getByText(BEFORE.rooms[0].name).first()).toBeVisible();
   await page.getByRole('tab', { name: /Rooms & repairs/ }).click();
-  await expect(page.getByTestId(`rebuild-room-${roomId('Living Room')}`).getByLabel('Room name')).toBeDisabled();
+  // A room drawn: its measures shown from the sketch, its name not typed here
+  const living = page.getByTestId(`rebuild-room-${roomId('Living Room')}`);
+  await expect(living.getByTestId('room-facts')).toBeVisible();
+  await expect(living.getByLabel('Room name')).toHaveCount(0);
 });

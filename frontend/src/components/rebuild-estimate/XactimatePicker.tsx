@@ -17,9 +17,10 @@ interface Props {
   onPick: (match: XactimateMatch) => void;
   placeholder?: string;
   style?: React.CSSProperties;
+  variant?: 'outlined' | 'filled' | 'borderless';
 }
 
-const XactimatePicker: React.FC<Props> = ({ estimateId, onPick, placeholder, style }) => {
+const XactimatePicker: React.FC<Props> = ({ estimateId, onPick, placeholder, style, variant }) => {
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   useEffect(() => {
@@ -50,6 +51,7 @@ const XactimatePicker: React.FC<Props> = ({ estimateId, onPick, placeholder, sty
       notFoundContent={isFetching ? <Spin size="small" /> : query.length >= 2 ? 'Nothing found' : 'Type two letters or more'}
       onSearch={setTyped}
       options={options}
+      variant={variant}
       style={{ width: 380, maxWidth: '100%', ...style }}
       aria-label="Add from Xactimate"
       onChange={(code: string) => {

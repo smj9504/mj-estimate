@@ -1,63 +1,409 @@
-/* A rebuild estimate's lines: number, description, quantity, unit price, amount */
-.rbe-line {
+/*
+ * A rebuild estimate's room: its measures as facts on the sheet, then its
+ * lines as one row each (number, description with a quiet meta line under
+ * it, quantity, unit price, amount), under sentence-case section headings
+ * over a hairline, then one row to add repairs. Fields are borderless until
+ * pointed at, so the figures read as a ledger rather than a form.
+ */
+
+.rbe-room {
+  font-size: 14px;
+}
+
+/* ── The room's measures ── */
+.rbe-facts {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 20px;
+  padding: 2px 0 12px;
+}
+.rbe-fact {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rbe-fact-label {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-neutral-600);
+}
+.rbe-fact-value {
+  font-size: 14px;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rbe-facts-link.ant-btn {
+  padding-inline: 4px;
+  margin-left: auto;
+}
+.rbe-facts--edit {
+  gap: 8px 12px;
+}
+.rbe-facts--edit .rbe-fact .ant-input-number {
+  width: 120px;
+}
+.rbe-fact--name .ant-input {
+  width: 180px;
+}
+
+/* ── Lines ── */
+.rbe-line {
+  display: flex;
   align-items: flex-start;
   gap: 8px;
   padding: 6px 0;
-  border-bottom: 1px solid #f3f4f6;
-  font-size: 13px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.rbe-line:last-child {
+  border-bottom: none;
 }
 .rbe-n {
-  width: 30px;
+  width: 24px;
   flex: none;
+  padding-top: 5px;
   text-align: right;
+  font-size: 13px;
+  color: var(--color-neutral-600);
   font-variant-numeric: tabular-nums;
 }
 .rbe-desc {
   flex: 1 1 260px;
   min-width: 0;
 }
-.rbe-note {
-  font-size: 11px;
-  color: #8c8c8c;
-  line-height: 1.3;
+.rbe-desc-text {
+  padding: 4px 0 2px;
+  color: var(--color-neutral-900);
+}
+.rbe-qty,
+.rbe-price,
+.rbe-total {
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .rbe-qty {
-  width: 120px;
-  flex: none;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+  width: 118px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 .rbe-price {
-  width: 100px;
-  flex: none;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+  width: 104px;
 }
 .rbe-total {
-  width: 96px;
+  width: 100px;
+  padding-top: 5px;
+  color: var(--color-neutral-900);
+  font-weight: 500;
+}
+.rbe-fig {
+  font-variant-numeric: tabular-nums;
+}
+.rbe-line:not(.rbe-added) .rbe-qty,
+.rbe-line:not(.rbe-added) .rbe-price {
+  padding-top: 5px;
+  color: var(--color-neutral-700);
+}
+.rbe-unit {
+  margin-left: 4px;
+  width: 18px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.rbe-actions {
+  width: 56px;
   flex: none;
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 0;
+}
+
+/* The column names, once over a room's lines */
+.rbe-line.rbe-head {
+  padding: 0 0 4px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.rbe-head .rbe-qty {
+  padding-right: 22px;
+}
+.rbe-head .rbe-price {
+  padding-right: 11px;
+}
+.rbe-head .rbe-n,
+.rbe-head .rbe-total {
+  padding-top: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+
+/* Fields in a line: plain text until pointed at or typed in */
+.rbe-field.ant-input,
+.rbe-field.ant-input-number,
+.rbe-field.ant-input-number-affix-wrapper {
+  border-radius: 4px;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+.rbe-added .rbe-field.ant-input-borderless:hover,
+.rbe-added .rbe-field.ant-input-number-borderless:hover,
+.rbe-added .rbe-field.ant-input-number-affix-wrapper-borderless:hover {
+  background: var(--color-ink-hover);
+}
+.rbe-added .rbe-field.ant-input-borderless:focus,
+.rbe-added .rbe-field.ant-input-number-borderless.ant-input-number-focused,
+.rbe-added .rbe-field.ant-input-number-affix-wrapper-borderless.ant-input-number-affix-wrapper-focused {
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-neutral-400);
+}
+.rbe-desc-input.ant-input {
+  padding: 4px 6px;
+  margin-left: -6px;
+  width: calc(100% + 6px);
+  color: var(--color-neutral-900);
+  resize: none;
+  line-height: 1.5;
+}
+.rbe-desc-input.ant-input-status-warning {
+  background: var(--tag-orange-bg);
+}
+.rbe-num {
+  width: 100%;
+}
+.rbe-qty .rbe-num {
+  width: 92px;
+}
+.rbe-num .ant-input-number-input {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.rbe-tail {
-  width: 28px;
-  flex: none;
+
+/* The quiet line under a description: code, activity, what the quantity follows */
+.rbe-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 2px;
+  min-height: 22px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.rbe-code {
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  padding: 0 4px;
+  margin-right: 4px;
+  border-radius: 3px;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-700);
+}
+.rbe-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  margin-right: 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.rbe-pill--orange {
+  background: var(--tag-orange-bg);
+  color: var(--tag-orange-text);
+}
+.rbe-note {
+  margin-left: 4px;
+  font-style: normal;
+}
+.rbe-note::before {
+  content: '· ';
+}
+.rbe-meta .ant-select.rbe-meta-select,
+.rbe-meta .ant-input-number.rbe-meta-number,
+.rbe-meta .ant-input-number-affix-wrapper.rbe-meta-number {
+  font-size: 12px;
+  height: 22px;
+  border-radius: 4px;
+}
+.rbe-meta .rbe-meta-select .ant-select-selector {
+  padding-inline: 6px !important;
+  height: 22px !important;
+  color: var(--color-neutral-700);
+}
+.rbe-meta .rbe-meta-select .ant-select-selection-item,
+.rbe-meta .rbe-meta-select .ant-select-selection-placeholder {
+  line-height: 22px !important;
+  font-size: 12px;
+}
+.rbe-meta .rbe-meta-select .ant-select-selection-placeholder {
+  color: var(--color-neutral-600);
+}
+.rbe-meta .rbe-meta-select:hover .ant-select-selector,
+.rbe-meta .rbe-meta-number:hover {
+  background: var(--color-ink-hover) !important;
+}
+.rbe-meta .ant-input-number-affix-wrapper.rbe-meta-number {
+  width: 96px;
+  padding-inline: 6px;
+}
+.rbe-meta .rbe-meta-number .ant-input-number-input {
+  height: 20px;
+  font-size: 12px;
+  padding: 0;
+}
+.rbe-meta .rbe-meta-number .ant-input-number-suffix {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+/* A select's arrow shows on the row pointed at */
+.rbe-meta .rbe-meta-select .ant-select-arrow {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.rbe-added:hover .rbe-meta-select .ant-select-arrow,
+.rbe-added:focus-within .rbe-meta-select .ant-select-arrow {
+  opacity: 1;
+}
+@media (hover: none) {
+  .rbe-meta .rbe-meta-select .ant-select-arrow {
+    opacity: 1;
+  }
 }
 
-/* On a phone the figures go under the description, in one row */
+/* Row actions show on the row pointed at, or focused; always on touch */
+.rbe-on-hover {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.rbe-added:hover .rbe-on-hover,
+.rbe-added:focus-within .rbe-on-hover {
+  opacity: 1;
+}
+@media (hover: none) {
+  .rbe-on-hover {
+    opacity: 1;
+  }
+}
+
+/* ── Sections ── */
+.rbe-section {
+  margin-top: 14px;
+}
+.rbe-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+/* The section's amount over the line amounts' column */
+.rbe-section-head > .rbe-fig {
+  margin-right: 64px;
+}
+.rbe-section-title {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.rbe-section-from {
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.rbe-head + .rbe-section {
+  margin-top: 6px;
+}
+
+/* ── Adding repairs ── */
+.rbe-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.rbe-add-under {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rbe-add-set {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/* ── Phones: the figures go under the description, in one row ── */
 @media (max-width: 640px) {
+  .rbe-line {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .rbe-line.rbe-head {
+    display: none;
+  }
+  /* Number, description and its actions; then the figures */
+  .rbe-n { order: 0; }
   .rbe-desc {
-    flex-basis: calc(100% - 40px);
+    order: 1;
+    flex: 1 1 calc(100% - 100px);
+  }
+  .rbe-actions { order: 2; }
+  .rbe-qty { order: 3; }
+  .rbe-price { order: 4; }
+  .rbe-total { order: 5; }
+  .rbe-on-hover {
+    opacity: 1;
   }
   .rbe-qty {
-    margin-left: 38px;
-    text-align: left;
+    margin-left: 32px;
     width: auto;
   }
-  .rbe-price,
+  .rbe-qty .rbe-num {
+    width: 76px;
+  }
+  .rbe-price {
+    width: 88px;
+  }
+  .rbe-price::before {
+    content: '@';
+    float: left;
+    padding-top: 5px;
+    font-size: 12px;
+    color: var(--color-neutral-600);
+  }
+  .rbe-price .rbe-num {
+    width: 76px;
+  }
+  .rbe-line:not(.rbe-added) .rbe-price::before {
+    padding-top: 0;
+  }
   .rbe-total {
+    flex: 1 1 auto;
     width: auto;
+  }
+  .rbe-actions {
+    width: auto;
+    min-width: 28px;
+  }
+  .rbe-section-head > .rbe-fig {
+    margin-right: 0;
+  }
+  .rbe-facts-link.ant-btn {
+    margin-left: 0;
+  }
+  .rbe-add-set {
+    margin-left: 0;
   }
 }
