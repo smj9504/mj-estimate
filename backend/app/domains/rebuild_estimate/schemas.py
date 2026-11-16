@@ -50,6 +50,8 @@ class Line(BaseModel):
     description: str = Field(..., min_length=1, max_length=500)
     unit: str = Field("EA", min_length=1, max_length=10)
     quantity: Optional[float] = Field(None, ge=0)               # none: the room's measure (basis)
+    # The sum the quantity was typed as (16.25*2 + 4.25*2), to type it again from
+    qty_formula: Optional[str] = Field(None, max_length=200)
     basis: Optional[str] = None
     # A wall measure only part of the way up: the lower cut_height_ft (a
     # flood cut) or what is above it; none: the whole height

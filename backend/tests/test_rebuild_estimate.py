@@ -396,6 +396,17 @@ def test_a_flood_cut_takes_the_lower_part_of_the_walls_and_the_rest_is_painted_t
 
 # ── Our words, not Xactimate's ──
 
+def test_a_quantity_typed_as_a_sum_keeps_the_sum(session, service):
+    est = new(service)
+    est = service.update(est["id"], RebuildEstimateUpdate(
+        rooms=[{"id": "d", "name": "Den", "measures": {"floor_sf": 100}}],
+        lines=[{"id": "a", "room_id": "d", "section": "floor", "description": "Quarter round 3/4\" - install",
+                "unit": "LF", "quantity": 41, "qty_formula": "16.25*2 + 4.25*2", "unit_price": 2.4}],
+    ))
+    assert est["lines"][0]["qty_formula"] == "16.25*2 + 4.25*2"
+    assert lines_of(est, "Den")["floor"][0]["quantity"] == 41
+
+
 def test_a_line_is_worded_our_way_the_companys_words_first():
     from app.domains.rebuild_estimate.wording import built_in, wording_for
 

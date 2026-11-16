@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Assembly, XactimateMatch } from '../../types/rebuildEstimate';
 import {
-  addToRoom, asWording, assemblyLines, defaultBasis, describe as words, lineFromXactimate, typedLine, withActivity, withWording,
+  addToRoom, evalQty, typedQty, asWording, assemblyLines, defaultBasis, describe as words, lineFromXactimate, typedLine, withActivity, withWording,
 } from './lineEdit';
 
 const paint: XactimateMatch = {
@@ -160,11 +160,55 @@ describe('another activity, on words of ours with no words kept for it', () => {
 
   it('mends words a prefix was put on before', () => {
     expect(withActivity(ours('Remove Quarter round 3/4" - install', '-'), '-').description).toBe('Quarter round 3/4" - remove');
+    expect(withActivity(ours('Remove Quarter round 3/4" - detach & reset', '-'), 'R').description)
+      .toBe('Quarter round 3/4" - detach & reset');
+  });
+
+  it('an item that only goes in: plain when installed, its other activities said', () => {
+    const paintTrim: XactimateMatch = {
+      code: 'PNTBCS', category_code: 'PNT', description: 'Paint baseboard w/cap &/or shoe - one coat', unit: 'LF',
+      price_list: 'VAAR8X_NOV26',
+      activities: [
+        { activity: '+', label: 'Install', price: 1.67, material_share: 0.14, wording: null },
+        { activity: 'M', label: 'Material only', price: 0.24, material_share: 1, wording: null },
+        { activity: 'I', label: 'Labor only', price: 1.43, material_share: 0, wording: null },
+      ],
+    };
+    const line = { ...lineFromXactimate(paintTrim, 'k', 'floor'), description: 'Baseboard w/ cap or shoe - paint, 1 coat', xact_words: false };
+    const labor = withActivity(line, 'I');
+    expect(labor.description).toBe('Baseboard w/ cap or shoe - paint, 1 coat - labor only');
+    expect(withActivity(labor, 'M').description).toBe('Baseboard w/ cap or shoe - paint, 1 coat - material only');
+    expect(withActivity(labor, '+').description).toBe('Baseboard w/ cap or shoe - paint, 1 coat');
   });
 
   it('leaves Xactimate\'s words to their prefix', () => {
     const xact = lineFromXactimate(quarterRound, 'k', 'floor', { activity: '+' });
     expect(xact.description).toBe('Quarter round - 3/4"');
     expect(withActivity(xact, 'R').description).toBe('Detach & Reset Quarter round - 3/4"');
+  });
+});
+
+describe('a quantity typed as a sum', () => {
+  it('works it out, times before plus, brackets first', () => {
+    expect(evalQty('16.25*2 + 4.25*2')).toBe(41);
+    expect(evalQty('(12+8)*2')).toBe(40);
+    expect(evalQty('12 x 8 - 2.5*6.67')).toBe(79.33);
+    expect(evalQty('10/3')).toBe(3.33);
+    expect(evalQty('243.98')).toBe(243.98);
+  });
+
+  it('refuses what is not a sum, or comes to less than nothing', () => {
+    expect(evalQty('12 +')).toBeNull();
+    expect(evalQty('2*(3+4')).toBeNull();
+    expect(evalQty('alert(1)')).toBeNull();
+    expect(evalQty('4/0')).toBeNull();
+    expect(evalQty('2-5')).toBeNull();
+  });
+
+  it('keeps the sum on the line, a plain number alone, and nothing goes back to the room', () => {
+    expect(typedQty('16.25*2 + 4.25*2')).toEqual({ quantity: 41, qty_formula: '16.25*2 + 4.25*2' });
+    expect(typedQty('72.18')).toEqual({ quantity: 72.18, qty_formula: null });
+    expect(typedQty('  ')).toEqual({ quantity: null, qty_formula: null });
+    expect(typedQty('12*')).toBeUndefined();
   });
 });

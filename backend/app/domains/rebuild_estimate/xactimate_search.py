@@ -23,8 +23,9 @@ from app.domains.unit_prices.xactimate import xact
 
 from .wording import wording_for, worded_codes
 
+# As our words end with them (wording._ACTION), so a line reads as what was picked
 ACTIVITY_LABELS = {
-    "&": "R&R", "+": "Replace", "-": "Remove", "R": "Detach & Reset", "M": "Material only", "I": "Install only",
+    "&": "Remove & replace", "+": "Install", "-": "Remove", "R": "Detach & reset", "M": "Material only", "I": "Labor only",
 }
 
 

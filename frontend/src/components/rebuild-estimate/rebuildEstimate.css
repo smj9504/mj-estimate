@@ -182,6 +182,16 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.rbe-qty-input.ant-input {
+  padding: 4px 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* A quantity worked out from a sum: a dotted underline, the sum on hover */
+.rbe-qty-input.rbe-has-formula:not(:focus) {
+  text-decoration: underline dotted var(--color-neutral-600);
+  text-underline-offset: 3px;
+}
 
 /* The quiet line under a description: code, activity, what the quantity follows */
 .rbe-meta {

@@ -52,6 +52,8 @@ export interface RebuildLine {
   unit: string;
   /** null: the room's measure (basis) */
   quantity: number | null;
+  /** The sum the quantity was typed as (16.25*2 + 4.25*2) */
+  qty_formula?: string | null;
   basis: Basis | null;
   /** A wall measure only part of the way up (a flood cut), or what is above it */
   cut_height_ft?: number | null;

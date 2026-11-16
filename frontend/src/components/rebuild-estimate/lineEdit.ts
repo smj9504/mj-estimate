@@ -163,6 +163,73 @@ export function addToRoom(
   return [...lines, ...added, ...assemblyLines(clean, roomId, null)];
 }
 
+/**
+ * A quantity typed as a sum, as on a calculator: numbers with + - * / and
+ * brackets (x or × for times), e.g. 16.25*2 + 4.25*2 or (12+8)*2. Read
+ * without eval; null when it can't be read, is negative or isn't finite.
+ */
+export function evalQty(input: string): number | null {
+  const text = input.replace(/[x×]/gi, '*').replace(/÷/g, '/').replace(/,/g, '').replace(/\s+/g, '');
+  if (!text || !/^[\d.+\-*/()]+$/.test(text)) return null;
+  let i = 0;
+  const peek = () => text[i];
+  const number = (): number | null => {
+    const m = /^(\d+\.?\d*|\.\d+)/.exec(text.slice(i));
+    if (!m) return null;
+    i += m[0].length;
+    return parseFloat(m[0]);
+  };
+  const factor = (): number | null => {
+    if (peek() === '-') { i++; const v = factor(); return v === null ? null : -v; }
+    if (peek() === '+') { i++; return factor(); }
+    if (peek() === '(') {
+      i++;
+      const v = sum();
+      if (v === null || peek() !== ')') return null;
+      i++;
+      return v;
+    }
+    return number();
+  };
+  const product = (): number | null => {
+    let v = factor();
+    while (v !== null && (peek() === '*' || peek() === '/')) {
+      const op = text[i++];
+      const r = factor();
+      if (r === null || (op === '/' && r === 0)) return null;
+      v = op === '*' ? v * r : v / r;
+    }
+    return v;
+  };
+  const sum = (): number | null => {
+    let v = product();
+    while (v !== null && (peek() === '+' || peek() === '-')) {
+      const op = text[i++];
+      const r = product();
+      if (r === null) return null;
+      v = op === '+' ? v + r : v - r;
+    }
+    return v;
+  };
+  const value = sum();
+  if (value === null || i !== text.length || !Number.isFinite(value) || value < 0) return null;
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * What a quantity typed in sets on a line: nothing (back to the room's
+ * measure), a number, or a sum kept with what it comes to. undefined when it
+ * can't be read.
+ */
+export function typedQty(input: string): { quantity: number | null; qty_formula: string | null } | undefined {
+  const text = input.trim();
+  if (!text) return { quantity: null, qty_formula: null };
+  const value = evalQty(text);
+  if (value === null) return undefined;
+  const plain = /^\d*\.?\d+$|^\d+\.$/.test(text.replace(/,/g, ''));
+  return { quantity: value, qty_formula: plain ? null : text.replace(/\s+/g, ' ') };
+}
+
 export function typedLine(roomId: string | null, section: AddedSection): RebuildLine {
   return {
     id: newId(), room_id: roomId, section, description: 'Repair', unit: 'EA', quantity: 1, basis: null,
@@ -170,27 +237,39 @@ export function typedLine(roomId: string | null, section: AddedSection): Rebuild
   };
 }
 
-/** What an activity does, at the end of our words ("Quarter round 3/4\" - install"), as the server words them (wording._ACTION) */
+/**
+ * What an activity does, as the line's activity picker names it and as our
+ * words end with it ("Quarter round 3/4\" - detach & reset"): the server's
+ * words (wording._ACTION), so a line reads as what was picked.
+ */
 export const ACTION_WORDS: Record<XactActivity, string> = {
   '&': 'remove & replace', '+': 'install', '-': 'remove', R: 'detach & reset', M: 'material only', I: 'labor only',
 };
+export const ACTIVITY_LABEL: Record<XactActivity, string> = {
+  '&': 'Remove & replace', '+': 'Install', '-': 'Remove', R: 'Detach & reset', M: 'Material only', I: 'Labor only',
+};
 const ACTION_ENDINGS = (Object.values(ACTION_WORDS) as string[]).sort((a, b) => b.length - a.length);
+/** Activities only an item that can come out has: its words name what is done ("... - install") */
+const OUT = new Set<XactActivity>(['&', '-', 'R']);
 
 /**
  * Another activity of the same item: its words follow. Words kept for that
- * activity come first; words of ours that end in what the line does
- * ("... - install") take the new activity's ending; Xactimate's words take
- * its prefix ("Remove ...", "R&R ...").
+ * activity come first. Xactimate's words take its prefix ("Remove ...",
+ * "R&R ..."). Words of ours end in what is done: an item that can come out
+ * always ("Baseboard 2 1/4\" - install", "... - remove"), one that can't
+ * only when it isn't the plain install ("Contents - move out & reset",
+ * "... - labor only"). A prefix or ending left from another activity goes.
  */
 export function withActivity(line: RebuildLine, activity: XactActivity): RebuildLine {
   const ours = line.activities.find((a) => a.activity === activity)?.wording;
   if (ours) return { ...line, activity, description: worded(ours, line.section), xact_words: false };
+  if (line.xact_words) return { ...line, activity, description: describe(line.description, activity, line.section) };
   const bare = PREFIXES.reduce((d, p) => (d.startsWith(p) ? d.slice(p.length) : d), line.description.trim());
   const ending = ACTION_ENDINGS.find((w) => bare.toLowerCase().endsWith(` - ${w}`));
-  if (ending) {
-    return { ...line, activity, description: `${bare.slice(0, bare.length - ending.length)}${ACTION_WORDS[activity]}` };
-  }
-  return { ...line, activity, description: describe(line.description, activity, line.section) };
+  const stem = ending ? bare.slice(0, bare.length - ending.length - 3).trimEnd() : bare;
+  const named = line.activities.some((a) => OUT.has(a.activity));
+  const description = activity === '+' && !named ? stem : `${stem} - ${ACTION_WORDS[activity]}`;
+  return { ...line, activity, description };
 }
 
 /** Words of ours kept for a code and activity: every line of it on the estimate takes them */

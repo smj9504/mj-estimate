@@ -18,8 +18,8 @@ import type {
 } from '../../types/rebuildEstimate';
 import XactimatePicker from './XactimatePicker';
 import {
-  ADDED_SECTIONS, BASES, CUT_HEIGHTS, SECTIONS, WALL_BASES, addToRoom, assemblyLines, lineFromXactimate, money, removeLine,
-  typedLine, updateLine, withActivity, worded,
+  ACTIVITY_LABEL, ADDED_SECTIONS, BASES, CUT_HEIGHTS, SECTIONS, WALL_BASES, addToRoom, assemblyLines, lineFromXactimate, money, removeLine,
+  typedLine, typedQty, updateLine, withActivity, worded,
 } from './lineEdit';
 import './rebuildEstimate.css';
 
@@ -65,6 +65,46 @@ const ImportedRow: React.FC<{ line: AssembledLine }> = ({ line }) => (
     <span className="rbe-actions" />
   </div>
 );
+
+/**
+ * A line's quantity: a number, or a sum as on a calculator (16.25*2 + 4.25*2)
+ * worked out when the field is left and kept to type again from. Empty: the
+ * room's measure it follows.
+ */
+const QtyInput: React.FC<{
+  line: RebuildLine; placeholder: string; onChange: (patch: Partial<RebuildLine>) => void;
+}> = ({ line, placeholder, onChange }) => {
+  const [text, setText] = useState<string | null>(null);
+  const [bad, setBad] = useState(false);
+  const shown = line.quantity != null ? qty(line.quantity) : '';
+  const commit = () => {
+    if (text === null) return;
+    const next = typedQty(text);
+    if (next === undefined) {
+      setBad(true);
+      return;
+    }
+    setBad(false);
+    setText(null);
+    const patch: Partial<RebuildLine> = { quantity: next.quantity };
+    if (next.qty_formula || line.qty_formula) patch.qty_formula = next.qty_formula;
+    if (patch.quantity !== line.quantity || (patch.qty_formula ?? null) !== (line.qty_formula ?? null)) onChange(patch);
+  };
+  const field = (
+    <Input variant="borderless" className={`rbe-field rbe-num rbe-qty-input${line.qty_formula ? ' rbe-has-formula' : ''}`}
+      aria-label="Repair quantity" value={text ?? shown} placeholder={placeholder} status={bad ? 'error' : undefined}
+      onFocus={() => setText((t) => t ?? (line.qty_formula || (line.quantity != null ? String(line.quantity) : '')))}
+      onChange={(e) => {
+        setText(e.target.value);
+        setBad(false);
+      }}
+      onBlur={commit}
+      onPressEnter={(e) => (e.target as HTMLInputElement).blur()} />
+  );
+  const tip = bad ? "Can't work that out: use numbers with + - * / and brackets"
+    : line.qty_formula && text === null ? `= ${line.qty_formula}` : 'A number, or a sum: 16.25*2 + 4.25*2';
+  return <Tooltip title={tip} open={bad ? true : undefined} mouseEnterDelay={0.4}>{field}</Tooltip>;
+};
 
 /** Written by hand, not as the item is worded now: worth keeping */
 const rewritten = (line: RebuildLine) => {
@@ -120,7 +160,7 @@ const RoomBody: React.FC<Props> = ({
             {line.activities.length > 1 && (
               <Select size="small" variant="borderless" className="rbe-meta-select" popupMatchSelectWidth={false}
                 value={line.activity ?? undefined} aria-label="Activity"
-                options={line.activities.map((a) => ({ value: a.activity, label: a.label || a.activity }))}
+                options={line.activities.map((a) => ({ value: a.activity, label: ACTIVITY_LABEL[a.activity] ?? a.label ?? a.activity }))}
                 onChange={(a: XactActivity) => onLines(lines.map((l) => (l.id === line.id ? withActivity(l, a) : l)))} />
             )}
             {line.notes && <span className="rbe-note">{line.notes}</span>}
@@ -147,9 +187,8 @@ const RoomBody: React.FC<Props> = ({
           </div>
         </div>
         <span className="rbe-qty">
-          <InputNumber variant="borderless" className="rbe-field rbe-num" min={0} value={line.quantity}
-            aria-label="Repair quantity" placeholder={done?.auto_qty != null ? qty(done.auto_qty) : ''}
-            onChange={(v) => set(line.id, { quantity: v ?? null })} />
+          <QtyInput line={line} placeholder={done?.auto_qty != null ? qty(done.auto_qty) : ''}
+            onChange={(patch) => set(line.id, patch)} />
           <span className="rbe-unit">{line.unit}</span>
         </span>
         <span className="rbe-price">
