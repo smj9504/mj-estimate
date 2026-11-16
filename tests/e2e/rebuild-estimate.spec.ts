@@ -94,7 +94,10 @@ async function mockApi(page: Page) {
     const method = route.request().method();
     const base = '/api/rebuild-estimates';
     if (p.endsWith('/api/auth/me')) return json(route, USER);
-    if (p.endsWith(`${base}/xactimate-search`)) return json(route, url.searchParams.get('q')?.includes('paint') ? [PAINT] : []);
+    if (p.endsWith(`${base}/xactimate-search`)) {
+      const q = url.searchParams.get('q') || '';
+      return json(route, q.includes('paint') ? [PAINT] : q.includes('dry') ? [DRYWALL] : []);
+    }
     if (p.endsWith(`${base}/${ID}/importable`)) {
       // (the flooring estimate has its seven rooms drawn)
       return json(route, IMPORTABLE.map((o: { kind: string }) => ({ ...o, sketch_rooms: o.kind === 'flooring' ? 7 : 0 })));
@@ -209,6 +212,33 @@ test("a repair from Xactimate goes on the room's walls, its quantity following t
   expect(api.updates[api.updates.length - 1].lines[1]).toMatchObject({
     room_id: roomId('Kitchen'), section: 'other', code: 'CLNFINALR', activity: '+', basis: 'floor_sf',
     description: 'Final construction clean-up',
+  });
+});
+
+test('a line changed to another price list item takes its code, price and words, and keeps its quantity', async ({ page }) => {
+  const api = await mockApi(page);
+  await page.goto(`/rebuild-estimates/${ID}`);
+  await page.locator('.ant-collapse-header', { hasText: 'Kitchen' }).first().click();
+  const room = page.getByTestId(`rebuild-room-${roomId('Kitchen')}`);
+  await room.getByRole('combobox', { name: 'Add from Xactimate' }).click();
+  await page.keyboard.type('paint');
+  await page.locator('.ant-select-item-option', { hasText: 'PNTSP' }).click();
+  const line = room.getByTestId('added-line').first();
+  await line.getByLabel('Repair quantity').fill('16.25*2 + 4.25*2');
+  await line.getByLabel('Repair quantity').press('Enter');
+  await line.getByLabel('Repair unit price').fill('9');
+
+  await line.getByRole('button', { name: 'Item PNTSP: change it' }).click();
+  // Opened straight into the price list search
+  await expect(page.locator('.ant-popover input')).toBeFocused();
+  await page.keyboard.type('dry');
+  await page.locator('.ant-select-item-option', { hasText: 'DRY1/2' }).click();
+
+  // Drywall has no plain install here: it comes in as its first activity, in our words
+  await expect(line.getByLabel('Repair description')).toHaveValue('Drywall 1/2" - tear out, hang new, tape & finish');
+  await expect.poll(() => api.updates[api.updates.length - 1]?.lines?.[0]).toMatchObject({
+    code: 'DRY1/2', activity: '&', section: 'wall', basis: 'wall_sf', quantity: 41, qty_formula: '16.25*2 + 4.25*2',
+    unit_price: null, xact_words: false,
   });
 });
 

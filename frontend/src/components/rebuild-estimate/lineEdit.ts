@@ -134,6 +134,28 @@ export function lineFromXactimate(
   };
 }
 
+/**
+ * Another price list item in a line's place: its code, activities, unit and
+ * price (a price typed on the line gives way to the item's), worded as a new
+ * line of it would be. The line keeps its room, section and note, and its
+ * quantity (typed or followed) while the unit is the same; the activity stays
+ * when the item has it.
+ */
+export function withItem(line: RebuildLine, match: XactimateMatch): RebuildLine {
+  const keep = (match.unit || 'EA') === line.unit;
+  const fresh = lineFromXactimate(match, line.room_id ?? null, line.section, {
+    activity: line.activity ?? undefined,
+    ...(keep ? { basis: line.basis, cut_height_ft: line.cut_height_ft ?? null, cut_part: line.cut_part ?? null } : {}),
+  });
+  return {
+    ...fresh,
+    id: line.id,
+    notes: line.notes ?? null,
+    quantity: keep ? line.quantity : fresh.quantity,
+    qty_formula: keep ? line.qty_formula ?? null : null,
+  };
+}
+
 /** A set's lines for a room: the part of the wall it is for (cut), the rest painted to match */
 export function assemblyLines(assembly: Assembly, roomId: string, cut: number | null): RebuildLine[] {
   return assembly.items

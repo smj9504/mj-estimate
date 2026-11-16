@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Assembly, XactimateMatch } from '../../types/rebuildEstimate';
 import {
-  addToRoom, evalQty, typedQty, asWording, assemblyLines, defaultBasis, describe as words, lineFromXactimate, typedLine, withActivity, withWording,
+  addToRoom, evalQty, typedQty, withItem, asWording, assemblyLines, defaultBasis, describe as words, lineFromXactimate, typedLine, withActivity, withWording,
 } from './lineEdit';
 
 const paint: XactimateMatch = {
@@ -210,5 +210,44 @@ describe('a quantity typed as a sum', () => {
     expect(typedQty('72.18')).toEqual({ quantity: 72.18, qty_formula: null });
     expect(typedQty('  ')).toEqual({ quantity: null, qty_formula: null });
     expect(typedQty('12*')).toBeUndefined();
+  });
+});
+
+describe('another item in a line\'s place', () => {
+  const perSpec: XactimateMatch = {
+    code: 'FCVNFCPPLK', category_code: 'FCV', description: 'Vinyl plank flooring - per specs from ind. vinyl analysis',
+    unit: 'SF', price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'Remove & replace', price: 4.47, material_share: 0.3, wording: null },
+      { activity: '+', label: 'Install', price: 3.02, material_share: 0.02, wording: null },
+    ],
+  };
+  const standard: XactimateMatch = {
+    code: 'FCVPLK-', category_code: 'FCV', description: 'Vinyl plank flooring - Standard grade', unit: 'SF',
+    price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'Remove & replace', price: 6.42, material_share: 0.3, wording: null },
+      { activity: '+', label: 'Install', price: 4.97, material_share: 0.4, wording: 'Vinyl plank flooring - install' },
+    ],
+  };
+
+  it('takes the item\'s code, prices and words, and keeps the room, section, quantity and note', () => {
+    const line = {
+      ...lineFromXactimate(perSpec, 'k', 'floor', { activity: '+' }),
+      quantity: 40, qty_formula: '20*2', unit_price: 4.74, notes: 'Less the blocks',
+    };
+    const next = withItem(line, standard);
+    expect(next).toMatchObject({
+      id: line.id, room_id: 'k', section: 'floor', code: 'FCVPLK-', activity: '+', unit: 'SF',
+      quantity: 40, qty_formula: '20*2', unit_price: null, notes: 'Less the blocks',
+      description: 'Vinyl plank flooring - install', xact_words: false,
+    });
+    expect(next.activities.map((a) => a.price)).toEqual([6.42, 4.97]);
+  });
+
+  it('another unit: the quantity follows the new unit\'s measure', () => {
+    const line = { ...lineFromXactimate(perSpec, 'k', 'floor', { activity: '+' }), quantity: 40 };
+    const trim: XactimateMatch = { ...standard, code: 'FNCQR', unit: 'LF', description: 'Quarter round - 3/4"' };
+    expect(withItem(line, trim)).toMatchObject({ unit: 'LF', quantity: null, basis: 'perimeter_lf', qty_formula: null });
   });
 });

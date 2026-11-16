@@ -10,16 +10,17 @@
  * and words written on a line can be kept for that item from then on.
  */
 
-import React, { useMemo, useState } from 'react';
-import { Button, Input, InputNumber, Popconfirm, Select, Tooltip } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Input, InputNumber, Popconfirm, Popover, Select, Tooltip } from 'antd';
+import { DeleteOutlined, EditOutlined, PlusOutlined, SaveOutlined, SwapOutlined } from '@ant-design/icons';
 import type {
   AddedSection, AssembledLine, AssembledRoom, Assembly, Basis, CutPart, RebuildLine, RebuildRoom, XactActivity,
+  XactimateMatch,
 } from '../../types/rebuildEstimate';
 import XactimatePicker from './XactimatePicker';
 import {
   ACTIVITY_LABEL, ADDED_SECTIONS, BASES, CUT_HEIGHTS, SECTIONS, WALL_BASES, addToRoom, assemblyLines, lineFromXactimate, money, removeLine,
-  typedLine, typedQty, updateLine, withActivity, worded,
+  typedLine, typedQty, updateLine, withActivity, withItem, worded,
 } from './lineEdit';
 import './rebuildEstimate.css';
 
@@ -106,6 +107,58 @@ const QtyInput: React.FC<{
   return <Tooltip title={tip} open={bad ? true : undefined} mouseEnterDelay={0.4}>{field}</Tooltip>;
 };
 
+/**
+ * The line's price list item, as its code: picked, it searches the price
+ * list for another item to put in the line's place (a line typed by hand
+ * gets one this way)
+ */
+const ItemSwap: React.FC<{
+  line: RebuildLine; estimateId?: string; onPick: (match: XactimateMatch) => void;
+}> = ({ line, estimateId, onPick }) => {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  // Opened: straight into the search, so the item can be typed
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = setTimeout(() => box.current?.querySelector('input')?.focus(), 60);
+    return () => clearTimeout(timer);
+  }, [open]);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      trigger="click"
+      placement="bottomLeft"
+      destroyOnHidden
+      title={line.code ? 'Change to another item' : 'Price it from the price list'}
+      content={(
+        <div ref={box} style={{ width: 380, maxWidth: '80vw' }}>
+          <XactimatePicker estimateId={estimateId} autoFocus style={{ width: '100%' }}
+            placeholder="Search the price list: vinyl plank, drywall…"
+            onPick={(match) => {
+              onPick(match);
+              setOpen(false);
+            }} />
+          <div className="rbe-swap-hint">The quantity, room and note stay; the price and words follow the item.</div>
+        </div>
+      )}
+    >
+      {line.code ? (
+        <Tooltip title="Change to another price list item" mouseEnterDelay={0.4}>
+          <button type="button" className="rbe-code rbe-code-btn" aria-label={`Item ${line.code}: change it`}>
+            {line.code}
+            <SwapOutlined className="rbe-code-swap" />
+          </button>
+        </Tooltip>
+      ) : (
+        <Button size="small" type="text" className="rbe-keep rbe-on-hover" icon={<SwapOutlined />} aria-label="Price list item">
+          Price list
+        </Button>
+      )}
+    </Popover>
+  );
+};
+
 /** Written by hand, not as the item is worded now: worth keeping */
 const rewritten = (line: RebuildLine) => {
   const ours = line.activities.find((a) => a.activity === line.activity)?.wording;
@@ -151,7 +204,8 @@ const RoomBody: React.FC<Props> = ({
             // Written by hand: no longer Xactimate's words
             onChange={(e) => set(line.id, { description: e.target.value, xact_words: false })} />
           <div className="rbe-meta">
-            {line.code && <span className="rbe-code">{line.code}</span>}
+            <ItemSwap line={line} estimateId={estimateId}
+              onPick={(match) => onLines(lines.map((l) => (l.id === line.id ? withItem(l, match) : l)))} />
             {line.xact_words && (
               <Tooltip title="These are Xactimate's words. Write them our way; Keep wording uses them for this item from now on.">
                 <span className="rbe-pill rbe-pill--orange">Xactimate&apos;s words</span>

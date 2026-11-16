@@ -18,9 +18,10 @@ interface Props {
   placeholder?: string;
   style?: React.CSSProperties;
   variant?: 'outlined' | 'filled' | 'borderless';
+  autoFocus?: boolean;
 }
 
-const XactimatePicker: React.FC<Props> = ({ estimateId, onPick, placeholder, style, variant }) => {
+const XactimatePicker: React.FC<Props> = ({ estimateId, onPick, placeholder, style, variant, autoFocus }) => {
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   useEffect(() => {
@@ -52,6 +53,7 @@ const XactimatePicker: React.FC<Props> = ({ estimateId, onPick, placeholder, sty
       onSearch={setTyped}
       options={options}
       variant={variant}
+      autoFocus={autoFocus}
       style={{ width: 380, maxWidth: '100%', ...style }}
       aria-label="Add from Xactimate"
       onChange={(code: string) => {
