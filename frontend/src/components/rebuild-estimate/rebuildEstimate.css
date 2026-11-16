@@ -226,9 +226,10 @@
   background: var(--color-ink-selected);
   color: var(--color-neutral-900);
 }
+/* Always there, so the code reads as something to pick; plain on the row pointed at */
 .rbe-code-swap {
   font-size: 10px;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity 0.12s ease;
 }
 .rbe-added:hover .rbe-code-swap,
