@@ -35,6 +35,15 @@ const DRYWALL = {
     { activity: '-', label: 'Remove', price: 0.54, marked_up: 0.59, material_share: 0, wording: 'Drywall 1/2" - tear out' },
   ],
 };
+const DISHWASHER = {
+  code: 'APPDW', category_code: 'APP', description: 'Dishwasher', unit: 'EA', price_list: 'VAAR8X_NOV26', ours: true,
+  activities: [
+    { activity: 'R', label: 'Detach & reset', price: 380.98, marked_up: 419.08, material_share: 0,
+      wording: 'Dishwasher - detach & reset', note: 'Built in under the counter: water, drain and power reconnected' },
+    { activity: '&', label: 'Remove & replace', price: 778.53, marked_up: 856.38, material_share: 0.69,
+      wording: 'Dishwasher - remove & replace', note: null },
+  ],
+};
 const PAINT_OURS = {
   ...PAINT, ours: true,
   activities: [{ ...PAINT.activities[0], wording: '{S} - seal/prime & paint, 1 coat each' }],
@@ -96,7 +105,7 @@ async function mockApi(page: Page, opts: { importBringsSketch?: boolean } = {}) 
     if (p.endsWith('/api/auth/me')) return json(route, USER);
     if (p.endsWith(`${base}/xactimate-search`)) {
       const q = url.searchParams.get('q') || '';
-      return json(route, q.includes('paint') ? [PAINT] : q.includes('dry') ? [DRYWALL] : []);
+      return json(route, q.includes('paint') ? [PAINT] : q.includes('dry') ? [DRYWALL] : q.includes('dish') ? [DISHWASHER] : []);
     }
     if (p.endsWith(`${base}/${ID}/importable`)) {
       // (the flooring estimate has its seven rooms drawn)
@@ -292,10 +301,33 @@ test("a line left in Xactimate's words is marked, and words written for it are k
 
   await room.getByLabel('Repair description').first().fill('Walls - prime and paint, one coat each');
   await expect(room.getByText("Xactimate's words")).toHaveCount(0);
+  // A note written for it, kept with the words
+  const line = room.getByTestId('added-line').first();
+  await line.getByRole('button', { name: 'Note' }).click();
+  await line.getByLabel('Repair note').fill('Two colors, accent wall');
   await room.getByRole('button', { name: 'Keep wording' }).click();
   await expect.poll(() => api.wordings).toEqual([
-    { code: 'PNTSP', activity: '+', text: '{S} - prime and paint, one coat each' },
+    { code: 'PNTSP', activity: '+', text: '{S} - prime and paint, one coat each', note: 'Two colors, accent wall' },
   ]);
+});
+
+test('a line picked comes with its note, which follows the activity', async ({ page }) => {
+  const api = await mockApi(page);
+  await page.goto(`/rebuild-estimates/${ID}`);
+  await page.locator('.ant-collapse-header', { hasText: 'Kitchen' }).first().click();
+  const room = page.getByTestId(`rebuild-room-${roomId('Kitchen')}`);
+  await room.getByRole('combobox', { name: 'Add from Xactimate' }).click();
+  await page.keyboard.type('dish');
+  await page.locator('.ant-select-item-option', { hasText: 'APPDW' }).click();
+
+  const note = DISHWASHER.activities[0].note;
+  await expect(room.getByLabel('Repair note')).toHaveValue(note!);
+  await expect.poll(() => api.updates[api.updates.length - 1]?.lines?.[0]?.notes).toBe(note);
+  // Replaced instead: that has no note
+  await room.locator('.ant-select', { has: page.getByRole('combobox', { name: 'Activity' }) }).first().click();
+  await page.locator('.ant-select-item-option', { hasText: 'Remove & replace' }).click();
+  await expect(room.getByLabel('Repair note')).toHaveCount(0);
+  await expect.poll(() => api.updates[api.updates.length - 1]?.lines?.[0]?.notes).toBeNull();
 });
 
 test('a room drawn on the sketch is a room of the estimate, measured from the drawing', async ({ page }) => {

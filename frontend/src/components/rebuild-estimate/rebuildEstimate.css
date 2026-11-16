@@ -269,6 +269,22 @@
   margin-left: 4px;
   font-style: normal;
 }
+/* A line's note, under its words, as the PDF prints it */
+.rbe-desc .ant-input.rbe-note-input {
+  padding: 1px 6px;
+  margin-left: -6px;
+  width: calc(100% + 6px);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+  resize: none;
+}
+.rbe-meta .ant-btn.rbe-meta-btn {
+  font-size: 12px;
+  height: 22px;
+  padding: 0 4px;
+  color: var(--ant-color-text-tertiary, #8c8c8c);
+}
 .rbe-note::before {
   content: '· ';
 }

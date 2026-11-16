@@ -434,6 +434,40 @@ def test_a_company_keeps_its_own_words(session):
     assert session.query(RebuildWording).count() == 2
 
 
+def test_a_line_that_costs_more_than_it_looks_comes_with_a_note_and_a_company_keeps_its_own(session):
+    from app.domains.flooring_estimate.items import DETACH_RESET_NOTES
+    from app.domains.rebuild_estimate.wording import built_in_note, note_for, save_wording, saved_notes
+    from app.domains.rebuild_estimate.xactimate_search import search
+
+    # A dishwasher, a gas range, a toilet detached and reset: what the price pays for
+    assert built_in_note("APPDW", "R") == built_in_note("APPDW+", "R") == DETACH_RESET_NOTES["dishwasher"]
+    assert built_in_note("APPRGGRS", "+") == built_in_note("APPRGG", "R") == DETACH_RESET_NOTES["range_gas"]
+    assert built_in_note("PLMTLT", "R") == DETACH_RESET_NOTES["toilet"]
+    # Not when it is replaced, nor for what just rolls out
+    assert built_in_note("APPDW", "&") is None and built_in_note("APPRF", "R") is None
+
+    # The company's note, kept with its words, over the built-in one; another company's is its own
+    mine, theirs = str(uuid.uuid4()), str(uuid.uuid4())
+    save_wording(session, mine, "APPDW", "R", "Dishwasher - detach & reset", note="Under the granite top")
+    save_wording(session, mine, "FCWLAM", "&", "Laminate - remove & lay new")
+    assert saved_notes(session, mine) == {("APPDW", "R"): "Under the granite top"}
+    assert note_for("APPDW", "R", saved_notes(session, mine)) == "Under the granite top"
+    assert note_for("APPDW", "R", saved_notes(session, theirs)) == DETACH_RESET_NOTES["dishwasher"]
+    # Kept again without one: the built-in one again
+    save_wording(session, mine, "APPDW", "R", "Dishwasher - detach & reset")
+    assert saved_notes(session, mine) == {}
+
+    # Found in the price list, each activity with its note
+    session.add(XactimateItem(price_year=2026, price_month=11, price_list="VAAR8X_NOV26", item_code="APPDW",
+                              category_code="APP", description="Dishwasher", unit="EA", activity="&",
+                              untaxed_unit_price=778.53, replace_price=745.76, remove_price=32.77, material_cost=534.0,
+                              other_activities="RMI", detach_reset_price=380.98, material_only_price=534.0,
+                              install_only_price=211.76))
+    session.flush()
+    acts = {a["activity"]: a for a in search(session, "dishwasher", notes={})[0]["activities"]}
+    assert acts["R"]["note"] == DETACH_RESET_NOTES["dishwasher"] and acts["&"]["note"] is None
+
+
 def test_a_line_left_in_xactimates_words_is_pointed_out(session, service):
     est = new(service)
     est = service.update(est["id"], RebuildEstimateUpdate(lines=[

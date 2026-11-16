@@ -251,3 +251,49 @@ describe('another item in a line\'s place', () => {
     expect(withItem(line, trim)).toMatchObject({ unit: 'LF', quantity: null, basis: 'perimeter_lf', qty_formula: null });
   });
 });
+
+describe('a line comes with its note', () => {
+  const dishwasher: XactimateMatch = {
+    code: 'APPDW', category_code: 'APP', description: 'Dishwasher', unit: 'EA', price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'Remove & replace', price: 778.53, material_share: 0.69, wording: null, note: null },
+      { activity: 'R', label: 'Detach & reset', price: 380.98, material_share: 0, wording: null, note: 'Built in under the counter' },
+    ],
+  };
+  const range: XactimateMatch = {
+    code: 'APPRGG', category_code: 'APP', description: 'Range - freestanding - gas', unit: 'EA', price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'Remove & replace', price: 1200, material_share: 0.8, wording: null, note: null },
+      { activity: 'R', label: 'Detach & reset', price: 261.16, material_share: 0, wording: null, note: 'Gas line shut off' },
+    ],
+  };
+
+  it('picked as the activity that has one, the line comes with it', () => {
+    expect(lineFromXactimate(dishwasher, 'k', 'other', { activity: 'R' }).notes).toBe('Built in under the counter');
+    expect(lineFromXactimate(dishwasher, 'k', 'other').notes).toBeNull();
+  });
+
+  it('another activity: the note it came with follows; one written for it stays', () => {
+    const replaced = lineFromXactimate(dishwasher, 'k', 'other');
+    const reset = withActivity(replaced, 'R');
+    expect(reset.notes).toBe('Built in under the counter');
+    expect(withActivity(reset, '&').notes).toBeNull();
+    expect(withActivity({ ...reset, notes: 'Panel-ready unit' }, '&').notes).toBe('Panel-ready unit');
+  });
+
+  it('another item: the note it came with is the new item\'s; one written for it stays', () => {
+    const reset = lineFromXactimate(dishwasher, 'k', 'other', { activity: 'R' });
+    expect(withItem(reset, range).notes).toBe('Gas line shut off');
+    expect(withItem({ ...reset, notes: 'Panel-ready unit' }, range).notes).toBe('Panel-ready unit');
+  });
+
+  it('a note kept with the words: the lines of it take it, a note written for one stays', () => {
+    const a = lineFromXactimate(dishwasher, 'k', 'other', { activity: 'R' });
+    const b = { ...lineFromXactimate(dishwasher, 'b', 'other', { activity: 'R' }), notes: 'Panel-ready unit' };
+    const kept = withWording([a, b], 'APPDW', 'R', 'Dishwasher - detach & reset', 'Under the granite top');
+    expect(kept.map((l) => l.notes)).toEqual(['Under the granite top', 'Panel-ready unit']);
+    expect(kept[0].activities.find((x) => x.activity === 'R')?.note).toBe('Under the granite top');
+    // Kept with no note: the one it comes with stays
+    expect(withWording([a], 'APPDW', 'R', 'Dishwasher - detach & reset')[0].notes).toBe('Built in under the counter');
+  });
+});

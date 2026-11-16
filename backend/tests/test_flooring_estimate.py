@@ -483,6 +483,15 @@ def test_each_appliance_is_detached_and_reset_at_its_own_price_gas_or_electric()
     assert hall["washer_detach_reset"]["quantity"] == 1
     # Gas costs more to move than electric
     assert rates["range_gas"] > rates["range"] and rates["dryer_gas"] > rates["dryer"]
+    # Why, under the line: built in, plumbed or on gas; a refrigerator or washer just rolls out
+    assert lines["dishwasher_detach_reset"]["notes"].startswith("Built in under the counter")
+    assert "leak-checked" in lines["range_gas_detach_reset"]["notes"]
+    assert hall["dryer_gas_detach_reset"]["notes"] == lines["range_gas_detach_reset"]["notes"]
+    assert not lines["refrigerator_detach_reset"]["notes"] and not hall["washer_detach_reset"]["notes"]
+    # A note written for the line is printed in its place
+    written = calculate_estimate(estimate(sketch=sketch, room_scopes=scopes(
+        kitchen={"items": {"dishwasher_detach_reset": {"note": "Panel-ready unit"}}})))
+    assert lines_of(written, "Kitchen")["dishwasher_detach_reset"]["notes"] == "Panel-ready unit"
 
 
 def test_a_toe_kick_can_be_reskinned_along_the_cabinets_and_island():

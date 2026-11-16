@@ -21,7 +21,7 @@ from sqlalchemy import case, desc, func, or_
 
 from app.domains.unit_prices.xactimate import xact
 
-from .wording import wording_for, worded_codes
+from .wording import note_for, wording_for, worded_codes
 
 # As our words end with them (wording._ACTION), so a line reads as what was picked
 ACTIVITY_LABELS = {
@@ -66,10 +66,12 @@ def activities(item: Any) -> List[Dict[str, Any]]:
     return out
 
 
-def match_of(item: Any, saved: Mapping[Tuple[str, str], str]) -> Dict[str, Any]:
+def match_of(item: Any, saved: Mapping[Tuple[str, str], str],
+             notes: Optional[Mapping[Tuple[str, str], str]] = None) -> Dict[str, Any]:
     acts = activities(item)
     for a in acts:
         a["wording"] = wording_for(item.item_code, a["activity"], saved)
+        a["note"] = note_for(item.item_code, a["activity"], notes)
     return {
         "code": item.item_code, "category_code": item.category_code, "description": item.description,
         "unit": item.unit or "EA", "price_list": item.price_list, "activities": acts,
@@ -88,7 +90,8 @@ def latest_month(session: Any) -> Optional[Tuple[int, int]]:
 
 
 def search(session: Any, q: str, limit: int = 25,
-           saved: Optional[Mapping[Tuple[str, str], str]] = None) -> List[Dict[str, Any]]:
+           saved: Optional[Mapping[Tuple[str, str], str]] = None,
+           notes: Optional[Mapping[Tuple[str, str], str]] = None) -> List[Dict[str, Any]]:
     from app.domains.xactimate.models import XactimateItem
 
     saved = saved or {}
@@ -115,4 +118,4 @@ def search(session: Any, q: str, limit: int = 25,
         .limit(limit)
         .all()
     )
-    return [match_of(item, saved) for item in items]
+    return [match_of(item, saved, notes) for item in items]

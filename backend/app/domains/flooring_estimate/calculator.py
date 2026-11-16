@@ -227,7 +227,7 @@ def _priced_row(
         unit_price=float(typed_price) if typed_price is not None else price,
         material_unit=0.0 if typed_price is not None else material_part(item.price, price),
         price_typed=typed_price is not None, price_key=item.price,
-        notes=room_choice.get("note") or notes,
+        notes=room_choice.get("note") or notes or item.note or None,
     )
 
 

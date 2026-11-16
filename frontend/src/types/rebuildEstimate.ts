@@ -43,6 +43,8 @@ export interface ActivityPrice {
   material_share: number;
   /** Our words for the line as this activity ({S}: the surface); none: only Xactimate's */
   wording?: string | null;
+  /** The note a line of it comes with: what its price pays for (the company's, else a built-in one) */
+  note?: string | null;
 }
 
 /** A repair added on the rebuild estimate */

@@ -119,11 +119,13 @@ class ImportRequest(BaseModel):
 
 
 class WordingRequest(BaseModel):
-    """Our words for a price list line from now on ({S}: the surface)"""
+    """Our words for a price list line from now on ({S}: the surface), and
+    the note that comes with it (none: the built-in one, if any)"""
     model_config = ConfigDict(extra="forbid")
     code: str = Field(..., min_length=1, max_length=50)
     activity: Literal["&", "+", "-", "R", "M", "I"]
     text: str = Field(..., min_length=1, max_length=500)
+    note: Optional[str] = Field(None, max_length=500)
 
     @field_validator("text")
     @classmethod
@@ -132,6 +134,11 @@ class WordingRequest(BaseModel):
         if not value:
             raise ValueError("Write the words")
         return value
+
+    @field_validator("note")
+    @classmethod
+    def strip_note(cls, value: Optional[str]) -> Optional[str]:
+        return " ".join(value.split()) or None if value is not None else None
 
 
 class SourceRoomRequest(BaseModel):

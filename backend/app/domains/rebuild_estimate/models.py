@@ -75,4 +75,6 @@ class RebuildWording(Base, BaseModel):
     item_code = Column(String(50), nullable=False)
     activity = Column(String(2), nullable=False)
     text = Column(String(500), nullable=False)
+    # Printed under the line: what its price pays for
+    note = Column(String(500), nullable=True)
     updated_by_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)

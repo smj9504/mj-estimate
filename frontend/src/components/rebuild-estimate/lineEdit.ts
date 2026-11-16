@@ -112,8 +112,8 @@ export function lineFromXactimate(
   const chosen = match.activities.find((a) => a.activity === options.activity) ?? match.activities[0];
   const basis = roomId ? (options.basis !== undefined ? options.basis : defaultBasis(match.unit, section)) : null;
   const cut = basis && WALL_BASES.includes(basis) ? options.cut_height_ft ?? null : null;
-  const activities = match.activities.map(({ activity: a, label, price, material_share, wording }: ActivityPrice) => ({
-    activity: a, label, price, material_share, wording: wording ?? null,
+  const activities = match.activities.map(({ activity: a, label, price, material_share, wording, note }: ActivityPrice) => ({
+    activity: a, label, price, material_share, wording: wording ?? null, note: note ?? null,
   }));
   return {
     id: newId(),
@@ -130,16 +130,28 @@ export function lineFromXactimate(
     activity: chosen?.activity ?? null,
     price_list: match.price_list,
     activities,
-    notes: null,
+    // What its price pays for, where the item comes with a note
+    notes: chosen?.note ?? null,
   };
+}
+
+/**
+ * A line's note once it is another activity or item: one written for it
+ * stays; one it came with (or none) is the new one's.
+ */
+function noteAfter(line: RebuildLine, activities: ActivityPrice[], activity: XactActivity | null | undefined): string | null {
+  const cameWith = line.activities.find((a) => a.activity === line.activity)?.note ?? null;
+  const note = line.notes?.trim() || null;
+  if (note && note !== cameWith?.trim()) return line.notes ?? null;
+  return activities.find((a) => a.activity === activity)?.note ?? null;
 }
 
 /**
  * Another price list item in a line's place: its code, activities, unit and
  * price (a price typed on the line gives way to the item's), worded as a new
- * line of it would be. The line keeps its room, section and note, and its
- * quantity (typed or followed) while the unit is the same; the activity stays
- * when the item has it.
+ * line of it would be. The line keeps its room and section, a note written
+ * for it (one it came with is the new item's), and its quantity (typed or
+ * followed) while the unit is the same; the activity stays when the item has it.
  */
 export function withItem(line: RebuildLine, match: XactimateMatch): RebuildLine {
   const keep = (match.unit || 'EA') === line.unit;
@@ -150,7 +162,7 @@ export function withItem(line: RebuildLine, match: XactimateMatch): RebuildLine 
   return {
     ...fresh,
     id: line.id,
-    notes: line.notes ?? null,
+    notes: noteAfter(line, fresh.activities, fresh.activity),
     quantity: keep ? line.quantity : fresh.quantity,
     qty_formula: keep ? line.qty_formula ?? null : null,
   };
@@ -283,25 +295,33 @@ const OUT = new Set<XactActivity>(['&', '-', 'R']);
  * "... - labor only"). A prefix or ending left from another activity goes.
  */
 export function withActivity(line: RebuildLine, activity: XactActivity): RebuildLine {
+  const notes = noteAfter(line, line.activities, activity);
   const ours = line.activities.find((a) => a.activity === activity)?.wording;
-  if (ours) return { ...line, activity, description: worded(ours, line.section), xact_words: false };
-  if (line.xact_words) return { ...line, activity, description: describe(line.description, activity, line.section) };
+  if (ours) return { ...line, activity, notes, description: worded(ours, line.section), xact_words: false };
+  if (line.xact_words) return { ...line, activity, notes, description: describe(line.description, activity, line.section) };
   const bare = PREFIXES.reduce((d, p) => (d.startsWith(p) ? d.slice(p.length) : d), line.description.trim());
   const ending = ACTION_ENDINGS.find((w) => bare.toLowerCase().endsWith(` - ${w}`));
   const stem = ending ? bare.slice(0, bare.length - ending.length - 3).trimEnd() : bare;
   const named = line.activities.some((a) => OUT.has(a.activity));
   const description = activity === '+' && !named ? stem : `${stem} - ${ACTION_WORDS[activity]}`;
-  return { ...line, activity, description };
+  return { ...line, activity, notes, description };
 }
 
-/** Words of ours kept for a code and activity: every line of it on the estimate takes them */
-export function withWording(lines: RebuildLine[], code: string, activity: XactActivity, wording: string): RebuildLine[] {
+/**
+ * Words of ours kept for a code and activity, and the note kept with them:
+ * every line of it on the estimate takes them (a note written for a line
+ * stays). No note kept: the one the item comes with stays.
+ */
+export function withWording(
+  lines: RebuildLine[], code: string, activity: XactActivity, wording: string, note: string | null = null,
+): RebuildLine[] {
   return lines.map((l) => {
     if (l.code !== code) return l;
-    const activities = l.activities.map((a) => (a.activity === activity ? { ...a, wording } : a));
-    return l.activity === activity
-      ? { ...l, activities, description: worded(wording, l.section), xact_words: false }
-      : { ...l, activities };
+    const activities = l.activities.map((a) => (a.activity === activity ? { ...a, wording, note: note ?? a.note ?? null } : a));
+    if (l.activity !== activity) return { ...l, activities };
+    const cameWith = l.activities.find((a) => a.activity === activity)?.note ?? null;
+    const notes = !l.notes?.trim() || l.notes.trim() === cameWith?.trim() ? note ?? l.notes ?? null : l.notes;
+    return { ...l, activities, notes, description: worded(wording, l.section), xact_words: false };
   });
 }
 

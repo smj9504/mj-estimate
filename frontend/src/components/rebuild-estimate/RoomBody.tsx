@@ -159,10 +159,11 @@ const ItemSwap: React.FC<{
   );
 };
 
-/** Written by hand, not as the item is worded now: worth keeping */
+/** Written by hand, not as the item is worded now (or its note isn't the one it comes with): worth keeping */
 const rewritten = (line: RebuildLine) => {
-  const ours = line.activities.find((a) => a.activity === line.activity)?.wording;
-  return !ours || worded(ours, line.section) !== line.description.trim();
+  const own = line.activities.find((a) => a.activity === line.activity);
+  const renoted = (line.notes?.trim() || '') !== (own?.note?.trim() || '');
+  return !own?.wording || worded(own.wording, line.section) !== line.description.trim() || renoted;
 };
 
 const CUT_OPTIONS = [
@@ -176,6 +177,8 @@ const RoomBody: React.FC<Props> = ({
   const drawn = !!room?.sketch_room_id;
   const [section, setSection] = useState<AddedSection>(roomId ? 'wall' : 'other');
   const [setCut, setSetCut] = useState<number>(0);
+  // The line a note is being added to (a line with one shows it)
+  const [noting, setNoting] = useState<string | null>(null);
   const mine = lines.filter((l) => (l.room_id ?? null) === roomId);
   const computed = useMemo(() => {
     const map = new Map<string, AssembledLine>();
@@ -203,6 +206,14 @@ const RoomBody: React.FC<Props> = ({
             aria-label="Repair description" status={line.xact_words ? 'warning' : undefined}
             // Written by hand: no longer Xactimate's words
             onChange={(e) => set(line.id, { description: e.target.value, xact_words: false })} />
+          {(line.notes || noting === line.id) && (
+            // Printed under the line: what its price pays for
+            <Input.TextArea variant="borderless" className="rbe-field rbe-note-input" value={line.notes ?? ''}
+              autoSize={{ minRows: 1, maxRows: 4 }} autoFocus={noting === line.id && !line.notes}
+              placeholder="What its price pays for" aria-label="Repair note"
+              onChange={(e) => set(line.id, { notes: e.target.value || null })}
+              onBlur={() => setNoting(null)} />
+          )}
           <div className="rbe-meta">
             <ItemSwap line={line} estimateId={estimateId}
               onPick={(match) => onLines(lines.map((l) => (l.id === line.id ? withItem(l, match) : l)))} />
@@ -217,7 +228,12 @@ const RoomBody: React.FC<Props> = ({
                 options={line.activities.map((a) => ({ value: a.activity, label: ACTIVITY_LABEL[a.activity] ?? a.label ?? a.activity }))}
                 onChange={(a: XactActivity) => onLines(lines.map((l) => (l.id === line.id ? withActivity(l, a) : l)))} />
             )}
-            {line.notes && <span className="rbe-note">{line.notes}</span>}
+            {!line.notes && noting !== line.id && (
+              <Button size="small" type="text" className="rbe-meta-btn rbe-on-hover" icon={<PlusOutlined />}
+                onClick={() => setNoting(line.id)}>
+                Note
+              </Button>
+            )}
             {roomId && bases.length > 0 && (
               <Select size="small" variant="borderless" popupMatchSelectWidth={false}
                 className={`rbe-meta-select${line.basis ? '' : ' rbe-on-hover'}`}
@@ -253,7 +269,7 @@ const RoomBody: React.FC<Props> = ({
         <span className="rbe-total rbe-fig">{done ? money(done.total) : '…'}</span>
         <span className="rbe-actions">
           {keep && (
-            <Tooltip title="Keep wording: word this item this way on every estimate of the company from now on">
+            <Tooltip title="Keep wording: word this item this way, with its note, on every estimate of the company from now on">
               <Button size="small" type="text" className="ui-icon-btn rbe-on-hover" icon={<SaveOutlined />}
                 onClick={() => onSaveWording!(line)} aria-label="Keep wording" />
             </Tooltip>

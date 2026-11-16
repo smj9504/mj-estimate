@@ -25,7 +25,7 @@ from .schemas import (
 )
 from .service import RebuildEstimateService
 from .sources import model_of
-from .wording import save_wording, saved_wordings
+from .wording import save_wording, saved_notes, saved_wordings
 from .xactimate_search import search as xactimate_search
 
 router = APIRouter(prefix="/rebuild-estimates", tags=["Rebuild Estimates"])
@@ -70,7 +70,8 @@ def search_xactimate(
     activities it can be added as, their prices and our words for them"""
     if estimate_id:
         _require(session, current_user, estimate_id)
-    return xactimate_search(session, q, limit, saved_wordings(session, _company_of(session, estimate_id)))
+    company = _company_of(session, estimate_id)
+    return xactimate_search(session, q, limit, saved_wordings(session, company), saved_notes(session, company))
 
 
 @router.get("")
@@ -168,7 +169,8 @@ def list_assemblies(
     """The sets of repairs a room can take at once (new drywall primed and
     painted, insulation, repainting...), worded as the company words them"""
     _require(session, current_user, estimate_id)
-    return assemblies(session, saved_wordings(session, _company_of(session, estimate_id)))
+    company = _company_of(session, estimate_id)
+    return assemblies(session, saved_wordings(session, company), saved_notes(session, company))
 
 
 @router.put("/{estimate_id}/wordings")
@@ -182,8 +184,8 @@ def put_wording(
     estimate's company (everyone's, when it has none) words it so from now on"""
     _require(session, current_user, estimate_id)
     save_wording(session, _company_of(session, estimate_id), data.code, data.activity, data.text,
-                 getattr(current_user, "id", None))
-    return {"code": data.code, "activity": data.activity, "text": data.text}
+                 getattr(current_user, "id", None), data.note)
+    return {"code": data.code, "activity": data.activity, "text": data.text, "note": data.note}
 
 
 @router.get("/{estimate_id}/importable")

@@ -157,12 +157,16 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
   const keepWording = useMutation({
     mutationFn: (line: RebuildLine) => rebuildEstimateService.saveWording(id, {
       code: line.code!, activity: line.activity!, text: asWording(line.description, line.section),
+      note: line.notes?.trim() || null,
     }),
     onSuccess: (_, line) => {
-      setDraft((d) => ({ ...d, lines: withWording(d.lines, line.code!, line.activity!, asWording(line.description, line.section)) }));
+      const note = line.notes?.trim() || null;
+      setDraft((d) => ({
+        ...d, lines: withWording(d.lines, line.code!, line.activity!, asWording(line.description, line.section), note),
+      }));
       queryClient.invalidateQueries({ queryKey: ['rebuild-assemblies', id] });
       queryClient.invalidateQueries({ queryKey: ['rebuild-xactimate-search'] });
-      message.success(`Kept: ${line.code} is worded this way from now on`);
+      message.success(`Kept: ${line.code} is worded this way${note ? ', with its note,' : ''} from now on`);
     },
     onError: () => message.error("The wording couldn't be kept"),
   });
