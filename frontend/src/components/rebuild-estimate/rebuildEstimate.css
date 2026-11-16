@@ -456,3 +456,30 @@
     margin-left: 0;
   }
 }
+
+/* ── The rooms by level: a heading for each level (Basement, Main Level), its rooms under it ── */
+.rbe-level {
+  margin-bottom: 16px;
+}
+.rbe-level-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px 8px;
+}
+.rbe-level-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.rbe-level-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rbe-level-total {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}

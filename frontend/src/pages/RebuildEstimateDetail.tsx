@@ -167,7 +167,55 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
     change({ rooms: draft.rooms.map((r) => (r.id === roomId ? { ...r, ...patch } : r)) });
   const address = [draft.property_address, draft.city, draft.state].filter(Boolean).join(', ');
   const drawnCount = drawnRoomCount(estimate.sketch_data);
-  const levels = new Set(draft.rooms.map((r) => r.level_name).filter(Boolean));
+  // The rooms by level (Basement, Main Level...), in the order the levels come
+  const groups = useMemo(() => {
+    const out: { level: string | null; rooms: RebuildRoom[] }[] = [];
+    for (const room of draft.rooms) {
+      const level = room.level_name || null;
+      let group = out.find((g) => g.level === level);
+      if (!group) {
+        group = { level, rooms: [] };
+        out.push(group);
+      }
+      group.rooms.push(room);
+    }
+    return out;
+  }, [draft.rooms]);
+  const anyLevel = groups.some((g) => g.level);
+  const roomItem = (room: RebuildRoom) => {
+    const done = byId.get(room.id);
+    const words = measureText(room.measures);
+    return {
+      key: room.id,
+      label: (
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+          <Space size={8} wrap>
+            <Text strong>{room.name}</Text>
+            {words && <Text type="secondary" style={{ fontSize: 12 }}>{words}</Text>}
+          </Space>
+          <Text strong>{money(done?.total)}</Text>
+        </div>
+      ),
+      children: (
+        <RoomBody
+          estimateId={id}
+          roomId={room.id}
+          room={room}
+          assembled={done}
+          assemblies={assemblies}
+          onSaveWording={(line) => keepWording.mutate(line)}
+          lines={draft.lines}
+          onLines={setLines}
+          onRoom={(patch) => setRoom(room.id, patch)}
+          onOpenSketch={() => setTab('sketch')}
+          onDelete={() => change({
+            rooms: draft.rooms.filter((r) => r.id !== room.id),
+            lines: draft.lines.filter((l) => l.room_id !== room.id),
+          })}
+        />
+      ),
+    };
+  };
 
   const estimateTab = (
     <>
@@ -205,45 +253,23 @@ const Workspace: React.FC<{ initial: RebuildEstimate }> = ({ initial }) => {
           </Empty>
         </Card>
       ) : (
-        <Collapse
-          style={{ marginBottom: 12 }}
-          defaultActiveKey={draft.rooms[0]?.id}
-          items={draft.rooms.map((room) => {
-            const done = byId.get(room.id);
-            const words = measureText(room.measures);
-            return {
-              key: room.id,
-              label: (
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8, width: '100%' }}>
-                  <Space size={8} wrap>
-                    <Text strong>{room.name}</Text>
-                    {levels.size > 1 && room.level_name && <Tag style={{ marginInlineEnd: 0 }}>{room.level_name}</Tag>}
-                    {words && <Text type="secondary" style={{ fontSize: 12 }}>{words}</Text>}
-                  </Space>
-                  <Text strong>{money(done?.total)}</Text>
+        groups.map((group, i) => {
+          const total = group.rooms.reduce((sum, r) => sum + (byId.get(r.id)?.total || 0), 0);
+          return (
+            <section key={group.level ?? '-'} className="rbe-level" data-testid={`rebuild-level-${group.level ?? 'none'}`}>
+              {anyLevel && (
+                <div className="rbe-level-head">
+                  <span className="rbe-level-name">{group.level ?? 'No level'}</span>
+                  <span className="rbe-level-meta">
+                    {group.rooms.length} room{group.rooms.length === 1 ? '' : 's'}
+                  </span>
+                  <span className="rbe-level-total">{money(total)}</span>
                 </div>
-              ),
-              children: (
-                <RoomBody
-                  estimateId={id}
-                  roomId={room.id}
-                  room={room}
-                  assembled={done}
-                  assemblies={assemblies}
-                  onSaveWording={(line) => keepWording.mutate(line)}
-                  lines={draft.lines}
-                  onLines={setLines}
-                  onRoom={(patch) => setRoom(room.id, patch)}
-                  onOpenSketch={() => setTab('sketch')}
-                  onDelete={() => change({
-                    rooms: draft.rooms.filter((r) => r.id !== room.id),
-                    lines: draft.lines.filter((l) => l.room_id !== room.id),
-                  })}
-                />
-              ),
-            };
-          })}
-        />
+              )}
+              <Collapse defaultActiveKey={i === 0 ? group.rooms[0]?.id : undefined} items={group.rooms.map(roomItem)} />
+            </section>
+          );
+        })
       )}
 
       <Space.Compact style={{ marginBottom: 16 }}>
