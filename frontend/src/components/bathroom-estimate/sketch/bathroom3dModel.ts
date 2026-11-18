@@ -67,6 +67,8 @@ export interface BathroomLooks {
   metal: string;
   /** A tub with a shower over it (the job has no separate shower): head and curtain rod. */
   tubShower: boolean;
+  /** A fixed glass panel on the tub's open side (bathtub_spec glass_panel_*), inches. */
+  tubGlassPanel: { widthIn: number; heightIn: number } | null;
 }
 
 export interface WallOpeningSolid {
@@ -213,6 +215,7 @@ export const DEFAULT_LOOKS: BathroomLooks = {
   china: '#f7f7f5',
   metal: METAL_COLORS.chrome,
   tubShower: false,
+  tubGlassPanel: null,
 };
 
 // A product's look.material (product library) as the tile looks name it
@@ -266,6 +269,7 @@ export function bathroomLooks(sketch: BESketchData, estimate?: Record<string, an
   const floorSpec = estimate?.floor_spec || {};
   const walls = estimate?.walls_spec || {};
   const shower = estimate?.shower_spec || {};
+  const tub = estimate?.bathtub_spec || {};
   const vanity = estimate?.vanity_spec || {};
   const firstVanity = (Array.isArray(vanity.items) && vanity.items[0]) || vanity;
   // An option's picked products (a restoration has none)
@@ -306,6 +310,10 @@ export function bathroomLooks(sketch: BESketchData, estimate?: Record<string, an
       || (!sketch.fixtures.some((f) => f.type === 'shower')
         && sketch.fixtures.some((f) => f.type === 'bathtub' && f.properties.bathtubSubType !== 'freestanding'
           && f.properties.hasSurround !== false && (f.properties.surroundHeight ?? 60) >= 60)),
+    // Detached and reset or new, it stands there after the job (the size the backend prices when blank)
+    tubGlassPanel: tub.glass_panel_action === 'detach_reset' || tub.glass_panel_action === 'replace'
+      ? { widthIn: Number(tub.glass_panel_width_in) || 30, heightIn: Number(tub.glass_panel_height_in) || 58 }
+      : null,
   };
 }
 

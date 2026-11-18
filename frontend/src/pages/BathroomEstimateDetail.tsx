@@ -69,6 +69,7 @@ import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompare
 import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
 import BEFixtureRows from '../components/bathroom-estimate/BEFixtureRows';
 import BEMirrorRows from '../components/bathroom-estimate/BEMirrorRows';
+import BEDecorativeTileFields from '../components/bathroom-estimate/BEDecorativeTileFields';
 import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRows';
 import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
 import { exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
@@ -1770,6 +1771,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+                    <BEDecorativeTileFields surface="shower" />
                   </Panel>
                   <Panel header="Bathtub" key="bathtub">
                     <Row gutter={16}>
@@ -1816,6 +1818,49 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Col>
                       ))}
                     </Row>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                      prev?.bathtub_spec?.glass_panel_action !== cur?.bathtub_spec?.glass_panel_action
+                    }>
+                      {() => {
+                        const glass = form.getFieldValue(['bathtub_spec', 'glass_panel_action']) || 'none';
+                        return (
+                          <Row gutter={16} align="bottom">
+                            <Col xs={24} sm={12} md={8}>
+                              <Form.Item label="Glass Panel" name={['bathtub_spec', 'glass_panel_action']}
+                                tooltip="A fixed glass panel over part of the tub (a splash screen, not a door)"
+                                getValueProps={(v?: string) => ({ value: v || 'none' })}>
+                                <Radio.Group>
+                                  <Radio.Button value="none">None</Radio.Button>
+                                  <Radio.Button value="detach_reset">D&R</Radio.Button>
+                                  <Radio.Button value="replace">R&R</Radio.Button>
+                                </Radio.Group>
+                              </Form.Item>
+                            </Col>
+                            {glass !== 'none' && (
+                              <>
+                                <Col xs={12} sm={6} md={4}>
+                                  <Form.Item label="Width" name={['bathtub_spec', 'glass_panel_width_in']}>
+                                    <InputNumber style={{ width: '100%' }} min={12} max={72} placeholder="30" addonAfter="in" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={6} md={4}>
+                                  <Form.Item label="Height" name={['bathtub_spec', 'glass_panel_height_in']}>
+                                    <InputNumber style={{ width: '100%' }} min={12} max={96} placeholder="58" addonAfter="in" />
+                                  </Form.Item>
+                                </Col>
+                                {glass === 'replace' && (
+                                  <Col xs={12} sm={6} md={4}>
+                                    <Form.Item name={['bathtub_spec', 'glass_panel_frosted']} valuePropName="checked">
+                                      <Checkbox>Frosted Glass</Checkbox>
+                                    </Form.Item>
+                                  </Col>
+                                )}
+                              </>
+                            )}
+                          </Row>
+                        );
+                      }}
+                    </Form.Item>
                     <Form.Item noStyle shouldUpdate={(prev, cur) =>
                       prev?.bathtub_spec?.type !== cur?.bathtub_spec?.type ||
                       prev?.bathtub_spec?.surround_tile !== cur?.bathtub_spec?.surround_tile
@@ -1897,6 +1942,7 @@ const BathroomEstimateDetail: React.FC = () => {
                                   </Form.Item>
                                 </Col>
                               </Row>
+                              <BEDecorativeTileFields surface="tub_surround" />
                           </div>
                         </>
                       )}
@@ -2056,6 +2102,11 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+                    {/* A plank floor has no decorative tile */}
+                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev?.floor_spec?.material !== cur?.floor_spec?.material}>
+                      {({ getFieldValue }) => getFieldValue(['floor_spec', 'material']) !== 'lvt_spc'
+                        && <BEDecorativeTileFields surface="floor" />}
+                    </Form.Item>
                   </Panel>
                   <Panel header="Walls & Paint / Tile" key="walls">
                     <Form.Item noStyle shouldUpdate={(prev, cur) =>
@@ -2176,6 +2227,7 @@ const BathroomEstimateDetail: React.FC = () => {
                                 </Col>
                               </Row>
                             )}
+                            {showTile && <BEDecorativeTileFields surface="walls" />}
                           </>
                         );
                       }}

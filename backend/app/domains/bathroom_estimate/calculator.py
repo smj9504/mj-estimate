@@ -62,6 +62,8 @@ from .pricing import (
     TOILET_PRICES,
     TRIM_GRADE_MULTIPLIER,
     DETACH_RESET_COSTS,
+    DECORATIVE_TILE,
+    TUB_GLASS_PANEL,
     VANITY_EXTRAS,
     VANITY_PRICES,
     VANITY_TOP_PRICES,
@@ -929,6 +931,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
              tile_floor_sf, "SF",
              round(ft_total / tile_floor_sf, 2), "tile",
              notes=" | ".join(ft_parts))
+        _add_decorative_tile(line_items, "floor", floor_spec, labor_mult)
 
     # Shower wall tile (consolidated)
     shower_spec = estimate.shower_spec or {}
@@ -1000,6 +1003,13 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                  f"Shower wall tile complete - {st_name} ({stile_size}, {spattern})",
                  shower_wall_sf, "SF", round(st_total / shower_wall_sf, 2), "tile",
                  notes=" | ".join(st_parts))
+        # Its decorative tile, whichever line carries its field tile
+        if shower_wall_sf + s_with_wall > 0:
+            _dw = shower_spec.get("width_in", 0) or 36
+            _dd = shower_spec.get("depth_in", 0) or 36
+            _corner = _s_layout in ("neo_angle", "neo_angle_right", "corner", "corner_right")
+            _add_decorative_tile(line_items, "shower walls", shower_spec, labor_mult,
+                                 run_in=_dw + (_dd if _corner else 2 * _dd))
 
     # Shower floor tile + pan/pre-slope — needed whenever the shower TYPE is
     # a real tiled-floor build, independent of wall_material (fixed 2026-08-26:
@@ -1165,6 +1175,10 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                  f"Bathtub surround tile complete - {sur_name} ({sur_size}, {sur_pattern})",
                  surround_sf, "SF", round(bt_total / surround_sf, 2), "tile",
                  notes=" | ".join(bt_parts))
+        # Its decorative tile, whichever line carries its field tile
+        if surround_whole_sf > 0:
+            _add_decorative_tile(line_items, "tub surround", tub_spec, labor_mult,
+                                 run_in=tl + (2 * td if wall_count >= 3 else td if wall_count == 2 else 0))
 
     # Bathtub deck tile (platform top surface)
     if estimate.replace_tub and tub_spec.get("deck_tile"):
@@ -1384,6 +1398,35 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                      round(_head_mat + _head_labor, 2), "plumbing",
                      notes=f"{_name} ${_head_mat:,.2f} allowance | "
                            f"Remove old, install new ${_head_labor:,.2f}")
+
+    # ── Tub glass panel ──
+    # A fixed glass panel over part of the tub's open side (a splash screen,
+    # not a door), detached and reset or replaced as the person chose
+    # (tub_spec glass_panel_action: none, detach_reset, replace), by its SF
+    # and never under the glazier's minimum. Not tied to the tub's own
+    # action: tearing out the surround takes the panel off with the tub left in.
+    _glass_act = tub_spec.get("glass_panel_action") or "none"
+    if _glass_act in ("detach_reset", "replace") and (tub_spec.get("type") or "alcove") != "none":
+        _gw = _count(tub_spec.get("glass_panel_width_in")) or 30
+        _gh = _count(tub_spec.get("glass_panel_height_in")) or 58
+        _gsf = round(_gw * _gh / 144, 1)
+        _frosted = _glass_act == "replace" and bool(tub_spec.get("glass_panel_frosted"))
+        if _glass_act == "detach_reset":
+            _g_rate = TUB_GLASS_PANEL["detach_reset_per_sf"]
+            _g_label = "Tub glass panel - Detach & Reset"
+            _g_note = "Labor only: remove the panel and its channel, store, reset and re-seal"
+        else:
+            _g_rate = TUB_GLASS_PANEL["replace_per_sf"] + (TUB_GLASS_PANEL["frosted_per_sf"] if _frosted else 0)
+            _g_label = "Tub glass panel - R&R"
+            _g_note = ("Remove old, new 1/4\" tempered " + ("frosted " if _frosted else "")
+                       + "glass panel with its channel, installed and sealed")
+        _g_cost = _gsf * _g_rate
+        _g_min = TUB_GLASS_PANEL["minimum"]
+        _g_note = f'{_gw:g}" x {_gh:g}" = {_gsf:g} SF | {_g_note}'
+        if _g_cost < _g_min:
+            _g_cost = _g_min
+            _g_note += f" | Minimum charge ${_g_min:,.2f}"
+        _add(line_items, 5, _g_label, 1, "EA", round(_g_cost * labor_mult, 2), "fixture", notes=_g_note)
 
     # Shower (consolidated: body → 1 item, door → 1 item, max 2 items)
     if estimate.replace_shower:
@@ -2455,6 +2498,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                  f"Wall tile - {wt_name} ({tile_sz}, {tile_pat})",
                  round(tile_wall_sf, 1), "SF", tile_cost, "tile",
                  notes=wt_note)
+            _add_decorative_tile(line_items, "walls", walls, labor_mult)
 
     # ── Seal & prime (repaired drywall areas only) ──
     seal_prime_wall_sf = walls.get("seal_prime_wall_sf", 0) or 0
@@ -3138,6 +3182,43 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         "methodology_notes": " | ".join(method_parts),
         "warning_flags": warnings,
     }
+
+
+def _count(value) -> float:
+    """A number typed on the estimate, 0 when it's blank or not a number"""
+    try:
+        return max(0.0, float(value or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _add_decorative_tile(
+    items: List[Dict],
+    surface: str,
+    spec: Dict[str, Any],
+    labor_mult: float,
+    run_in: float = 0,
+):
+    """
+    A tiled surface's decorative tile, on top of its field tile (which counts
+    the area already): border / listello strips per LF and accent inserts
+    each. A tub surround or shower walls (run_in, their length around in
+    inches) take border rows, each all the way around; walls and floor take
+    the border's LF as typed.
+    """
+    rows = _count(spec.get("deco_border_rows")) if run_in else 0
+    border_lf = rows * run_in / 12 if run_in else _count(spec.get("deco_border_lf"))
+    inserts = int(_count(spec.get("deco_inserts")))
+    if border_lf > 0:
+        how = (f"{rows:g} row{'s' if rows != 1 else ''} around, {run_in / 12:.1f} LF each | "
+               if run_in else "")
+        _add(items, 4, f"Decorative tile border / listello - {surface}",
+             round(border_lf, 1), "LF", round(DECORATIVE_TILE["border_per_lf"] * labor_mult, 2), "tile",
+             notes=f"{how}Border, listello or liner strip set in the field tile: material + labor")
+    if inserts > 0:
+        _add(items, 4, f"Decorative tile inserts - {surface}",
+             inserts, "EA", round(DECORATIVE_TILE["insert_each"] * labor_mult, 2), "tile",
+             notes="Accent insert set into the field tile, the field cut around it: insert allowance + labor")
 
 
 def _add(

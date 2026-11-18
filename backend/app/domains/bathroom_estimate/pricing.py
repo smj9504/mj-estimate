@@ -311,6 +311,19 @@ TILE_EXTRAS = {
     #   ["wall_tile_per_sf"] (§1-1 owns all tile removal).
 }
 
+# Decorative tile on a tiled surface (tub surround, shower walls, wall tile,
+# floor), on top of that surface's field tile, which already counts the area
+# (2026-11-18). A border, listello or liner strip per LF is Xactimate's
+# feature strip add-on, premium grade: relief and listello pieces, not a
+# plain accent color field tile. An accent insert (a deco piece set into the
+# field, often on point) has no Xactimate line: 6 minutes of tile setter
+# (TIL LAB $128.61/hr) cutting the field around it plus a $12 insert
+# allowance. Both my defaults, awaiting the owner's OK.
+DECORATIVE_TILE = {
+    "border_per_lf": xact(16.92),               # TIL FSTRIP+
+    "insert_each": xact(128.61 * 0.1 + 12.00),  # TIL LAB 0.1 hr + insert allowance
+}
+
 # ──────────────────────────────────────────────
 # Phase 6: Fixtures
 # ──────────────────────────────────────────────
@@ -372,6 +385,17 @@ BATHTUB_EXTRAS = {
     "shower_valve_trim_only": 271,    # trim kit only (retain existing valve body)
     "showerhead_install": 104,        # shower head + arm install labor
     "curtain_rod": 79,                # curtain rod + rings + mount (supply + install)
+}
+
+# A fixed glass panel on a tub (a splash screen over part of its open side,
+# not a door), per SF of glass with the glazier's minimum (2026-11-18).
+# Xactimate has no line of its own for it: priced as a custom shower
+# partition. Replacing includes taking the old one out (MSD SDC is "&").
+TUB_GLASS_PANEL = {
+    "replace_per_sf": xact(36.68),       # MSD SDC: 1/4" tempered glass, framed
+    "frosted_per_sf": xact(4.88),        # GLS OBS: obscure (frosted) glass add-on
+    "detach_reset_per_sf": xact(15.96),  # MSD SDC+RS: detach, store, reset
+    "minimum": xact(181.03),             # MSD MN: mirror / shower door labor minimum
 }
 
 # Shower door / enclosure

@@ -553,6 +553,21 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     // Just the rod: a flat curtain panel read as a wall
     g.add(rod);
   }
+
+  // A fixed glass panel standing on the front rim from the faucet's end, in its channel
+  const glassPanel = kit.looks.tubGlassPanel;
+  if (glassPanel && (sub === 'standard_alcove' || sub === 'drop_in')) {
+    const span = Math.min(1, glassPanel.widthIn / W);
+    const fromLeft = edge === 'west' || (edge !== 'east' && fp.x <= 0.5);
+    const [a, b] = fromLeft ? [local(0, 1), local(span, 1)] : [local(1 - span, 1), local(1, 1)];
+    const top = Math.min(f.ceilingIn, rim + glassPanel.heightIn);
+    const inset: Pt = [0, -1.5];
+    g.add(panelAlong(a, b, rim, top, 0.375, kit.glass, inset));
+    g.add(panelAlong(a, b, rim, rim + 0.75, 0.9, kit.metal, inset));
+    // The channel up the wall it's fixed to
+    const wallEnd = fromLeft ? a : b;
+    g.add(boxAt(0.9, top - rim, 0.9, kit.metal, wallEnd[0] + (fromLeft ? 0.45 : -0.45), (rim + top) / 2, wallEnd[1] + inset[1]));
+  }
 }
 
 /** An outline pulled in toward its centre by `by` inches. */

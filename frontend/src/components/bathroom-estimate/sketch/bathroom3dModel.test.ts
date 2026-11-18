@@ -134,6 +134,16 @@ describe('looks', () => {
     expect(bathroomLooks(s, { floor_spec: { material: 'lvt_spc' } }).floor).toMatchObject({ pattern: 'subway', widthIn: 48 });
     expect(bathroomLooks(s, { floor_spec: { material: 'carpet' } }).floor).toBeNull();
   });
+
+  it('stands a tub glass panel kept or new, at the size the estimate prices', () => {
+    const s = sketch([north()]);
+    expect(bathroomLooks(s, {}).tubGlassPanel).toBeNull();
+    expect(bathroomLooks(s, { bathtub_spec: { glass_panel_action: 'none', glass_panel_width_in: 30 } }).tubGlassPanel).toBeNull();
+    expect(bathroomLooks(s, { bathtub_spec: { glass_panel_action: 'detach_reset' } }).tubGlassPanel)
+      .toEqual({ widthIn: 30, heightIn: 58 });
+    expect(bathroomLooks(s, { bathtub_spec: { glass_panel_action: 'replace', glass_panel_width_in: 34, glass_panel_height_in: 56 } }).tubGlassPanel)
+      .toEqual({ widthIn: 34, heightIn: 56 });
+  });
 });
 
 describe('bathroomLooks with picked products', () => {

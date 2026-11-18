@@ -77,6 +77,9 @@ PRICE_TABLES = [
     TableSpec("TILE_EXTRAS", "Tile", kind=MIXED, share=_TILE, skip=("waste_factor",)),
     TableSpec("TILE_BASEBOARD_PRICES", "Tile", kind=MIXED, share=_TILE, unit="LF",
               note="Tile base per LF, material and labor."),
+    TableSpec("DECORATIVE_TILE", "Tile", kind=MIXED, share=_TILE, title="Decorative",
+              labels={"border_per_lf": "Border / listello", "insert_each": "Accent insert"},
+              note="On top of the field tile: a border strip per LF, an insert each."),
     # ── Bathtub ──
     TableSpec("BATHTUB_PRICES", "Bathtub", kind=MATERIAL),
     TableSpec("BATHTUB_INSTALL", "Bathtub", kind=LABOR),
@@ -87,6 +90,14 @@ PRICE_TABLES = [
     ),
     TableSpec("TUB_FAUCET_PRICES", "Bathtub", kind=MATERIAL,
               note="Faucet material; its labor is Plumbing · Tub faucet install."),
+    TableSpec(
+        "TUB_GLASS_PANEL", "Bathtub", kind=MIXED, share=0.58, title="Glass panel",
+        kinds={"frosted_per_sf": MATERIAL, "detach_reset_per_sf": LABOR, "minimum": LABOR},
+        labels={"replace_per_sf": "New, per SF", "frosted_per_sf": "Frosted glass, per SF",
+                "detach_reset_per_sf": "Detach & reset, per SF", "minimum": "Minimum charge"},
+        units={"minimum": "EA"},
+        note="A fixed glass panel on the tub, per SF of glass; never under the minimum.",
+    ),
     # ── Shower ──
     TableSpec("SHOWER_DOOR_PRICES", "Shower Door", kind=MATERIAL, size_format='{}" opening',
               labels={"any": "Any size"}),

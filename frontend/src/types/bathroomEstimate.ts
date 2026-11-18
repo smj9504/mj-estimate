@@ -71,7 +71,23 @@ export interface ShowerSpec {
   neo_angle_kit_grade?: string;
   /** Neo-angle door frame style: framed_neo_angle, semi_frameless_neo_angle, frameless_neo_angle */
   neo_angle_door_type?: string;
+  /** Decorative tile on its walls (DecorativeTile) */
+  deco_border_rows?: number | null;
+  deco_inserts?: number | null;
 }
+
+/**
+ * Patterned tile on a tiled surface, on top of its field tile: border /
+ * listello strips and accent inserts. A tub surround or shower walls take
+ * border rows (each all the way around); walls and floor the border's LF.
+ */
+export interface DecorativeTile {
+  deco_border_rows?: number | null;
+  deco_border_lf?: number | null;
+  deco_inserts?: number | null;
+}
+
+export type GlassPanelAction = 'none' | 'detach_reset' | 'replace';
 
 export interface BathtubSpec {
   type?: string;          // alcove, drop_in, freestanding, walk_in, none
@@ -92,6 +108,15 @@ export interface BathtubSpec {
   // hose, when the tub has them, are detached and reset or replaced.
   showerhead_action?: 'none' | 'detach_reset' | 'replace';
   handheld_action?: 'none' | 'detach_reset' | 'replace';
+  /** A fixed glass panel over part of the tub's open side (a splash screen, not a door) */
+  glass_panel_action?: GlassPanelAction;
+  glass_panel_width_in?: number | null;
+  glass_panel_height_in?: number | null;
+  /** New frosted (obscure) glass, when replaced */
+  glass_panel_frosted?: boolean;
+  /** Decorative tile on the surround (DecorativeTile) */
+  deco_border_rows?: number | null;
+  deco_inserts?: number | null;
 }
 
 export interface VanityItemSpec {
@@ -130,6 +155,9 @@ export interface FloorSpec {
   size?: string;
   pattern?: string;
   heated_floor?: boolean;
+  /** Decorative tile on the floor (DecorativeTile) */
+  deco_border_lf?: number | null;
+  deco_inserts?: number | null;
 }
 
 export interface WallsSpec {
@@ -146,6 +174,9 @@ export interface WallsSpec {
   tile_material?: string;
   tile_pattern?: string;
   tile_size?: string;
+  /** Decorative tile on the wall tile (DecorativeTile) */
+  deco_border_lf?: number | null;
+  deco_inserts?: number | null;
   baseboard_material?: string;
   quarter_round?: boolean;
   door_trim_count?: number;
