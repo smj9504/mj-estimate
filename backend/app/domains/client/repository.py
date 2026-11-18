@@ -301,12 +301,14 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
         return items
 
     def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None,
-                            source: Optional[str] = None, staff: Any = None) -> List[Dict[str, Any]]:
+                            source: Optional[str] = None, staff: Any = None,
+                            search: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all clients with claim counts, in the Water Mitigation list's order.
 
-        A client with an active WM job sorts by when its newest active WM job
-        was made, as that job sorts on the WM list (active jobs, newest first).
-        Any other client slots in by when it or one of its claims last changed.
+        Clients with an active WM job come first, by when their newest active
+        WM job was made, as that job sorts on the WM list (active jobs, newest
+        first). Every other client follows, by when it or one of its claims
+        last changed. A search keeps that order.
         With staff, only the clients, claims and WM jobs that person may see."""
         from app.domains.auth.company_scope import scoped
         from app.domains.water_mitigation.models import WaterMitigationJob
@@ -352,6 +354,16 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                         query = query.filter(getattr(Client, key) == value)
             query = self._filter_source(query, source)
             query = scoped(query, self._client_scope(staff))
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(or_(
+                    Client.display_name.ilike(search_term),
+                    Client.nickname.ilike(search_term),
+                    Client.address.ilike(search_term),
+                    Client.phone.ilike(search_term),
+                    Client.email.ilike(search_term),
+                    Client.city.ilike(search_term),
+                ))
 
             # Most recent activity: client's own updated_at vs. its claims'
             # latest activity, whichever is more recent
@@ -361,9 +373,15 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                  latest_claim_activity.c.latest_activity),
                 else_=client_activity
             )
-            # WM job date where there is one, else that activity (desc)
-            list_date = func.coalesce(latest_wm_job.c.wm_created, latest_overall_activity)
-            query = query.order_by(list_date.desc().nullslast(), Client.created_at.desc())
+            # First the clients on the WM list, in its order (newest active
+            # WM job first); then everyone else, by that activity (desc)
+            not_on_wm_list = case((latest_wm_job.c.wm_created.is_(None), 1), else_=0)
+            query = query.order_by(
+                not_on_wm_list,
+                latest_wm_job.c.wm_created.desc(),
+                latest_overall_activity.desc().nullslast(),
+                Client.created_at.desc(),
+            )
 
             if offset:
                 query = query.offset(offset)
@@ -379,26 +397,9 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
 
     def search_by_name(self, query: str, limit: int = 20,
                        source: Optional[str] = None, staff: Any = None) -> List[Dict[str, Any]]:
-        """Search clients by display_name, nickname, address, phone, or email"""
-        from app.domains.auth.company_scope import scoped
-
-        try:
-            search_term = f"%{query}%"
-            base = scoped(self.db_session.query(Client), self._client_scope(staff))
-            clients = self._filter_source(base, source).filter(
-                or_(
-                    Client.display_name.ilike(search_term),
-                    Client.nickname.ilike(search_term),
-                    Client.address.ilike(search_term),
-                    Client.phone.ilike(search_term),
-                    Client.email.ilike(search_term),
-                    Client.city.ilike(search_term),
-                )
-            ).order_by(Client.display_name).limit(limit).all()
-            return self._list_items(clients, staff)
-        except Exception as e:
-            logger.error(f"Error searching clients: {e}")
-            raise
+        """Search clients by display_name, nickname, address, phone, email or
+        city, in the client list's order (not by name)"""
+        return self.get_all_with_counts(limit=limit, source=source, staff=staff, search=query)
 
 
 # ============================================================

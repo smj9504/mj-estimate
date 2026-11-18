@@ -1,9 +1,10 @@
-"""The Clients list runs in the Water Mitigation list's order (2026-11-06):
+"""The Clients list runs in the Water Mitigation list's order (2026-11-06,
+WM first since 2026-11-18):
 
-- a client with an active WM job sorts by when its newest active WM job was
-  made, as the WM list sorts its jobs (active, newest first);
-- every other client - no WM job, or only inactive ones - slots in by when it
-  or one of its claims last changed.
+- clients with an active WM job come first, by when their newest active WM
+  job was made, as the WM list sorts its jobs (active, newest first);
+- every other client - no WM job, or only inactive ones - follows, by when
+  it or one of its claims last changed.
 
 Run through the API on a throwaway SQLite database."""
 
@@ -93,7 +94,7 @@ def api(tmp_path, monkeypatch):
             active=active, claim_id=on_claim.id, created_at=created, updated_at=created,
         ))
 
-    # Recently edited, no claims: slots in by that edit
+    # Edited after every WM job was made, no claims: still after them
     client('Edited', day(10, 1), day(11, 5))
     # Claim changed today, but its WM job was made on 11/01: sorts by the job
     b = client('Older WM', day(10, 1))
@@ -130,17 +131,32 @@ def api(tmp_path, monkeypatch):
     app.dependency_overrides.pop(database_factory.get_db_session, None)
 
 
-def test_clients_follow_the_wm_list_with_the_rest_slotted_in_by_date(api):
+def test_wm_list_clients_come_first_then_the_rest_by_date(api):
     got = api.get('/api/clients/', params={'limit': 1000})
     assert got.status_code == 200, got.text
     assert [c['display_name'] for c in got.json()['clients']] == [
-        'Edited',      # 11/05 updated
         'Newest WM',   # 11/03 WM job
         'Two WM',      # 11/02 WM job
         'Older WM',    # 11/01 WM job
+        'Edited',      # 11/05 updated
         'Untouched',   # 10/20 created
         'Closed WM',   # 10/15 claim changed
     ]
+
+
+def test_search_keeps_the_list_order_not_the_name_order(api):
+    # Every name with an "e" but 'Two WM'; by name it would start 'Closed WM'
+    got = api.get('/api/clients/', params={'search': 'e', 'limit': 1000})
+    assert got.status_code == 200, got.text
+    assert [c['display_name'] for c in got.json()['clients']] == [
+        'Newest WM', 'Older WM', 'Edited', 'Untouched', 'Closed WM',
+    ]
+
+
+def test_client_pickers_search_in_the_list_order_too(api):
+    got = api.get('/api/clients/search', params={'q': 'WM', 'limit': 2})
+    assert got.status_code == 200, got.text
+    assert [c['display_name'] for c in got.json()['clients']] == ['Newest WM', 'Two WM']
 
 
 def test_each_row_says_which_wm_job_date_placed_it(api):
