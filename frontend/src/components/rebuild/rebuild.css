@@ -290,6 +290,12 @@
   align-items: center;
   gap: 6px;
 }
+/* A claim WM'd by more than one company lists each */
+.rb-companies {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
 .rb-num {
   font-variant-numeric: tabular-nums;
 }

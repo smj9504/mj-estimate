@@ -136,9 +136,31 @@ class RebuildService:
                 result['completion_docs'] = doc_repo.get_by_project(pid)
                 result['completion_doc_count'] = len(result['completion_docs'])
                 result['wm_jobs'] = self._claim_wm_jobs(session, result.get('claim_id'))
+                result['wm_companies'] = self._claim_wm_companies(session, result.get('claim_id'))
             return result
         finally:
             session.close()
+
+    @staticmethod
+    def _claim_wm_companies(session, claim_id) -> List[Dict[str, Any]]:
+        """The companies that did the claim's water mitigation (its WM jobs'
+        companies and any company on the claim in the WM role), by name"""
+        from app.domains.client.claim_paths import company_names, wm_company_ids
+
+        if not claim_id:
+            return []
+        # Shown for reference only: a failed lookup leaves the row out rather
+        # than the whole project page
+        try:
+            names = company_names(session, wm_company_ids(session, str(claim_id)))
+        except Exception:
+            logger.exception("Rebuild project: WM companies lookup failed for claim %s", claim_id)
+            session.rollback()
+            return []
+        return sorted(
+            ({'id': cid, 'name': name} for cid, name in names.items() if name),
+            key=lambda c: c['name'].lower(),
+        )
 
     @staticmethod
     def _claim_wm_jobs(session, claim_id) -> List[Dict[str, Any]]:

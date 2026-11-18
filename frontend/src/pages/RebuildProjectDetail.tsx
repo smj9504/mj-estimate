@@ -469,6 +469,20 @@ const RebuildProjectDetail: React.FC = () => {
               </span>
             ) : null,
           },
+          {
+            // From the claim's WM jobs, not the project, so the Edit form never changes it
+            key: 'wm', label: 'Water mitigation', hideEmpty: true,
+            value: p.wm_companies?.length ? (
+              <span className="rb-companies">
+                {p.wm_companies.map(c => (
+                  <span key={c.id} className="rb-company">
+                    <CompanyMonogram id={c.id} name={c.name} />
+                    {c.name}
+                  </span>
+                ))}
+              </span>
+            ) : null,
+          },
           { key: 'insurance', label: 'Insurance $', value: amount(p.insurance_estimate_amount) },
           { key: 'contract', label: 'Contract $', value: amount(p.contract_amount) },
           { key: 'final', label: 'Final invoice $', hideEmpty: true, value: amount(p.final_invoice_amount) },

@@ -108,6 +108,11 @@ class RebuildWMJobRef(BaseModel):
     companycam_project_id: Optional[str] = None
 
 
+class RebuildCompanyRef(BaseModel):
+    id: str
+    name: str
+
+
 class RebuildProjectResponse(RebuildProjectBase):
     id: UUID
     claim_id: UUID
@@ -141,6 +146,9 @@ class RebuildProjectResponse(RebuildProjectBase):
     completion_doc_count: int = 0
     # Detail only: the claim's WM jobs, whose photos the completion PDF can use
     wm_jobs: List[RebuildWMJobRef] = []
+    # Detail only: the companies that did the claim's water mitigation, shown
+    # read-only (they come from the claim, not the project)
+    wm_companies: List[RebuildCompanyRef] = []
 
     # Nested
     contractor: Optional[RebuildContractorResponse] = None

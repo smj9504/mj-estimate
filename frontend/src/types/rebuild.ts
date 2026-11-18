@@ -62,6 +62,8 @@ export interface RebuildProject {
   completion_docs: RebuildCompletionDoc[];
   /** Project page only: the claim's WM jobs, each one of the claim's photo sets */
   wm_jobs?: RebuildWMJob[];
+  /** Project page only, read-only: the companies that did the claim's water mitigation */
+  wm_companies?: { id: string; name: string }[];
 }
 
 export interface RebuildWMJob {
