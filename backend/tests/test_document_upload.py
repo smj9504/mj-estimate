@@ -50,6 +50,8 @@ def test_startup_preflight_and_503_are_readable(launcher):
     assert response.headers['access-control-allow-origin'] == ORIGIN
     assert response.headers['retry-after'] == '5'
     assert 'Retry-After' in response.headers['access-control-expose-headers']
+    # A downloaded file is named as the server names it (a PDF with the property's address)
+    assert 'Content-Disposition' in response.headers['access-control-expose-headers']
     assert 'starting' in response.json()['detail']
 
 

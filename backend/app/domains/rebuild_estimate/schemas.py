@@ -1,6 +1,6 @@
 """What a rebuild estimate takes and gives."""
 
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -28,6 +28,8 @@ class Room(BaseModel):
     measures: Measures = Measures()
     # Drawn on the estimate's sketch: its name, level and measures come from there
     sketch_room_id: Optional[str] = Field(None, max_length=64)
+    # Rooms combined into it on the sketch, as they were with their lines, the latest last (sketch_rooms)
+    combined: Optional[List[Dict[str, Any]]] = None
 
 
 class Activity(BaseModel):
@@ -50,6 +52,8 @@ class Line(BaseModel):
     description: str = Field(..., min_length=1, max_length=500)
     unit: str = Field("EA", min_length=1, max_length=10)
     quantity: Optional[float] = Field(None, ge=0)               # none: the room's measure (basis)
+    # The sum the quantity was typed as (16.25*2 + 4.25*2), to type it again from
+    qty_formula: Optional[str] = Field(None, max_length=200)
     basis: Optional[str] = None
     # A wall measure only part of the way up: the lower cut_height_ft (a
     # flood cut) or what is above it; none: the whole height
@@ -115,11 +119,13 @@ class ImportRequest(BaseModel):
 
 
 class WordingRequest(BaseModel):
-    """Our words for a price list line from now on ({S}: the surface)"""
+    """Our words for a price list line from now on ({S}: the surface), and
+    the note that comes with it (none: the built-in one, if any)"""
     model_config = ConfigDict(extra="forbid")
     code: str = Field(..., min_length=1, max_length=50)
     activity: Literal["&", "+", "-", "R", "M", "I"]
     text: str = Field(..., min_length=1, max_length=500)
+    note: Optional[str] = Field(None, max_length=500)
 
     @field_validator("text")
     @classmethod
@@ -128,6 +134,11 @@ class WordingRequest(BaseModel):
         if not value:
             raise ValueError("Write the words")
         return value
+
+    @field_validator("note")
+    @classmethod
+    def strip_note(cls, value: Optional[str]) -> Optional[str]:
+        return " ".join(value.split()) or None if value is not None else None
 
 
 class SourceRoomRequest(BaseModel):

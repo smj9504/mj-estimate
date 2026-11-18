@@ -16,7 +16,8 @@ import type {
   SketchRoom,
   SketchWall,
 } from '../../../../types/flooringEstimate';
-import { WALL_T, pointInPolygon, reattach, translate } from './geometry';
+import { WALL_T, edgesOf, pointInPolygon, projectOnSegment, reattach, translate } from './geometry';
+import { combinedOutline } from './combine';
 
 export const DEFAULT_LEVEL_NAME = 'Main Level';
 
@@ -202,6 +203,101 @@ export function moveRoom(sketch: FlooringSketch, levelId: string, roomId: string
       fixtures: l.fixtures.map((f) => (pointInPolygon(f, room.points) ? { ...f, x: f.x + dx, y: f.y + dy } : f)),
     };
   });
+}
+
+/**
+ * Rooms combined into one (the first): one outline across the walls between
+ * them, keeping the first room's name, height and id, so what is on it stays
+ * on it; the others' ids are kept on it (merged_from) for what was on them.
+ * Doorways and open sides between them go with the walls; the rest, their
+ * cabinet runs and built-out walls are the combined room's, back on its walls.
+ */
+export function combineRooms(
+  sketch: FlooringSketch, levelId: string, keepId: string, otherIds: string[],
+): { sketch: FlooringSketch } | { error: string } {
+  const level = sketch.levels.find((l) => l.id === levelId);
+  const keep = level?.rooms.find((r) => r.id === keepId);
+  const others = (level?.rooms || []).filter((r) => otherIds.includes(r.id) && r.id !== keepId);
+  if (!level || !keep || others.length === 0) return { error: 'Pick the rooms to combine it with.' };
+  const outline = combinedOutline([keep, ...others].map((r) => r.points));
+  if (!outline) return { error: "These rooms don't meet: combine rooms with a wall, a doorway or an open side between them." };
+  const gone = new Set(others.map((r) => r.id));
+  const members = new Set([keepId, ...gone]);
+  const swap = (id: string | null | undefined) => (id && gone.has(id) ? keepId : id ?? null);
+  const merged = Array.from(new Set([...(keep.merged_from || []), ...others.flatMap((r) => [r.id, ...(r.merged_from || [])])]));
+  const between = level.openings.filter((o) => o.rooms.length === 2 && o.rooms.every((id) => !!id && members.has(id)));
+  const next = onLevel(sketch, levelId, (l) => ({
+    ...l,
+    rooms: l.rooms
+      .filter((r) => !gone.has(r.id))
+      .map((r) => {
+        if (r.id === keepId) {
+          return {
+            ...r,
+            merged_from: merged,
+            subroom_of: r.subroom_of && members.has(r.subroom_of) ? null : r.subroom_of,
+            // As they were, to separate them again
+            combined_from: { rooms: [keep, ...others], openings: between },
+          };
+        }
+        return r.subroom_of && gone.has(r.subroom_of) ? { ...r, subroom_of: keepId } : r;
+      }),
+    openings: l.openings
+      .filter((o) => !(o.rooms.length === 2 && o.rooms.every((id) => !!id && members.has(id))))
+      .map((o) => ({
+        ...o,
+        rooms: o.rooms.map((id) => swap(id)) as SketchOpening['rooms'],
+        ...(o.swing !== undefined ? { swing: swap(o.swing) } : {}),
+      })),
+    cabinet_runs: l.cabinet_runs.map((c) => (gone.has(c.room_id) ? { ...c, room_id: keepId } : c)),
+    walls: l.walls.map((w) => (gone.has(w.room_id) ? { ...w, room_id: keepId } : w)),
+  }));
+  return { sketch: setRoomPoints(next, levelId, keepId, outline) };
+}
+
+/**
+ * A combined room separated again into the rooms it was combined from, as
+ * they were (the doorways between them back too). A doorway, cabinet run or
+ * wall now on the combined room goes back to the room whose wall or floor
+ * it is on.
+ */
+export function separateRoom(sketch: FlooringSketch, levelId: string, roomId: string): FlooringSketch {
+  const level = sketch.levels.find((l) => l.id === levelId);
+  const room = level?.rooms.find((r) => r.id === roomId);
+  const before = room?.combined_from;
+  if (!level || !room || !before?.rooms?.length) return sketch;
+  const parts = before.rooms;
+  const near = (p: FtPoint) => {
+    let best = parts[0];
+    let bestD = Infinity;
+    for (const part of parts) {
+      if (pointInPolygon(p, part.points)) return part.id;
+      for (const e of edgesOf(part.points)) {
+        const d = projectOnSegment(p, e.a, e.b).dist;
+        if (d < bestD) {
+          bestD = d;
+          best = part;
+        }
+      }
+    }
+    return best.id;
+  };
+  const mid = (a: FtPoint, b: FtPoint) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const back = (id: string | null, a: FtPoint, b: FtPoint) => (id === roomId ? near(mid(a, b)) : id);
+  return onLevel(sketch, levelId, (l) => ({
+    ...l,
+    rooms: l.rooms.flatMap((r) => (r.id === roomId ? parts : [r])),
+    openings: [
+      ...l.openings.map((o) => {
+        if (!o.rooms.includes(roomId)) return o;
+        const rooms = o.rooms.map((id) => back(id, o.a, o.b)) as SketchOpening['rooms'];
+        return { ...o, rooms, ...(o.swing === roomId ? { swing: rooms[0] } : {}) };
+      }),
+      ...(before.openings || []),
+    ],
+    cabinet_runs: l.cabinet_runs.map((c) => (c.room_id === roomId ? { ...c, room_id: near(mid(c.a, c.b)) } : c)),
+    walls: l.walls.map((w) => (w.room_id === roomId ? { ...w, room_id: near(w.a) } : w)),
+  }));
 }
 
 /** Removes a room and what can't stand without it: its doorways, cabinet runs and walls */

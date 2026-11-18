@@ -35,7 +35,7 @@ from app.domains.unit_prices.models import PriceBook, UnitPriceChange, UnitPrice
 from app.domains.unit_prices.xactimate import xact
 from app.domains.xactimate.models import XactimateCategory, XactimateItem
 
-from test_flooring_estimate import house, scopes  # noqa: E402  (also lets SQLite take JSONB)
+from test_flooring_estimate import P, house, scopes  # noqa: E402  (also lets SQLite take JSONB)
 
 
 @pytest.fixture
@@ -113,9 +113,11 @@ def test_a_flooring_estimate_comes_in_room_by_room_with_every_line(session, serv
     est = new(service)
     est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=floor_id))
 
-    # Its rooms, with what the sketch measured (the bedroom 2 and bathroom left out of it aren't)
+    # Its rooms, with what the sketch measured; its sketch came with it, so the bedroom 2 and
+    # bathroom it left out are drawn here too, holding nothing
     rooms = {r["name"]: r for r in est["rooms"]}
-    assert set(rooms) == {"Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet"}
+    assert set(rooms) == {"Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet", "Bedroom 2", "Bathroom"}
+    assert not lines_of(est, "Bedroom 2") and not lines_of(est, "Bathroom")
     living = rooms["Living Room"]["measures"]
     assert living["floor_sf"] == pytest.approx(212.5)
     assert living["perimeter_lf"] == pytest.approx(58.33)
@@ -177,12 +179,11 @@ def test_a_kitchen_and_a_bathroom_go_into_their_rooms(session, service):
     assert [s["key"] for s in kitchen["sections"]] == ["floor", "cabinets"]
     assert [li["description"] for li in kitchen["sections"][1]["lines"]] == [
         "Base cabinets - supply", "Base cabinets - install"]
-    # No room in the flooring estimate is a bathroom: the bathroom estimate brings its own,
-    # its lines under its phases, with its measures
-    bath = next(r for r in est["rooms"] if r["name"] == "Master Bathroom")
-    assert bath["measures"] == {"floor_sf": 40.0, "ceiling_sf": 40.0, "wall_sf": 180.0, "perimeter_lf": 26.0,
-                                "height_ft": 8.0}
-    assert list(lines_of(est, "Master Bathroom")) == ["bath_1", "bath_4", "bath_6"]
+    # The bathroom the flooring estimate's sketch has (left out of its scope) is the one room named
+    # for it: the bathroom estimate goes into it, its lines under its phases, measured as drawn
+    bath = next(r for r in est["rooms"] if r["name"] == "Bathroom")
+    assert bath["sketch_room_id"] == "bath" and bath["measures"]["floor_sf"] == 40.0
+    assert list(lines_of(est, "Bathroom")) == ["bath_1", "bath_4", "bath_6"]
     cab = next(s for s in est["sources"] if s["kind"] == "cabinet")
     assert cab["label"] == "Kitchen cabinet estimate" and cab["op_included"] is True
     # A cabinet estimate has O&P in its prices, the repairs here don't: said
@@ -193,8 +194,8 @@ def test_a_kitchen_and_a_bathroom_go_into_their_rooms(session, service):
     hall = next(r for r in est["rooms"] if r["name"] == "Hallway")
     est = service.move_source(est["id"], bath_src["id"], SourceRoomRequest(room_id=hall["id"]))
     assert "bath_1" in lines_of(est, "Hallway")
-    # The room it brought stays, empty
-    assert lines_of(est, "Master Bathroom") == {}
+    # The room it was in stays, empty
+    assert lines_of(est, "Bathroom") == {}
     est = service.move_source(est["id"], bath_src["id"], SourceRoomRequest(new_room_name="Guest Bath"))
     assert "bath_4" in lines_of(est, "Guest Bath")
     # A flooring estimate is many rooms: it isn't moved as one
@@ -216,16 +217,40 @@ def test_a_bathroom_finds_the_one_room_named_for_it(session, service):
     assert "bath_4" in lines_of(est, "Primary Bath")
 
 
-def test_removing_an_import_takes_its_lines_and_leaves_the_rooms(session, service):
+def test_removing_an_import_takes_its_lines_and_the_rooms_it_brought(session, service):
     est = new(service)
     est = service.import_source(est["id"], ImportRequest(kind="cabinet", estimate_id=cabinets(session)))
-    room_id = est["rooms"][0]["id"]
     # A room holding imported lines can't go
     with pytest.raises(HTTPException, match="holds the lines imported"):
         service.update(est["id"], RebuildEstimateUpdate(rooms=[]))
     est = service.remove_source(est["id"], est["sources"][0]["id"])
     assert est["sources"] == [] and est["total"] == 0
-    assert [r["id"] for r in est["rooms"]] == [room_id]
+    assert est["rooms"] == []
+
+
+def test_a_room_still_holding_something_stays_when_its_import_goes(session, service):
+    est = new(service)
+    est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=flooring(session)))
+    est = service.import_source(est["id"], ImportRequest(kind="cabinet", estimate_id=cabinets(session)))
+    room = {r["name"]: r["id"] for r in est["rooms"]}
+    # A repair added to the living room; the kitchen holds the kitchen estimate's lines too
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        {"id": "a", "room_id": room["Living Room"], "section": "wall", "description": "Paint the walls - one coat",
+         "unit": "SF", "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+    ]))
+    # Drawn on the sketch: the hall is the sketch's
+    sketch = house()
+    sketch["levels"][0]["rooms"] = [r for r in sketch["levels"][0]["rooms"] if r["id"] == "hall"]
+    sketch["levels"][0]["openings"] = []
+    sketch["levels"][0]["cabinet_runs"] = []
+    sketch["levels"][0]["fixtures"] = []
+    est = service.save_sketch(est["id"], sketch)
+    assert next(r for r in est["rooms"] if r["name"] == "Hallway").get("sketch_room_id") == "hall"
+
+    floors = next(s for s in est["sources"] if s["kind"] == "flooring")
+    est = service.remove_source(est["id"], floors["id"])
+    assert sorted(r["name"] for r in est["rooms"]) == ["Hallway", "Kitchen", "Living Room"]
+    assert [s["kind"] for s in est["sources"]] == ["cabinet"]
 
 
 def test_only_calculated_estimates_come_in(session, service):
@@ -334,6 +359,18 @@ def test_the_walls_are_measured_less_their_doors_and_the_outside_walls_apart():
         408 - 6 * 8 - 3 * 6.6667, abs=0.05)
 
 
+def test_a_window_comes_off_the_walls_of_the_room_drawn(session, service):
+    sketch = house()
+    # A 4' 2" by 3' window in the kitchen's back wall, which is an outside wall
+    sketch["levels"][0]["openings"].append({"id": "w1", "kind": "window", "rooms": ["kitchen", None],
+                                            "a": {"x": 20, "y": 0}, "b": {"x": 24.1667, "y": 0}, "height_ft": 3})
+    plain = _drawn(service.save_sketch(new(service)["id"], house()))["Kitchen"]["measures"]
+    kitchen = _drawn(service.save_sketch(new(service)["id"], sketch))["Kitchen"]["measures"]
+    assert kitchen["wall_sf"] == pytest.approx(plain["wall_sf"] - 4.1667 * 3, abs=0.01)
+    assert kitchen["exterior_wall_sf"] == pytest.approx(plain["exterior_wall_sf"] - 4.1667 * 3, abs=0.01)
+    assert kitchen["perimeter_lf"] == plain["perimeter_lf"]
+
+
 def test_a_flood_cut_takes_the_lower_part_of_the_walls_and_the_rest_is_painted_to_match(session, service):
     est = new(service)
     measures = {"floor_sf": 147, "wall_sf": 348, "exterior_wall_sf": 236, "perimeter_lf": 51, "height_ft": 8}
@@ -360,6 +397,17 @@ def test_a_flood_cut_takes_the_lower_part_of_the_walls_and_the_rest_is_painted_t
 
 # ── Our words, not Xactimate's ──
 
+def test_a_quantity_typed_as_a_sum_keeps_the_sum(session, service):
+    est = new(service)
+    est = service.update(est["id"], RebuildEstimateUpdate(
+        rooms=[{"id": "d", "name": "Den", "measures": {"floor_sf": 100}}],
+        lines=[{"id": "a", "room_id": "d", "section": "floor", "description": "Quarter round 3/4\" - install",
+                "unit": "LF", "quantity": 41, "qty_formula": "16.25*2 + 4.25*2", "unit_price": 2.4}],
+    ))
+    assert est["lines"][0]["qty_formula"] == "16.25*2 + 4.25*2"
+    assert lines_of(est, "Den")["floor"][0]["quantity"] == 41
+
+
 def test_a_line_is_worded_our_way_the_companys_words_first():
     from app.domains.rebuild_estimate.wording import built_in, wording_for
 
@@ -384,6 +432,40 @@ def test_a_company_keeps_its_own_words(session):
     assert saved_wordings(session, mine)[("FCWLAM", "&")] == "Laminate - remove & lay new"
     assert saved_wordings(session, theirs)[("FCWLAM", "&")] == "Laminate floor - replace"
     assert session.query(RebuildWording).count() == 2
+
+
+def test_a_line_that_costs_more_than_it_looks_comes_with_a_note_and_a_company_keeps_its_own(session):
+    from app.domains.flooring_estimate.items import DETACH_RESET_NOTES
+    from app.domains.rebuild_estimate.wording import built_in_note, note_for, save_wording, saved_notes
+    from app.domains.rebuild_estimate.xactimate_search import search
+
+    # A dishwasher, a gas range, a toilet detached and reset: what the price pays for
+    assert built_in_note("APPDW", "R") == built_in_note("APPDW+", "R") == DETACH_RESET_NOTES["dishwasher"]
+    assert built_in_note("APPRGGRS", "+") == built_in_note("APPRGG", "R") == DETACH_RESET_NOTES["range_gas"]
+    assert built_in_note("PLMTLT", "R") == DETACH_RESET_NOTES["toilet"]
+    # Not when it is replaced, nor for what just rolls out
+    assert built_in_note("APPDW", "&") is None and built_in_note("APPRF", "R") is None
+
+    # The company's note, kept with its words, over the built-in one; another company's is its own
+    mine, theirs = str(uuid.uuid4()), str(uuid.uuid4())
+    save_wording(session, mine, "APPDW", "R", "Dishwasher - detach & reset", note="Under the granite top")
+    save_wording(session, mine, "FCWLAM", "&", "Laminate - remove & lay new")
+    assert saved_notes(session, mine) == {("APPDW", "R"): "Under the granite top"}
+    assert note_for("APPDW", "R", saved_notes(session, mine)) == "Under the granite top"
+    assert note_for("APPDW", "R", saved_notes(session, theirs)) == DETACH_RESET_NOTES["dishwasher"]
+    # Kept again without one: the built-in one again
+    save_wording(session, mine, "APPDW", "R", "Dishwasher - detach & reset")
+    assert saved_notes(session, mine) == {}
+
+    # Found in the price list, each activity with its note
+    session.add(XactimateItem(price_year=2026, price_month=11, price_list="VAAR8X_NOV26", item_code="APPDW",
+                              category_code="APP", description="Dishwasher", unit="EA", activity="&",
+                              untaxed_unit_price=778.53, replace_price=745.76, remove_price=32.77, material_cost=534.0,
+                              other_activities="RMI", detach_reset_price=380.98, material_only_price=534.0,
+                              install_only_price=211.76))
+    session.flush()
+    acts = {a["activity"]: a for a in search(session, "dishwasher", notes={})[0]["activities"]}
+    assert acts["R"]["note"] == DETACH_RESET_NOTES["dishwasher"] and acts["&"]["note"] is None
 
 
 def test_a_line_left_in_xactimates_words_is_pointed_out(session, service):
@@ -590,6 +672,65 @@ def test_a_room_taken_off_the_sketch_goes_unless_it_holds_lines(session, service
     assert _drawn(est)["Bedroom 2"]["id"] == "sk-bed2" and _drawn(est)["Bathroom"]["id"] == "sk-bath"
 
 
+def test_rooms_combined_on_the_sketch_go_into_one_and_their_lines_with_them(session, service):
+    est = new(service)
+    est = service.save_sketch(est["id"], house())
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        # Following the kitchen's walls, the living room's, and one typed
+        {"id": "k", "room_id": "sk-kitchen", "section": "wall", "description": "Walls - paint, 1 coat", "unit": "SF",
+         "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+        {"id": "l", "room_id": "sk-living", "section": "wall", "description": "Walls - paint, 1 coat", "unit": "SF",
+         "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+        {"id": "t", "room_id": "sk-kitchen", "section": "other", "description": "Haul debris", "unit": "EA",
+         "quantity": 1, "unit_price": 100},
+    ]))
+    walls = {r["id"]: r["measures"]["wall_sf"] for r in est["rooms"]}
+    before = est["total"]
+
+    # The kitchen combined into the living room
+    sketch = house()
+    level = sketch["levels"][0]
+    level["rooms"] = [r for r in level["rooms"] if r["id"] != "kitchen"]
+    living = level["rooms"][0]
+    living["points"] = P((0, 0), (29.375, 0), (29.375, 11.5), (15, 11.5), (15, 14.1667), (0, 14.1667))
+    living["merged_from"] = ["kitchen"]
+    level["openings"] = [o for o in level["openings"] if "kitchen" not in o["rooms"]]
+    level["cabinet_runs"] = [{**c, "room_id": "living"} for c in level["cabinet_runs"]]
+    est = service.save_sketch(est["id"], sketch)
+
+    assert "Kitchen" not in {r["name"] for r in est["rooms"]}
+    lines = {li["id"]: li for li in est["lines"]}
+    assert {li["room_id"] for li in lines.values()} == {"sk-living"}
+    # The same item on both rooms is one line, its quantities added up (each as it was measured,
+    # so nothing counted twice), the sum kept to read; another item stays its own line
+    assert set(lines) == {"l", "t"}
+    k, living = walls["sk-kitchen"], walls["sk-living"]
+    assert lines["l"]["quantity"] == pytest.approx(living + k) and lines["l"]["basis"] is None
+    assert lines["l"]["qty_formula"] == f"{living:.2f}".rstrip("0").rstrip(".") + " + " + f"{k:.2f}".rstrip("0").rstrip(".")
+    assert lines["t"]["quantity"] == 1
+    assert est["total"] == pytest.approx(before)
+
+    # Separated again (or undone) on the sketch: the kitchen and the lines as they were
+    apart = service.save_sketch(est["id"], house())
+    assert {r["name"] for r in apart["rooms"]} >= {"Kitchen", "Living Room"}
+    back = {li["id"]: li for li in apart["lines"]}
+    assert set(back) == {"k", "l", "t"}
+    assert back["k"]["room_id"] == "sk-kitchen" and back["k"]["quantity"] is None and back["k"]["basis"] == "wall_sf"
+    assert back["l"]["room_id"] == "sk-living" and back["l"]["quantity"] is None
+    assert back["t"]["room_id"] == "sk-kitchen"
+    assert not next(r for r in apart["rooms"] if r["name"] == "Living Room").get("combined")
+    assert apart["total"] == pytest.approx(before)
+    est = service.save_sketch(est["id"], sketch)
+    # A page a save behind, still with the kitchen and its lines, is taken in the same way
+    stale = service.update(est["id"], RebuildEstimateUpdate(
+        rooms=[{**r, "measures": {k: v for k, v in r["measures"].items() if v is not None}} for r in est["rooms"]]
+        + [{"id": "sk-kitchen", "name": "Kitchen", "sketch_room_id": "kitchen", "measures": {"wall_sf": 300}}],
+        lines=[{**li, "room_id": "sk-kitchen"} if li["id"] == "t" else li for li in est["lines"]],
+    ))
+    assert "Kitchen" not in {r["name"] for r in stale["rooms"]}
+    assert {li["room_id"] for li in stale["lines"]} == {"sk-living"}
+
+
 def test_a_page_a_save_behind_cannot_change_the_rooms_drawn(session, service):
     est = new(service)
     est = service.save_sketch(est["id"], house())
@@ -617,11 +758,95 @@ def test_a_room_drawn_joins_the_room_an_estimate_brought_in(session, service):
     assert lines_of(est, "Kitchen")["cabinets"]
 
 
+def test_a_flooring_estimates_sketch_comes_in_with_it_and_goes_with_it(session, service):
+    floor_id = flooring(session)
+    est = new(service)
+    # A basement drawn here already, on a level of the same id
+    est = service.save_sketch(est["id"], {"version": 1, "units": "ft", "levels": [{
+        "id": "main", "name": "Basement", "openings": [], "cabinet_runs": [], "fixtures": [], "walls": [],
+        "rooms": [{"id": "den", "name": "Den", "points": P((0, 0), (10, 0), (10, 10), (0, 10))}],
+    }]})
+    est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=floor_id))
+    src = est["sources"][0]
+    levels = est["sketch_data"]["levels"]
+    assert [lv["name"] for lv in levels] == ["Basement", "Main Level"]
+    assert levels[1]["id"] != "main" and levels[1]["from_source"] == src["id"]
+    # Its rooms are the rooms drawn, by their ids; the two it left out are drawn too
+    rooms = {r["name"]: r for r in est["rooms"]}
+    assert set(rooms) == {"Den", "Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet", "Bedroom 2", "Bathroom"}
+    assert rooms["Kitchen"]["sketch_room_id"] == "kitchen" and rooms["Kitchen"]["level_name"] == "Main Level"
+    assert rooms["Kitchen"]["id"] == src["room_map"]["room:kitchen"]
+    assert len(est["rooms"]) == 8
+    # Already drawn: not copied again
+    with pytest.raises(HTTPException):
+        service.copy_flooring_sketch(est["id"], floor_id)
+
+    # Taken out: its level and its rooms go with it; what was drawn here stays
+    est = service.remove_source(est["id"], src["id"])
+    assert [lv["name"] for lv in est["sketch_data"]["levels"]] == ["Basement"]
+    assert [r["name"] for r in est["rooms"]] == ["Den"]
+
+
+def basement(*rooms):
+    """A basement drawn here already, on a level of the same id as the flooring estimate's"""
+    return {"version": 1, "units": "ft", "levels": [{
+        "id": "main", "name": "Basement", "openings": [], "cabinet_runs": [], "fixtures": [], "walls": [],
+        "rooms": [{"id": rid, "name": name, "points": P((0, 0), (10, 0), (10, 10), (0, 10))} for rid, name in rooms],
+    }]}
+
+
+def test_a_room_of_the_same_name_on_another_level_is_another_room(session, service):
+    floor_id = flooring(session)
+    est = new(service)
+    est = service.save_sketch(est["id"], basement(("bclo", "Closet")))
+    est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=floor_id))
+    # The main level's closet isn't the basement's: its lines go in its own room, by its name
+    closets = {r["level_name"]: r for r in est["rooms"] if r["name"] == "Closet"}
+    assert set(closets) == {"Basement", "Main Level"}
+    assert est["sources"][0]["room_map"]["room:closet"] == closets["Main Level"]["id"]
+    assert closets["Main Level"]["sketch_room_id"] == "closet"
+    by_room = {r["id"]: r for r in est["assembled"]["rooms"]}
+    assert not by_room[closets["Basement"]["id"]]["sections"]
+    assert by_room[closets["Main Level"]["id"]]["sections"]
+
+
+def test_the_pdf_goes_by_level(session, service):
+    from pypdf import PdfReader
+
+    from app.domains.rebuild_estimate.export_service import RebuildExportService
+
+    floor_id = flooring(session)
+    est = new(service)
+    est = service.save_sketch(est["id"], basement(("den", "Den")))
+    est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=floor_id))
+    est = service.update(est["id"], RebuildEstimateUpdate(lines=[
+        {"id": "a", "room_id": "sk-den", "section": "wall", "description": "Paint the walls - one coat", "unit": "SF",
+         "basis": "wall_sf", "code": "PNTP", "activity": "+", "activities": [PAINT]},
+    ]))
+    rooms = [r for r in est["assembled"]["rooms"] if r["sections"]]
+    main = sum(r["total"] for r in rooms if r.get("level_name") == "Main Level")
+    den = next(r for r in rooms if r["name"] == "Den")
+    text = "\n".join(p.extract_text() for p in PdfReader(RebuildExportService().generate_pdf(est)).pages)
+    summary = text[:text.index("Made up of")]
+    # Each level with its total, its rooms under it; the job-wide lines after the levels
+    at = {word: summary.index(word) for word in ("Basement", "Den", "Main Level", "Kitchen", "General", "Total")}
+    assert at["Basement"] < at["Den"] < at["Main Level"] < at["Kitchen"] < at["General"] < at["Total"]
+    assert f"${den['total']:,.2f}" in summary[at["Basement"]:at["Den"]]
+    assert f"${main:,.2f}" in summary[at["Main Level"]:at["Kitchen"]]
+    # The pages after it: a heading for each level over its rooms
+    rest = text[len(summary):]
+    assert rest.index("Basement") < rest.index("Den") < rest.index("Main Level") < rest.index("Living Room")
+    assert f"{sum(1 for r in rooms if r.get('level_name') == 'Main Level')} rooms" in rest
+
+
 def test_the_sketch_can_start_from_the_flooring_estimates(session, service):
     floor_id = flooring(session)
     est = new(service)
     est = service.import_source(est["id"], ImportRequest(kind="flooring", estimate_id=floor_id))
+    # (brought in before its sketch came with it: nothing drawn)
+    est = service.save_sketch(est["id"], {"version": 1, "units": "ft", "levels": []})
     brought = {r["name"]: r["id"] for r in est["rooms"]}
+    assert set(brought) == {"Living Room", "Kitchen", "Hallway", "Bedroom 1", "Closet"}
     admin = type("Staff", (), {"id": "x", "role": "admin"})()
     offered = [o for o in service.importable(est["id"], admin) if o["kind"] == "flooring"]
     assert offered[0]["sketch_rooms"] == 7

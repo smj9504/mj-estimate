@@ -10,20 +10,19 @@
  * and words written on a line can be kept for that item from then on.
  */
 
-import React, { useMemo, useState } from 'react';
-import { Button, Input, InputNumber, Popconfirm, Select, Space, Tag, Tooltip, Typography } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Input, InputNumber, Popconfirm, Popover, Select, Tooltip } from 'antd';
+import { DeleteOutlined, EditOutlined, PlusOutlined, SaveOutlined, SwapOutlined } from '@ant-design/icons';
 import type {
   AddedSection, AssembledLine, AssembledRoom, Assembly, Basis, CutPart, RebuildLine, RebuildRoom, XactActivity,
+  XactimateMatch,
 } from '../../types/rebuildEstimate';
 import XactimatePicker from './XactimatePicker';
 import {
-  ADDED_SECTIONS, BASES, CUT_HEIGHTS, SECTIONS, WALL_BASES, assemblyLines, lineFromXactimate, money, removeLine,
-  typedLine, updateLine, withActivity, worded,
+  ACTIVITY_LABEL, ADDED_SECTIONS, BASES, CUT_HEIGHTS, SECTIONS, WALL_BASES, addToRoom, assemblyLines, lineFromXactimate, money, removeLine,
+  typedLine, typedQty, updateLine, withActivity, withItem, worded,
 } from './lineEdit';
 import './rebuildEstimate.css';
-
-const { Text } = Typography;
 
 const ORDER = new Map(SECTIONS.map((s, i) => [s.key, i]));
 const LABEL = new Map(SECTIONS.map((s) => [s.key, s.label]));
@@ -48,7 +47,7 @@ interface Props {
 const MEASURE_FIELDS: { key: keyof RebuildRoom['measures']; label: string; unit: string; hint?: string }[] = [
   { key: 'floor_sf', label: 'Floor', unit: 'SF' },
   { key: 'ceiling_sf', label: 'Ceiling', unit: 'SF' },
-  { key: 'wall_sf', label: 'Walls', unit: 'SF', hint: 'Every wall, less the doors and openings' },
+  { key: 'wall_sf', label: 'Walls', unit: 'SF', hint: 'Every wall, less the doors, openings and windows' },
   { key: 'exterior_wall_sf', label: 'Outside walls', unit: 'SF', hint: 'The outside walls alone, less their doors (insulation)' },
   { key: 'perimeter_lf', label: 'Perimeter', unit: 'LF' },
   { key: 'height_ft', label: 'Height', unit: 'ft', hint: 'Ceiling height: a flood cut is its share of the walls' },
@@ -56,22 +55,115 @@ const MEASURE_FIELDS: { key: keyof RebuildRoom['measures']; label: string; unit:
 
 const ImportedRow: React.FC<{ line: AssembledLine }> = ({ line }) => (
   <div className="rbe-line" data-testid="imported-line">
-    <Text type="secondary" className="rbe-n">{line.n}.</Text>
+    <span className="rbe-n">{line.n}</span>
     <div className="rbe-desc">
-      {line.description}
-      {line.notes && <div className="rbe-note">{line.notes}</div>}
+      <div className="rbe-desc-text">{line.description}</div>
+      {line.notes && <div className="rbe-meta">{line.notes}</div>}
     </div>
-    <Text type="secondary" className="rbe-qty">{qty(line.quantity)} {line.unit}</Text>
-    <Text type="secondary" className="rbe-price">{line.unit_price.toFixed(2)}</Text>
-    <Text className="rbe-total">{money(line.total)}</Text>
-    <span className="rbe-tail" />
+    <span className="rbe-qty rbe-fig">{qty(line.quantity)}<span className="rbe-unit">{line.unit}</span></span>
+    <span className="rbe-price rbe-fig">{line.unit_price.toFixed(2)}</span>
+    <span className="rbe-total rbe-fig">{money(line.total)}</span>
+    <span className="rbe-actions" />
   </div>
 );
 
-/** Written by hand, not as the item is worded now: worth keeping */
+/**
+ * A line's quantity: a number, or a sum as on a calculator (16.25*2 + 4.25*2)
+ * worked out when the field is left and kept to type again from. Empty: the
+ * room's measure it follows.
+ */
+const QtyInput: React.FC<{
+  line: RebuildLine; placeholder: string; onChange: (patch: Partial<RebuildLine>) => void;
+}> = ({ line, placeholder, onChange }) => {
+  const [text, setText] = useState<string | null>(null);
+  const [bad, setBad] = useState(false);
+  const shown = line.quantity != null ? qty(line.quantity) : '';
+  const commit = () => {
+    if (text === null) return;
+    const next = typedQty(text);
+    if (next === undefined) {
+      setBad(true);
+      return;
+    }
+    setBad(false);
+    setText(null);
+    const patch: Partial<RebuildLine> = { quantity: next.quantity };
+    if (next.qty_formula || line.qty_formula) patch.qty_formula = next.qty_formula;
+    if (patch.quantity !== line.quantity || (patch.qty_formula ?? null) !== (line.qty_formula ?? null)) onChange(patch);
+  };
+  const field = (
+    <Input variant="borderless" className={`rbe-field rbe-num rbe-qty-input${line.qty_formula ? ' rbe-has-formula' : ''}`}
+      aria-label="Repair quantity" value={text ?? shown} placeholder={placeholder} status={bad ? 'error' : undefined}
+      onFocus={() => setText((t) => t ?? (line.qty_formula || (line.quantity != null ? String(line.quantity) : '')))}
+      onChange={(e) => {
+        setText(e.target.value);
+        setBad(false);
+      }}
+      onBlur={commit}
+      onPressEnter={(e) => (e.target as HTMLInputElement).blur()} />
+  );
+  const tip = bad ? "Can't work that out: use numbers with + - * / and brackets"
+    : line.qty_formula && text === null ? `= ${line.qty_formula}` : 'A number, or a sum: 16.25*2 + 4.25*2';
+  return <Tooltip title={tip} open={bad ? true : undefined} mouseEnterDelay={0.4}>{field}</Tooltip>;
+};
+
+/**
+ * The line's price list item, as its code: picked, it searches the price
+ * list for another item to put in the line's place (a line typed by hand
+ * gets one this way)
+ */
+const ItemSwap: React.FC<{
+  line: RebuildLine; estimateId?: string; onPick: (match: XactimateMatch) => void;
+}> = ({ line, estimateId, onPick }) => {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  // Opened: straight into the search, so the item can be typed
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = setTimeout(() => box.current?.querySelector('input')?.focus(), 60);
+    return () => clearTimeout(timer);
+  }, [open]);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      trigger="click"
+      placement="bottomLeft"
+      destroyOnHidden
+      title={line.code ? 'Change to another item' : 'Price it from the price list'}
+      content={(
+        <div ref={box} style={{ width: 380, maxWidth: '80vw' }}>
+          <XactimatePicker estimateId={estimateId} autoFocus style={{ width: '100%' }}
+            placeholder="Search the price list: vinyl plank, drywall…"
+            onPick={(match) => {
+              onPick(match);
+              setOpen(false);
+            }} />
+          <div className="rbe-swap-hint">The quantity, room and note stay; the price and words follow the item.</div>
+        </div>
+      )}
+    >
+      {line.code ? (
+        <Tooltip title="Change to another price list item" mouseEnterDelay={0.4}>
+          <button type="button" className="rbe-code rbe-code-btn" aria-label={`Item ${line.code}: change it`}>
+            {line.code}
+            <SwapOutlined className="rbe-code-swap" />
+          </button>
+        </Tooltip>
+      ) : (
+        <Button size="small" type="text" className="rbe-keep rbe-on-hover" icon={<SwapOutlined />} aria-label="Price list item">
+          Price list
+        </Button>
+      )}
+    </Popover>
+  );
+};
+
+/** Written by hand, not as the item is worded now (or its note isn't the one it comes with): worth keeping */
 const rewritten = (line: RebuildLine) => {
-  const ours = line.activities.find((a) => a.activity === line.activity)?.wording;
-  return !ours || worded(ours, line.section) !== line.description.trim();
+  const own = line.activities.find((a) => a.activity === line.activity);
+  const renoted = (line.notes?.trim() || '') !== (own?.note?.trim() || '');
+  return !own?.wording || worded(own.wording, line.section) !== line.description.trim() || renoted;
 };
 
 const CUT_OPTIONS = [
@@ -85,6 +177,8 @@ const RoomBody: React.FC<Props> = ({
   const drawn = !!room?.sketch_room_id;
   const [section, setSection] = useState<AddedSection>(roomId ? 'wall' : 'other');
   const [setCut, setSetCut] = useState<number>(0);
+  // The line a note is being added to (a line with one shows it)
+  const [noting, setNoting] = useState<string | null>(null);
   const mine = lines.filter((l) => (l.room_id ?? null) === roomId);
   const computed = useMemo(() => {
     const map = new Map<string, AssembledLine>();
@@ -102,110 +196,162 @@ const RoomBody: React.FC<Props> = ({
     const done = computed.get(line.id);
     const bases = BASES.filter((b) => b.unit === line.unit);
     const onWall = !!line.basis && WALL_BASES.includes(line.basis);
+    const keep = !!(line.code && line.activity && !line.xact_words && onSaveWording && rewritten(line));
     return (
       <div className="rbe-line rbe-added" key={line.id} data-testid="added-line">
-        <Text type="secondary" className="rbe-n">{done ? `${done.n}.` : ''}</Text>
+        <span className="rbe-n">{done ? done.n : ''}</span>
         <div className="rbe-desc">
-          <Input size="small" value={line.description} aria-label="Repair description"
-            status={line.xact_words ? 'warning' : undefined}
+          <Input.TextArea variant="borderless" className="rbe-field rbe-desc-input" value={line.description}
+            autoSize={{ minRows: 1, maxRows: 4 }}
+            aria-label="Repair description" status={line.xact_words ? 'warning' : undefined}
             // Written by hand: no longer Xactimate's words
             onChange={(e) => set(line.id, { description: e.target.value, xact_words: false })} />
-          <Space size={4} style={{ marginTop: 4 }} wrap>
-            {line.code && <Tag style={{ marginInlineEnd: 0 }}>{line.code}</Tag>}
+          {(line.notes || noting === line.id) && (
+            // Printed under the line: what its price pays for
+            <Input.TextArea variant="borderless" className="rbe-field rbe-note-input" value={line.notes ?? ''}
+              autoSize={{ minRows: 1, maxRows: 4 }} autoFocus={noting === line.id && !line.notes}
+              placeholder="What its price pays for" aria-label="Repair note"
+              onChange={(e) => set(line.id, { notes: e.target.value || null })}
+              onBlur={() => setNoting(null)} />
+          )}
+          <div className="rbe-meta">
+            <ItemSwap line={line} estimateId={estimateId}
+              onPick={(match) => onLines(lines.map((l) => (l.id === line.id ? withItem(l, match) : l)))} />
             {line.xact_words && (
               <Tooltip title="These are Xactimate's words. Write them our way; Keep wording uses them for this item from now on.">
-                <Tag color="orange" style={{ marginInlineEnd: 0 }}>Xactimate&apos;s words</Tag>
-              </Tooltip>
-            )}
-            {line.code && line.activity && !line.xact_words && onSaveWording && rewritten(line) && (
-              <Tooltip title="Word this item this way on every estimate of the company from now on">
-                <Button size="small" type="text" icon={<SaveOutlined />} onClick={() => onSaveWording(line)}
-                  aria-label="Keep wording">Keep wording</Button>
+                <span className="rbe-pill rbe-pill--orange">Xactimate&apos;s words</span>
               </Tooltip>
             )}
             {line.activities.length > 1 && (
-              <Select size="small" value={line.activity ?? undefined} style={{ width: 150 }} aria-label="Activity"
-                options={line.activities.map((a) => ({ value: a.activity, label: a.label || a.activity }))}
+              <Select size="small" variant="borderless" className="rbe-meta-select" popupMatchSelectWidth={false}
+                value={line.activity ?? undefined} aria-label="Activity"
+                options={line.activities.map((a) => ({ value: a.activity, label: ACTIVITY_LABEL[a.activity] ?? a.label ?? a.activity }))}
                 onChange={(a: XactActivity) => onLines(lines.map((l) => (l.id === line.id ? withActivity(l, a) : l)))} />
             )}
+            {!line.notes && noting !== line.id && (
+              <Button size="small" type="text" className="rbe-meta-btn rbe-on-hover" icon={<PlusOutlined />}
+                onClick={() => setNoting(line.id)}>
+                Note
+              </Button>
+            )}
             {roomId && bases.length > 0 && (
-              <Select size="small" allowClear value={line.basis ?? undefined} style={{ width: 170 }}
-                placeholder="Quantity typed" aria-label="Quantity follows"
+              <Select size="small" variant="borderless" popupMatchSelectWidth={false}
+                className={`rbe-meta-select${line.basis ? '' : ' rbe-on-hover'}`}
+                allowClear value={line.basis ?? undefined} placeholder="Typed qty" aria-label="Quantity follows"
                 options={bases.map((b) => ({ value: b.value, label: `Follows ${b.label}` }))}
                 onChange={(basis?: Basis) => set(line.id, { basis: basis ?? null })} />
             )}
             {roomId && onWall && (
-              <Space.Compact size="small">
-                <InputNumber size="small" min={0} max={30} value={line.cut_height_ft ?? null} style={{ width: 92 }}
-                  placeholder="Full" suffix="ft" aria-label="Cut height"
+              <>
+                <InputNumber size="small" variant="borderless" className="rbe-meta-number" min={0} max={30}
+                  value={line.cut_height_ft ?? null} placeholder="Full height" suffix="ft" aria-label="Cut height"
                   onChange={(v) => set(line.id, { cut_height_ft: v || null })} />
                 {!!line.cut_height_ft && (
-                  <Select size="small" value={line.cut_part ?? 'below'} style={{ width: 96 }} aria-label="Part of the wall"
+                  <Select size="small" variant="borderless" className="rbe-meta-select" popupMatchSelectWidth={false}
+                    value={line.cut_part ?? 'below'} aria-label="Part of the wall"
                     options={[{ value: 'below', label: 'Below it' }, { value: 'above', label: 'Above it' }]}
                     onChange={(cut_part: CutPart) => set(line.id, { cut_part })} />
                 )}
-              </Space.Compact>
+              </>
             )}
-          </Space>
+          </div>
         </div>
         <span className="rbe-qty">
-          <InputNumber size="small" min={0} value={line.quantity} style={{ width: 84 }} aria-label="Repair quantity"
-            placeholder={done?.auto_qty != null ? qty(done.auto_qty) : ''}
-            onChange={(v) => set(line.id, { quantity: v ?? null })} />
-          <Text type="secondary" style={{ marginLeft: 4, fontSize: 12 }}>{line.unit}</Text>
+          <QtyInput line={line} placeholder={done?.auto_qty != null ? qty(done.auto_qty) : ''}
+            onChange={(patch) => set(line.id, patch)} />
+          <span className="rbe-unit">{line.unit}</span>
         </span>
         <span className="rbe-price">
-          <InputNumber size="small" min={0} prefix="$" value={line.unit_price} style={{ width: 96 }}
+          <InputNumber variant="borderless" className="rbe-field rbe-num" min={0} value={line.unit_price}
             aria-label="Repair unit price" placeholder={done && !done.price_typed ? done.unit_price.toFixed(2) : ''}
             onChange={(v) => set(line.id, { unit_price: v ?? null })} />
         </span>
-        <Text strong className="rbe-total">{done ? money(done.total) : '…'}</Text>
-        <span className="rbe-tail">
-          <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label="Remove repair"
-            onClick={() => onLines(removeLine(lines, line.id))} />
+        <span className="rbe-total rbe-fig">{done ? money(done.total) : '…'}</span>
+        <span className="rbe-actions">
+          {keep && (
+            <Tooltip title="Keep wording: word this item this way, with its note, on every estimate of the company from now on">
+              <Button size="small" type="text" className="ui-icon-btn rbe-on-hover" icon={<SaveOutlined />}
+                onClick={() => onSaveWording!(line)} aria-label="Keep wording" />
+            </Tooltip>
+          )}
+          <Button size="small" type="text" className="ui-icon-btn ui-icon-btn--danger rbe-on-hover" icon={<DeleteOutlined />}
+            aria-label="Remove repair" onClick={() => onLines(removeLine(lines, line.id))} />
         </span>
       </div>
     );
   };
 
+  const hasLines = keys.length > 0;
+
   return (
-    <div data-testid={`rebuild-room-${roomId ?? 'general'}`}>
-      {room && onRoom && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <Tooltip title={drawn ? 'Drawn on the sketch: rename it there' : undefined}>
-            <Input size="small" value={room.name} style={{ width: 200 }} aria-label="Room name" disabled={drawn}
-              onChange={(e) => onRoom({ name: e.target.value })} />
+    <div className="rbe-room" data-testid={`rebuild-room-${roomId ?? 'general'}`}>
+      {room && onRoom && drawn && (
+        <div className="rbe-facts" data-testid="room-facts">
+          {MEASURE_FIELDS.map((f) => {
+            const value = room.measures[f.key];
+            return (
+              <Tooltip key={f.key} title={f.hint}>
+                <span className="rbe-fact">
+                  <span className="rbe-fact-label">{f.label}</span>
+                  <span className="rbe-fact-value">{value != null ? `${qty(value)} ${f.unit}` : 'Empty'}</span>
+                </span>
+              </Tooltip>
+            );
+          })}
+          <Tooltip title="Its name and measures come from the sketch; take it off the sketch to remove it">
+            <Button size="small" type="link" icon={<EditOutlined />} onClick={onOpenSketch} data-testid="room-on-sketch"
+              className="rbe-facts-link">
+              Edit on the sketch
+            </Button>
           </Tooltip>
+        </div>
+      )}
+      {room && onRoom && !drawn && (
+        <div className="rbe-facts rbe-facts--edit">
+          <label className="rbe-fact rbe-fact--name">
+            <span className="rbe-fact-label">Name</span>
+            <Input size="small" variant="filled" value={room.name} aria-label="Room name"
+              onChange={(e) => onRoom({ name: e.target.value })} />
+          </label>
           {MEASURE_FIELDS.map((f) => (
-            <Tooltip key={f.key} title={drawn ? `${f.hint ? `${f.hint}. ` : ''}Measured from the sketch` : f.hint}>
-              <InputNumber size="small" min={0} style={{ width: f.key === 'height_ft' ? 132 : 188 }}
-                value={room.measures[f.key] ?? null} addonBefore={f.label} suffix={f.unit}
-                aria-label={`${f.label} ${f.unit}`} disabled={drawn}
-                // Ceiling: the floor's when not measured on its own; height: 8'
-                placeholder={f.key === 'ceiling_sf' && room.measures.floor_sf ? String(room.measures.floor_sf)
-                  : f.key === 'height_ft' ? '8' : undefined}
-                onChange={(v) => onRoom({ measures: { ...room.measures, [f.key]: v ?? null } })} />
+            <Tooltip key={f.key} title={f.hint}>
+              <label className="rbe-fact">
+                <span className="rbe-fact-label">{f.label}</span>
+                <InputNumber size="small" variant="filled" min={0} className="rbe-num" value={room.measures[f.key] ?? null}
+                  suffix={f.unit} aria-label={`${f.label} ${f.unit}`}
+                  // Ceiling: the floor's when not measured on its own; height: 8'
+                  placeholder={f.key === 'ceiling_sf' && room.measures.floor_sf ? String(room.measures.floor_sf)
+                    : f.key === 'height_ft' ? '8' : undefined}
+                  onChange={(v) => onRoom({ measures: { ...room.measures, [f.key]: v ?? null } })} />
+              </label>
             </Tooltip>
           ))}
-          {drawn && (
-            <Tooltip title="Its name and measures come from the sketch; take it off the sketch to remove it">
-              <Button size="small" type="link" icon={<EditOutlined />} onClick={onOpenSketch} data-testid="room-on-sketch">
-                On the sketch
-              </Button>
-            </Tooltip>
-          )}
-          {onDelete && !drawn && (
+          {onDelete && (
             imported.length ? (
               <Tooltip title="It holds lines brought in from an estimate: remove or move that estimate first">
-                <Button size="small" type="text" disabled icon={<DeleteOutlined />}>Remove room</Button>
+                <Button size="small" type="text" className="ui-icon-btn rbe-facts-link" disabled icon={<DeleteOutlined />}>
+                  Remove room
+                </Button>
               </Tooltip>
             ) : (
               <Popconfirm title={mine.length ? 'Remove this room and its repairs?' : 'Remove this room?'}
                 okText="Remove" okButtonProps={{ danger: true }} onConfirm={onDelete}>
-                <Button size="small" type="text" danger icon={<DeleteOutlined />}>Remove room</Button>
+                <Button size="small" type="text" className="ui-icon-btn ui-icon-btn--danger rbe-facts-link"
+                  icon={<DeleteOutlined />}>Remove room</Button>
               </Popconfirm>
             )
           )}
+        </div>
+      )}
+
+      {hasLines && (
+        <div className="rbe-line rbe-head" aria-hidden>
+          <span className="rbe-n">#</span>
+          <span className="rbe-desc">Description</span>
+          <span className="rbe-qty">Qty</span>
+          <span className="rbe-price">Unit price</span>
+          <span className="rbe-total">Total</span>
+          <span className="rbe-actions" />
         </div>
       )}
 
@@ -215,13 +361,13 @@ const RoomBody: React.FC<Props> = ({
         const added = mine.filter((l) => l.section === key);
         const from = Array.from(new Set(brought.map((li) => li.source_label).filter(Boolean)));
         return (
-          <div key={key} style={{ marginTop: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid #e6e9ee' }}>
-              <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <div key={key} className="rbe-section">
+            <div className="rbe-section-head">
+              <span className="rbe-section-title">
                 {LABEL.get(key) ?? key}
-                {from.length > 0 && <span style={{ textTransform: 'none', letterSpacing: 0 }}> · from {from.join(', ')}</span>}
-              </Text>
-              {own && <Text type="secondary" style={{ fontSize: 12 }}>{money(own.total)}</Text>}
+                {from.length > 0 && <span className="rbe-section-from"> · from {from.join(', ')}</span>}
+              </span>
+              {own && <span className="rbe-fig">{money(own.total)}</span>}
             </div>
             {brought.map((li) => <ImportedRow key={li.id} line={li} />)}
             {added.map(addedRow)}
@@ -229,32 +375,37 @@ const RoomBody: React.FC<Props> = ({
         );
       })}
 
-      <Space wrap size={8} style={{ marginTop: 12 }}>
+      <div className="rbe-add">
+        <XactimatePicker estimateId={estimateId} variant="filled" placeholder="Add from Xactimate: drywall, paint…"
+          style={{ width: 300 }}
+          onPick={(match) => onLines(addToRoom(lines, roomId, [lineFromXactimate(match, roomId, section)], assemblies))} />
+        {roomId && (
+          <label className="rbe-add-under">
+            <span>under</span>
+            <Select size="small" variant="borderless" value={section} options={ADDED_SECTIONS} popupMatchSelectWidth={false}
+              onChange={setSection} aria-label="Add under" />
+          </label>
+        )}
+        <Button size="small" type="text" icon={<PlusOutlined />}
+          onClick={() => onLines(addToRoom(lines, roomId, [typedLine(roomId, section)], assemblies))}>
+          Type a line
+        </Button>
         {roomId && assemblies && assemblies.length > 0 && (
-          <Space.Compact size="small">
-            <Select size="small" value={null} style={{ width: 300 }} placeholder="Add a set: new drywall, insulation, paint…"
+          <span className="rbe-add-set">
+            <Select size="small" variant="filled" value={null} style={{ width: 240 }} placeholder="Add a set…"
               aria-label="Add a set" popupMatchSelectWidth={false}
               options={assemblies.map((a) => ({ value: a.key, label: a.label, title: a.hint }))}
               onChange={(key: string) => {
                 const assembly = assemblies.find((a) => a.key === key);
-                if (assembly) onLines([...lines, ...assemblyLines(assembly, roomId, setCut || null)]);
+                if (assembly) onLines(addToRoom(lines, roomId, assemblyLines(assembly, roomId, setCut || null), assemblies));
               }} />
             <Tooltip title="How far up the walls a set's new drywall and insulation go; the rest of the wall is painted to match">
-              <Select size="small" value={setCut} style={{ width: 120 }} options={CUT_OPTIONS} aria-label="Set height"
-                onChange={setSetCut} />
+              <Select size="small" variant="borderless" value={setCut} options={CUT_OPTIONS} aria-label="Set height"
+                popupMatchSelectWidth={false} onChange={setSetCut} />
             </Tooltip>
-          </Space.Compact>
+          </span>
         )}
-        {roomId && (
-          <Select size="small" value={section} style={{ width: 100 }} options={ADDED_SECTIONS}
-            onChange={setSection} aria-label="Add under" />
-        )}
-        <XactimatePicker estimateId={estimateId}
-          onPick={(match) => onLines([...lines, lineFromXactimate(match, roomId, section)])} />
-        <Button size="small" icon={<PlusOutlined />} onClick={() => onLines([...lines, typedLine(roomId, section)])}>
-          Type a line
-        </Button>
-      </Space>
+      </div>
     </div>
   );
 };

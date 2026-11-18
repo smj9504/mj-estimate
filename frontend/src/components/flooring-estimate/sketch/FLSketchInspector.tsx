@@ -4,9 +4,9 @@
  * floor area.
  */
 
-import React, { useState } from 'react';
-import { Button, Divider, Input, Popconfirm, Select, Space, Switch, Typography } from 'antd';
-import { DeleteOutlined, PlusOutlined, RotateRightOutlined, SwapOutlined } from '@ant-design/icons';
+import React, { useEffect, useState } from 'react';
+import { Button, Divider, Input, Popconfirm, Select, Space, Switch, Typography, message } from 'antd';
+import { DeleteOutlined, MergeCellsOutlined, PlusOutlined, RotateRightOutlined, SplitCellsOutlined, SwapOutlined } from '@ant-design/icons';
 import type {
   FlooringSketch, FixtureType, FloorFit, FtPoint, OpeningKind, SketchLevel,
 } from '../../../types/flooringEstimate';
@@ -14,11 +14,11 @@ import FeetInput from './FeetInput';
 import type { Selection } from './FLSketchCanvas';
 import { formatFeet, formatSf } from './utils/dimensions';
 import {
-  CABINET_DEPTH_FT, WALL_T, bbox, cabinetLayout, distance, edgesOf, measureRoom, offsetPolygon, projectOnSegment,
-  rectPoints, resizeEdge, spanOnEdge, wallFaces,
+  CABINET_DEPTH_FT, WALL_T, bbox, cabinetLayout, distance, edgesOf, isWindow, measureRoom, offsetPolygon, projectOnSegment,
+  rectPoints, resizeEdge, spanOnEdge, wallFaces, windowHeight,
 } from './utils/geometry';
 import {
-  FIXTURE_LABELS, FLOOR_FIT_LABELS, addRoom, floorFitOf, removeCabinetRun, removeFixture, removeOpening, removeRoom, removeWall, setRoomPoints,
+  FIXTURE_LABELS, FLOOR_FIT_LABELS, addRoom, combineRooms, floorFitOf, separateRoom, removeCabinetRun, removeFixture, removeOpening, removeRoom, removeWall, setRoomPoints,
   updateCabinetRun, updateFixture, updateOpening, updateRoom, updateWall,
 } from './utils/sketchOps';
 
@@ -40,6 +40,7 @@ export const OPENING_LABELS: Record<OpeningKind, string> = {
   pocket: 'Pocket door',
   slider: 'Sliding door',
   exterior_door: 'Exterior door',
+  window: 'Window',
 };
 
 interface InspectorProps {
@@ -69,6 +70,9 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
   const [newName, setNewName] = useState('');
   const [newLength, setNewLength] = useState(12);
   const [newWidth, setNewWidth] = useState(12);
+  // The rooms picked to combine the selected room with
+  const [combineWith, setCombineWith] = useState<string[]>([]);
+  useEffect(() => setCombineWith([]), [selection?.id]);
   const roomName = (id: string | null | undefined) =>
     (id && level.rooms.find((r) => r.id === id)?.name) || 'Outside';
 
@@ -117,6 +121,7 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <Figure label="Floor perimeter" value={`${m.perimeterLf.toFixed(2)} LF`} />
         <Figure label="Baseboard, less openings" value={`${m.baseLf.toFixed(2)} LF`} />
         <Figure label="Walls" value={formatSf(m.wallSf)} />
+        <Figure label="Walls, less doors & windows" value={formatSf(m.wallNetSf)} />
         <Divider style={{ margin: '8px 0' }} />
         <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
           On the sketch: drag a corner to move it, drag a wall&apos;s middle dot to bend the wall at a new corner,
@@ -135,6 +140,56 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
             </Row>
           ))}
         </div>
+        {!readOnly && room.combined_from?.rooms?.length ? (
+          <div style={{ marginTop: 10 }}>
+            <Divider style={{ margin: '0 0 8px' }} />
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+              Combined from {room.combined_from.rooms.map((r) => r.name).join(', ')}
+            </Text>
+            <Popconfirm
+              title="Separate the rooms again?"
+              description="Each comes back as it was when combined, with what was on it then."
+              okText="Separate"
+              onConfirm={() => {
+                onApply(separateRoom(sketch, level.id, room.id));
+                onSelect(null);
+              }}
+            >
+              <Button size="small" icon={<SplitCellsOutlined />} block>Separate rooms</Button>
+            </Popconfirm>
+          </div>
+        ) : null}
+        {!readOnly && level.rooms.length > 1 && (
+          <div data-testid="combine-rooms" style={{ marginTop: 10 }}>
+            <Divider style={{ margin: '0 0 8px' }} />
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+              Combine with other rooms: one room across the walls between them, as {room.name}
+            </Text>
+            <Select mode="multiple" size="small" style={{ width: '100%' }} placeholder="Rooms to combine it with"
+              aria-label="Rooms to combine with" value={combineWith} onChange={setCombineWith} maxTagCount="responsive"
+              options={level.rooms.filter((r) => r.id !== room.id).map((r) => ({ value: r.id, label: r.name }))} />
+            <Popconfirm
+              title={`Combine into ${room.name}?`}
+              description="The walls and doorways between them go; what is on the other rooms becomes this room's. Undo brings them back."
+              okText="Combine"
+              disabled={!combineWith.length}
+              onConfirm={() => {
+                const result = combineRooms(sketch, level.id, room.id, combineWith);
+                if ('error' in result) {
+                  message.error(result.error);
+                  return;
+                }
+                onApply(result.sketch);
+                setCombineWith([]);
+                onSelect({ kind: 'room', id: room.id });
+              }}
+            >
+              <Button size="small" icon={<MergeCellsOutlined />} block style={{ marginTop: 6 }} disabled={!combineWith.length}>
+                Combine rooms
+              </Button>
+            </Popconfirm>
+          </div>
+        )}
         {!readOnly && (
           <Popconfirm title={`Delete ${room.name}?`} description="Its doorways and cabinet runs go with it."
             okText="Delete" okButtonProps={{ danger: true }}
@@ -183,8 +238,14 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <Row label="Width">
           <FeetInput value={width} disabled={readOnly} aria-label="Opening width" onCommit={setWidth} />
         </Row>
+        {isWindow(o) && (
+          <Row label="Height">
+            <FeetInput value={windowHeight(o)} disabled={readOnly} min={0.5} aria-label="Window height"
+              onCommit={(ft) => onApply(updateOpening(sketch, level.id, o.id, { height_ft: ft }))} />
+          </Row>
+        )}
         <Figure label="Between" value={`${roomName(o.rooms[0])} ↔ ${roomName(o.rooms[1])}`} />
-        {o.kind !== 'opening' && o.kind !== 'open_wall' && (
+        {o.kind !== 'opening' && o.kind !== 'open_wall' && !isWindow(o) && (
           <>
             <Row label="Swings into">
               <Select size="small" style={{ width: 160 }} disabled={readOnly} value={o.swing || o.rooms[0]}
@@ -202,14 +263,16 @@ const FLSketchInspector: React.FC<InspectorProps> = ({ sketch, level, selection,
         <Text type="secondary" style={{ fontSize: 12 }}>
           {o.kind === 'open_wall'
             ? 'No wall on this side: no baseboard along it. Where the floor changes, it takes a transition.'
-            : 'Its width comes off the baseboard of both rooms; where the floor changes, it takes a transition.'}
+            : isWindow(o)
+              ? 'Its width times its height comes off the walls (drywall and paint); the baseboard runs under it.'
+              : 'Its width comes off the baseboard of both rooms; where the floor changes, it takes a transition.'}
         </Text>
         {!readOnly && (
           <Button danger size="small" icon={<DeleteOutlined />} block style={{ marginTop: 8 }}
             onClick={() => {
               onApply(removeOpening(sketch, level.id, o.id));
               onSelect(null);
-            }}>Delete opening</Button>
+            }}>{isWindow(o) ? 'Delete window' : 'Delete opening'}</Button>
         )}
       </div>
     );

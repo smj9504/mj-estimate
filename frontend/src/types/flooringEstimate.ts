@@ -19,10 +19,17 @@ export interface SketchRoom {
   points: FtPoint[];
   /** A closet or alcove listed under its room */
   subroom_of?: string | null;
+  /** The rooms combined into this one: what was on them is now on it (the rebuild estimate's lines) */
+  merged_from?: string[];
+  /** The rooms as they were before the last combine, and the doorways it took out: to separate them again */
+  combined_from?: { rooms: SketchRoom[]; openings: SketchOpening[] } | null;
 }
 
-/** open_wall: a side with no wall at all, measured like a doorway as wide as that side */
-export type OpeningKind = 'opening' | 'open_wall' | 'door' | 'bifold' | 'pocket' | 'slider' | 'exterior_door';
+/**
+ * open_wall: a side with no wall at all, measured like a doorway as wide as that side.
+ * window: no way through; only its width times its height comes off the walls (the baseboard runs under it).
+ */
+export type OpeningKind = 'opening' | 'open_wall' | 'door' | 'bifold' | 'pocket' | 'slider' | 'exterior_door' | 'window';
 
 export interface SketchOpening {
   id: string;
@@ -36,6 +43,8 @@ export interface SketchOpening {
   swing?: string | null;
   /** The jamb it hangs on */
   hinge?: 'a' | 'b' | null;
+  /** A window's height (WINDOW_HEIGHT_FT when not set) */
+  height_ft?: number | null;
 }
 
 export interface SketchCabinetRun {

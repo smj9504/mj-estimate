@@ -32,7 +32,7 @@ export interface FlooringSketchEditorProps<R = FlooringEstimate> {
   saveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
-const TOOL_KEYS: Record<string, SketchTool> = { v: 'select', r: 'rect', p: 'polygon', d: 'opening', w: 'wall' };
+const TOOL_KEYS: Record<string, SketchTool> = { v: 'select', r: 'rect', p: 'polygon', d: 'opening', n: 'window', w: 'wall' };
 
 function FlooringSketchEditor<R = FlooringEstimate>({
   estimateId, initialSketch, readOnly, save, onSaved, saveRef,

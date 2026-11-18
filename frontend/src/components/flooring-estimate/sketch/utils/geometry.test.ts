@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FtPoint, SketchLevel, SketchRoom } from '../../../../types/flooringEstimate';
 import {
-  WALL_T, centroid, constrainAngle, edgesOf, insertVertex, measureRoom, moveVertex, offsetPolygon, pointInPolygon,
+  DOOR_HEIGHT_FT, WALL_T, centroid, constrainAngle, edgesOf, insertVertex, measureRoom, moveVertex, offsetPolygon, pointInPolygon,
   polygonArea, polygonPerimeter, reattach, rectPoints, removeVertex, resizeEdge, roomAcross, snapPoint, snapShift, wallAt,
   wallFaces, cabinetLayout,
 } from './geometry';
@@ -60,6 +60,25 @@ describe('measuring a room', () => {
     expect(l.floorSf).toBeCloseTo(212.5 - 1.5, 2);
     // Wall to wall: no end shows
     expect(wallFaces({ x: 6, y: 14.1667 }, { x: 6, y: 0 }, WALL_T, living.points).exposedLf).toBeCloseTo(2 * 14.1667, 3);
+  });
+
+  it('takes a window off the walls but not the baseboard, as the server does', () => {
+    const before = measureRoom(level, living);
+    // The front door (3' at 6' 8") and the opening to the kitchen (6' at 6' 8") come off the walls
+    expect(before.wallNetSf).toBeCloseTo(58.33 * 8 - 9 * DOOR_HEIGHT_FT, 1);
+    const withWindows: SketchLevel = {
+      ...level,
+      openings: [
+        ...level.openings,
+        { id: 'w1', kind: 'window', rooms: ['living', null], a: { x: 0, y: 4 }, b: { x: 0, y: 8 }, height_ft: 3 },
+        // No height set: 4'
+        { id: 'w2', kind: 'window', rooms: ['living', null], a: { x: 15, y: 10 }, b: { x: 15, y: 13 } },
+      ],
+    };
+    const after = measureRoom(withWindows, living);
+    expect(after.wallNetSf).toBeCloseTo(before.wallNetSf - 4 * 3 - 3 * 4, 6);
+    expect(after.baseLf).toBeCloseTo(before.baseLf, 6);
+    expect(after.openingsLf).toBeCloseTo(before.openingsLf, 6);
   });
 
   it('counts an open wall off the baseboard like a doorway as wide as the side', () => {

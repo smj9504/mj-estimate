@@ -69,6 +69,8 @@ class SketchOpening(BaseModel):
     b: SketchPoint
     swing: Optional[str] = None
     hinge: Optional[Literal["a", "b"]] = None
+    # A window's height (geometry.WINDOW_HEIGHT_FT when not given)
+    height_ft: Optional[float] = Field(None, gt=0, le=20)
 
     @field_validator("kind")
     @classmethod

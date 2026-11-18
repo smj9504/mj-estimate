@@ -4,7 +4,7 @@ Rebuild estimates: made, saved, and the trade estimates imported into them.
 
 import copy
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from fastapi import HTTPException
 from sqlalchemy import desc, false, or_
@@ -16,7 +16,9 @@ from app.domains.auth.company_scope import document_condition, scoped
 from .assemble import assemble
 from .models import RebuildEstimate
 from .schemas import ImportRequest, RebuildEstimateCreate, RebuildEstimateUpdate, SourceRoomRequest
-from .sketch_rooms import sketch_room_count, sync_rooms
+from .sketch_rooms import (
+    add_flooring_sketch, drop_source_levels, fold_merged, held_rooms, sketch_room_count, sync_rooms,
+)
 from .sources import KIND_LABELS, KIND_PATHS, KINDS, fingerprint, importable, label_of, model_of, snapshot
 
 _FIELDS = (
@@ -43,6 +45,12 @@ def _empty(measures: Optional[Dict[str, Any]]) -> bool:
 
 # Where a one-room estimate goes when no room has its name
 _ROOM_WORD = {"bathroom": "bath", "cabinet": "kitchen"}
+
+
+def _same_level(room: Mapping[str, Any], other: Mapping[str, Any]) -> bool:
+    """Both on the same level, or either on none named"""
+    a, b = _norm(room.get("level_name")), _norm(other.get("level_name"))
+    return not a or not b or a == b
 
 
 class RebuildEstimateService:
@@ -184,7 +192,13 @@ class RebuildEstimateService:
     def _sync_sketch(self, est: RebuildEstimate) -> None:
         if not est.sketch_data and not any(r.get("sketch_room_id") for r in est.rooms or []):
             return
-        rooms = sync_rooms(list(est.rooms or []), est.sketch_data, est.lines or [], est.sources or [])
+        rooms, lines, sources, moved = fold_merged(
+            list(est.rooms or []), est.sketch_data, list(est.lines or []), list(est.sources or []))
+        if moved:
+            est.lines, est.sources = lines, sources
+            flag_modified(est, "lines")
+            flag_modified(est, "sources")
+        rooms = sync_rooms(rooms, est.sketch_data, lines, sources)
         if rooms != (est.rooms or []):
             est.rooms = rooms
             flag_modified(est, "rooms")
@@ -295,6 +309,14 @@ class RebuildEstimateService:
         rooms = copy.deepcopy(est.rooms or [])
         snap["room_map"] = self._place(rooms, sources, snap, {})
         est.rooms, est.sources = rooms, [*sources, snap]
+        if req.kind == "flooring":
+            # Its sketch comes with it: its rooms are the rooms it brought in, drawn
+            sketch = add_flooring_sketch(est.sketch_data, getattr(original, "sketch_data", None), snap["id"],
+                                         snap.get("label") or "")
+            if sketch != est.sketch_data:
+                est.sketch_data = sketch
+                flag_modified(est, "sketch_data")
+                self._sync_sketch(est)
         if not est.property_address:
             # (a cabinet estimate has no city or state)
             for name in ("property_address", "city", "state", "zip_code"):
@@ -355,14 +377,30 @@ class RebuildEstimateService:
         return self.get(estimate_id)
 
     def remove_source(self, estimate_id: str, source_id: str) -> Optional[Dict[str, Any]]:
-        """Its lines leave; the rooms it brought stay, with whatever was added to them"""
+        """Its lines leave, and the rooms it brought go with them (owner,
+        2026-11-16): all but a room still holding something, a repair added
+        to it or another estimate's lines, or drawn on the sketch"""
         est = self._find(estimate_id)
         if est is None:
             return None
         sources = copy.deepcopy(est.sources or [])
-        self._source(sources, source_id)
-        est.sources = [s for s in sources if s["id"] != source_id]
+        src = self._source(sources, source_id)
+        left = [s for s in sources if s["id"] != source_id]
+        # The levels it brought onto the sketch go with it
+        sketch = drop_source_levels(est.sketch_data, source_id)
+        if sketch != est.sketch_data:
+            est.sketch_data = sketch
+            flag_modified(est, "sketch_data")
+        drawn = {str(r.get("id")) for lv in (sketch or {}).get("levels") or [] for r in lv.get("rooms") or []}
+        brought = {str(room_id) for room_id in (src.get("room_map") or {}).values()}
+        keep = held_rooms(est.lines or [], left)
+        est.rooms = [r for r in est.rooms or []
+                     if str(r.get("id")) not in brought or str(r.get("id")) in keep
+                     or str(r.get("sketch_room_id") or "") in drawn]
+        est.sources = left
+        flag_modified(est, "rooms")
         flag_modified(est, "sources")
+        self._sync_sketch(est)
         self._total(est)
         self.session.flush()
         return self.get(estimate_id)
@@ -380,7 +418,8 @@ class RebuildEstimateService:
         """Each of the estimate's rooms onto a room of this one: where it was
         (a refresh), else the room of the same name, else (a bathroom, the
         kitchen) the one room whose name says so; else a new room. Two of its
-        rooms never share one, nor do two bathrooms."""
+        rooms never share one, nor do two bathrooms. A room on one level is
+        never one on another: the main level's closet isn't the basement's."""
         by_id = {r["id"]: r for r in rooms}
         same_kind = {room_id for s in others if s["kind"] == snap["kind"]
                      for room_id in (s.get("room_map") or {}).values()}
@@ -391,16 +430,16 @@ class RebuildEstimateService:
             target = by_id.get(prior.get(key, ""))
             free = [r for r in rooms if r["id"] not in taken and r["id"] not in same_kind]
             if target is None:
-                target = next((r for r in free if _norm(r.get("name")) == _norm(sroom.get("name"))), None)
+                target = next((r for r in free if _norm(r.get("name")) == _norm(sroom.get("name"))
+                               and _same_level(r, sroom)), None)
             word = _ROOM_WORD.get(snap["kind"])
             if target is None and word:
-                matches = [r for r in free if word in _norm(r.get("name"))]
+                matches = [r for r in free if word in _norm(r.get("name")) and _same_level(r, sroom)]
                 target = matches[0] if len(matches) == 1 else None
             if target is None:
-                names = {_norm(r.get("name")) for r in rooms}
+                # (the same name on another level is told apart by its level)
+                names = {_norm(r.get("name")) for r in rooms if _same_level(r, sroom)}
                 name = sroom.get("name") or "Room"
-                if _norm(name) in names and sroom.get("level_name"):
-                    name = f"{name} ({sroom['level_name']})"
                 base, n = name, 2
                 while _norm(name) in names:
                     name, n = f"{base} {n}", n + 1

@@ -15,7 +15,7 @@ export type CutPart = 'below' | 'above';
 export interface Measures {
   floor_sf?: number | null;
   ceiling_sf?: number | null;
-  /** Less the doors and openings */
+  /** Less the doors, openings and windows */
   wall_sf?: number | null;
   /** The outside walls alone, less their doors */
   exterior_wall_sf?: number | null;
@@ -30,6 +30,8 @@ export interface RebuildRoom {
   measures: Measures;
   /** Drawn on the estimate's sketch: its name, level and measures come from there */
   sketch_room_id?: string | null;
+  /** The rooms combined into it, as they were with their lines: kept by the server to separate them again */
+  combined?: Record<string, unknown>[] | null;
 }
 
 export interface ActivityPrice {
@@ -41,6 +43,8 @@ export interface ActivityPrice {
   material_share: number;
   /** Our words for the line as this activity ({S}: the surface); none: only Xactimate's */
   wording?: string | null;
+  /** The note a line of it comes with: what its price pays for (the company's, else a built-in one) */
+  note?: string | null;
 }
 
 /** A repair added on the rebuild estimate */
@@ -52,6 +56,8 @@ export interface RebuildLine {
   unit: string;
   /** null: the room's measure (basis) */
   quantity: number | null;
+  /** The sum the quantity was typed as (16.25*2 + 4.25*2) */
+  qty_formula?: string | null;
   basis: Basis | null;
   /** A wall measure only part of the way up (a flood cut), or what is above it */
   cut_height_ft?: number | null;

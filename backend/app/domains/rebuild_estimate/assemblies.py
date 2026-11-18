@@ -45,7 +45,7 @@ ASSEMBLIES: List[Dict[str, Any]] = [
     },
     {
         "key": "walls_paint", "label": "Walls - repaint, 2 coats", "asks_cut": False,
-        "hint": "The walls, less doors and openings",
+        "hint": "The walls, less doors, openings and windows",
         "items": [_item("PNTP2", "+", "wall", "wall_sf")],
     },
     {
@@ -64,7 +64,8 @@ ASSEMBLIES: List[Dict[str, Any]] = [
 ]
 
 
-def assemblies(session: Any, saved: Mapping[Tuple[str, str], str]) -> List[Dict[str, Any]]:
+def assemblies(session: Any, saved: Mapping[Tuple[str, str], str],
+               notes: Optional[Mapping[Tuple[str, str], str]] = None) -> List[Dict[str, Any]]:
     """Every set with each item's line from the latest price list (an item
     the price list doesn't have is left out of its set)"""
     from app.domains.xactimate.models import XactimateItem
@@ -86,7 +87,7 @@ def assemblies(session: Any, saved: Mapping[Tuple[str, str], str]) -> List[Dict[
             row = rows.get(item["code"])
             if row is None:
                 continue
-            match = match_of(row, saved)
+            match = match_of(row, saved, notes)
             if not any(act["activity"] == item["activity"] for act in match["activities"]):
                 continue
             items.append({**item, "match": match})

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Assembly, XactimateMatch } from '../../types/rebuildEstimate';
 import {
-  asWording, assemblyLines, defaultBasis, describe as words, lineFromXactimate, typedLine, withActivity, withWording,
+  addToRoom, evalQty, typedQty, withItem, asWording, assemblyLines, defaultBasis, describe as words, lineFromXactimate, typedLine, withActivity, withWording,
 } from './lineEdit';
 
 const paint: XactimateMatch = {
@@ -99,5 +99,201 @@ describe('a set of repairs', () => {
   it('full height: no paint to match', () => {
     const lines = assemblyLines(set, 'k', null);
     expect(lines.map((l) => [l.code, l.cut_height_ft])).toEqual([['DRY1/2', null], ['PNTSP', null]]);
+  });
+});
+
+describe('a final clean-up with a room\'s first repair', () => {
+  const clean: XactimateMatch = {
+    code: 'CLNFINALR', category_code: 'CLN', description: 'Final cleaning - construction - Residential', unit: 'SF',
+    price_list: 'VAAR8X_NOV26',
+    activities: [{ activity: '+', label: 'Replace', price: 0.37, marked_up: 0.41, material_share: 0, wording: 'Final construction clean-up' }],
+  };
+  const sets: Assembly[] = [{
+    key: 'final_clean', label: 'Final construction clean-up', hint: '', asks_cut: false,
+    items: [{ code: 'CLNFINALR', activity: '+', section: 'other', basis: 'floor_sf', cut_part: null, only_with_cut: false, match: clean }],
+  }];
+
+  it('comes with the first repair, on the room\'s floor', () => {
+    const lines = addToRoom([], 'k', [lineFromXactimate(paint, 'k', 'wall')], sets);
+    expect(lines.map((l) => [l.code, l.room_id, l.section, l.basis, l.description])).toEqual([
+      ['PNTSP', 'k', 'wall', 'wall_sf', 'Walls - seal/prime & paint, 1 coat each'],
+      ['CLNFINALR', 'k', 'other', 'floor_sf', 'Final construction clean-up'],
+    ]);
+  });
+
+  it('once: not with the next repair, nor back once taken off', () => {
+    const first = addToRoom([], 'k', [lineFromXactimate(paint, 'k', 'wall')], sets);
+    expect(addToRoom(first, 'k', [typedLine('k', 'wall')], sets).filter((l) => l.code === 'CLNFINALR')).toHaveLength(1);
+    const without = first.filter((l) => l.code !== 'CLNFINALR');
+    expect(addToRoom(without, 'k', [typedLine('k', 'wall')], sets).some((l) => l.code === 'CLNFINALR')).toBe(false);
+  });
+
+  it('not twice when the clean-up is the repair added, nor on the general section', () => {
+    expect(addToRoom([], 'k', assemblyLines(sets[0], 'k', null), sets)).toHaveLength(1);
+    expect(addToRoom([], null, [typedLine(null, 'other')], sets)).toHaveLength(1);
+    // Another room's repairs don't count
+    const other = addToRoom([], 'b', [typedLine('b', 'wall')], sets);
+    expect(addToRoom(other, 'k', [typedLine('k', 'wall')], sets).filter((l) => l.code === 'CLNFINALR')).toHaveLength(2);
+  });
+});
+
+describe('another activity, on words of ours with no words kept for it', () => {
+  const quarterRound: XactimateMatch = {
+    code: 'FNCQR', category_code: 'FNC', description: 'Quarter round - 3/4"', unit: 'LF', price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'R&R', price: 2.36, material_share: 0.4, wording: null },
+      { activity: '+', label: 'Replace', price: 2.12, material_share: 0.45, wording: null },
+      { activity: '-', label: 'Remove', price: 0.24, material_share: 0, wording: null },
+      { activity: 'R', label: 'Detach & Reset', price: 1.96, material_share: 0, wording: null },
+    ],
+  };
+  const ours = (description: string, activity: '+' | 'R' | '-') => ({
+    ...lineFromXactimate(quarterRound, 'k', 'floor', { activity }), description, xact_words: false,
+  });
+
+  it('takes the new activity\'s ending', () => {
+    expect(withActivity(ours('Quarter round 3/4" - install', '+'), '-').description).toBe('Quarter round 3/4" - remove');
+    expect(withActivity(ours('Quarter round 3/4" - detach & reset', 'R'), '+').description).toBe('Quarter round 3/4" - install');
+    expect(withActivity(ours('Quarter round 3/4" - remove', '-'), '&').description).toBe('Quarter round 3/4" - remove & replace');
+    expect(withActivity(ours('Quarter round 3/4" - remove & replace', '-'), 'R').description).toBe('Quarter round 3/4" - detach & reset');
+  });
+
+  it('mends words a prefix was put on before', () => {
+    expect(withActivity(ours('Remove Quarter round 3/4" - install', '-'), '-').description).toBe('Quarter round 3/4" - remove');
+    expect(withActivity(ours('Remove Quarter round 3/4" - detach & reset', '-'), 'R').description)
+      .toBe('Quarter round 3/4" - detach & reset');
+  });
+
+  it('an item that only goes in: plain when installed, its other activities said', () => {
+    const paintTrim: XactimateMatch = {
+      code: 'PNTBCS', category_code: 'PNT', description: 'Paint baseboard w/cap &/or shoe - one coat', unit: 'LF',
+      price_list: 'VAAR8X_NOV26',
+      activities: [
+        { activity: '+', label: 'Install', price: 1.67, material_share: 0.14, wording: null },
+        { activity: 'M', label: 'Material only', price: 0.24, material_share: 1, wording: null },
+        { activity: 'I', label: 'Labor only', price: 1.43, material_share: 0, wording: null },
+      ],
+    };
+    const line = { ...lineFromXactimate(paintTrim, 'k', 'floor'), description: 'Baseboard w/ cap or shoe - paint, 1 coat', xact_words: false };
+    const labor = withActivity(line, 'I');
+    expect(labor.description).toBe('Baseboard w/ cap or shoe - paint, 1 coat - labor only');
+    expect(withActivity(labor, 'M').description).toBe('Baseboard w/ cap or shoe - paint, 1 coat - material only');
+    expect(withActivity(labor, '+').description).toBe('Baseboard w/ cap or shoe - paint, 1 coat');
+  });
+
+  it('leaves Xactimate\'s words to their prefix', () => {
+    const xact = lineFromXactimate(quarterRound, 'k', 'floor', { activity: '+' });
+    expect(xact.description).toBe('Quarter round - 3/4"');
+    expect(withActivity(xact, 'R').description).toBe('Detach & Reset Quarter round - 3/4"');
+  });
+});
+
+describe('a quantity typed as a sum', () => {
+  it('works it out, times before plus, brackets first', () => {
+    expect(evalQty('16.25*2 + 4.25*2')).toBe(41);
+    expect(evalQty('(12+8)*2')).toBe(40);
+    expect(evalQty('12 x 8 - 2.5*6.67')).toBe(79.33);
+    expect(evalQty('10/3')).toBe(3.33);
+    expect(evalQty('243.98')).toBe(243.98);
+  });
+
+  it('refuses what is not a sum, or comes to less than nothing', () => {
+    expect(evalQty('12 +')).toBeNull();
+    expect(evalQty('2*(3+4')).toBeNull();
+    expect(evalQty('alert(1)')).toBeNull();
+    expect(evalQty('4/0')).toBeNull();
+    expect(evalQty('2-5')).toBeNull();
+  });
+
+  it('keeps the sum on the line, a plain number alone, and nothing goes back to the room', () => {
+    expect(typedQty('16.25*2 + 4.25*2')).toEqual({ quantity: 41, qty_formula: '16.25*2 + 4.25*2' });
+    expect(typedQty('72.18')).toEqual({ quantity: 72.18, qty_formula: null });
+    expect(typedQty('  ')).toEqual({ quantity: null, qty_formula: null });
+    expect(typedQty('12*')).toBeUndefined();
+  });
+});
+
+describe('another item in a line\'s place', () => {
+  const perSpec: XactimateMatch = {
+    code: 'FCVNFCPPLK', category_code: 'FCV', description: 'Vinyl plank flooring - per specs from ind. vinyl analysis',
+    unit: 'SF', price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'Remove & replace', price: 4.47, material_share: 0.3, wording: null },
+      { activity: '+', label: 'Install', price: 3.02, material_share: 0.02, wording: null },
+    ],
+  };
+  const standard: XactimateMatch = {
+    code: 'FCVPLK-', category_code: 'FCV', description: 'Vinyl plank flooring - Standard grade', unit: 'SF',
+    price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'Remove & replace', price: 6.42, material_share: 0.3, wording: null },
+      { activity: '+', label: 'Install', price: 4.97, material_share: 0.4, wording: 'Vinyl plank flooring - install' },
+    ],
+  };
+
+  it('takes the item\'s code, prices and words, and keeps the room, section, quantity and note', () => {
+    const line = {
+      ...lineFromXactimate(perSpec, 'k', 'floor', { activity: '+' }),
+      quantity: 40, qty_formula: '20*2', unit_price: 4.74, notes: 'Less the blocks',
+    };
+    const next = withItem(line, standard);
+    expect(next).toMatchObject({
+      id: line.id, room_id: 'k', section: 'floor', code: 'FCVPLK-', activity: '+', unit: 'SF',
+      quantity: 40, qty_formula: '20*2', unit_price: null, notes: 'Less the blocks',
+      description: 'Vinyl plank flooring - install', xact_words: false,
+    });
+    expect(next.activities.map((a) => a.price)).toEqual([6.42, 4.97]);
+  });
+
+  it('another unit: the quantity follows the new unit\'s measure', () => {
+    const line = { ...lineFromXactimate(perSpec, 'k', 'floor', { activity: '+' }), quantity: 40 };
+    const trim: XactimateMatch = { ...standard, code: 'FNCQR', unit: 'LF', description: 'Quarter round - 3/4"' };
+    expect(withItem(line, trim)).toMatchObject({ unit: 'LF', quantity: null, basis: 'perimeter_lf', qty_formula: null });
+  });
+});
+
+describe('a line comes with its note', () => {
+  const dishwasher: XactimateMatch = {
+    code: 'APPDW', category_code: 'APP', description: 'Dishwasher', unit: 'EA', price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'Remove & replace', price: 778.53, material_share: 0.69, wording: null, note: null },
+      { activity: 'R', label: 'Detach & reset', price: 380.98, material_share: 0, wording: null, note: 'Built in under the counter' },
+    ],
+  };
+  const range: XactimateMatch = {
+    code: 'APPRGG', category_code: 'APP', description: 'Range - freestanding - gas', unit: 'EA', price_list: 'VAAR8X_NOV26',
+    activities: [
+      { activity: '&', label: 'Remove & replace', price: 1200, material_share: 0.8, wording: null, note: null },
+      { activity: 'R', label: 'Detach & reset', price: 261.16, material_share: 0, wording: null, note: 'Gas line shut off' },
+    ],
+  };
+
+  it('picked as the activity that has one, the line comes with it', () => {
+    expect(lineFromXactimate(dishwasher, 'k', 'other', { activity: 'R' }).notes).toBe('Built in under the counter');
+    expect(lineFromXactimate(dishwasher, 'k', 'other').notes).toBeNull();
+  });
+
+  it('another activity: the note it came with follows; one written for it stays', () => {
+    const replaced = lineFromXactimate(dishwasher, 'k', 'other');
+    const reset = withActivity(replaced, 'R');
+    expect(reset.notes).toBe('Built in under the counter');
+    expect(withActivity(reset, '&').notes).toBeNull();
+    expect(withActivity({ ...reset, notes: 'Panel-ready unit' }, '&').notes).toBe('Panel-ready unit');
+  });
+
+  it('another item: the note it came with is the new item\'s; one written for it stays', () => {
+    const reset = lineFromXactimate(dishwasher, 'k', 'other', { activity: 'R' });
+    expect(withItem(reset, range).notes).toBe('Gas line shut off');
+    expect(withItem({ ...reset, notes: 'Panel-ready unit' }, range).notes).toBe('Panel-ready unit');
+  });
+
+  it('a note kept with the words: the lines of it take it, a note written for one stays', () => {
+    const a = lineFromXactimate(dishwasher, 'k', 'other', { activity: 'R' });
+    const b = { ...lineFromXactimate(dishwasher, 'b', 'other', { activity: 'R' }), notes: 'Panel-ready unit' };
+    const kept = withWording([a, b], 'APPDW', 'R', 'Dishwasher - detach & reset', 'Under the granite top');
+    expect(kept.map((l) => l.notes)).toEqual(['Under the granite top', 'Panel-ready unit']);
+    expect(kept[0].activities.find((x) => x.activity === 'R')?.note).toBe('Under the granite top');
+    // Kept with no note: the one it comes with stays
+    expect(withWording([a], 'APPDW', 'R', 'Dishwasher - detach & reset')[0].notes).toBe('Built in under the counter');
   });
 });

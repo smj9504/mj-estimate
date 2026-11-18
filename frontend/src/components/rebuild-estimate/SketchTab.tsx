@@ -1,7 +1,7 @@
 /**
  * The rebuild estimate's own sketch, drawn with the flooring estimate's
  * editor. Each room drawn is a room of the estimate, measured from the
- * drawing (floor, ceiling, walls less their doors, outside walls,
+ * drawing (floor, ceiling, walls less their doors and windows, outside walls,
  * perimeter, height); the server keeps the rooms in step with it.
  *
  * While nothing is drawn, it can start from a flooring estimate's sketch on
@@ -55,8 +55,8 @@ const SketchTab: React.FC<Props> = ({
   return (
     <div data-testid="rebuild-sketch">
       <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
-        Each room drawn is a room of the estimate, measured from the drawing: floor, ceiling, walls less their doors
-        and openings, outside walls, perimeter and height. Rename or resize a room here and its repairs follow.
+        Each room drawn is a room of the estimate, measured from the drawing: floor, ceiling, walls less their doors,
+        openings and windows, outside walls, perimeter and height. Rename or resize a room here and its repairs follow.
       </Text>
       {empty && floors.length > 0 && (
         <Alert

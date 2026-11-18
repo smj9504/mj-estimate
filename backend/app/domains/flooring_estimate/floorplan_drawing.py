@@ -15,7 +15,7 @@ from reportlab.lib import colors
 from reportlab.pdfbase.pdfmetrics import stringWidth
 
 from . import pricing
-from .geometry import format_ft_in, point, points_of
+from .geometry import format_ft_in, is_window, point, points_of
 
 Point = Tuple[float, float]
 
@@ -185,7 +185,7 @@ class _Labels:
 
 
 def _openings(d: Group, m: _Mapper, room: Mapping[str, Any], pts: Sequence[Point], openings, gap_fill):
-    """The gaps a room's doorways make in its walls, and the doors that swing into it"""
+    """The gaps a room's doorways and windows make in its walls, and the doors that swing into it"""
     room_id = str(room.get("id"))
     for op in openings:
         if room_id not in [str(r) for r in (op.get("rooms") or []) if r]:
@@ -195,6 +195,14 @@ def _openings(d: Group, m: _Mapper, room: Mapping[str, Any], pts: Sequence[Point
             continue
         p1, p2, n = hit
         out = lambda p, k=WALL_T: (p[0] + n[0] * k, p[1] + n[1] * k)  # noqa: E731
+        if is_window(op):
+            # The glass in the wall: its frame across it and the panes along it
+            d.add(Polygon(m.flat([p1, p2, out(p2), out(p1)]), fillColor=colors.white, strokeColor=None))
+            for p in (p1, p2):
+                d.add(Line(*m(p), *m(out(p)), strokeColor=WALL, strokeWidth=0.6))
+            for k in (0, WALL_T * 0.5, WALL_T):
+                d.add(Line(*m(out(p1, k)), *m(out(p2, k)), strokeColor=WALL, strokeWidth=0.4))
+            continue
         d.add(Polygon(m.flat([p1, p2, out(p2), out(p1)]), fillColor=gap_fill, strokeColor=None))
         if op.get("kind") == "open_wall":
             # No wall there: a dashed line where it would stand

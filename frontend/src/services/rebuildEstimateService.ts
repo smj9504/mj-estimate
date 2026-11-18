@@ -87,8 +87,8 @@ export const rebuildEstimateService = {
     const { data } = await api.get<Assembly[]>(`${BASE_URL}/${id}/assemblies`);
     return data;
   },
-  /** Keep these words for a price list line, for every estimate of the company */
-  async saveWording(id: string, body: { code: string; activity: XactActivity; text: string }) {
+  /** Keep these words for a price list line, and the note with them, for every estimate of the company */
+  async saveWording(id: string, body: { code: string; activity: XactActivity; text: string; note?: string | null }) {
     const { data } = await api.put(`${BASE_URL}/${id}/wordings`, body);
     return data;
   },

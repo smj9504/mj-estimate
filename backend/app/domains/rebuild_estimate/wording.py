@@ -10,9 +10,16 @@ Each line is worded, by its code and the activity it is added as, from:
      estimator to write it our way (and save that wording for next time).
 
 {S} is the surface the line is on: Walls, Ceiling, Floor.
+
+A line comes with a note the same way (owner, 2026-11-16): the one the
+company kept with its words, else the note below for a fixture that costs
+more to detach and reset than it looks (the flooring estimate's words), else
+none. It prints under the line, saying what its price pays for.
 """
 
 from typing import Any, Dict, Optional, Tuple
+
+from app.domains.flooring_estimate.items import DETACH_RESET_NOTES
 
 SURFACES = {"wall": "Walls", "ceiling": "Ceiling", "floor": "Floor", "other": "Surfaces"}
 
@@ -85,6 +92,30 @@ OURS: Dict[str, Dict[str, str]] = {
 }
 
 
+# The price list's items, by their code less its grade (APPDW+ is APPDW),
+# detached and reset: the note for them
+NOTED = {
+    "APPDW": "dishwasher",
+    "APPRGG": "range_gas", "APPRGG3": "range_gas", "APPRGSG": "range_gas",
+    "APPDRYG": "dryer_gas", "APPWDCG": "dryer_gas",
+    "PLMTLT": "toilet",
+    "PLMPSNK": "pedestal_sink",
+    "PLMLTUB": "utility_sink",
+}
+
+
+def built_in_note(code: str, activity: str) -> Optional[str]:
+    """Detached and reset as the item's activity (APPDW R), or as an item of
+    its own, installed (APPRGGRS: remove & reset)"""
+    base = (code or "").rstrip("+-")
+    if activity in ("+", "I") and base.endswith("RS"):
+        base = base[:-2]
+    elif activity != "R":
+        return None
+    key = NOTED.get(base)
+    return DETACH_RESET_NOTES.get(key) if key else None
+
+
 def built_in(code: str, activity: str) -> Optional[str]:
     entry = OURS.get(code)
     if not entry:
@@ -111,8 +142,23 @@ def saved_wordings(session: Any, company_id: Optional[str]) -> Dict[Tuple[str, s
     return {(r.item_code, r.activity): r.text for r in rows}
 
 
+def saved_notes(session: Any, company_id: Optional[str]) -> Dict[Tuple[str, str], str]:
+    """(code, activity) -> the note kept with the words: everyone's, with the company's over them"""
+    from .models import RebuildWording
+
+    query = session.query(RebuildWording).filter(RebuildWording.note.isnot(None))
+    rows = query.filter(RebuildWording.company_id.is_(None)).all()
+    if company_id:
+        rows += query.filter(RebuildWording.company_id == str(company_id)).all()
+    return {(r.item_code, r.activity): r.note for r in rows if r.note}
+
+
 def wording_for(code: str, activity: str, saved: Dict[Tuple[str, str], str]) -> Optional[str]:
     return saved.get((code, activity)) or built_in(code, activity)
+
+
+def note_for(code: str, activity: str, notes: Optional[Dict[Tuple[str, str], str]] = None) -> Optional[str]:
+    return (notes or {}).get((code, activity)) or built_in_note(code, activity)
 
 
 def worded_codes(saved: Dict[Tuple[str, str], str]):
@@ -120,7 +166,8 @@ def worded_codes(saved: Dict[Tuple[str, str], str]):
 
 
 def save_wording(session: Any, company_id: Optional[str], code: str, activity: str, text: str,
-                 staff_id: Optional[str] = None) -> None:
+                 staff_id: Optional[str] = None, note: Optional[str] = None) -> None:
+    """The words kept, and the note with them (none: the built-in one, if any)"""
     from .models import RebuildWording
 
     query = session.query(RebuildWording).filter(
@@ -131,8 +178,9 @@ def save_wording(session: Any, company_id: Optional[str], code: str, activity: s
     row = query.first()
     if row is None:
         session.add(RebuildWording(company_id=str(company_id) if company_id else None, item_code=code,
-                                   activity=activity, text=text, updated_by_id=staff_id))
+                                   activity=activity, text=text, note=note or None, updated_by_id=staff_id))
     else:
         row.text = text
+        row.note = note or None
         row.updated_by_id = staff_id
     session.flush()

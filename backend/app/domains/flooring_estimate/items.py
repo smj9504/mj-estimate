@@ -45,6 +45,9 @@ class ItemDef:
     manual_qty: float = 1.0  # quantity when the basis is "manual"
     rule: str = "off"       # when it starts switched on (RULES)
     hint: str = ""
+    # Printed under the line unless one is written for it: what the price
+    # pays for, where it is more than it looks (owner, 2026-11-16)
+    note: str = ""
 
 
 # Where a line sits in its room
@@ -93,6 +96,24 @@ APPLIANCE_KINDS = {
     "washer": "Washer",
     "dryer": "Dryer - electric",
     "dryer_gas": "Dryer - gas",
+}
+
+# Why a fixture costs more to detach and reset than it looks: built in,
+# plumbed or on gas (owner, 2026-11-16). The rebuild estimate's price list
+# lines of them take the same words (rebuild_estimate/wording.py).
+_GAS = "Gas line shut off and disconnected, then reconnected and leak-checked"
+DETACH_RESET_NOTES = {
+    "dishwasher": "Built in under the counter: unfastened, water, drain and power disconnected, pulled out, "
+                  "then reset, reconnected and leak-checked",
+    "range_gas": _GAS,
+    "dryer_gas": _GAS,
+    "toilet": "Plumbing: water shut off and disconnected, toilet pulled, then reset on a new wax ring, "
+              "reconnected and leak-checked",
+    "vanity": "Plumbing: sink water and drain disconnected, vanity and top taken out, then reset, "
+              "reconnected and leak-checked",
+    "pedestal_sink": "Plumbing: water and drain disconnected, sink lifted off its pedestal, then reset, "
+                     "reconnected and leak-checked",
+    "utility_sink": "Plumbing: supply, drain and faucet disconnected, then reset, reconnected and leak-checked",
 }
 
 # When an item starts switched on. Each gets the room's context.
@@ -159,15 +180,19 @@ ROOM_ITEMS: List[ItemDef] = [
             "contents", "EA", "CONTENTS_RATES.average_room", "manual"),
     # Detach & reset
     ItemDef("toilet_detach_reset", "Toilet - detach & reset", "Detach & Reset",
-            "detach_reset", "EA", "DETACH_RESET_RATES.toilet", "toilet_count", rule="has_toilet"),
+            "detach_reset", "EA", "DETACH_RESET_RATES.toilet", "toilet_count", rule="has_toilet",
+            note=DETACH_RESET_NOTES["toilet"]),
     ItemDef("vanity_detach_reset", "Vanity - detach & reset", "Detach & Reset",
-            "detach_reset", "EA", "DETACH_RESET_RATES.vanity", "vanity_count", rule="has_vanity"),
+            "detach_reset", "EA", "DETACH_RESET_RATES.vanity", "vanity_count", rule="has_vanity",
+            note=DETACH_RESET_NOTES["vanity"]),
     ItemDef("pedestal_sink_detach_reset", "Pedestal sink - detach & reset", "Detach & Reset",
             "detach_reset", "EA", "DETACH_RESET_RATES.pedestal_sink", "pedestal_sink_count",
-            rule="has_pedestal_sink"),
+            rule="has_pedestal_sink",
+            note=DETACH_RESET_NOTES["pedestal_sink"]),
     ItemDef("utility_sink_detach_reset", "Utility sink / laundry tub - detach & reset", "Detach & Reset",
             "detach_reset", "EA", "DETACH_RESET_RATES.utility_sink", "utility_sink_count",
-            rule="has_utility_sink"),
+            rule="has_utility_sink",
+            note=DETACH_RESET_NOTES["utility_sink"]),
     # Cabinets
     ItemDef("base_cabinet_detach_reset", "Base cabinets - detach & reset", "Cabinets",
             "detach_reset", "LF", "CABINET_RATES.base_detach_reset_per_lf", "cabinet_run_lf",
@@ -186,7 +211,8 @@ ROOM_ITEMS: List[ItemDef] = [
             hint="New skin over the toe kicks: on under new tile or wood, and over one stained, swollen or scuffed"),
     # Each appliance by its kind; a gas range or dryer is disconnected and reconnected
     *[ItemDef(f"{kind}_detach_reset", f"{label} - detach & reset", "Detach & Reset",
-              "detach_reset", "EA", f"DETACH_RESET_RATES.{kind}", f"{kind}_count", rule=f"has_{kind}")
+              "detach_reset", "EA", f"DETACH_RESET_RATES.{kind}", f"{kind}_count", rule=f"has_{kind}",
+              note=DETACH_RESET_NOTES.get(kind, ""))
       for kind, label in APPLIANCE_KINDS.items()],
     # Before appliances were priced by kind this was every appliance drawn; now
     # it is one the sketch has no kind for (a freezer, a wine fridge)
