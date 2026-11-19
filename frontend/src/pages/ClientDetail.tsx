@@ -1843,6 +1843,9 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
       queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
       queryClient.invalidateQueries({ queryKey: ['client', clientId] });
+      // An emailed PDF it was made from waits to be filed again
+      queryClient.invalidateQueries({ queryKey: ['received-attachments'] });
+      queryClient.invalidateQueries({ queryKey: ['ingested-emails-claim', claim.id] });
     },
     onError: () => message.error('Failed to delete.'),
   });

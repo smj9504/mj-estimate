@@ -1,8 +1,9 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Dropdown, Spin, Tooltip, message } from 'antd';
+import { Button, Dropdown, Popconfirm, Spin, Tooltip, message } from 'antd';
 import {
   DollarOutlined, DownOutlined, FileImageOutlined, FilePdfOutlined, PaperClipOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { emailIngestionService } from '../../services/emailIngestionService';
 import {
@@ -56,7 +57,8 @@ const OTHER_DOCUMENT_TYPES = CLAIM_DOCUMENT_TYPES.filter((t) => t.value !== ESTI
 /**
  * The files that came with a received email. Stored ones open in the page;
  * a PDF waiting for review can become the claim's estimate revision (its
- * amounts read in the Add revision dialog) or be filed as another document.
+ * amounts read in the Add revision dialog) or be filed as another document,
+ * and a filed one can be undone (an estimate's revision is deleted with it).
  */
 const ReceivedEmailAttachments: React.FC<ReceivedEmailAttachmentsProps> = ({
   claimId, emailId, logs, clientId, receivedAt, sender, onAddEstimate,
@@ -89,6 +91,28 @@ const ReceivedEmailAttachments: React.FC<ReceivedEmailAttachmentsProps> = ({
     onError: (err: any) => message.error(err?.response?.data?.detail || 'Filing failed'),
   });
 
+  const unfileMutation = useMutation({
+    mutationFn: (att: ReceivedAttachment) => emailIngestionService.unfileLog(att.log_id!),
+    onSuccess: (_log, att) => {
+      const wasEstimate = att.document_type === ESTIMATE_DOCUMENT_TYPE;
+      message.success(wasEstimate
+        ? `Estimate revision deleted; ${att.name} is waiting to be filed again`
+        : `${att.name} is waiting to be filed again`);
+      queryClient.invalidateQueries({ queryKey: ['received-attachments'] });
+      queryClient.invalidateQueries({ queryKey: ['ingested-emails-claim', claimId] });
+      queryClient.invalidateQueries({ queryKey: ['email-ingestion-logs'] });
+      queryClient.invalidateQueries({ queryKey: ['email-ingestion-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['client-all-documents'] });
+      if (wasEstimate) {
+        // The revision is gone and the claim's amounts follow the one before it
+        queryClient.invalidateQueries({ queryKey: ['negotiations'] });
+        queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
+        queryClient.invalidateQueries({ queryKey: ['client', clientId] });
+      }
+    },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Undo failed'),
+  });
+
   const open = (att: ReceivedAttachment) => {
     if (!att.file_id) return;
     const fileId = att.file_id;
@@ -111,6 +135,13 @@ const ReceivedEmailAttachments: React.FC<ReceivedEmailAttachmentsProps> = ({
         {attachments.map((att, i) => {
           const filed = getClaimDocumentType(att.document_type);
           const canFile = att.can_file && !!att.log_id && !!clientId;
+          const canUnfile = !!att.can_unfile && !!att.log_id && !!clientId;
+          const undoing = unfileMutation.isPending && unfileMutation.variables?.log_id === att.log_id;
+          const undoButton = (onClick?: () => void) => (
+            <Button size="small" type="text" icon={<UndoOutlined />} loading={undoing} onClick={onClick}>
+              Undo
+            </Button>
+          );
           const estimateHint = canFile && looksLikeEstimate(att);
           return (
             <li key={`${att.kind}-${att.log_id ?? att.file_id ?? att.name}-${i}`} className="cl-mail-file">
@@ -126,6 +157,26 @@ const ReceivedEmailAttachments: React.FC<ReceivedEmailAttachmentsProps> = ({
               )}
               {att.size ? <span className="cl-meta cl-nowrap">{formatSize(att.size)}</span> : null}
               {filed && <Pill tone={filed.tone}>{filed.label}</Pill>}
+              {canUnfile && (
+                // Right by the label it undoes: the row runs past a narrow panel's edge
+                <span className="cl-mail-file-undo">
+                  {att.document_type === ESTIMATE_DOCUMENT_TYPE ? (
+                    <Popconfirm
+                      title="Undo the estimate?"
+                      description={`Deletes estimate revision${att.revision_number ? ` #${att.revision_number}` : ''} and its amounts. The PDF waits to be filed again.`}
+                      okText="Delete revision"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => unfileMutation.mutate(att)}
+                    >
+                      {undoButton()}
+                    </Popconfirm>
+                  ) : (
+                    <Tooltip title="Take it off the claim's documents; it waits to be filed again">
+                      {undoButton(() => unfileMutation.mutate(att))}
+                    </Tooltip>
+                  )}
+                </span>
+              )}
               {estimateHint && <Pill tone="red">Looks like an estimate</Pill>}
               {att.note && att.kind !== 'missing' && <span className="cl-meta">{att.note}</span>}
               {canFile && (

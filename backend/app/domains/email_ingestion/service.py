@@ -1193,6 +1193,17 @@ class EmailIngestionService:
         files = {
             f.id: f for f in session.query(File).filter(File.id.in_(log_file_ids))
         } if log_file_ids else {}
+        # The revision an emailed estimate became, named when undoing it
+        revision_numbers: Dict[str, int] = {}
+        negotiation_ids = [log.negotiation_id for log in logs if log.negotiation_id]
+        if negotiation_ids:
+            from app.domains.client.models import ClaimNegotiation
+
+            revision_numbers = {
+                str(neg_id): number for neg_id, number in session.query(
+                    ClaimNegotiation.id, ClaimNegotiation.revision_number
+                ).filter(ClaimNegotiation.id.in_(negotiation_ids))
+            }
 
         items: List[Dict[str, Any]] = []
         for log in logs:
@@ -1217,6 +1228,9 @@ class EmailIngestionService:
                 "is_insurance_estimate": log.is_insurance_estimate,
                 "note": _attachment_note(log, file_id),
                 "can_file": log.status == "pending" and bool(log.file_id) and file_id is not None,
+                "can_unfile": log.status == "uploaded" and bool(log.file_id) and file_id is not None,
+                "revision_number": revision_numbers.get(str(log.negotiation_id))
+                if log.negotiation_id else None,
             })
         for f in others:
             items.append({
@@ -1333,6 +1347,78 @@ class EmailIngestionService:
             raise
         finally:
             session.close()
+
+    def unfile_log(self, log_id: str) -> Dict[str, Any]:
+        """Undo filing an emailed PDF on a claim ("File as", "Add as estimate",
+        or a review confirm): it waits for review again, as before. A
+        revision made from it is deleted, and the claim's amounts go back to
+        the revision before it. Raises ValueError when it isn't filed."""
+        from app.domains.email_ingestion.models import EmailIngestionLog
+        from app.domains.email_ingestion.repository import get_email_ingestion_log_repository
+
+        session = self._get_session()
+        try:
+            log = session.query(EmailIngestionLog).filter(EmailIngestionLog.id == log_id).first()
+            if log is None:
+                raise ValueError("Email attachment not found")
+            if log.status != "uploaded" or not log.file_id:
+                raise ValueError("This attachment isn't filed")
+            negotiation_id = str(log.negotiation_id) if log.negotiation_id else None
+            # Neon drops a connection left idle in a transaction
+            session.rollback()
+            if negotiation_id:
+                from app.domains.client.service import ClaimNegotiationService
+
+                # Gone already (deleted from the estimate list) is fine
+                ClaimNegotiationService(self.database).delete(negotiation_id)
+            log = session.query(EmailIngestionLog).filter(EmailIngestionLog.id == log_id).first()
+            self._back_to_pending(session, log)
+            session.commit()
+            return get_email_ingestion_log_repository(session)._convert_to_dict(log)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def release_revision_logs(self, negotiation_id: str) -> int:
+        """A deleted estimate revision's emailed PDF waits for review again,
+        instead of staying filed as a revision that's gone. How many."""
+        from app.domains.email_ingestion.models import EmailIngestionLog
+
+        session = self._get_session()
+        try:
+            logs = session.query(EmailIngestionLog).filter(
+                EmailIngestionLog.negotiation_id == negotiation_id,
+                EmailIngestionLog.status == "uploaded",
+                EmailIngestionLog.file_id.isnot(None),
+            ).all()
+            for log in logs:
+                self._back_to_pending(session, log)
+            session.commit()
+            return len(logs)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    @staticmethod
+    def _back_to_pending(session, log) -> None:
+        """The stored PDF back where _store_attachment_file put it, and the
+        log waiting for review. The claim it was matched to stays: its email
+        is still filed there."""
+        from app.domains.file.models import File
+
+        stored = session.query(File).filter(File.id == log.file_id).first()
+        if stored is not None:
+            stored.context = "email-ingestion"
+            stored.context_id = str(log.email_account_id or "")
+            stored.category = PENDING_FILE_CATEGORY
+        log.status = "pending"
+        log.negotiation_id = None
+        log.reviewed_by = None
+        log.reviewed_at = None
 
     # ============================================================
     # Attachments

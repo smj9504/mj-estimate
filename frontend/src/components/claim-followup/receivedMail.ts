@@ -21,6 +21,8 @@ export function attachmentFromLog(log: IngestionLog): ReceivedAttachment {
     is_insurance_estimate: log.is_insurance_estimate ?? null,
     note: null,
     can_file: log.status === 'pending' && !!fileId,
+    can_unfile: log.status === 'uploaded' && !!fileId,
+    revision_number: null,
   };
 }
 

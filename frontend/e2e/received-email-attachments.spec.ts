@@ -2,8 +2,8 @@ import { test, expect as baseExpect, Page } from '@playwright/test';
 
 // A claim's received mail shows the files that came with it: they open in the
 // page, and a PDF waiting for review can become the claim's estimate revision
-// (amounts read in Add revision) or be filed as another document. Runs against
-// the dev server with /api answered here.
+// (amounts read in Add revision) or be filed as another document, and a filed
+// one can be undone. Runs against the dev server with /api answered here.
 
 const expect = baseExpect.configure({ timeout: 20_000 });
 
@@ -65,8 +65,9 @@ const EXTRACTION = {
 const PDF = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF';
 
 /** Opens the client page with /api answered; returns the requests that change things */
-async function open(page: Page) {
+async function open(page: Page, attachments: any[] = ATTACHMENTS) {
   const posted: { path: string; body: any }[] = [];
+  let listed = attachments;
 
   await page.addInitScript(() => {
     localStorage.setItem('auth_token', 'test-token');
@@ -88,8 +89,18 @@ async function open(page: Page) {
       posted.push({ path, body: request.postDataJSON() });
       return json({ id: 'log2', status: 'uploaded', document_type: 'carrier-letter' });
     }
+    const unfile = path.match(/^\/api\/email-ingestion\/logs\/(\w+)\/unfile$/);
+    if (unfile && request.method() === 'POST') {
+      posted.push({ path, body: null });
+      // Waiting again, as before it was filed
+      listed = listed.map(a => (a.log_id === unfile[1] ? {
+        ...a, status: 'pending', document_type: null, can_file: true, can_unfile: false,
+        revision_number: null,
+      } : a));
+      return json({ id: unfile[1], status: 'pending' });
+    }
     if (path === '/api/email-ingestion/logs/log1/extract-estimate') return json(EXTRACTION);
-    if (path === `/api/email-ingestion/received/${EMAIL_ID}/attachments`) return json(ATTACHMENTS);
+    if (path === `/api/email-ingestion/received/${EMAIL_ID}/attachments`) return json(listed);
     if (path.startsWith(`/api/email-ingestion/received/${EMAIL_ID}/files/`)) {
       return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
     }
@@ -195,4 +206,40 @@ test('files another PDF as a carrier letter', async ({ page }) => {
     path: '/api/email-ingestion/logs/log2/assign',
     body: { client_id: CLIENT_ID, claim_id: CLAIM_ID, document_type: 'carrier-letter' },
   });
+});
+
+test('undoes a filed letter, and an estimate after asking', async ({ page }) => {
+  const posted = await open(page, [
+    {
+      ...ATTACHMENTS[0], status: 'uploaded', document_type: 'insurance-estimate',
+      can_file: false, can_unfile: true, revision_number: 2,
+    },
+    {
+      ...ATTACHMENTS[1], status: 'uploaded', document_type: 'carrier-letter',
+      can_file: false, can_unfile: true, revision_number: null,
+    },
+    ...ATTACHMENTS.slice(2),
+  ]);
+  const files = await openReceivedEmail(page);
+  const letter = files.locator('.cl-mail-file', { hasText: 'Denial letter.pdf' });
+  const estimate = files.locator('.cl-mail-file', { hasText: '12 Oak St.pdf' });
+  await expect(letter.getByRole('button', { name: /File as/ })).toHaveCount(0);
+  await emailSection(page).screenshot({ path: test.info().outputPath('filed-attachments.png') });
+
+  // A letter: undone at once, and it can be filed again
+  await letter.getByRole('button', { name: /Undo/ }).click();
+  await expect.poll(() => posted.map(p => p.path)).toEqual(['/api/email-ingestion/logs/log2/unfile']);
+  await expect(letter.getByRole('button', { name: /File as/ })).toBeVisible();
+
+  // An estimate: its revision goes with it, so it asks first
+  await estimate.getByRole('button', { name: /Undo/ }).click();
+  const confirm = page.locator('.ant-popconfirm');
+  await expect(confirm.getByText(/Deletes estimate revision #2/)).toBeVisible();
+  await confirm.screenshot({ path: test.info().outputPath('undo-estimate-confirm.png') });
+  expect(posted).toHaveLength(1);
+  await confirm.getByRole('button', { name: 'Delete revision' }).click();
+  await expect.poll(() => posted.map(p => p.path)).toEqual([
+    '/api/email-ingestion/logs/log2/unfile', '/api/email-ingestion/logs/log1/unfile',
+  ]);
+  await expect(estimate.getByRole('button', { name: /Add as estimate/ })).toBeVisible();
 });

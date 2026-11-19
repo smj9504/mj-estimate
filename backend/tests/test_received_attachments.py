@@ -1,7 +1,7 @@
 """The files on a claim's received mail can be opened from the claim: Check
 inbox (and the morning poll) keep every file of mail filed on a claim, a PDF
 the classifier would pass over included, and a PDF waiting for review can
-become the claim's estimate revision."""
+become the claim's estimate revision; filing one can be undone."""
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
 from app.domains.claim_followup.models import FollowUpTask, SentEmail  # noqa: E402
-from app.domains.client.models import Claim, Client  # noqa: E402
+from app.domains.client.models import Claim, ClaimNegotiation, Client  # noqa: E402
 from app.domains.email_ingestion.claim_inbox import ClaimInboxService  # noqa: E402
 from app.domains.email_ingestion.email_client import (  # noqa: E402
     EmailAttachment,
@@ -102,7 +102,7 @@ PDF = b'%PDF-1.4 not much of a pdf'
 def env(tmp_path, monkeypatch):
     _accept_iso_strings(monkeypatch)
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'received_files.db'}")
-    for model in (WaterMitigationJob, Client, Claim, SentEmail, FollowUpTask,
+    for model in (WaterMitigationJob, Client, Claim, ClaimNegotiation, SentEmail, FollowUpTask,
                   EmailAccount, ReceivedEmail, EmailIngestionLog, File):
         model.__table__.create(engine)
     database = FakeDatabase(engine)
@@ -373,3 +373,101 @@ def test_the_poll_still_passes_over_a_pdf_on_mail_on_no_claim(env, monkeypatch):
     assert (log.status, log.file_id) == ('skipped', None)
     assert session.query(File).count() == 0
 
+
+
+# ---- undoing a filing ----
+
+def filed_as(env, monkeypatch, document_type):
+    check(env, monkeypatch, reply(attachments=[estimate_pdf()]))
+    service = EmailIngestionService(env['database'])
+    [log] = env['session'].query(EmailIngestionLog).all()
+    service.manual_assign(str(log.id), {
+        'client_id': str(env['client'].id), 'claim_id': str(env['claim'].id),
+        'document_type': document_type, 'reviewed_by': 'Morgan Office',
+    })
+    env['session'].expire_all()
+    return service, env['session'].get(EmailIngestionLog, log.id)
+
+
+def test_a_pdf_filed_as_a_document_goes_back_to_waiting(env, monkeypatch):
+    service, log = filed_as(env, monkeypatch, 'photo-report')
+    [email] = env['session'].query(ReceivedEmail).all()
+    [item] = service.get_received_attachments(str(email.id))
+    assert (item['document_type'], item['can_file'], item['can_unfile'], item['revision_number']) == (
+        'photo-report', False, True, None)
+
+    service.unfile_log(str(log.id))
+
+    session = env['session']
+    session.expire_all()
+    log = session.get(EmailIngestionLog, log.id)
+    assert (log.status, log.reviewed_by, log.reviewed_at, log.negotiation_id) == (
+        'pending', None, None, None)
+    # Still the claim's mail
+    assert str(log.matched_claim_id) == str(env['claim'].id)
+    stored = session.get(File, log.file_id)
+    assert (stored.context, stored.context_id, stored.category) == (
+        'email-ingestion', str(log.email_account_id), 'pending-estimate')
+    [item] = service.get_received_attachments(str(email.id))
+    assert (item['document_type'], item['can_file'], item['can_unfile']) == (None, True, False)
+    # And it can be filed again
+    assert service.pending_log_file_id(str(log.id)) == log.file_id
+
+
+def test_only_a_filed_pdf_can_be_undone(env, monkeypatch):
+    check(env, monkeypatch, reply(attachments=[estimate_pdf()]))
+    [log] = env['session'].query(EmailIngestionLog).all()
+    with pytest.raises(ValueError):
+        EmailIngestionService(env['database']).unfile_log(str(log.id))
+
+
+def make_revision(env, number):
+    session = env['session']
+    negotiation = ClaimNegotiation(claim_id=env['claim'].id, revision_number=number)
+    session.add(negotiation)
+    session.commit()
+    return str(negotiation.id)
+
+
+def test_undoing_an_estimate_deletes_its_revision(env, monkeypatch):
+    check(env, monkeypatch, reply(attachments=[estimate_pdf()]))
+    service = EmailIngestionService(env['database'])
+    [log] = env['session'].query(EmailIngestionLog).all()
+    negotiation_id = make_revision(env, 3)
+    service.mark_filed_as_revision(
+        str(log.id), str(env['client'].id), str(env['claim'].id), negotiation_id)
+    deleted = []
+    monkeypatch.setattr(
+        'app.domains.client.service.ClaimNegotiationService.delete',
+        lambda self, entity_id: deleted.append(entity_id) or True,
+    )
+    [email] = env['session'].query(ReceivedEmail).all()
+    [item] = service.get_received_attachments(str(email.id))
+    assert (item['document_type'], item['can_unfile'], item['revision_number']) == (
+        'insurance-estimate', True, 3)
+
+    service.unfile_log(str(log.id))
+
+    assert deleted == [negotiation_id]
+    session = env['session']
+    session.expire_all()
+    log = session.get(EmailIngestionLog, log.id)
+    assert (log.status, log.negotiation_id) == ('pending', None)
+    assert session.get(File, log.file_id).context == 'email-ingestion'
+
+
+def test_deleting_the_revision_puts_its_pdf_back_to_waiting(env, monkeypatch):
+    check(env, monkeypatch, reply(attachments=[estimate_pdf()]))
+    service = EmailIngestionService(env['database'])
+    [log] = env['session'].query(EmailIngestionLog).all()
+    negotiation_id = make_revision(env, 1)
+    service.mark_filed_as_revision(
+        str(log.id), str(env['client'].id), str(env['claim'].id), negotiation_id)
+
+    assert service.release_revision_logs(negotiation_id) == 1
+
+    session = env['session']
+    session.expire_all()
+    log = session.get(EmailIngestionLog, log.id)
+    assert (log.status, log.negotiation_id) == ('pending', None)
+    assert session.get(File, log.file_id).category == 'pending-estimate'

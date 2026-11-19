@@ -232,6 +232,10 @@ export interface ReceivedAttachment {
   note?: string | null;
   /** Waiting for review: can be filed on the claim */
   can_file: boolean;
+  /** Filed on the claim: undo puts it back to waiting */
+  can_unfile?: boolean;
+  /** The estimate revision it became; undo deletes it */
+  revision_number?: number | null;
 }
 
 /** An on-demand search of the connected inboxes */

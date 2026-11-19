@@ -123,6 +123,12 @@ export const emailIngestionService = {
     return data as IngestionLog;
   },
 
+  /** Undo filing an emailed PDF on a claim; an estimate's revision is deleted with it */
+  async unfileLog(logId: string) {
+    const { data } = await api.post(`${BASE}/logs/${logId}/unfile`);
+    return data as IngestionLog;
+  },
+
   async skipLog(logId: string, payload: SkipRequest) {
     const { data } = await api.post(`${BASE}/logs/${logId}/skip`, payload);
     return data as IngestionLog;

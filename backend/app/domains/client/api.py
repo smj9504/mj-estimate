@@ -905,6 +905,12 @@ def delete_negotiation(
         success = service.delete(negotiation_id)
         if not success:
             raise HTTPException(status_code=404, detail="Negotiation not found")
+        try:
+            # An emailed PDF it was made from waits to be filed again
+            from app.domains.email_ingestion.service import EmailIngestionService
+            EmailIngestionService().release_revision_logs(negotiation_id)
+        except Exception as e:
+            logger.error(f"Revision {negotiation_id} deleted, but its emailed PDF stays filed: {e}")
         return {"message": "Negotiation deleted successfully"}
     except HTTPException:
         raise

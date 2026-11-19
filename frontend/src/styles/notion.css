@@ -4163,6 +4163,15 @@ a.cl-contact-line:hover {
   gap: 4px;
   margin-left: auto;
 }
+.cl-mail-file-undo {
+  display: inline-flex;
+  margin-left: -4px;
+}
+.cl-mail-file-undo .ant-btn {
+  height: 22px;
+  padding: 0 4px;
+  color: var(--color-neutral-600);
+}
 
 /* Lists (contracts, todos, notes): rows divided by hairlines, actions at the end */
 .cl-list {

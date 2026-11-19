@@ -462,6 +462,30 @@ def assign_log(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/logs/{log_id}/unfile", response_model=IngestionLogResponse)
+def unfile_log(
+    log_id: str,
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """Undo filing an emailed PDF on a claim: it waits for review again.
+    One that became an estimate revision takes the revision with it."""
+    _require_mail(db, current_staff, EmailIngestionLog, log_id, "Log")
+    claim_id = db.query(EmailIngestionLog.matched_claim_id).filter(
+        EmailIngestionLog.id == log_id
+    ).scalar()
+    if claim_id:
+        require_claim(db, current_staff, str(claim_id))
+    db.rollback()
+    try:
+        return _get_service().unfile_log(log_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error unfiling log {log_id}: {e}")
+        raise HTTPException(status_code=500, detail="Undo failed")
+
+
 @router.post("/logs/{log_id}/skip", response_model=IngestionLogResponse)
 def skip_log(
     log_id: str,
@@ -635,8 +659,21 @@ def extract_log_estimate(
         del data
         result = extract_summary_from_pdf(path)
     except Exception as e:
-        logger.error(f"Estimate extraction failed for log {log_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Couldn't read the estimate: {e}")
+        # Only the cause's type: an httpx header error's text carries the key
+        cause = type(e.__cause__).__name__ if e.__cause__ else None
+        logger.error(
+            f"Estimate extraction failed for log {log_id}: {type(e).__name__}: {e}"
+            + (f" (cause: {cause})" if cause else "")
+        )
+        if type(e).__name__ == "APIConnectionError":
+            # The dialog adds ". Enter them under Manual Entry; ..."
+            detail = (
+                "The amounts aren't in the PDF's text, and the AI reader "
+                "(OpenAI) couldn't be reached"
+            )
+        else:
+            detail = f"Couldn't read the estimate: {e}"
+        raise HTTPException(status_code=500, detail=detail)
     finally:
         try:
             os.unlink(path)

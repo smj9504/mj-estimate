@@ -276,6 +276,10 @@ class ReceivedAttachmentResponse(BaseModel):
     document_type: Optional[str] = None
     is_insurance_estimate: Optional[bool] = None
     note: Optional[str] = None
+    # Filed on the claim: undo puts it back to waiting for review
+    can_unfile: bool = False
+    # The estimate revision it became; undo deletes it
+    revision_number: Optional[int] = None
     # Waiting for review: can be filed on the claim
     can_file: bool = False
 

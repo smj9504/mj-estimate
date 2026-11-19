@@ -57,9 +57,22 @@ class Settings(BaseSettings):
         
         # Remove BOM and strip whitespace
         v = v.strip().strip('\ufeff')
-        
+
         return v
-    
+
+    @field_validator(
+        'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',
+        'GOOGLE_ADDRESS_AUTOCOMPLETE_API_KEY', 'COMPANYCAM_API_KEY',
+        'MAGICPLAN_API_KEY', 'ROBOFLOW_API_KEY',
+        mode='before',
+    )
+    @classmethod
+    def strip_api_key(cls, v):
+        """A key pasted with a trailing newline or space goes out as a bad
+        Authorization header; the OpenAI and Anthropic SDKs report that only
+        as "Connection error." """
+        return v.strip().strip('\ufeff') if isinstance(v, str) else v
+
     # SQLite Database Settings
     SQLITE_DB_PATH: str = "mjestimate_dev.db"
     USE_SQLITE: bool = False  # Default to PostgreSQL for development
