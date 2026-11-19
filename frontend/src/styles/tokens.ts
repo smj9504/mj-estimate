@@ -64,7 +64,9 @@ export const colors = {
 
 export type TagTone =
   | 'gray' | 'brown' | 'orange' | 'yellow' | 'green'
-  | 'blue' | 'purple' | 'pink' | 'red';
+  | 'blue' | 'purple' | 'pink' | 'red'
+  // More hues for a set of values that must all read apart (claim stages)
+  | 'slate' | 'lime' | 'teal' | 'indigo';
 
 export const tagTones: Record<TagTone, { bg: string; text: string }> = {
   gray: { bg: '#f1f1ef', text: '#6f6e69' },
@@ -76,6 +78,11 @@ export const tagTones: Record<TagTone, { bg: string; text: string }> = {
   purple: { bg: '#f6f3f9', text: '#8459a5' },
   pink: { bg: '#faf1f5', text: '#b5427f' },
   red: { bg: '#fdebec', text: '#b93a35' },
+  // Text on bg at least 4.5:1 (WCAG AA), like the rest
+  slate: { bg: '#e4e9ef', text: '#3f5269' },
+  lime: { bg: '#eef5d9', text: '#56701a' },
+  teal: { bg: '#e3f4f1', text: '#1c7465' },
+  indigo: { bg: '#ecedfb', text: '#4b4fb0' },
 };
 
 // ---------------------------------------------------------------------------

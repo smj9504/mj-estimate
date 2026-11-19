@@ -160,23 +160,24 @@ export type ClaimStage =
 /** Stages staff may set by hand, in lifecycle order */
 export type OverrideStage = Exclude<ClaimStage, 'open' | 'closed' | 'denied'>;
 
-// tone: blue = waiting on the carrier, orange = ours to write, pink = appraisal
+// Every stage its own tone, so a list reads at a glance: warm = ours to
+// write, blue/indigo = following up, teal = waiting on the carrier's estimate
 export const CLAIM_STAGE_CONFIG: Record<
   ClaimStage,
   { tone: TagTone; label: string; description?: string }
 > = {
   mitigation:          { tone: 'gray',   label: 'Mitigation',          description: 'Lead in; water mitigation under way' },
   wm_docs:             { tone: 'brown',  label: 'WM Docs Prep',        description: 'Claim filed; putting the WM file together' },
-  awaiting_estimate:   { tone: 'blue',   label: 'Awaiting Estimate',   description: 'WM file sent; waiting on the carrier estimate' },
+  awaiting_estimate:   { tone: 'teal',   label: 'Awaiting Estimate',   description: 'WM file sent; waiting on the carrier estimate' },
   supplement_prep:     { tone: 'orange', label: 'Supplement Prep',     description: 'Writing the supplement estimate for the PA' },
   appraisal_prep:      { tone: 'pink',   label: 'Appraisal Estimate',  description: 'Writing the contractor estimate for appraisal' },
   supplement_followup: { tone: 'blue',   label: 'Supplement Follow-up', description: 'Submitted by the PA; following up on approval' },
-  appraisal_followup:  { tone: 'pink',   label: 'Appraisal Follow-up', description: 'Submitted by the PA; following up on the decision' },
+  appraisal_followup:  { tone: 'indigo', label: 'Appraisal Follow-up', description: 'Submitted by the PA; following up on the decision' },
   construction:        { tone: 'yellow', label: 'Construction',        description: 'Paperwork settled; waiting on the rebuild to finish' },
   depreciation:        { tone: 'purple', label: 'Depreciation',        description: 'Rebuild done and paperwork settled; depreciation file to the PA and carrier' },
   settlement:          { tone: 'green',  label: 'Settlement',          description: 'Money in; settling up with the PA and contractor' },
-  open:                { tone: 'blue',   label: 'Open' },
-  closed:              { tone: 'gray',   label: 'Closed' },
+  open:                { tone: 'lime',   label: 'Open' },
+  closed:              { tone: 'slate',  label: 'Closed' },
   denied:              { tone: 'red',    label: 'Denied' },
 };
 
