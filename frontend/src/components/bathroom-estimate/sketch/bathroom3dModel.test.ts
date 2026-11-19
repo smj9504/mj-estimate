@@ -61,6 +61,43 @@ describe('a shower room in 3D', () => {
     expect(model.walls.find((w) => w.id === 'w2')!.tile).toEqual([{ x0: 0, x1: 36, y0: 0, y1: 96 }]);
     expect(model.walls.find((w) => w.id === 'front')!.surrounds).toEqual([]);
   });
+
+  describe('with its front tiled too (4 tiled walls)', () => {
+    const front = wall('front', 0, 120, 120, 120);
+    const shower = fixture('shower', 'shower', 60, 60, 36, 36, { showerLayout: 'alcove', showerDoorType: 'swing', showerWallCount: 4, showerTileHeight: 84 });
+    const opening = fixture('opening', 'door', 60, 80, 24, 24, { noSlab: true });
+    // Beside the 24" opening (6" to 30"), and over it up to the tile
+    const besideAndOver = [
+      { x0: 0, x1: 6, y0: 0, y1: 84 },
+      { x0: 6, x1: 30, y0: 80, y1: 84 },
+      { x0: 30, x1: 36, y0: 0, y1: 84 },
+    ];
+
+    it("tiles the wall's face the shower is on, and round the opening, not cased", () => {
+      // The room's middle is on the shower's side of the front wall: that's its room face
+      const model = bathroomModel(sketch([north(), front], [shower, opening]));
+      const f = model.walls.find((w) => w.id === 'front')!;
+      expect(f.surrounds).toEqual(besideAndOver.map((rect) => ({ rect, finish: 'tile', fixtureId: 'shower' })));
+      expect(f.backTile).toEqual([]);
+      expect(f.openings[0].tiledRound).toBe(true);
+    });
+
+    it("tiles the wall's other face when its room is the bathroom beyond", () => {
+      const s = sketch([north(), front], [shower, opening]);
+      s.rooms = [{ ...s.rooms[0], boundary: [{ x: 0, y: 120 }, { x: 320, y: 120 }, { x: 320, y: 300 }, { x: 0, y: 300 }] }];
+      const f = bathroomModel(s).walls.find((w) => w.id === 'front')!;
+      expect(f.surrounds).toEqual([]);
+      expect(f.backTile).toEqual(besideAndOver);
+    });
+
+    it('leaves the front and its opening alone with 3', () => {
+      const three = { ...shower, properties: { ...shower.properties, showerWallCount: 3 } };
+      const f = bathroomModel(sketch([north(), front], [three, opening])).walls.find((w) => w.id === 'front')!;
+      expect(f.surrounds).toEqual([]);
+      expect(f.backTile).toEqual([]);
+      expect(f.openings[0].tiledRound).toBeUndefined();
+    });
+  });
 });
 
 describe('bathroomModel walls', () => {

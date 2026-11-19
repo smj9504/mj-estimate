@@ -267,6 +267,51 @@ export function showerFrontOpening(
   return null;
 }
 
+/**
+ * Tiled walls a shower can have: its back and sides, and in its own room the
+ * wall with its door's opening too (the 4th), tiled inside either side of
+ * the opening and round it. Without that room there's no 4th: the front is glass.
+ */
+export const SHOWER_ROOM_WALLS = 4;
+
+export function showerFrontTiled(
+  shower: BEFixture, walls: BEWall[], fixtures: BEFixture[], pixelsPerFoot: number,
+): boolean {
+  return (shower.properties.showerWallCount ?? 3) >= SHOWER_ROOM_WALLS
+    && (shower.properties.showerWallMaterial ?? 'tile') === 'tile'
+    && !!showerFrontOpening(shower, walls, fixtures, pixelsPerFoot);
+}
+
+export interface ShowerFrontTile {
+  /** The front's stretch of this wall, up to the shower's tile height (the opening not taken out) */
+  rect: FaceRect;
+  fixture: BEFixture;
+}
+
+/**
+ * A shower room's front tiled inside (4 tiled walls): the stretch of this wall
+ * its front stands along, on the shower's face of the wall, which needn't be
+ * the face toward the wall's room (a shower room cut off the bathroom).
+ */
+export function showerFrontTiles(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): ShowerFrontTile[] {
+  const out: ShowerFrontTile[] = [];
+  const lengthIn = wallLengthIn(wall, pixelsPerFoot);
+  for (const fix of fixtures) {
+    if (fix.type !== 'shower' || !showerFrontTiled(fix, [wall], fixtures, pixelsPerFoot)) continue;
+    const corners = fixtureCorners(fix, pixelsPerFoot);
+    const front = [corners[2], corners[3]].map((c) => alongWall(wall, c, pixelsPerFoot).alongIn);
+    const rect = {
+      x0: Math.max(0, Math.min(...front)),
+      x1: Math.min(lengthIn, Math.max(...front)),
+      y0: 0,
+      y1: Math.min(fix.properties.showerTileHeight ?? 96, wall.heightInches),
+    };
+    if (rect.x1 - rect.x0 <= 0.01) continue;
+    out.push({ rect, fixture: fix });
+  }
+  return out;
+}
+
 /** Where a door in a shower room's opening sits, for what reads it as left / centre / right */
 export function openingDoorPosition([s, e]: [number, number]): 'left' | 'center' | 'right' {
   if (s <= 0.02 && e < 0.98) return 'left';

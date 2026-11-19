@@ -24,6 +24,8 @@ import {
   wallLengthIn,
   wallOpeningsOf,
   showerFrontOpening,
+  showerFrontTiled,
+  showerFrontTiles,
   fixtureSidesAgainstWalls,
   wallTileRegions,
   type FaceRect,
@@ -85,6 +87,8 @@ export interface WallOpeningSolid {
   swingsIn: boolean;
   /** An opening with no door in it */
   noSlab?: boolean;
+  /** A shower room's entry, its front tiled inside: tiled round its jambs and head, not cased */
+  tiledRound?: boolean;
 }
 
 export interface WallSolid {
@@ -102,6 +106,8 @@ export interface WallSolid {
   tile: FaceRect[];
   /** The part behind a tub or shower: tiled with the fixture, or its prefab surround. */
   surrounds: { rect: FaceRect; finish: 'tile' | 'prefab'; fixtureId: string }[];
+  /** Shower tile on the wall's other face: a shower room's front, tiled inside, where the wall's room is the bathroom */
+  backTile: FaceRect[];
   openings: WallOpeningSolid[];
   /** Decorative border rows across its tile after the work, as bands on its face (utils/decoTile) */
   borders: FaceRect[];
@@ -397,6 +403,11 @@ function wallSolid(
   const a = toIn(wall.start, ppf);
   const b = toIn(wall.end, ppf);
   const along = (p: Pt) => ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / (lengthIn || 1);
+  // The entries of shower rooms tiled inside, front and all
+  const tiledEntries = new Set(sketch.fixtures
+    .filter((f) => f.type === 'shower' && showerFrontTiled(f, sketch.walls, sketch.fixtures, ppf))
+    .map((f) => showerFrontOpening(f, sketch.walls, sketch.fixtures, ppf)?.openingId)
+    .filter(Boolean));
 
   const openings: WallOpeningSolid[] = wallOpeningsOf(wall, sketch.fixtures, ppf).map(({ rect, fixture }) => {
     const r = clip(rect);
@@ -415,6 +426,7 @@ function wallSolid(
       hingeAtStart: Math.abs(hingeAlong - r.x0) <= Math.abs(hingeAlong - r.x1),
       swingsIn: side >= 0,
       ...(fixture.properties?.noSlab ? { noSlab: true } : {}),
+      ...(tiledEntries.has(fixture.id) ? { tiledRound: true } : {}),
     };
   });
   const holes = openings.map((o) => o.rect);
@@ -433,6 +445,21 @@ function wallSolid(
   const surrounds = kept.flatMap(({ rect, fixture }) =>
     subtractRects([clip(rect)], holes).map((piece) => ({ rect: piece, finish: surroundFinish(fixture, estimate), fixtureId: fixture.id })));
 
+  // A shower room's front tiled inside, on the face the shower is on: the
+  // room's face (+z in the scene: the inward side, or the left normal of a
+  // wall in no room), else the other one
+  const normal: Pt = inward ?? [-(b[1] - a[1]) / (lengthIn || 1), (b[0] - a[0]) / (lengthIn || 1)];
+  const backTile: FaceRect[] = [];
+  for (const { rect, fixture } of showerFrontTiles(wall, sketch.fixtures, ppf)) {
+    const c = toIn(fixture.position, ppf);
+    const pieces = subtractRects([clip(rect)], holes);
+    if ((c[0] - a[0]) * normal[0] + (c[1] - a[1]) * normal[1] >= 0) {
+      surrounds.push(...pieces.map((piece) => ({ rect: piece, finish: 'tile' as const, fixtureId: fixture.id })));
+    } else {
+      backTile.push(...pieces);
+    }
+  }
+
   return {
     id: wall.id,
     a,
@@ -444,6 +471,7 @@ function wallSolid(
     pieces: subtractRects([{ x0: 0, x1: lengthIn, y0: 0, y1: heightIn }], holes),
     tile: subtractRects(regions, holes.concat(kept.map((c) => clip(c.rect)))),
     surrounds,
+    backTile,
     openings,
     borders: view === 'after'
       ? wallBorderRuns(wall, sketch.fixtures, ppf).map((r) => clip({

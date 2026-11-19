@@ -49,7 +49,7 @@ import {
 import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
-import { DOOR_HEIGHT_IN, showerFrontOpening, wallOpeningsOf } from './utils/wallFinish';
+import { DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, showerFrontOpening, wallOpeningsOf } from './utils/wallFinish';
 import { FLOOR_BORDER_INSET_IN, floorBorderLF } from './utils/decoTile';
 import BEWallFinishEditor from './BEWallFinishEditor';
 
@@ -579,8 +579,20 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         </Group>
 
         <Group title="Walls">
-          <Field label="Tiled walls">
-            <Num label="Tiled walls" value={p.showerWallCount ?? 3} min={1} max={3} onChange={(v) => v && setProps({ showerWallCount: v })} />
+          {/* In its own room the 4th is the wall with its opening, tiled inside too */}
+          <Field
+            label="Tiled walls"
+            hint={opening
+              ? ((p.showerWallCount ?? 3) >= SHOWER_ROOM_WALLS ? 'Door side too' : '4 tiles the door side')
+              : undefined}
+          >
+            <Num
+              label="Tiled walls"
+              value={Math.min(p.showerWallCount ?? 3, opening ? SHOWER_ROOM_WALLS : 3)}
+              min={1}
+              max={opening ? SHOWER_ROOM_WALLS : 3}
+              onChange={(v) => v && setProps({ showerWallCount: v })}
+            />
           </Field>
           <Field label="Tile height">
             <Num label="Tile height, inches" value={p.showerTileHeight ?? 96} min={48} max={120} unit="in" onChange={(v) => v && setProps({ showerTileHeight: v })} />

@@ -218,7 +218,8 @@ test("the sketch's doors and windows give the estimate their trim, a shower room
   await page.setViewportSize({ width: 1400, height: 1300 });
   SKETCH.walls = [...BATH_WALLS, ...SHOWER_WALLS];
   SKETCH.fixtures = [
-    SHOWER,
+    // Its door side tiled too (its 4th wall)
+    { ...SHOWER, properties: { ...SHOWER.properties, showerWallCount: 4 } },
     // The shower room's opening: tiled round, no casing
     { id: 'opening', type: 'door', wallId: 's', position: { x: 1.5 * FT, y: 4.75 * FT }, dimensions: { width: 28, height: 6 }, rotation: 0, properties: { noSlab: true } },
     // The bathroom's door (30" x 80") and a window
@@ -234,4 +235,47 @@ test("the sketch's doors and windows give the estimate their trim, a shower room
   await page.getByRole('tab', { name: 'Floor & Walls' }).click();
   await expect(page.getByText('Install & paint', { exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('door-trim.png') });
+});
+
+test("a shower room's door side tiled as its 4th wall, or left to paint with 3", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 1300 });
+  SKETCH.walls = [...BATH_WALLS, ...SHOWER_WALLS];
+  SKETCH.fixtures = [
+    SHOWER,
+    { id: 'opening', type: 'door', wallId: 's', position: { x: 1.5 * FT, y: 4.75 * FT }, dimensions: { width: 28, height: 6 }, rotation: 0, properties: { noSlab: true, openingHeightIn: 80 } },
+  ] as any;
+  (SKETCH as any).drywallRepairZones = [];
+  const sent = await open(page);
+  await settled(page);
+
+  // 3 tiled walls: the door side isn't, and its opening is cased like any other
+  const s = await onScreen(page, 1.5, 6.5);
+  await page.mouse.click(s.x, s.y);
+  await expect(panel(page).getByText('4 tiles the door side', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /Calculate/ }).first().click();
+  await expect.poll(() => sent.calculated.length).toBe(1);
+  expect(sent.calculated[0].shower_spec).toMatchObject({ front_opening_in: 28, front_tiled: false });
+  expect(sent.calculated[0].walls_spec).toMatchObject({ door_trim_count: 1 });
+
+  // 4: the door side too, tiled round its opening
+  await page.getByRole('tab', { name: /Sketch/ }).click();
+  await settled(page);
+  const again = await onScreen(page, 1.5, 6.5);
+  await page.mouse.click(again.x, again.y);
+  await setNum(page, 'Tiled walls', 4);
+  await expect(panel(page).getByText('Door side too', { exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('four-walls-panel.png') });
+  await page.getByRole('button', { name: /Calculate/ }).first().click();
+  await expect.poll(() => sent.calculated.length).toBe(2);
+  expect(sent.calculated[1].shower_spec).toMatchObject({ front_opening_in: 28, front_tiled: true });
+  // Its only opening now tiled round: no casing left to price
+  expect(sent.calculated[1].walls_spec).toMatchObject({ door_trim_count: 0, door_trim_lf: 0 });
+
+  await page.getByRole('tab', { name: /Sketch/ }).click();
+  await back(page);
+  await page.getByText('3D', { exact: true }).click();
+  await expect(page.locator('canvas').last()).toBeVisible();
+  await page.getByRole('button', { name: /Reset view/ }).click();
+  await page.waitForTimeout(3000);
+  await page.screenshot({ path: test.info().outputPath('four-walls-3d.png') });
 });

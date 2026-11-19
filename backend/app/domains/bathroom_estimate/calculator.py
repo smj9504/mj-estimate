@@ -102,12 +102,21 @@ def _scale_dollar_amounts(text: str, factor: float) -> str:
 OPENING_RETURN_IN = 4.5
 
 
+def _shower_room_front_tiled(shower_spec: Dict[str, Any]) -> bool:
+    """A shower room's front wall (the wall with the opening its door hangs
+    in) is one of its tiled walls: the sketch's 4th (front_tiled). Saved
+    before the sketch said so, it was always tiled, and stays so."""
+    return (bool(_count(shower_spec.get("front_opening_in")))
+            and shower_spec.get("front_tiled", True) is not False
+            and shower_spec.get("layout") not in ("neo_angle", "neo_angle_right"))
+
+
 def _shower_room_front_sf(shower_spec: Dict[str, Any], width_in: float, tile_h_in: float) -> float:
     """A shower room's front wall tile (sketch: a shower against a wall with
-    an opening): inside either side of the opening, and round the opening"""
+    an opening, its 4 walls tiled): inside either side of the opening, and
+    round the opening"""
     opening = _count(shower_spec.get("front_opening_in"))
-    if (not opening or not width_in or not tile_h_in
-            or shower_spec.get("layout") in ("neo_angle", "neo_angle_right")):
+    if not _shower_room_front_tiled(shower_spec) or not width_in or not tile_h_in:
         return 0.0
     open_h = min(_count(shower_spec.get("front_opening_height_in")) or 80, tile_h_in)
     front = max(0.0, width_in - opening) * tile_h_in / 144
@@ -997,7 +1006,7 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                 # hangs in, tiled inside either side of the opening and round it
                 # (the opening's jambs, and its head when the tile goes above it)
                 _s_open = _count(shower_spec.get("front_opening_in"))
-                if _s_open and _s_layout not in ("neo_angle", "neo_angle_right"):
+                if _shower_room_front_tiled(shower_spec):
                     _s_open_h = min(_count(shower_spec.get("front_opening_height_in")) or 80, sh)
                     _s_front_sf = max(0.0, sw - _s_open) * sh / 144
                     _s_returns_sf = (2 * _s_open_h + (_s_open if sh > _s_open_h else 0)) * OPENING_RETURN_IN / 144

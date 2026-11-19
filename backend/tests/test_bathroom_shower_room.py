@@ -85,3 +85,29 @@ def test_a_neo_angle_shower_has_no_front_wall():
     plain = shower_tile(lines_of(estimate({"layout": "neo_angle"})))
     opened = shower_tile(lines_of(estimate({"layout": "neo_angle", "front_opening_in": 24})))
     assert opened["quantity"] == plain["quantity"]
+
+
+# ── The front wall tiled or not: the sketch's 4th tiled wall ──
+
+ROOM = {"front_opening_in": 24, "front_opening_height_in": 80}
+
+
+def test_a_shower_room_with_three_tiled_walls_leaves_its_front_alone():
+    untiled = shower_tile(lines_of(estimate({**ROOM, "front_tiled": False})))
+    assert untiled["quantity"] == pytest.approx((36 + 2 * 36) * 84 / 144)
+    assert "opening" not in (untiled["notes"] or "")
+    tiled = shower_tile(lines_of(estimate({**ROOM, "front_tiled": True})))
+    assert tiled["quantity"] > untiled["quantity"]
+
+
+def test_an_untiled_front_comes_out_as_no_tile():
+    plain = calculate_estimate(estimate())
+    untiled = calculate_estimate(estimate({**ROOM, "front_tiled": False}))
+    demo = lambda r: next(li for li in r["line_items"] if li["phase"] == 1 and li["description"].startswith(("Demo", "Tile")))
+    assert demo(untiled)["total"] == demo(plain)["total"]
+
+
+def test_a_shower_room_saved_before_the_choice_keeps_its_tiled_front():
+    saved = shower_tile(lines_of(estimate(ROOM)))
+    tiled = shower_tile(lines_of(estimate({**ROOM, "front_tiled": True})))
+    assert saved["quantity"] == tiled["quantity"]

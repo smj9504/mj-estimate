@@ -173,6 +173,14 @@ function facePanel(r: FaceRect, z: number, material: THREE.Material, repeat?: [n
   return new THREE.Mesh(geometry, material);
 }
 
+/** facePanel turned to face -z: the wall's face away from its room. */
+function backFacePanel(r: FaceRect, z: number, material: THREE.Material, repeat?: [number, number]): THREE.Mesh {
+  const mesh = facePanel(r, z, material, repeat);
+  mesh.geometry.setIndex([0, 2, 1, 0, 3, 2]);
+  mesh.geometry.computeVertexNormals();
+  return mesh;
+}
+
 function tileMaterial(look: TileLook, textures: TileTextureCache): { material: THREE.MeshStandardMaterial; repeat: [number, number] } {
   const { texture, repeatIn } = textures.get(look);
   return { material: mat('#ffffff', { map: texture, roughness: look.roughness }), repeat: repeatIn };
@@ -211,16 +219,21 @@ function buildOpening(
   thick: number,
   roomSide: boolean,
   add: (obj: THREE.Object3D) => void,
-  m: { trim: THREE.MeshStandardMaterial; door: THREE.MeshStandardMaterial; glass: THREE.MeshStandardMaterial; metal: THREE.MeshStandardMaterial },
+  m: {
+    trim: THREE.MeshStandardMaterial; door: THREE.MeshStandardMaterial; glass: THREE.MeshStandardMaterial;
+    metal: THREE.MeshStandardMaterial; showerTile: THREE.MeshStandardMaterial;
+  },
 ) {
   const { x0, x1, y0, y1 } = o.rect;
   const w = x1 - x0;
   const h = y1 - y0;
-  // Jambs and head lining the opening, and casing on the room side
-  add(boxAt(0.75, h, thick, m.trim, x0 + 0.375, y0 + h / 2, -thick / 2));
-  add(boxAt(0.75, h, thick, m.trim, x1 - 0.375, y0 + h / 2, -thick / 2));
-  add(boxAt(w, 0.75, thick, m.trim, x0 + w / 2, y1 - 0.375, -thick / 2));
-  if (roomSide) {
+  // Jambs and head lining the opening, and casing on the room side; a tiled
+  // shower room's entry is tiled round instead, and not cased
+  const lining = o.tiledRound ? m.showerTile : m.trim;
+  add(boxAt(0.75, h, thick, lining, x0 + 0.375, y0 + h / 2, -thick / 2));
+  add(boxAt(0.75, h, thick, lining, x1 - 0.375, y0 + h / 2, -thick / 2));
+  add(boxAt(w, 0.75, thick, lining, x0 + w / 2, y1 - 0.375, -thick / 2));
+  if (roomSide && !o.tiledRound) {
     add(boxAt(2.5, h + 2.5, 0.75, m.trim, x0 - 1.25, y0 + (h + 2.5) / 2, 0.375));
     add(boxAt(2.5, h + 2.5, 0.75, m.trim, x1 + 1.25, y0 + (h + 2.5) / 2, 0.375));
     add(boxAt(w + 5, 2.5, 0.75, m.trim, x0 + w / 2, y1 + 1.25, 0.375));
@@ -306,6 +319,13 @@ function buildWall(
     }
     add(facePanel(mirror(s.rect), faceZ + (key === 'prefab' ? 0.25 : 0.08), entry.material, entry.repeat));
   }
+  // A shower room's front tiled inside, where that's the wall's other face.
+  // Not ghosted with the wall: from the shower room (the wall's far side) it's
+  // the face looked at; from the bathroom the wall stands in front of it.
+  if (w.backTile.length) {
+    const { material, repeat } = tileMaterial(looks.showerTile, textures);
+    for (const r of w.backTile.map(mirror)) add(backFacePanel(r, bodyZ - T / 2 - 0.08, material, repeat));
+  }
 
   // Baseboard wherever the wall is painted down to the floor
   const trim = own(mat(COLORS.trim, { roughness: 0.5 }));
@@ -321,6 +341,7 @@ function buildWall(
     door: own(mat(COLORS.door, { roughness: 0.45 })),
     glass: own(mat(COLORS.glass, { roughness: 0.05, transparent: true, opacity: 0.28, depthWrite: false })),
     metal: own(metalMaterial(looks)),
+    showerTile: own(mat(looks.showerTile.color, { roughness: looks.showerTile.roughness })),
   };
   for (const o of w.openings) {
     buildOpening({ ...o, rect: mirror(o.rect) }, flip, T, !!w.inward, add, openingMaterials);

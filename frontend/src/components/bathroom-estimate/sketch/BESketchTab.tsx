@@ -29,7 +29,7 @@ import { mirrorsFromSketch, type MirrorRow } from '../mirrorRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { showerDoorPosition } from './utils/beGeometry';
 import {
-  DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening,
+  DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening, showerFrontTiled,
 } from './utils/wallFinish';
 import { floorBorderLF, wallBorderLF, wallDecoInserts, wallHasDeco } from './utils/decoTile';
 import { useBESketchState } from './hooks/useBESketchState';
@@ -259,9 +259,11 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       } else {
         coveredWallSF += (sW + sD) * sTileH;
       }
-      // A shower room's front wall is tiled inside, either side of its opening
+      // A shower room's front wall, when tiled inside (4 tiled walls), either side of its opening
       const front = showerFrontOpening(showerFix, walls, fixtures, ppf);
-      if (front) coveredWallSF += Math.max(0, sW - front.widthIn / 12) * sTileH;
+      if (front && showerFrontTiled(showerFix, walls, fixtures, ppf)) {
+        coveredWallSF += Math.max(0, sW - front.widthIn / 12) * sTileH;
+      }
     }
 
     // Bathtub: walls covered by surround (skip freestanding)
@@ -314,9 +316,9 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     const hasAnyTile = tileWallSF > 0;
     const hasAnyPaint = paintWallSF > 0;
     // Its doors' and openings' trim, one side each, two legs and a head of casing
-    // (a shower room's opening is tiled round, not cased); its windows' trim
+    // (a shower room's opening tiled inside is tiled round, not cased); its windows' trim
     const showerEntries = new Set(fixtures
-      .filter((f) => f.type === 'shower')
+      .filter((f) => f.type === 'shower' && showerFrontTiled(f, walls, fixtures, ppf))
       .map((s) => showerFrontOpening(s, walls, fixtures, ppf)?.openingId)
       .filter(Boolean));
     const trimDoors = fixtures.filter((f) => f.type === 'door' && !showerEntries.has(f.id));
@@ -324,7 +326,12 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     const casingLF = trimDoors.reduce((sum, d) => sum
       + (2 * ((d.properties.openingHeightIn ?? DOOR_HEIGHT_IN) + 2) + d.dimensions.width + 5) / 12, 0);
     const wallsSpecBase: Record<string, any> = {
-      ...(trimDoors.length ? { door_trim_count: trimDoors.length, door_trim_lf: Math.round(casingLF * 10) / 10 } : {}),
+      // Sent whenever the plan has doors, none to case included (each a shower
+      // room's entry tiled round), so trim the plan no longer has comes off;
+      // a plan with no doors leaves the count typed on the estimate alone
+      ...(fixtures.some((f) => f.type === 'door')
+        ? { door_trim_count: trimDoors.length, door_trim_lf: Math.round(casingLF * 10) / 10 }
+        : {}),
       ...(trimWindows.length ? { window_trim_count: trimWindows.length } : {}),
       ...(existingTileWallSF > 0 ? { existing_tile_wall_sf: existingTileWallSF } : {}),
       // Always sent, so a soffit taken off the plan comes off the estimate
@@ -459,9 +466,11 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       door_height_in: p.showerDoorHeight ?? SHOWER_DOOR_HEIGHT_IN,
       door_position: opening ? openingDoorPosition(opening.span) : showerDoorPosition(p),
       fixed_panel_config: opening ? 'none' : p.fixedPanelConfig ?? 'none',
-      // A shower room's front wall: tiled inside either side of the opening, and its returns
+      // A shower room's front wall: tiled inside either side of the opening,
+      // and its returns, when it's one of the tiled walls (the 4th)
       front_opening_in: opening ? Math.round(opening.widthIn) : 0,
       front_opening_height_in: opening ? Math.round(opening.heightIn) : 0,
+      front_tiled: showerFrontTiled(shower, walls, fixtures, ppf),
       layout: p.showerLayout ?? 'alcove',
       wall_material: p.showerWallMaterial ?? 'tile',
       tiled_with_wall_sf: surroundInTile[shower.id] ?? 0,

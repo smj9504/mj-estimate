@@ -3,6 +3,8 @@ import type { BEFixture, BERoom, BEWall } from '../../../../types/bathroomSketch
 import {
   openingDoorPosition,
   showerFrontOpening,
+  showerFrontTiled,
+  showerFrontTiles,
   coveredArea,
   wallOpeningsOf,
   wallStripAreaSF,
@@ -192,6 +194,22 @@ describe('a shower in its own room', () => {
     expect(showerFrontOpening(shower, [wall('long', 0, 120, 400, 120)], [shower, { ...opening, position: { x: 300, y: 80 } }], PPF)).toBeNull();
     // Nor is a neo-angle's front a wall
     expect(showerFrontOpening({ ...shower, properties: { showerLayout: 'neo_angle' } }, [front], [shower, opening], PPF)).toBeNull();
+  });
+
+  it('tiles its front as a 4th wall only when it says so, and only in its own room', () => {
+    const four = { ...shower, properties: { ...shower.properties, showerWallCount: 4, showerTileHeight: 84 } };
+    expect(showerFrontTiled(shower, [front], [shower, opening], PPF)).toBe(false);
+    expect(showerFrontTiled(four, [front], [four, opening], PPF)).toBe(true);
+    // No opening at its front: the front is glass, never tiled
+    expect(showerFrontTiled(four, [north()], [four, opening], PPF)).toBe(false);
+    // A prefab surround has no tile to carry round
+    const prefab = { ...four, properties: { ...four.properties, showerWallMaterial: 'prefab_acrylic' as const } };
+    expect(showerFrontTiled(prefab, [front], [prefab, opening], PPF)).toBe(false);
+
+    // The front's stretch of the wall, to the tile height (the opening is cut from it later)
+    expect(showerFrontTiles(front, [four, opening], PPF)).toMatchObject([{ rect: { x0: 0, x1: 36, y0: 0, y1: 84 }, fixture: { id: 'shower' } }]);
+    expect(showerFrontTiles(front, [shower, opening], PPF)).toEqual([]);
+    expect(showerFrontTiles(north(), [four, opening], PPF)).toEqual([]);
   });
 
   it('reads a door against one side as there', () => {
