@@ -631,14 +631,16 @@ class BathroomEstimateService:
         return calculate_estimate(estimate, layout_changes=changes)["job_inputs"]
 
     def _job_share(self, estimate: BathroomEstimate, groups: List[List[BathroomEstimate]],
-                   inputs: Dict[str, Dict[str, Any]]) -> Optional[JobShare]:
+                   inputs: Dict[str, Dict[str, Any]],
+                   names: Optional[Dict[str, str]] = None) -> Optional[JobShare]:
         """The estimate's place among the job's bathrooms; None with one. The
         first bathroom made carries the job costs. inputs caches each other
-        bathroom's debris and flags by its group."""
+        bathroom's debris and flags by its group; names, each bathroom's
+        name by its group (else named among `groups`)."""
         if len(groups) < 2 or _alone(estimate):
             return None
         own = _group_key(estimate)
-        names = self._group_names(groups)
+        names = names or self._group_names(groups)
         others = []
         for group in groups:
             key = _group_key(group[0])
@@ -680,18 +682,7 @@ class BathroomEstimateService:
     def _replace_job_lines(self, member: BathroomEstimate, groups: List[List[BathroomEstimate]],
                            inputs: Dict[str, Dict[str, Any]], changed_by_id: Optional[str]) -> bool:
         """Its job lines as the job is now, if they moved; True when they did"""
-        job = self._job_share(member, groups, inputs)
-        baseline = self._layout_baseline(member)
-        changes = (
-            layout_changes(baseline.sketch_data, member.sketch_data)
-            if baseline is not None else None
-        )
-        book = UnitPriceService(self.session).book_for(
-            PRICE_DOMAIN, member, self._group_members(member),
-        )
-        with use_prices(book.prices):
-            result = calculate_estimate(member, layout_changes=changes, job=job)
-        fresh = [li for li in result["line_items"] if is_job_line(li["description"])]
+        fresh = self._fresh_job_lines(member, groups, inputs)
         stored = sorted(member.line_items, key=lambda li: li.display_order or 0)
         old = [li for li in stored if is_job_line(li.description)]
         if ([_line_sig(li.description, li.quantity, li.unit_price, li.total, li.notes) for li in old]
@@ -700,13 +691,7 @@ class BathroomEstimateService:
             return False
 
         self._save_history(str(member.id), changed_by_id, "Job costs moved: the job's bathrooms changed")
-        # Its other lines stay as they are, in their order; each new job
-        # line goes after the last of them in its phase
-        order: List[Any] = [li for li in stored if not is_job_line(li.description)]
-        for item in fresh:
-            at = max((i for i, li in enumerate(order)
-                      if (li["phase"] if isinstance(li, dict) else li.phase) <= item["phase"]), default=-1)
-            order.insert(at + 1, item)
+        order = self._with_job_lines(stored, fresh)
         for li in old:
             self.session.delete(li)
         for i, li in enumerate(order):
@@ -723,6 +708,119 @@ class BathroomEstimateService:
         member.subtotal = subtotal
         member.total = subtotal
         return True
+
+    def _fresh_job_lines(self, member: BathroomEstimate, groups: List[List[BathroomEstimate]],
+                         inputs: Dict[str, Dict[str, Any]],
+                         names: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+        """Its job lines (dumpster, permit, trip, lead RRP) as `groups` make
+        them: with one bathroom or none, its own, as if it were the only one"""
+        job = self._job_share(member, groups, inputs, names)
+        baseline = self._layout_baseline(member)
+        changes = (
+            layout_changes(baseline.sketch_data, member.sketch_data)
+            if baseline is not None else None
+        )
+        book = UnitPriceService(self.session).book_for(
+            PRICE_DOMAIN, member, self._group_members(member),
+        )
+        with use_prices(book.prices):
+            result = calculate_estimate(member, layout_changes=changes, job=job)
+        return [li for li in result["line_items"] if is_job_line(li["description"])]
+
+    @staticmethod
+    def _with_job_lines(stored: List[Any], fresh: List[Dict[str, Any]]) -> List[Any]:
+        """The stored lines with their job lines swapped for `fresh`: the
+        others stay as they are, in their order (they may be edited by
+        hand), and each new job line goes after the last of them in its phase"""
+        order: List[Any] = [li for li in stored if not is_job_line(li.description)]
+        for item in fresh:
+            at = max((i for i, li in enumerate(order)
+                      if (li["phase"] if isinstance(li, dict) else li.phase) <= item["phase"]), default=-1)
+            order.insert(at + 1, item)
+        return order
+
+    # ── A PDF of the job's bathrooms ──
+
+    def pdf_bathrooms(self, estimate_id: str, estimate_ids: List[str]) -> Optional[Dict[str, Any]]:
+        """The estimates a PDF of the job's bathrooms shows, one per bathroom,
+        the first made first: {"estimates": each a full estimate with its
+        "bathroom_name", "carrier": the bathroom with the job costs, None
+        when nothing is shared}. Each also has its "saved_total", with the job.
+
+        With every bathroom of the job they are as stored, what each page
+        shows. With fewer, the job costs (dumpster, permit, trip, lead RRP)
+        are priced for those bathrooms only: one bathroom on its own pays its
+        own, its dumpster sized for its own debris, as if it were the only
+        bathroom (owner, 2026-11-19). Nothing is saved."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        found = {str(e.id): e for e in self._job_estimates(estimate)}
+        # A job with no claim or address is its own bathroom
+        for m in self._group_members(estimate):
+            if m.kind != "existing":
+                found.setdefault(str(m.id), m)
+        groups: Dict[str, List[BathroomEstimate]] = {}
+        for e in found.values():
+            groups.setdefault(_group_key(e), []).append(e)
+        ordered = sorted(groups.values(),
+                         key=lambda g: (min(m.created_at or datetime.min for m in g), _group_key(g[0])))
+        names = self._group_names(ordered)
+
+        picked: Dict[str, BathroomEstimate] = {}
+        for eid in dict.fromkeys(str(i) for i in estimate_ids):
+            e = found.get(eid)
+            if e is None:
+                raise ValueError("That estimate isn't one of this job's bathrooms.")
+            key = _group_key(e)
+            if key in picked:
+                raise ValueError(f"Pick one estimate of the {names[key]}.")
+            if not e.line_items:
+                raise ValueError(f"The {names[key]} isn't calculated yet.")
+            picked[key] = e
+        if not picked:
+            raise ValueError("Pick at least one bathroom.")
+        order = [_group_key(g[0]) for g in ordered]
+        chosen = sorted(picked.values(), key=lambda e: order.index(_group_key(e)))
+
+        # The bathrooms sharing costs, as the PDF has them (one priced on
+        # its own keeps its own costs either way)
+        shared = [e for e in chosen if not _alone(self._job_rep(groups[_group_key(e)]))]
+        job_keys = [_group_key(g[0]) for g in self._job_groups(list(found.values()))]
+        whole = sorted(_group_key(e) for e in shared) == sorted(job_keys)
+
+        out: List[Dict[str, Any]] = []
+        if whole:
+            for e in chosen:
+                full = self._get_full_estimate(str(e.id))
+                full["bathroom_name"] = names[_group_key(e)]
+                full["saved_total"] = full["total"]
+                out.append(full)
+            carrier = names[job_keys[0]] if len(job_keys) > 1 else None
+            return {"estimates": out, "carrier": carrier}
+
+        sub_groups = [groups[_group_key(e)] for e in shared]
+        inputs: Dict[str, Dict[str, Any]] = (
+            {_group_key(e): self._job_inputs(e) for e in shared} if len(shared) > 1 else {}
+        )
+        for e in chosen:
+            full = self._get_full_estimate(str(e.id))
+            full["bathroom_name"] = names[_group_key(e)]
+            # As saved, with the job: what its page shows
+            full["saved_total"] = full["total"]
+            if e in shared:
+                stored = sorted(e.line_items, key=lambda li: li.display_order or 0)
+                lines = self._with_job_lines(stored, self._fresh_job_lines(e, sub_groups, inputs, names))
+                full["line_items"] = [
+                    li if isinstance(li, dict) else self.line_item_repo._convert_to_dict(li)
+                    for li in lines
+                ]
+                total = round(sum(float(li.get("total") or 0) for li in full["line_items"]), 2)
+                full["subtotal"] = total
+                full["total"] = total
+            out.append(full)
+        carrier = names[_group_key(shared[0])] if len(shared) > 1 else None
+        return {"estimates": out, "carrier": carrier}
 
     def _other_bathrooms(self, estimate: BathroomEstimate) -> List[BathroomEstimate]:
         """Every estimate of the job's other bathrooms (not those priced on their own)"""
@@ -756,6 +854,12 @@ class BathroomEstimateService:
                 "group_id": key, "name": names[key], "estimate_id": str(rep.id),
                 "designation": rep.designation, "total": float(rep.total or 0),
                 "calculated": bool(rep.line_items), "alone": _alone(rep), "current": key == own,
+                # Its restoration and options, for a PDF to pick from
+                "estimates": [
+                    {"id": str(m.id), "kind": m.kind, "option_label": m.option_label,
+                     "total": float(m.total or 0), "calculated": bool(m.line_items)}
+                    for m in sorted(group, key=lambda m: (m.kind != "restore", m.option_order or 0))
+                ],
             })
         return out
 

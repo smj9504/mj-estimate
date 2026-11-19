@@ -59,6 +59,8 @@ from .schemas import (
     BathroomEstimateListResponse,
     BathroomEstimateResponse,
     BathroomEstimateUpdate,
+    BathroomsPdfPreview,
+    BathroomsPdfRequest,
     HistoryResponse,
     JobBathroom,
     LineItemCreate,
@@ -713,6 +715,84 @@ def export_proposal_pdf_with_renders(
     """The customer's comparison, with each estimate's 3D view ({renders: {id: base64}})."""
     _require_estimate(session, current_user, estimate_id)
     return _proposal_pdf(estimate_id, body.get("show_signature", True), body.get("renders"), session)
+
+
+def _pdf_bathrooms(session: DatabaseSession, current_user, estimate_id: str, estimate_ids) -> Dict[str, Any]:
+    """The job's bathrooms a PDF shows (service.pdf_bathrooms), each one seen
+    to be the staff member's"""
+    _require_estimate(session, current_user, estimate_id)
+    for eid in estimate_ids:
+        _require_estimate(session, current_user, str(eid))
+    try:
+        picked = BathroomEstimateService(session).pdf_bathrooms(estimate_id, estimate_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if picked is None:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return picked
+
+
+@router.post("/{estimate_id}/bathrooms/pdf-preview", response_model=BathroomsPdfPreview)
+def preview_bathrooms_pdf(
+    estimate_id: str,
+    body: BathroomsPdfRequest,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """What a PDF of these of the job's bathrooms comes to: one alone pays
+    its own dumpster, permit, trip and lead RRP. Nothing is saved."""
+    picked = _pdf_bathrooms(session, current_user, estimate_id, body.estimate_ids)
+    rows = [
+        {"estimate_id": str(e["id"]), "name": e["bathroom_name"],
+         "option_label": e.get("option_label") if e.get("kind") == "option" else None,
+         "total": float(e.get("total") or 0), "saved_total": float(e.get("saved_total") or 0)}
+        for e in picked["estimates"]
+    ]
+    return {"bathrooms": rows, "total": round(sum(r["total"] for r in rows), 2),
+            "carrier": picked["carrier"]}
+
+
+@router.post("/{estimate_id}/export/bathrooms-pdf")
+def export_bathrooms_pdf(
+    estimate_id: str,
+    body: BathroomsPdfRequest,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """A PDF of the job's bathrooms. Every bathroom: one PDF, each in turn,
+    the job costs on the bathroom that carries them. One: that bathroom
+    priced on its own, as if it were the only one. Nothing is saved."""
+    from .export_service import BathroomExportService
+
+    picked = _pdf_bathrooms(session, current_user, estimate_id, body.estimate_ids)
+    estimates = picked["estimates"]
+    pictures = BathroomEstimateService(session).product_pictures(estimates)
+    export_svc = BathroomExportService()
+    if len(estimates) == 1:
+        one = estimates[0]
+        pdf_bytes = export_svc.generate_pdf(
+            one, show_signature=body.show_signature,
+            sketch_image_base64=body.sketch_images.get(str(one["id"])),
+            show_breakdown_prices=body.show_breakdown_prices,
+            render_image_base64=body.renders.get(str(one["id"])),
+            product_pictures=pictures,
+        )
+    else:
+        pdf_bytes = export_svc.generate_job_pdf(
+            estimates, carrier=picked["carrier"],
+            show_signature=body.show_signature,
+            show_breakdown_prices=body.show_breakdown_prices,
+            sketch_images=body.sketch_images, renders=body.renders,
+            product_pictures=pictures,
+        )
+    kind = "detail" if body.show_breakdown_prices else "clean"
+    return Response(
+        content=pdf_bytes.getvalue(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}_{kind}.pdf"'
+        },
+    )
 
 
 def _proposal_pdf(estimate_id: str, show_signature: bool, renders: Optional[Dict[str, str]], session: DatabaseSession):

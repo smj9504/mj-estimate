@@ -44,9 +44,15 @@ def elsewhere_line(parts: List[str], carrier_name: str) -> str:
     return f"{', '.join(parts)}{_ELSEWHERE}{carrier_name} estimate"
 
 
+def is_elsewhere_line(description: str) -> bool:
+    """The $0 line naming the bathroom that carries the job costs"""
+    d = description or ""
+    return _ELSEWHERE in d and d.endswith(" estimate")
+
+
 def is_job_line(description: str) -> bool:
     d = description or ""
-    return d.startswith(JOB_LINE_PREFIXES) or (_ELSEWHERE in d and d.endswith(" estimate"))
+    return d.startswith(JOB_LINE_PREFIXES) or is_elsewhere_line(d)
 
 
 @dataclass

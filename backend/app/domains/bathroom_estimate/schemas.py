@@ -255,6 +255,15 @@ class ProjectTypeUpdate(BaseModel):
 
 # ── Response schemas ──
 
+class JobBathroomEstimate(BaseModel):
+    """One estimate of a bathroom (its restoration or an option)"""
+    id: str
+    kind: str
+    option_label: Optional[str] = None
+    total: float = 0
+    calculated: bool = False
+
+
 class JobBathroom(BaseModel):
     """One bathroom of a job, for the page to switch to"""
     group_id: str
@@ -267,6 +276,36 @@ class JobBathroom(BaseModel):
     # Priced on its own (hidden_costs.price_alone): not sharing the job's costs
     alone: bool = False
     current: bool = False
+    estimates: List[JobBathroomEstimate] = []
+
+
+class BathroomsPdfRequest(BaseModel):
+    """A PDF of the job's bathrooms: one estimate per bathroom. Every
+    bathroom: one PDF, each in turn. Fewer: the job costs priced for those
+    alone (one bathroom: its own dumpster, permit, trip and lead RRP)."""
+    estimate_ids: List[str]
+    show_signature: bool = True
+    show_breakdown_prices: bool = True
+    # Drawn in the browser, base64, by estimate id: the plan, and an option's 3D view
+    sketch_images: Dict[str, str] = {}
+    renders: Dict[str, str] = {}
+
+
+class BathroomsPdfTotal(BaseModel):
+    estimate_id: str
+    name: str
+    option_label: Optional[str] = None
+    # In the PDF, and as saved (sharing the job's costs)
+    total: float = 0
+    saved_total: float = 0
+
+
+class BathroomsPdfPreview(BaseModel):
+    """What the PDF of those bathrooms comes to"""
+    bathrooms: List[BathroomsPdfTotal]
+    total: float = 0
+    # The bathroom with the dumpster, permit, trip and lead RRP; None when not shared
+    carrier: Optional[str] = None
 
 
 class AddBathroom(BaseModel):

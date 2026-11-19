@@ -73,7 +73,9 @@ import BEMirrorRows from '../components/bathroom-estimate/BEMirrorRows';
 import BEDecorativeTileFields from '../components/bathroom-estimate/BEDecorativeTileFields';
 import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRows';
 import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
-import { exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
+import { exportBathroomsPdfWith3D, exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
+import BEPdfBathroomsModal, { sharingBathrooms } from '../components/bathroom-estimate/BEPdfBathroomsModal';
+import type { PdfBathroomsPick } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import PriceBookNotice from '../components/common/PriceBookNotice';
 
@@ -431,6 +433,72 @@ const BathroomEstimateDetail: React.FC = () => {
       done?.();
     }
   }, [estimate, id]);
+
+  // Allowance warnings first (each bathroom's, named, when several); then `run`
+  const validateThen = useCallback(async (ids: string[], names: Record<string, string>, run: () => void) => {
+    let warnings: string[] = [];
+    try {
+      const results = await Promise.all(ids.map((eid) => bathroomEstimateService.validateForExport(eid)));
+      warnings = results.flatMap((r, i) => r.warnings.map((w) =>
+        (ids.length > 1 && names[ids[i]] ? `${names[ids[i]]}: ${w}` : w)));
+    } catch {
+      run();
+      return;
+    }
+    if (!warnings.length) {
+      run();
+      return;
+    }
+    Modal.confirm({
+      title: 'Material Allowance Warnings',
+      content: (
+        <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
+          {warnings.map((w, i) => <li key={i}>{w}</li>)}
+        </ul>
+      ),
+      okText: 'Export Anyway',
+      cancelText: 'Cancel',
+      onOk: run,
+    });
+  }, []);
+
+  // A job of several bathrooms: the PDF shows them all, or one on its own
+  const [pdfVariant, setPdfVariant] = useState<{ show_breakdown_prices: boolean; show_signature: boolean; label: string } | null>(null);
+  const pickBathrooms = !!estimate && !isCurrentLayout && !estimate.hidden_costs?.price_alone
+    && sharingBathrooms(jobBathrooms ?? []).length > 1;
+
+  const startPdf = useCallback((opts: { show_breakdown_prices: boolean; show_signature: boolean; label: string }) => {
+    if (pickBathrooms) {
+      setPdfVariant(opts);
+      return;
+    }
+    validateThen([id!], {}, () => {
+      exportEstimatePdf({ show_breakdown_prices: opts.show_breakdown_prices, show_signature: opts.show_signature });
+    });
+  }, [pickBathrooms, validateThen, id, exportEstimatePdf]);
+
+  const exportPickedBathrooms = useCallback(async (pick: PdfBathroomsPick) => {
+    const variant = pdfVariant;
+    if (!estimate || !variant) return;
+    setPdfVariant(null);
+    const capture = (window as any).__beSketchCapture;
+    const sketchImage = typeof capture === 'function' ? capture() : undefined;
+    validateThen(pick.estimateIds, pick.names, async () => {
+      const done = message.loading('Making the PDF…', 0);
+      try {
+        await exportBathroomsPdfWith3D(estimate, pick.estimateIds, {
+          show_breakdown_prices: variant.show_breakdown_prices,
+          show_signature: variant.show_signature,
+          sketchImage,
+          suffix: pick.mode === 'all' ? 'all_bathrooms' : pick.names[pick.estimateIds[0]],
+        });
+      } catch {
+        message.error('Could not make the PDF');
+      } finally {
+        done();
+      }
+    });
+  }, [estimate, pdfVariant, validateThen]);
 
   const exportProposal = useCallback(async () => {
     const done = message.loading('Drawing each estimate in 3D for the proposal…', 0);
@@ -808,111 +876,24 @@ const BathroomEstimateDetail: React.FC = () => {
               disabled={estimate?.status === 'draft'}
               menu={{
                 items: [
-                  {
-                    key: 'pdf-detailed',
-                    label: 'PDF - Detailed (with signature)',
-                    icon: <FilePdfOutlined />,
-                    onClick: async () => {
-                      const doExport = () => exportEstimatePdf({ show_breakdown_prices: true, show_signature: true });
-                      try {
-                        const result = await bathroomEstimateService.validateForExport(id!);
-                        if (result.warnings.length > 0) {
-                          Modal.confirm({
-                            title: 'Material Allowance Warnings',
-                            content: (
-                              <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
-                                {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
-                              </ul>
-                            ),
-                            okText: 'Export Anyway',
-                            cancelText: 'Cancel',
-                            onOk: doExport,
-                          });
-                        } else {
-                          doExport();
-                        }
-                      } catch { doExport(); }
+                  ...([
+                    { key: 'pdf-detailed', label: 'PDF - Detailed (with signature)', variant: 'Detailed, with signature', show_breakdown_prices: true, show_signature: true },
+                    { key: 'pdf-detailed-nosig', label: 'PDF - Detailed (no signature)', variant: 'Detailed, no signature', show_breakdown_prices: true, show_signature: false },
+                    { key: 'pdf-clean', label: 'PDF - Clean (with signature)', variant: 'Clean, with signature', show_breakdown_prices: false, show_signature: true },
+                    { key: 'pdf-clean-nosig', label: 'PDF - Clean (no signature)', variant: 'Clean, no signature', show_breakdown_prices: false, show_signature: false },
+                  ].flatMap((v, i) => [
+                    ...(i === 2 ? [{ type: 'divider' as const }] : []),
+                    {
+                      key: v.key,
+                      label: v.label,
+                      icon: <FilePdfOutlined />,
+                      onClick: () => startPdf({
+                        show_breakdown_prices: v.show_breakdown_prices,
+                        show_signature: v.show_signature,
+                        label: v.variant,
+                      }),
                     },
-                  },
-                  {
-                    key: 'pdf-detailed-nosig',
-                    label: 'PDF - Detailed (no signature)',
-                    icon: <FilePdfOutlined />,
-                    onClick: async () => {
-                      const doExport = () => exportEstimatePdf({ show_breakdown_prices: true, show_signature: false });
-                      try {
-                        const result = await bathroomEstimateService.validateForExport(id!);
-                        if (result.warnings.length > 0) {
-                          Modal.confirm({
-                            title: 'Material Allowance Warnings',
-                            content: (
-                              <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
-                                {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
-                              </ul>
-                            ),
-                            okText: 'Export Anyway',
-                            cancelText: 'Cancel',
-                            onOk: doExport,
-                          });
-                        } else {
-                          doExport();
-                        }
-                      } catch { doExport(); }
-                    },
-                  },
-                  { type: 'divider' as const },
-                  {
-                    key: 'pdf-clean',
-                    label: 'PDF - Clean (with signature)',
-                    icon: <FilePdfOutlined />,
-                    onClick: async () => {
-                      const doExport = () => exportEstimatePdf({ show_breakdown_prices: false, show_signature: true });
-                      try {
-                        const result = await bathroomEstimateService.validateForExport(id!);
-                        if (result.warnings.length > 0) {
-                          Modal.confirm({
-                            title: 'Material Allowance Warnings',
-                            content: (
-                              <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
-                                {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
-                              </ul>
-                            ),
-                            okText: 'Export Anyway',
-                            cancelText: 'Cancel',
-                            onOk: doExport,
-                          });
-                        } else {
-                          doExport();
-                        }
-                      } catch { doExport(); }
-                    },
-                  },
-                  {
-                    key: 'pdf-clean-nosig',
-                    label: 'PDF - Clean (no signature)',
-                    icon: <FilePdfOutlined />,
-                    onClick: async () => {
-                      const doExport = () => exportEstimatePdf({ show_breakdown_prices: false, show_signature: false });
-                      try {
-                        const result = await bathroomEstimateService.validateForExport(id!);
-                        if (result.warnings.length > 0) {
-                          Modal.confirm({
-                            title: 'Material Allowance Warnings',
-                            content: (
-                              <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
-                                {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
-                              </ul>
-                            ),
-                            okText: 'Export Anyway',
-                            cancelText: 'Cancel',
-                            onOk: doExport,
-                          });
-                        } else {
-                          doExport();
-                        }
-                      } catch { doExport(); }
-                    },
-                  },
+                  ])),
                   // The customer's side-by-side of the whole job; never for the carrier
                   ...((estimate?.group_members?.length ?? 0) > 1 ? [
                     { type: 'divider' as const },
@@ -980,6 +961,14 @@ const BathroomEstimateDetail: React.FC = () => {
       {estimate && (
         <>
           <BEBathroomBar estimate={estimate} onOpen={openMember} guardUnsaved={guardUnsaved} />
+          <BEPdfBathroomsModal
+            open={!!pdfVariant}
+            variant={pdfVariant?.label ?? ''}
+            estimateId={estimate.id}
+            bathrooms={jobBathrooms ?? []}
+            onCancel={() => setPdfVariant(null)}
+            onExport={exportPickedBathrooms}
+          />
           <BEGroupBar
             estimate={estimate}
             onOpen={openMember}

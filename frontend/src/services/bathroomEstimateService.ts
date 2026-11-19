@@ -15,6 +15,7 @@ import type {
   BathroomPricingInfo,
   BathroomProjectType,
   BathroomSelectionSlot,
+  BathroomsPdfPreview,
   JobBathroom,
 } from '../types/bathroomEstimate';
 
@@ -274,6 +275,47 @@ export const bathroomEstimateService = {
       });
       downloadBlob(response.data);
     }
+  },
+
+  /** What a PDF of these of the job's bathrooms comes to (one estimate each).
+   *  One bathroom alone pays its own dumpster, permit, trip and lead RRP. */
+  async previewBathroomsPdf(id: string, estimateIds: string[]) {
+    const { data } = await api.post(`${BASE_URL}/${id}/bathrooms/pdf-preview`, { estimate_ids: estimateIds });
+    return data as BathroomsPdfPreview;
+  },
+
+  /** A PDF of the job's bathrooms, one estimate each: every bathroom in one
+   *  PDF, or one bathroom priced on its own. Nothing is saved. */
+  async exportBathroomsPdf(id: string, options: {
+    estimate_ids: string[];
+    show_signature?: boolean;
+    show_breakdown_prices?: boolean;
+    /** Drawn here, base64, by estimate id: the plan, and an option's 3D view */
+    sketch_images?: Record<string, string>;
+    renders?: Record<string, string>;
+    address?: string;
+    /** Added to the file name, e.g. "all" or "hall" */
+    suffix?: string;
+  }) {
+    const response = await api.post(`${BASE_URL}/${id}/export/bathrooms-pdf`, {
+      estimate_ids: options.estimate_ids,
+      show_signature: options.show_signature ?? true,
+      show_breakdown_prices: options.show_breakdown_prices ?? true,
+      sketch_images: options.sketch_images ?? {},
+      renders: options.renders ?? {},
+    }, { responseType: 'blob', timeout: 90000 });
+    const clean = (s?: string) => (s || '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_');
+    const base = clean(options.address) || id.substring(0, 8);
+    const type = options.show_breakdown_prices === false ? 'clean' : 'detail';
+    const suffix = clean(options.suffix);
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `bathroom_estimate_${base}${suffix ? `_${suffix}` : ''}_${type}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
 
   // ── Export Validation ──

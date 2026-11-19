@@ -304,3 +304,139 @@ def test_a_bathroom_priced_on_its_own_keeps_its_own_facts(service):
     service.update_estimate(master["id"], BathroomEstimateUpdate(year_built=1950))
     assert service.get_estimate(copy["id"])["year_built"] is None
     assert [r["alone"] for r in service.get_job_bathrooms(master["id"])] == [False, True]
+
+
+# ── A PDF of the job's bathrooms: every one, or one priced on its own ──
+
+def ids(estimates):
+    return [e["id"] for e in estimates]
+
+
+def test_a_pdf_of_every_bathroom_shows_each_as_its_page_does(service):
+    master = bathroom(service, "master")
+    hall = bathroom(service, "hall")
+    service.calculate(master["id"])
+    service.calculate(hall["id"])
+
+    picked = service.pdf_bathrooms(hall["id"], [hall["id"], master["id"]])
+    # The first made first, whatever order they were picked in
+    assert ids(picked["estimates"]) == [master["id"], hall["id"]]
+    assert [e["bathroom_name"] for e in picked["estimates"]] == ["Master Bathroom", "Hall Bathroom"]
+    assert picked["carrier"] == "Master Bathroom"
+    for e in picked["estimates"]:
+        stored = service.get_estimate(e["id"])
+        assert e["line_items"] == stored["line_items"] and e["total"] == stored["total"]
+
+
+def test_one_bathroom_on_its_own_pays_its_own_job_costs(service):
+    master = bathroom(service, "master")
+    hall = bathroom(service, "hall")
+    service.calculate(master["id"])
+    service.calculate(hall["id"])
+    hall_stored = service.get_estimate(hall["id"])
+    master_stored = service.get_estimate(master["id"])
+
+    alone = service.pdf_bathrooms(hall["id"], [hall["id"]])
+    assert alone["carrier"] is None
+    hall_alone = alone["estimates"][0]
+    assert dumpster(hall_alone)["description"] == "Dumpster rental (10yard, 3.5 CY est.)"
+    assert elsewhere(hall_alone) is None
+    assert hall_alone["total"] == pytest.approx(hall_stored["total"] + dumpster(hall_alone)["total"])
+    assert hall_alone["total"] == pytest.approx(sum(li["total"] for li in hall_alone["line_items"]))
+
+    # The carrier on its own: its dumpster sized for its own debris only
+    master_alone = service.pdf_bathrooms(hall["id"], [master["id"]])["estimates"][0]
+    assert dumpster(master_alone)["description"] == "Dumpster rental (10yard, 3.5 CY est.)"
+    assert "whole job" not in (dumpster(master_alone)["notes"] or "")
+
+    # Nothing saved
+    assert service.get_estimate(hall["id"])["line_items"] == hall_stored["line_items"]
+    assert service.get_estimate(master["id"])["line_items"] == master_stored["line_items"]
+
+
+def test_a_line_edited_by_hand_stays_in_a_bathroom_priced_on_its_own(service):
+    master = bathroom(service, "master")
+    hall = bathroom(service, "hall")
+    service.calculate(master["id"])
+    priced = service.calculate(hall["id"])
+    first = next(li for li in priced["line_items"] if " - on the " not in li["description"])
+    service.update_line_item(hall["id"], first["id"], {"description": "Demo - by hand", "unit_price": 999})
+
+    hall_alone = service.pdf_bathrooms(hall["id"], [hall["id"]])["estimates"][0]
+    assert lines(hall_alone)["Demo - by hand"]["unit_price"] == 999
+    assert dumpster(hall_alone) is not None
+
+
+def test_some_of_the_bathrooms_share_the_job_costs_among_themselves(service):
+    master = bathroom(service, "master")
+    hall = bathroom(service, "hall")
+    powder = bathroom(service, "powder")
+    for b in (master, hall, powder):
+        service.calculate(b["id"])
+
+    picked = service.pdf_bathrooms(master["id"], [powder["id"], hall["id"]])
+    assert picked["carrier"] == "Hall Bathroom"
+    hall_pdf, powder_pdf = picked["estimates"]
+    assert dumpster(hall_pdf)["description"] == "Dumpster rental (10yard, 7.0 CY est.)"
+    assert "Powder Room 3.5 CY" in dumpster(hall_pdf)["notes"]
+    assert elsewhere(powder_pdf)["description"] == "Dumpster - on the Hall Bathroom estimate"
+
+
+def test_an_option_can_stand_for_its_bathroom(service):
+    master = bathroom(service, "master")
+    hall = bathroom(service, "hall")
+    service.calculate(master["id"])
+    service.calculate(hall["id"])
+    option = service.add_option(master["id"])
+    service.calculate(option["id"])
+
+    picked = service.pdf_bathrooms(hall["id"], [option["id"], hall["id"]])
+    assert ids(picked["estimates"]) == [option["id"], hall["id"]]
+    assert picked["estimates"][0]["kind"] == "option"
+
+    rows = service.get_job_bathrooms(hall["id"])
+    assert [(e["kind"], e["calculated"]) for e in rows[0]["estimates"]] == [("restore", True), ("option", True)]
+    assert [e["id"] for e in rows[1]["estimates"]] == [hall["id"]]
+
+
+def test_a_pdf_takes_one_priced_estimate_of_each_of_this_jobs_bathrooms(service):
+    master = bathroom(service, "master")
+    hall = bathroom(service, "hall")
+    unpriced = bathroom(service, "powder")
+    elsewhere_job = bathroom(service, "hall", address="40 Oak Ave")
+    for b in (master, hall, elsewhere_job):
+        service.calculate(b["id"])
+    option = service.add_option(master["id"])
+    service.calculate(option["id"])
+
+    for picks in ([], [master["id"], option["id"]], [unpriced["id"]], [master["id"], elsewhere_job["id"]]):
+        with pytest.raises(ValueError):
+            service.pdf_bathrooms(master["id"], picks)
+
+
+def test_the_job_pdf_has_each_bathroom_and_the_job_total(service):
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    from app.domains.bathroom_estimate.export_service import BathroomExportService
+
+    master = bathroom(service, "master")
+    hall = bathroom(service, "hall")
+    service.calculate(master["id"])
+    service.calculate(hall["id"])
+    picked = service.pdf_bathrooms(master["id"], [master["id"], hall["id"]])
+
+    pdf = BathroomExportService().generate_job_pdf(picked["estimates"], carrier=picked["carrier"])
+    pages = [p.extract_text() for p in PdfReader(BytesIO(pdf.getvalue())).pages]
+    text = "\n".join(pages)
+    total = sum(e["total"] for e in picked["estimates"])
+    assert "2 Bathrooms" in pages[0] and f"${total:,.2f}" in pages[0]
+    assert "priced once, on the Master Bathroom" in pages[0]
+    # Each bathroom starts its own page (under the page header: quote #, address)
+    starts = [p.splitlines()[2] for p in pages[1:]]
+    assert "Master Bathroom" in starts and "Hall Bathroom" in starts
+    assert text.count("BATHROOM TOTAL") == 2
+    # The terms and the signature once, the payment schedule on the job total
+    assert text.count("Customer Signature") == 1 and text.count("Payment Schedule") == 1
+    assert f"${round(total * 0.33, 2):,.2f}" in text

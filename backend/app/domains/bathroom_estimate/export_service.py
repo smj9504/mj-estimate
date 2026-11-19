@@ -273,6 +273,96 @@ def _filter_notes_prices(notes: Optional[str], show_prices: bool) -> Optional[st
     return filtered.strip() or None
 
 
+def _bath_desc(estimate: Dict[str, Any]) -> str:
+    """The bathroom's type and function, e.g. "Master - Full"."""
+    designation = (estimate.get("designation") or "").replace("_", " ").title()
+    bath_fn = (estimate.get("bath_function") or "").replace("_", " ").title()
+    return " - ".join(filter(None, [designation, bath_fn]))
+
+
+def _floor_sf(estimate: Dict[str, Any]) -> Optional[float]:
+    floor_sf = estimate.get("floor_sf")
+    if not floor_sf and estimate.get("length_ft") and estimate.get("width_ft"):
+        floor_sf = estimate["length_ft"] * estimate["width_ft"]
+    return floor_sf or None
+
+
+def _size_text(estimate: Dict[str, Any]) -> Optional[str]:
+    """Floor SF + ceiling height, or None without a floor."""
+    floor_sf = _floor_sf(estimate)
+    if not floor_sf:
+        return None
+    height_ft = estimate.get("height_ft", 8) or 8
+    return f"{floor_sf:.0f} SF  (Ceiling: {height_ft}')"
+
+
+# Internal-only notes never shown on a client-facing PDF
+_INTERNAL_KEYWORDS = {"adjustment factor", "target total", "factor:", "multiplier:",
+                      "strongly recommend replacing valve"}
+
+
+def _client_warnings(estimate: Dict[str, Any]) -> List[str]:
+    return [
+        w for w in (estimate.get("warning_flags") or [])
+        if not any(kw in w.lower() for kw in _INTERNAL_KEYWORDS)
+    ]
+
+
+def _section_name(estimate: Dict[str, Any]) -> str:
+    """A bathroom in a job PDF: its name, and an option says which one it is
+    (a restoration doesn't: that's the carrier's PDF)."""
+    name = estimate.get("bathroom_name") or "Bathroom"
+    if estimate.get("kind") == "option":
+        name += f" · {estimate.get('option_label') or 'Option'}"
+    return name
+
+
+def _job_notes(estimates: List[Dict[str, Any]], names: List[str]) -> List[str]:
+    """The bathrooms' notes for one Important Notes list: a note every
+    bathroom has, once; the others named by the bathroom they're about."""
+    from xml.sax.saxutils import escape
+
+    per = [(name, _client_warnings(e)) for e, name in zip(estimates, names)]
+    everyone = set(per[0][1]).intersection(*(set(w) for _, w in per[1:])) if per else set()
+    notes: List[str] = []
+    for name, warnings in per:
+        for w in warnings:
+            note = w if w in everyone else f"{escape(name)}: {w}"
+            if note not in notes:
+                notes.append(note)
+    return notes
+
+
+class _Kit:
+    """The colors and styles of a bathroom estimate PDF."""
+
+    def __init__(self):
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import inch
+
+        self.page_w, self.page_h = letter
+        self.margin = 0.6 * inch
+        self.usable_w = self.page_w - 2 * self.margin
+
+        self.brand_dark = colors.HexColor("#1a2332")
+        self.brand_accent = colors.HexColor("#2c5282")
+        self.text_grey = colors.HexColor("#4a5568")
+        self.border_grey = colors.HexColor("#e2e8f0")
+        self.section_bg = colors.HexColor("#edf2f7")
+
+        self.company_info = ParagraphStyle("CompanyInfo", fontSize=9, fontName="Helvetica", textColor=self.text_grey, leading=13)
+        self.section_title = ParagraphStyle("SectionTitle", fontSize=11, fontName="Helvetica-Bold", textColor=self.brand_dark, spaceBefore=14, spaceAfter=10)
+        self.normal = ParagraphStyle("NormalCustom", fontSize=10, fontName="Helvetica", textColor=self.brand_dark)
+        self.small_grey = ParagraphStyle("SmallGrey", fontSize=8, fontName="Helvetica", textColor=self.text_grey, leading=11)
+        self.terms = ParagraphStyle("Terms", fontSize=9, fontName="Helvetica", textColor=self.text_grey, leading=13, spaceBefore=2)
+        self.overview = ParagraphStyle("Overview", fontSize=9.5, fontName="Helvetica", textColor=self.text_grey, leading=14, spaceBefore=2)
+        self.right_header = ParagraphStyle("RightHeader", fontSize=9, fontName="Helvetica", textColor=self.text_grey, leading=13, alignment=2)
+        self.bathroom_title = ParagraphStyle("BathroomTitle", fontSize=16, fontName="Helvetica-Bold", textColor=self.brand_dark, spaceAfter=10)
+        self.cell = ParagraphStyle("Cell", fontSize=9.5, fontName="Helvetica", textColor=self.brand_dark, leading=12)
+
+
 class BathroomExportService:
     """Generates PDF estimates for bathroom remodels."""
 
@@ -291,160 +381,235 @@ class BathroomExportService:
         products it's built from (product_pictures: their pictures by file
         id). The restoration's PDF (the carrier's) is left as it is.
         """
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import letter
-        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-        from reportlab.lib.units import inch
-        from reportlab.platypus import (
-            HRFlowable, KeepInFrame, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
-            Table, TableStyle,
-        )
+        from reportlab.platypus import Paragraph, Spacer
 
-        buffer = io.BytesIO()
-        page_w, page_h = letter
-        margin = 0.6 * inch
-
-        doc = SimpleDocTemplate(
-            buffer, pagesize=letter,
-            rightMargin=margin, leftMargin=margin,
-            topMargin=margin, bottomMargin=0.8 * inch,
-        )
-
-        usable_w = page_w - 2 * margin
-        est_id_short = str(estimate.get("id", ""))[:8].upper()
-        prop_addr = estimate.get("property_address", "") or ""
-
-        def _on_later_pages(canvas, doc_ref):
-            """Header on pages 2+ (footer handled by NumberedCanvas)."""
-            canvas.saveState()
-            grey = colors.HexColor("#4a5568")
-            canvas.setFont("Helvetica", 7.5)
-            canvas.setFillColor(grey)
-            canvas.drawString(
-                margin, page_h - 0.4 * inch,
-                f"Quote #: {est_id_short}"
-            )
-            canvas.drawRightString(
-                page_w - margin, page_h - 0.4 * inch,
-                prop_addr[:60]
-            )
-            canvas.setStrokeColor(colors.HexColor("#e2e8f0"))
-            canvas.line(
-                margin, page_h - 0.48 * inch,
-                page_w - margin, page_h - 0.48 * inch
-            )
-            canvas.restoreState()
-
-        def _on_first_page(canvas, doc_ref):
-            """No header on page 1 (footer handled by NumberedCanvas)."""
-            pass
-
-        # Colors
-        brand_dark = colors.HexColor("#1a2332")
-        brand_accent = colors.HexColor("#2c5282")
-        text_grey = colors.HexColor("#4a5568")
-        border_grey = colors.HexColor("#e2e8f0")
-        section_bg = colors.HexColor("#edf2f7")
-
-        # Styles
-        styles = getSampleStyleSheet()
-        company_info_style = ParagraphStyle("CompanyInfo", fontSize=9, fontName="Helvetica", textColor=text_grey, leading=13)
-        doc_title_style = ParagraphStyle("DocTitle", fontSize=22, fontName="Helvetica-Bold", textColor=brand_dark, spaceAfter=2)
-        section_title_style = ParagraphStyle("SectionTitle", fontSize=11, fontName="Helvetica-Bold", textColor=brand_dark, spaceBefore=14, spaceAfter=10)
-        normal = ParagraphStyle("NormalCustom", fontSize=10, fontName="Helvetica", textColor=brand_dark)
-        small_grey = ParagraphStyle("SmallGrey", fontSize=8, fontName="Helvetica", textColor=text_grey, leading=11)
-        terms_style = ParagraphStyle("Terms", fontSize=9, fontName="Helvetica", textColor=text_grey, leading=13, spaceBefore=2)
-
+        kit = _Kit()
         elements = []
 
         # ══════ HEADER ══════
-        company_cell = _company_cell(estimate, company_info_style)
-
-        est_date = datetime.now()
-        valid_until = est_date + timedelta(days=30)
         # An option says which one it is; the restoration's header stays as
         # it always was, since that's the PDF the carrier gets.
         option_line = (
             f"{estimate.get('option_label') or 'Option'}<br/>"
             if estimate.get("kind") == "option" else ""
         )
-        right_text = (
-            f"<b>ESTIMATE</b><br/>"
-            f"{option_line}"
-            f"Quote #: {est_id_short}<br/>"
-            f"Date: {est_date.strftime('%m/%d/%Y')}<br/>"
-            f"Valid Through: {valid_until.strftime('%m/%d/%Y')}"
-        )
-        right_cell = Paragraph(right_text, ParagraphStyle("RightHeader", fontSize=9, fontName="Helvetica", textColor=text_grey, leading=13, alignment=2))
-
-        header_table = Table([[company_cell, right_cell]], colWidths=[usable_w * 0.55, usable_w * 0.45])
-        header_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        elements.append(header_table)
-        elements.append(Spacer(1, 12))
-        elements.append(HRFlowable(width="100%", thickness=1.5, color=brand_accent))
-        elements.append(Spacer(1, 12))
+        elements += self._header(estimate, kit, option_line)
 
         # ══════ PROJECT INFO ══════
-        designation = (estimate.get("designation") or "").replace("_", " ").title()
-        bath_fn = (estimate.get("bath_function") or "").replace("_", " ").title()
-        client_name = estimate.get("client_name", "") or ""
-        full_address = _full_address(estimate)
-
-        # Use full-width rows for long values, 2-col for short pairs
-        info_data = []
-
-        # Property address (full width)
-        info_data.append(["Property:", full_address])
-
-        # Client (full width, skip if empty)
-        if client_name:
-            info_data.append(["Client:", client_name])
-
-        # Bathroom type
-        bath_desc = " - ".join(filter(None, [designation, bath_fn]))
-        if bath_desc:
-            info_data.append(["Bathroom:", bath_desc])
-
-        # Claim # (only if present)
-        claim_number = estimate.get("claim_number", "") or ""
-        if claim_number:
-            info_data.append(["Claim #:", claim_number])
-
-        # Size: floor SF + ceiling height
-        height_ft = estimate.get("height_ft", 8) or 8
-        floor_sf = estimate.get("floor_sf")
-        if not floor_sf and estimate.get("length_ft") and estimate.get("width_ft"):
-            floor_sf = estimate["length_ft"] * estimate["width_ft"]
-        if floor_sf:
-            info_data.append([
-                "Size:",
-                f"{floor_sf:.0f} SF  (Ceiling: {height_ft}')",
-            ])
-
-        info_table = Table(
-            info_data,
-            colWidths=[usable_w * 0.14, usable_w * 0.86],
-        )
-        info_table.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-            ("TEXTCOLOR", (0, 0), (-1, -1), brand_dark),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        elements.append(info_table)
+        info_data = [["Property:", _full_address(estimate)]]
+        if estimate.get("client_name"):
+            info_data.append(["Client:", estimate["client_name"]])
+        if _bath_desc(estimate):
+            info_data.append(["Bathroom:", _bath_desc(estimate)])
+        if estimate.get("claim_number"):
+            info_data.append(["Claim #:", estimate["claim_number"]])
+        if _size_text(estimate):
+            info_data.append(["Size:", _size_text(estimate)])
+        elements.append(self._info_table(info_data, kit))
         elements.append(Spacer(1, 10))
 
         # ══════ OVERVIEW NOTE ══════
         overview = estimate.get("overview_text")
         if overview:
-            elements.append(Paragraph("Project Overview", section_title_style))
-            elements.append(Paragraph(overview, ParagraphStyle("Overview", fontSize=9.5, fontName="Helvetica", textColor=text_grey, leading=14, spaceBefore=2)))
+            elements.append(Paragraph("Project Overview", kit.section_title))
+            elements.append(Paragraph(overview, kit.overview))
             elements.append(Spacer(1, 8))
+
+        elements += self._bathroom_body(
+            estimate, kit, sketch_image_base64, render_image_base64,
+            product_pictures, show_breakdown_prices,
+        )
+        elements += self._closing(
+            estimate.get("total", 0), estimate.get("zip_code"),
+            _client_warnings(estimate), show_signature, kit,
+        )
+        return self._build(elements, kit, estimate)
+
+    def generate_job_pdf(
+        self,
+        estimates: List[Dict[str, Any]],
+        carrier: Optional[str] = None,
+        show_signature: bool = True,
+        show_breakdown_prices: bool = True,
+        sketch_images: Optional[Dict[str, str]] = None,
+        renders: Optional[Dict[str, str]] = None,
+        product_pictures: Optional[Dict[str, bytes]] = None,
+    ) -> io.BytesIO:
+        """Several bathrooms of one job in one PDF: the bathrooms and the job
+        total first, then each bathroom on its own pages (plan, summary,
+        every line item), then the terms and the signature once.
+
+        estimates: each with its "bathroom_name", in the job's order.
+        carrier: the bathroom with the job costs (dumpster, permit, trip,
+        lead RRP); the others list them at $0. sketch_images and renders:
+        the plans and options' 3D views drawn in the browser, by estimate id
+        (a plan not sent is drawn here).
+        """
+        from xml.sax.saxutils import escape
+
+        from reportlab.lib import colors
+        from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
+
+        from .job_share import is_elsewhere_line
+
+        if not estimates:
+            raise ValueError("No bathrooms to put in the PDF")
+        kit = _Kit()
+        usable_w = kit.usable_w
+        sketch_images = sketch_images or {}
+        renders = renders or {}
+        first = estimates[0]
+        names = [_section_name(e) for e in estimates]
+        total = round(sum(float(e.get("total") or 0) for e in estimates), 2)
+        elements = []
+
+        # ══════ HEADER ══════
+        elements += self._header(first, kit, f"{len(estimates)} Bathrooms<br/>")
+
+        # ══════ PROJECT INFO ══════
+        info_data = [["Property:", _full_address(first)]]
+        if first.get("client_name"):
+            info_data.append(["Client:", first["client_name"]])
+        if first.get("claim_number"):
+            info_data.append(["Claim #:", first["claim_number"]])
+        elements.append(self._info_table(info_data, kit))
+        elements.append(Spacer(1, 10))
+
+        # ══════ THE BATHROOMS AND THE JOB TOTAL ══════
+        elements.append(Paragraph("Bathrooms", kit.section_title))
+        rows = [["Bathroom", "Size", "Amount"]]
+        for e, name in zip(estimates, names):
+            floor_sf = _floor_sf(e)
+            rows.append([
+                Paragraph(escape(name), kit.cell),
+                f"{floor_sf:.0f} SF" if floor_sf else "",
+                f"${float(e.get('total') or 0):,.2f}",
+            ])
+        rows.append(["", "GRAND TOTAL", f"${total:,.2f}"])
+        table = Table(rows, colWidths=[usable_w * 0.56, usable_w * 0.18, usable_w * 0.26])
+        table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+            ("TEXTCOLOR", (0, 0), (-1, -1), kit.brand_dark),
+            ("BACKGROUND", (0, 0), (-1, 0), kit.section_bg),
+            ("LINEBELOW", (0, 0), (-1, 0), 1, kit.border_grey),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+            ("FONTNAME", (1, -1), (-1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (1, -1), (-1, -1), 11),
+            ("LINEABOVE", (1, -1), (-1, -1), 1.5, kit.brand_accent),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#ebf8ff")),
+        ]))
+        elements.append(table)
+        shared = any(
+            is_elsewhere_line(li.get("description"))
+            for e in estimates for li in (e.get("line_items") or [])
+        )
+        if carrier and shared:
+            elements.append(Spacer(1, 8))
+            elements.append(Paragraph(
+                "Costs that serve the whole job (dumpster, permit, trip, lead "
+                f"paint RRP setup) are priced once, on the {escape(carrier)} "
+                "estimate; the other bathrooms list them at $0.", kit.terms))
+
+        # ══════ EACH BATHROOM ══════
+        for e, name in zip(estimates, names):
+            elements.append(PageBreak())
+            elements.append(Paragraph(escape(name), kit.bathroom_title))
+            info_data = []
+            if _bath_desc(e):
+                info_data.append(["Bathroom:", _bath_desc(e)])
+            if _size_text(e):
+                info_data.append(["Size:", _size_text(e)])
+            if info_data:
+                elements.append(self._info_table(info_data, kit))
+                elements.append(Spacer(1, 4))
+            if e.get("overview_text"):
+                elements.append(Paragraph("Project Overview", kit.section_title))
+                elements.append(Paragraph(e["overview_text"], kit.overview))
+                elements.append(Spacer(1, 8))
+            eid = str(e.get("id"))
+            elements += self._bathroom_body(
+                e, kit, sketch_images.get(eid), renders.get(eid),
+                product_pictures, show_breakdown_prices,
+                total_label="BATHROOM TOTAL",
+            )
+
+        elements += self._closing(
+            total, first.get("zip_code"), _job_notes(estimates, names), show_signature, kit,
+        )
+        return self._build(elements, kit, first)
+
+    # ── The parts of a bathroom PDF ──
+
+    def _header(self, estimate: Dict[str, Any], kit: "_Kit", extra_lines: str) -> List[Any]:
+        """The company at the left; ESTIMATE, the quote number and dates at the right."""
+        from reportlab.platypus import HRFlowable, Paragraph, Spacer, Table, TableStyle
+
+        est_date = datetime.now()
+        valid_until = est_date + timedelta(days=30)
+        right_text = (
+            f"<b>ESTIMATE</b><br/>"
+            f"{extra_lines}"
+            f"Quote #: {str(estimate.get('id', ''))[:8].upper()}<br/>"
+            f"Date: {est_date.strftime('%m/%d/%Y')}<br/>"
+            f"Valid Through: {valid_until.strftime('%m/%d/%Y')}"
+        )
+        header_table = Table(
+            [[_company_cell(estimate, kit.company_info), Paragraph(right_text, kit.right_header)]],
+            colWidths=[kit.usable_w * 0.55, kit.usable_w * 0.45],
+        )
+        header_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return [
+            header_table, Spacer(1, 12),
+            HRFlowable(width="100%", thickness=1.5, color=kit.brand_accent), Spacer(1, 12),
+        ]
+
+    @staticmethod
+    def _info_table(info_data: List[List[Any]], kit: "_Kit"):
+        """Label / value rows (property, client, bathroom…)."""
+        from reportlab.platypus import Table, TableStyle
+
+        info_table = Table(info_data, colWidths=[kit.usable_w * 0.14, kit.usable_w * 0.86])
+        info_table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+            ("TEXTCOLOR", (0, 0), (-1, -1), kit.brand_dark),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        return info_table
+
+    def _bathroom_body(
+        self,
+        estimate: Dict[str, Any],
+        kit: "_Kit",
+        sketch_image_base64: Optional[str],
+        render_image_base64: Optional[str],
+        product_pictures: Optional[Dict[str, bytes]],
+        show_breakdown_prices: bool,
+        total_label: str = "GRAND TOTAL",
+    ) -> List[Any]:
+        """One bathroom's plan beside its summary by phase, an option's 3D
+        view and products, and every line item by phase."""
+        from reportlab.lib import colors
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import (
+            KeepInFrame, KeepTogether, Paragraph, Spacer, Table, TableStyle,
+        )
+
+        usable_w = kit.usable_w
+        brand_dark, brand_accent = kit.brand_dark, kit.brand_accent
+        border_grey, section_bg = kit.border_grey, kit.section_bg
+        section_title_style = kit.section_title
+        elements = []
 
         # ══════ SKETCH + PHASE SUMMARY (side by side) ══════
         left_col_w = usable_w * 0.48
@@ -510,7 +675,7 @@ class BathroomExportService:
         # sales tax line may appear on the client-facing PDF.
 
         total = estimate.get("total", 0)
-        summary_data.append(["", "GRAND TOTAL", f"${total:,.2f}"])
+        summary_data.append(["", total_label, f"${total:,.2f}"])
 
         summary_table = Table(summary_data, colWidths=s_col_widths)
 
@@ -646,19 +811,31 @@ class BathroomExportService:
             elements.append(detail_table)
 
         elements.append(Spacer(1, 16))
+        return elements
+
+    @staticmethod
+    def _closing(
+        total: float,
+        zip_code: Optional[str],
+        warnings: List[str],
+        show_signature: bool,
+        kit: "_Kit",
+    ) -> List[Any]:
+        """Important notes, exclusions, warranty, the payment schedule on
+        `total`, terms, and the customer's signature."""
+        from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+
+        usable_w = kit.usable_w
+        section_title_style, terms_style = kit.section_title, kit.terms
+        normal, small_grey = kit.normal, kit.small_grey
+        elements = []
 
         # ══════ WARNINGS ══════
-        # Filter out internal-only fields from client-facing PDF
-        _internal_keywords = {"adjustment factor", "target total", "factor:", "multiplier:",
-                               "strongly recommend replacing valve"}
-        warnings = [
-            w for w in (estimate.get("warning_flags") or [])
-            if not any(kw in w.lower() for kw in _internal_keywords)
-        ]
+        # (internal-only notes already filtered out: _client_warnings)
         if warnings:
             elements.append(Paragraph("Important Notes", section_title_style))
             for w in warnings:
-                elements.append(Paragraph(f"\u2022 {w}", terms_style))
+                elements.append(Paragraph(f"• {w}", terms_style))
             elements.append(Spacer(1, 8))
 
         # ══════ EXCLUSIONS ══════
@@ -675,7 +852,6 @@ class BathroomExportService:
             elements.append(Paragraph(f"• {ex}", terms_style))
         elements.append(Spacer(1, 8))
 
-
         # ══════ WARRANTY ══════
         elements.append(Paragraph("Warranty", section_title_style))
         warranty_items = [
@@ -685,13 +861,13 @@ class BathroomExportService:
             "Warranty does not cover issues from misuse, neglect, or acts of nature",
         ]
         for w in warranty_items:
-            elements.append(Paragraph(f"\u2022 {w}", terms_style))
+            elements.append(Paragraph(f"• {w}", terms_style))
         elements.append(Spacer(1, 8))
 
         # ══════ PAYMENT SCHEDULE ══════
         elements.append(Paragraph("Payment Schedule", section_title_style))
-        total = estimate.get("total", 0)
-        zip_code = estimate.get("zip_code", "") or ""
+        total = total or 0
+        zip_code = zip_code or ""
         zip3 = zip_code[:3] if zip_code else ""
         is_dc = zip3 in ("200", "201", "202", "203", "204", "205")
         if is_dc:
@@ -702,12 +878,12 @@ class BathroomExportService:
         prog_amt = round(total * prog_pct, 2)
         fin_amt = round(total - dep_amt - prog_amt, 2)
         pay_items = [
-            f"{dep_pct*100:.0f}% (${dep_amt:,.2f}) \u2014 Upon contract signing",
-            f"{prog_pct*100:.0f}% (${prog_amt:,.2f}) \u2014 Upon material delivery / rough-in start",
-            f"{fin_pct*100:.0f}% (${fin_amt:,.2f}) \u2014 Upon final walk-through & approval",
+            f"{dep_pct*100:.0f}% (${dep_amt:,.2f}) — Upon contract signing",
+            f"{prog_pct*100:.0f}% (${prog_amt:,.2f}) — Upon material delivery / rough-in start",
+            f"{fin_pct*100:.0f}% (${fin_amt:,.2f}) — Upon final walk-through & approval",
         ]
         for p in pay_items:
-            elements.append(Paragraph(f"\u2022 {p}", terms_style))
+            elements.append(Paragraph(f"• {p}", terms_style))
         elements.append(Spacer(1, 8))
 
         # ══════ TERMS ══════
@@ -731,7 +907,7 @@ class BathroomExportService:
             "plus 15% handling.",
         ]
         for t in general_terms:
-            elements.append(Paragraph(f"\u2022 {t}", terms_style))
+            elements.append(Paragraph(f"• {t}", terms_style))
         elements.append(Spacer(1, 8))
 
         elements.append(Spacer(1, 8))
@@ -752,16 +928,55 @@ class BathroomExportService:
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
             ]))
             elements.append(sig_table)
+        return elements
 
-        # ══════ BUILD ══════
-        numbered_canvas = _NumberedCanvas.make(
-            _on_first_page, _on_later_pages, page_w, margin,
+    @staticmethod
+    def _build(elements: List[Any], kit: "_Kit", estimate: Dict[str, Any]) -> io.BytesIO:
+        """Lay the elements out on letter pages: the quote number and the
+        address atop pages 2+, page numbers at the foot of every page."""
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate
+
+        buffer = io.BytesIO()
+        page_w, page_h, margin = kit.page_w, kit.page_h, kit.margin
+        doc = SimpleDocTemplate(
+            buffer, pagesize=letter,
+            rightMargin=margin, leftMargin=margin,
+            topMargin=margin, bottomMargin=0.8 * inch,
         )
+        est_id_short = str(estimate.get("id", ""))[:8].upper()
+        prop_addr = estimate.get("property_address", "") or ""
+
+        def _on_later_pages(canvas, doc_ref):
+            """Header on pages 2+ (footer handled by NumberedCanvas)."""
+            canvas.saveState()
+            canvas.setFont("Helvetica", 7.5)
+            canvas.setFillColor(kit.text_grey)
+            canvas.drawString(
+                margin, page_h - 0.4 * inch,
+                f"Quote #: {est_id_short}"
+            )
+            canvas.drawRightString(
+                page_w - margin, page_h - 0.4 * inch,
+                prop_addr[:60]
+            )
+            canvas.setStrokeColor(kit.border_grey)
+            canvas.line(
+                margin, page_h - 0.48 * inch,
+                page_w - margin, page_h - 0.48 * inch
+            )
+            canvas.restoreState()
+
+        def _on_first_page(canvas, doc_ref):
+            """No header on page 1 (footer handled by NumberedCanvas)."""
+            pass
+
         doc.build(
             elements,
             onFirstPage=_on_first_page,
             onLaterPages=_on_later_pages,
-            canvasmaker=numbered_canvas,
+            canvasmaker=_NumberedCanvas.make(_on_first_page, _on_later_pages, page_w, margin),
         )
         buffer.seek(0)
         return buffer

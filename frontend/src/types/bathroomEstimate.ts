@@ -278,6 +278,26 @@ export interface JobBathroom {
   /** Priced on its own: not sharing the job's costs */
   alone: boolean;
   current: boolean;
+  /** Its restoration and options, for a PDF to pick from */
+  estimates: JobBathroomEstimate[];
+}
+
+/** One estimate of a bathroom: its restoration or an option */
+export interface JobBathroomEstimate {
+  id: string;
+  kind: BathroomEstimateKind;
+  option_label?: string | null;
+  total: number;
+  calculated: boolean;
+}
+
+/** What a PDF of some of the job's bathrooms comes to */
+export interface BathroomsPdfPreview {
+  /** total: in the PDF; saved_total: as saved, sharing the job's costs */
+  bathrooms: { estimate_id: string; name: string; option_label?: string | null; total: number; saved_total: number }[];
+  total: number;
+  /** The bathroom with the dumpster, permit, trip and lead RRP; null when nothing is shared */
+  carrier: string | null;
 }
 
 /** A bathroom by its designation (backend job_share.BATH_NAMES) */
