@@ -261,6 +261,14 @@ export interface SubstrateSpec {
   subfloor_repair_sf?: number;
 }
 
+/** The bathrooms (estimate groups) of the job an estimate is one of */
+export interface BathroomJob {
+  bathrooms: string[];
+  this: string;
+  carrier: string;
+  carries: boolean;
+}
+
 export interface HiddenCostFlags {
   dumpster?: boolean;
   floor_protection?: boolean;
@@ -273,6 +281,8 @@ export interface HiddenCostFlags {
   trim_paint?: boolean;
   trim_paint_lf?: number;
   permit?: boolean;
+  /** Not one of its job's bathrooms (a copy, a second try): whole-job costs of its own */
+  price_alone?: boolean;
   // Auto-include toggles (default true — set false to disable)
   drywall_skim_coat?: boolean;
   subfloor_allowance?: boolean;
@@ -432,6 +442,10 @@ export interface BathroomEstimate {
   group_members?: BathroomGroupMember[];
   /** The prices it is priced with: when they're from, and whether today's differ */
   price_book?: PriceBookSummary | null;
+  /** One of several bathrooms on the job: the one with the dumpster, permit, trip and lead RRP */
+  job?: BathroomJob | null;
+  /** After a calculation: the job's other estimates whose job lines moved */
+  job_updated?: string[];
 
   // Enriched
   claim_number?: string;

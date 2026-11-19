@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from .cabinets import CABINET_TYPES, cabinet_groups
 from .layout_changes import layout_change_line_items
 from .lights import LIGHT_TYPES, light_groups
+from .job_share import elsewhere_line
 from .mirrors import mirror_count, mirror_groups, price_by_width
 from .selections import Picks
 from app.domains.unit_prices.tables import in_active_book
@@ -107,7 +108,7 @@ _LEGACY_ENCLOSURE_MAP = {
 }
 
 
-def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
+def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any]:
     """Calculate all line items for a bathroom estimate.
 
     Args:
@@ -115,6 +116,8 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         layout_changes: for an option, how its sketch differs from its job's
             baseline (layout_changes.layout_changes); priced as rough-in,
             framing and demo work
+        job: its place among the job's bathrooms (job_share.JobShare), when
+            the job has more than one: whole-job costs on one of them
 
     Returns:
         Dict with line_items, subtotal, overhead, profit, total, etc.
@@ -466,9 +469,10 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                            or estimate.replace_vanity or estimate.replace_toilet)
     has_demo = has_tile_demo or has_fixture_replace
 
+    debris_cy = 0.0
+    # Job costs another of the job's bathrooms carries (named on a $0 line)
+    job_elsewhere: List[str] = []
     if has_demo:
-        debris_cy = 0.0
-
         # Tile/surface demo volume
         if demo_floor:
             debris_cy += demo_floor_sf * 0.005  # 0.5 CY per 100 SF
@@ -501,41 +505,39 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         if cb_repair_sf > 0:
             debris_cy += cb_repair_sf * 0.003
 
-        # Determine disposal method based on volume
-        if debris_cy <= 1.5:
-            # Small job: debris bags only (no dumpster needed)
-            bag_count = max(int(debris_cy / 0.15) + 1, 2)  # ~4 cu ft per bag
-            _add(line_items, 1,
-                 f"Debris disposal ({bag_count} bags, {debris_cy:.1f} CY est.)",
-                 bag_count, "EA",
-                 DEMO_RATES["debris_bag"] * labor_mult,
-                 "demo",
-                 notes="Heavy-duty contractor bags + haul-away")
+    # The job's debris: with other bathrooms, one dumpster takes it all and
+    # the bathroom carrying the job costs has it; the others' debris goes in it
+    job_cy = debris_cy + (job.other_debris_cy if job else 0.0)
+    if job is not None and not job.carries and job_cy > 1.5:
+        if debris_cy > 0:
+            job_elsewhere.append("Dumpster")
+    elif job_cy > 1.5:
+        _bin_note = job.debris_note(debris_cy) if job is not None else None
         # Dumpster tiers allow for the container's rated volume being
         # usable capacity for loose bath demo debris (tile, board, fixtures).
         # The bag cutoff stays at 1.5 CY so fixture jobs never fall back
         # to contractor bags.
-        elif debris_cy <= 7:
-            _add(line_items, 1,
-                 f"Dumpster rental (10yard, {debris_cy:.1f} CY est.)",
-                 1, "EA",
-                 DEMO_RATES["dumpster_10yard"]
-                 + DEMO_RATES["dump_tip_fee"],
-                 "demo")
-        elif debris_cy <= 13:
-            _add(line_items, 1,
-                 f"Dumpster rental (15yard, {debris_cy:.1f} CY est.)",
-                 1, "EA",
-                 DEMO_RATES["dumpster_15yard"]
-                 + DEMO_RATES["dump_tip_fee"],
-                 "demo")
+        if job_cy <= 7:
+            _bin = "10yard"
+        elif job_cy <= 13:
+            _bin = "15yard"
         else:
-            _add(line_items, 1,
-                 f"Dumpster rental (20yard, {debris_cy:.1f} CY est.)",
-                 1, "EA",
-                 DEMO_RATES["dumpster_20yard"]
-                 + DEMO_RATES["dump_tip_fee"],
-                 "demo")
+            _bin = "20yard"
+        _add(line_items, 1,
+             f"Dumpster rental ({_bin}, {job_cy:.1f} CY est.)",
+             1, "EA",
+             DEMO_RATES[f"dumpster_{_bin}"]
+             + DEMO_RATES["dump_tip_fee"],
+             "demo", notes=_bin_note)
+    elif has_demo:
+        # Small job: debris bags only (no dumpster needed)
+        bag_count = max(int(debris_cy / 0.15) + 1, 2)  # ~4 cu ft per bag
+        _add(line_items, 1,
+             f"Debris disposal ({bag_count} bags, {debris_cy:.1f} CY est.)",
+             bag_count, "EA",
+             DEMO_RATES["debris_bag"] * labor_mult,
+             "demo",
+             notes="Heavy-duty contractor bags + haul-away")
 
     # ────────────────────────────────────────
     # Phase 2: Plumbing Rough
@@ -2863,9 +2865,14 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         _add(line_items, 1, "Cast iron tub disposal surcharge", 1, "EA",
              HIDDEN_COSTS["cast_iron_disposal"], "demo")
 
-    if needs_lead_rrp:
+    if job is not None and not job.carries:
+        if needs_lead_rrp:
+            job_elsewhere.append("lead RRP")
+    elif needs_lead_rrp or (job is not None and job.any_other("lead_rrp")):
         _add(line_items, 1, "Lead paint RRP compliance (pre-1978)", 1, "LS",
-             HIDDEN_COSTS["lead_rrp"], "demo")
+             HIDDEN_COSTS["lead_rrp"], "demo",
+             notes=job.whole_job if job is not None else None)
+    if needs_lead_rrp:
         warnings.append(
             "Property built before 1978 - EPA RRP rule applies. "
             "Certified renovator required.")
@@ -2878,12 +2885,16 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                "Finish (Paint & Trim), which re-protects the new floor "
                "later, specifically from paint drips/overspray.")
 
-    if hc.get("mobilization", False):
+    if job is not None and not job.carries:
+        if hc.get("mobilization", False):
+            job_elsewhere.append("mobilization")
+    elif hc.get("mobilization", False) or (job is not None and job.any_other("mobilization")):
         _add(line_items, 1, "Mobilization / setup", 1, "LS",
              HIDDEN_COSTS["mobilization"], "demo",
-             notes="Equipment transport to job site"
-                   " (tile saw, demo tools, scaffold,"
-                   " mixing station)")
+             notes=("Equipment transport to job site"
+                    " (tile saw, demo tools, scaffold,"
+                    " mixing station)")
+             + (f" | {job.whole_job}" if job is not None else ""))
 
     # Phase 3: Substrate — drywall patch/replacement (hidden cost)
     #   Skip when repair_drywall_walls is set — Path A already covers it.
@@ -3056,23 +3067,35 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         or _layout_rough
     )
     est_state = estimate.state or ""
-    permit_info = get_permit_info(est_state, has_rough_change)
+    # One permit for the whole job: it covers every bathroom's rough-in
+    _job_rough = has_rough_change or (job is not None and job.any_other("rough_change"))
+    permit_info = get_permit_info(est_state, _job_rough)
+    _permit_note = permit_info["note"] + (f" | {job.whole_job}" if job is not None else "")
 
-    if hc.get("permit", False):
+    if job is not None and not job.carries:
+        if hc.get("permit", False) and (permit_info["required"] or permit_info["group"] in ("B", "C")):
+            job_elsewhere.append("permit")
+    elif hc.get("permit", False) or (job is not None and job.any_other("permit")):
         if permit_info["required"]:
             _add(line_items, 7,
                  "Building permit (required)",
                  1, "EA", HIDDEN_COSTS["permit_fee"], "misc",
-                 notes=permit_info["note"])
+                 notes=_permit_note)
         elif permit_info["group"] in ("B", "C"):
             # Stricter jurisdictions: include as allowance
             _add(line_items, 7,
                  "Permit allowance (verify required)",
                  1, "EA", HIDDEN_COSTS["permit_fee"], "misc",
-                 notes=permit_info["note"])
+                 notes=_permit_note)
         else:
             # Group A like-for-like exempt: no cost, just note
             warnings.append(permit_info["note"])
+
+    if job_elsewhere:
+        # What the bathroom carrying the job costs has for this one too
+        _add(line_items, 1, elsewhere_line(job_elsewhere, job.carrier_name),
+             1, "LS", 0, "demo",
+             notes=f"One for the whole job ({job.bathrooms} bathrooms), on the {job.carrier_name} estimate")
 
     # (Ceiling paint handled in Phase 6 via walls_spec.paint_ceiling)
 
@@ -3218,6 +3241,14 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
         "adjustment_factor": round(adjustment_factor, 6) if adjustment_factor else None,
         "methodology_notes": " | ".join(method_parts),
         "warning_flags": warnings,
+        # What this bathroom brings to a job of several (job_share)
+        "job_inputs": {
+            "debris_cy": round(debris_cy, 2),
+            "rough_change": bool(has_rough_change),
+            "permit": bool(hc.get("permit", False)),
+            "mobilization": bool(hc.get("mobilization", False)),
+            "lead_rrp": bool(needs_lead_rrp),
+        },
     }
 
 

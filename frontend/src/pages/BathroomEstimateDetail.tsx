@@ -283,9 +283,14 @@ const BathroomEstimateDetail: React.FC = () => {
   const calculateMutation = useMutation({
     mutationFn: (payload: BathroomEstimateUpdate) =>
       bathroomEstimateService.calculate(id!, payload),
-    onSuccess: () => {
+    onSuccess: (priced) => {
       unsavedRef.current = false;
       message.success('Calculated successfully');
+      if (priced?.job_updated?.length) {
+        // Another bathroom's estimate on the job: its dumpster, permit or trip moved
+        message.info(`Also updated: ${priced.job_updated.join(', ')} (the job's shared costs)`, 6);
+        queryClient.invalidateQueries({ queryKey: ['bathroom-estimate'] });
+      }
       queryClient.invalidateQueries({ queryKey: ['bathroom-estimate', id] });
       // Job facts are shared, so the job's other estimates may have changed
       queryClient.invalidateQueries({ queryKey: ['bathroom-estimate-group'] });
@@ -2868,7 +2873,16 @@ const BathroomEstimateDetail: React.FC = () => {
                     </Row>
                     <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
                       Dumpster, floor protection, caulking, and final clean are always included in the estimate.
+                      With other bathrooms on the job, one of them has the dumpster, permit, trip and lead RRP for all.
                     </Text>
+                    <Form.Item name={['hidden_costs', 'price_alone']} valuePropName="checked" style={{ margin: '8px 0 0' }}>
+                      <Checkbox>
+                        Price on its own{' '}
+                        <Tooltip title="Not one of this job's bathrooms (a copy, or a second try at the same bathroom): it keeps its own dumpster, permit and trip, and the job's other bathrooms leave it out.">
+                          <QuestionCircleOutlined style={{ color: 'var(--color-neutral-500)' }} />
+                        </Tooltip>
+                      </Checkbox>
+                    </Form.Item>
                   </Panel>
                   <Panel header="Overview & O&P" key="overview">
                     <Row gutter={16}>
@@ -2978,6 +2992,17 @@ const BathroomEstimateDetail: React.FC = () => {
             label: `Result${estimate?.total ? ` ($${estimate.total.toLocaleString()})` : ''}`,
             children: (
               <Card className="be-tab-card">
+                {estimate?.job && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message={`${estimate.job.this}: one of ${estimate.job.bathrooms.length} bathrooms on this job (${estimate.job.bathrooms.join(', ')})`}
+                    description={estimate.job.carries
+                      ? 'This estimate has the dumpster (sized for every bathroom), permit, trip and lead RRP for the whole job.'
+                      : `The ${estimate.job.carrier} estimate has the dumpster, permit, trip and lead RRP for the whole job; this one leaves them off.`}
+                  />
+                )}
                 {estimate?.kind === 'option' && (
                   <BELayoutChanges
                     estimateId={estimate.id}

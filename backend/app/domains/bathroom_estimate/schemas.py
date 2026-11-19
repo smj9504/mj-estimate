@@ -255,6 +255,15 @@ class ProjectTypeUpdate(BaseModel):
 
 # ── Response schemas ──
 
+class JobSummary(BaseModel):
+    """The bathrooms of the job an estimate is one of"""
+    bathrooms: List[str]
+    this: str
+    carrier: str
+    # This one has the dumpster, permit, trip and lead RRP for them all
+    carries: bool
+
+
 class BathroomEstimateResponse(BaseModel):
     id: str
     claim_id: Optional[str] = None
@@ -272,6 +281,10 @@ class BathroomEstimateResponse(BaseModel):
     # The prices it is priced with (unit_prices): when they're from, and
     # whether today's prices for its company differ
     price_book: Optional[PriceBookSummary] = None
+    # One of several bathrooms on the job (job_share): which has the job costs
+    job: Optional[JobSummary] = None
+    # After a calculation: the job's other estimates whose job lines moved
+    job_updated: List[str] = []
 
     # Project meta
     property_address: Optional[str] = None

@@ -91,10 +91,14 @@ def kitchen(session):
     return CabinetEstimateService(session)
 
 
+_job_numbers = iter(range(10, 10_000))
+
+
 def bath_job(service, company_id=COMPANY, project_type="insurance"):
+    # Each its own house: bathrooms at one address share the job's costs
     return service.create_estimate(BathroomEstimateCreate(
         project_type=project_type, company_id=company_id,
-        property_address="12 Elm St", city="Rockville", state="MD", zip_code="20850",
+        property_address=f"{next(_job_numbers)} Elm St", city="Rockville", state="MD", zip_code="20850",
         designation="hall", bath_function="full",
         length_ft=8, width_ft=6, floor_sf=40, wall_sf=600, height_ft=8,
         walls_spec={"wall_finish": "paint", "paint_grade": "mid"},
