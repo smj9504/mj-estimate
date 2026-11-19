@@ -34,7 +34,7 @@ import {
   DEFAULT_INSULATION_COSTS,
 } from '../../../../types/bathroomSketch';
 import { generateTileZones } from '../utils/beTileZoneGenerator';
-import { findClosedWallLoop } from '../utils/beWallLoop';
+import { roomsFromWalls } from '../utils/beRoomDetect';
 
 let _idCounter = 0;
 function generateId(prefix: string): string {
@@ -91,6 +91,47 @@ function recalcNetAreas(rooms: BERoom[]): BERoom[] {
       .reduce((sum, r) => sum + r.floorAreaSF, 0);
     return { ...room, netFloorAreaSF: Math.round((room.floorAreaSF - childArea) * 100) / 100 };
   });
+}
+
+/** A room on this outline, its areas and lengths measured */
+function measuredRoom(
+  boundary: BEPoint[], wallIds: string[], ppf: number,
+  name: string, roomType: BERoomType, parentRoomId?: string,
+): BERoom {
+  let perimeterPx = 0;
+  let areaPx2 = 0;
+  for (let i = 0; i < boundary.length; i++) {
+    const j = (i + 1) % boundary.length;
+    perimeterPx += calcDistance(boundary[i], boundary[j]);
+    areaPx2 += boundary[i].x * boundary[j].y - boundary[j].x * boundary[i].y;
+  }
+  const floorAreaSF = Math.abs(areaPx2) / 2 / (ppf * ppf);
+  const perimeterLF = pxToInches(perimeterPx, ppf) / 12;
+  return {
+    id: generateId('room'),
+    name,
+    roomType,
+    boundary,
+    wallIds,
+    parentRoomId,
+    heightInches: 96,
+    floorAreaSF: Math.round(floorAreaSF * 100) / 100,
+    netFloorAreaSF: Math.round(floorAreaSF * 100) / 100,
+    wallAreaSF: Math.round(((perimeterLF * 96) / 144) * 100) / 100,
+    perimeterLF: Math.round(perimeterLF * 100) / 100,
+  };
+}
+
+/**
+ * Every area the walls close as a room, however the walls got there
+ * (drawn, dragged, given a length): utils/beRoomDetect.
+ */
+function withWallRooms(d: BESketchData): BESketchData {
+  const ppf = d.settings.pixelsPerFoot;
+  const found = roomsFromWalls(d.walls, d.rooms, ppf);
+  if (!found.length) return d;
+  const made = found.map((f) => measuredRoom(f.boundary, f.wallIds, ppf, f.name, f.roomType, f.parentRoomId));
+  return { ...d, rooms: recalcNetAreas([...d.rooms, ...made]) };
 }
 
 // ── Undo/Redo history ──
@@ -171,52 +212,8 @@ export function useBESketchState(initialData?: BESketchData) {
         thickness: 4,
         heightInches: 96,
       };
-      mutate((d) => {
-        const newWalls = [...d.walls, wall];
-        // Auto-detect closed loop → create Room
-        const loop = findClosedWallLoop(newWalls);
-        if (loop && loop.boundary.length >= 3) {
-          // Check if a room with these walls already exists
-          const existingWallIds = new Set(d.rooms.flatMap((r) => r.wallIds));
-          const alreadyUsed = loop.wallIds.some((id) => existingWallIds.has(id));
-          if (!alreadyUsed) {
-            const ppf = d.settings.pixelsPerFoot;
-            let perimeterPx = 0;
-            for (let i = 0; i < loop.boundary.length; i++) {
-              const next = loop.boundary[(i + 1) % loop.boundary.length];
-              perimeterPx += calcDistance(loop.boundary[i], next);
-            }
-            let areaPx2 = 0;
-            for (let i = 0; i < loop.boundary.length; i++) {
-              const j = (i + 1) % loop.boundary.length;
-              areaPx2 += loop.boundary[i].x * loop.boundary[j].y;
-              areaPx2 -= loop.boundary[j].x * loop.boundary[i].y;
-            }
-            areaPx2 = Math.abs(areaPx2) / 2;
-            const floorAreaSF = areaPx2 / (ppf * ppf);
-            const perimeterLF = pxToInches(perimeterPx, ppf) / 12;
-            const wallAreaSF = (perimeterLF * 96) / 144;
-
-            const parentRoomId = findParentRoom(d.rooms, loop.boundary);
-            const room: BERoom = {
-              id: generateId('room'),
-              name: parentRoomId ? 'Closet' : 'Bathroom',
-              roomType: parentRoomId ? 'closet' : 'bathroom',
-              boundary: loop.boundary,
-              wallIds: loop.wallIds,
-              parentRoomId,
-              heightInches: 96,
-              floorAreaSF: Math.round(floorAreaSF * 100) / 100,
-              netFloorAreaSF: Math.round(floorAreaSF * 100) / 100,
-              wallAreaSF: Math.round(wallAreaSF * 100) / 100,
-              perimeterLF: Math.round(perimeterLF * 100) / 100,
-            };
-            const newRooms = recalcNetAreas([...d.rooms, room]);
-            return { ...d, walls: newWalls, rooms: newRooms };
-          }
-        }
-        return { ...d, walls: newWalls };
-      });
+      // A wall that closes an area makes it a room
+      mutate((d) => withWallRooms({ ...d, walls: [...d.walls, wall] }));
       return wall.id;
     },
     [mutate],
@@ -224,7 +221,8 @@ export function useBESketchState(initialData?: BESketchData) {
 
   const updateWall = useCallback(
     (id: string, updates: Partial<BEWall>) => {
-      mutate((d) => ({
+      // Dragged or given a length, it may close an area: a room
+      mutate((d) => withWallRooms({
         ...d,
         walls: d.walls.map((w) => (w.id === id ? { ...w, ...updates } : w)),
       }));
@@ -805,9 +803,13 @@ export function useBESketchState(initialData?: BESketchData) {
 
   const loadSketch = useCallback((newData: BESketchData) => {
     historyRef.current = { past: [], future: [] };
-    setData(newData);
+    // Walls saved closed without a room (before rooms came from any closed
+    // walls) get theirs now, to be saved
+    const withRooms = newData.settings?.pixelsPerFoot && newData.walls?.length
+      ? withWallRooms(newData) : newData;
+    setData(withRooms);
     setSelectedId(null);
-    setIsDirty(false);
+    setIsDirty(withRooms !== newData);
   }, []);
 
   // ── Auto-regenerate tile zones when fixtures or rooms change ──

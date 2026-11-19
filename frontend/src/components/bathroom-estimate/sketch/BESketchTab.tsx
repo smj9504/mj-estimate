@@ -203,7 +203,10 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     // takes the tub, shower and vanity footprints off for the tile and its
     // underlayment, and uses the whole room for the ceiling and paint prep;
     // taking them off here too took them off twice.
-    let totalFloorSF = widthFt * depthFt;
+    // An L or any shape but a rectangle: its own area, not the box around it
+    let totalFloorSF = bathroom.boundary.length > 4 && bathroom.floorAreaSF > 0
+      ? bathroom.floorAreaSF
+      : widthFt * depthFt;
 
     // Wall SF: primary room + additional rooms, minus door/window openings
     const heightFt = (bathroom.heightInches || 96) / 12;
