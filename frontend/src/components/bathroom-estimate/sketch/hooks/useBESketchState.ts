@@ -839,12 +839,14 @@ export function useBESketchState(initialData?: BESketchData) {
     id: f.id, type: f.type, pos: f.position, dim: f.dimensions, props: f.properties,
   })));
   const roomSignature = JSON.stringify(data.rooms.map((r) => ({ id: r.id, boundary: r.boundary, area: r.floorAreaSF })));
+  // The walls tell a shower in its own room (its door side may be tiled too)
+  const wallSignature = JSON.stringify(data.walls.map((w) => [w.id, w.start, w.end]));
 
   useEffect(() => {
-    const newZones = generateTileZones(data.fixtures, data.rooms, data.settings.pixelsPerFoot);
+    const newZones = generateTileZones(data.fixtures, data.rooms, data.settings.pixelsPerFoot, data.walls);
     setData((prev) => ({ ...prev, tileZones: newZones }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fixtureSignature, roomSignature, data.settings.pixelsPerFoot]);
+  }, [fixtureSignature, roomSignature, wallSignature, data.settings.pixelsPerFoot]);
 
   // ── Drywall repair and insulation along walls: less the openings in them,
   // whenever the walls, the doors and windows or the strips move ──

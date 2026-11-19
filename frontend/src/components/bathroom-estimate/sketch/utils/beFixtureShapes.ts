@@ -20,6 +20,8 @@ const SL = '#999';    // stroke light
 const F = 'none';     // fill — transparent (blueprint style)
 const FL = 'none';    // fill light — transparent
 const N = 'none';     // no fill
+// How deep a shower's tile band is drawn inside its wall, as a share of its size
+const TILE_BAND = 0.045;
 
 // ── Wall-aware deck rim helper ──
 
@@ -194,6 +196,7 @@ function buildShowerShape(
   doorRatio: number, // 0-1, door width as fraction of shower width
   doorPosition: ShowerDoorPosition,
   openingSpan?: [number, number] | null,
+  frontTiled = false,
 ): FixtureShape {
   // Neo-angle layouts use a dedicated builder
   if (layout === 'neo_angle' || layout === 'neo_angle_right') {
@@ -230,6 +233,27 @@ function buildShowerShape(
     paths.push({ d: 'M1,0 L1,1', fill: N, stroke: S, strokeWidth: 3 });
     paths.push({ d: 'M0,0 L0,1', fill: N, stroke: '#2196f3', strokeWidth: 2 });
     paths.push({ d: 'M0.03,0.2 L0.03,0.8', fill: N, stroke: '#90caf9', strokeWidth: 0.5 });
+  }
+
+  // ── Tile on its walls: a band inside each tiled wall, its joints ticked ──
+  // The back and the sides its layout has; in its own room the door side
+  // too when it's one of the tiled walls (either side of the opening)
+  const tileBand = (from: [number, number], to: [number, number], inward: [number, number]) => {
+    const at = (t: number, depth: number) =>
+      `${from[0] + (to[0] - from[0]) * t + inward[0] * depth},${from[1] + (to[1] - from[1]) * t + inward[1] * depth}`;
+    paths.push({ d: `M${at(0, TILE_BAND)} L${at(1, TILE_BAND)}`, fill: N, stroke: SL, strokeWidth: 0.6 });
+    const len = Math.hypot(to[0] - from[0], to[1] - from[1]);
+    const joints = Math.max(1, Math.round(len / 0.12));
+    for (let i = 1; i < joints; i++) {
+      paths.push({ d: `M${at(i / joints, 0)} L${at(i / joints, TILE_BAND)}`, fill: N, stroke: SL, strokeWidth: 0.4 });
+    }
+  };
+  tileBand([0, 0], [1, 0], [0, 1]);
+  if (layout === 'alcove' || layout === 'corner') tileBand([0, 0], [0, 1], [1, 0]);
+  if (layout === 'alcove' || layout === 'corner_right') tileBand([1, 0], [1, 1], [-1, 0]);
+  if (openingSpan && frontTiled) {
+    if (doorStart > 0.01) tileBand([0, 1], [doorStart, 1], [0, -1]);
+    if (doorEnd < 0.99) tileBand([doorEnd, 1], [1, 1], [0, -1]);
   }
 
   // ── Front side: [left panel?] + door + [right panel?] ──
@@ -276,8 +300,8 @@ function buildShowerShape(
     paths.push(doorPosition === 'right'
       ? { d: `M${doorStart},0.97 A${radius},${radius} 0 0,1 ${doorEnd},${0.97 - radius}`, fill: N, stroke: SL, strokeWidth: 0.6 }
       : { d: `M${doorEnd},0.97 A${radius},${radius} 0 0,0 ${doorStart},${0.97 - radius}`, fill: N, stroke: SL, strokeWidth: 0.6 });
-    if (!hasLeft && doorStart > 0) paths.push({ d: `M0,1 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 3 });
-    if (!hasRight && doorEnd < 1) paths.push({ d: `M${doorEnd},1 L1,1`, fill: N, stroke: S, strokeWidth: 3 });
+    if (!openingSpan && !hasLeft && doorStart > 0) paths.push({ d: `M0,1 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 3 });
+    if (!openingSpan && !hasRight && doorEnd < 1) paths.push({ d: `M${doorEnd},1 L1,1`, fill: N, stroke: S, strokeWidth: 3 });
     paths.push({ d: `M${doorEnd},0.92 L${doorEnd},1`, fill: N, stroke: S, strokeWidth: 2 });
   } else if (doorType === 'bi_fold') {
     const mid = (doorStart + doorEnd) / 2;
@@ -288,8 +312,8 @@ function buildShowerShape(
       { d: `M${doorStart},0.92 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 2 },
       { d: `M${doorEnd},0.92 L${doorEnd},1`, fill: N, stroke: S, strokeWidth: 2 },
     );
-    if (!hasLeft && doorStart > 0) paths.push({ d: `M0,1 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 3 });
-    if (!hasRight && doorEnd < 1) paths.push({ d: `M${doorEnd},1 L1,1`, fill: N, stroke: S, strokeWidth: 3 });
+    if (!openingSpan && !hasLeft && doorStart > 0) paths.push({ d: `M0,1 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 3 });
+    if (!openingSpan && !hasRight && doorEnd < 1) paths.push({ d: `M${doorEnd},1 L1,1`, fill: N, stroke: S, strokeWidth: 3 });
   }
 
   return { label: 'Shower', paths };
@@ -678,6 +702,8 @@ export interface FixtureShapeExtras {
   noSlab?: boolean;
   /** A shower in its own room: its door's stretch of the front is the opening's, with no glass panels */
   showerOpeningSpan?: [number, number] | null;
+  /** That room's door side is one of its tiled walls (its 4th) */
+  showerFrontTiled?: boolean;
   /** Width over depth on the plan, to keep a vanity bar's lights round */
   aspect?: number;
   lightBulbs?: number;
@@ -723,6 +749,7 @@ export function getFixtureShape(
         showerDoorRatio ?? 0.5,
         showerDoorPosition ?? 'center',
         extras.showerOpeningSpan,
+        !!extras.showerFrontTiled,
       );
     case 'vanity':
       if (vanitySubType === 'pedestal_sink') return pedestalSink;

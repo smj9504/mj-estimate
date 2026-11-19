@@ -75,6 +75,7 @@ import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRo
 import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
 import { exportBathroomsPdfWith3D, exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
 import BEPdfBathroomsModal, { sharingBathrooms } from '../components/bathroom-estimate/BEPdfBathroomsModal';
+import { showerRoomFrontSF } from '../components/bathroom-estimate/showerRoom';
 import type { PdfBathroomsPick } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import PriceBookNotice from '../components/common/PriceBookNotice';
@@ -2560,6 +2561,8 @@ const BathroomEstimateDetail: React.FC = () => {
                       prev?.shower_spec?.width_in !== cur?.shower_spec?.width_in ||
                       prev?.shower_spec?.depth_in !== cur?.shower_spec?.depth_in ||
                       prev?.shower_spec?.tile_height_in !== cur?.shower_spec?.tile_height_in ||
+                      prev?.shower_spec?.front_tiled !== cur?.shower_spec?.front_tiled ||
+                      prev?.shower_spec?.front_opening_in !== cur?.shower_spec?.front_opening_in ||
                       prev?.bathtub_spec?.surround_tile_sf !== cur?.bathtub_spec?.surround_tile_sf ||
                       prev?.bathtub_spec?.surround_tile !== cur?.bathtub_spec?.surround_tile ||
                       prev?.replace_shower !== cur?.replace_shower ||
@@ -2581,6 +2584,8 @@ const BathroomEstimateDetail: React.FC = () => {
                             const sd = vals.shower_spec?.depth_in || 0;
                             const sh = vals.shower_spec?.tile_height_in || 0;
                             if (sw && sd && sh) wetSF += (sw + 2 * sd) * sh / 144;
+                            // A shower room's door side, when it's one of the tiled walls
+                            wetSF += showerRoomFrontSF(vals.shower_spec);
                           }
                         }
                         if (vals.bathtub_spec?.surround_tile) {

@@ -123,6 +123,14 @@ def _shower_room_front_sf(shower_spec: Dict[str, Any], width_in: float, tile_h_i
     returns = (2 * open_h + (opening if tile_h_in > open_h else 0)) * OPENING_RETURN_IN / 144
     return front + returns
 
+
+def _shower_room_front_run_in(shower_spec: Dict[str, Any], width_in: float) -> float:
+    """How far a border row runs along a shower room's tiled front, inches:
+    either side of its opening; 0 unless the front is tiled"""
+    if not _shower_room_front_tiled(shower_spec):
+        return 0.0
+    return max(0.0, (width_in or 0) - _count(shower_spec.get("front_opening_in")))
+
 # Legacy `shower_spec["enclosure"]` values → canonical door_type keys.
 # The old SHOWER_ENCLOSURE_PRICES lookup table was removed (§7-3): it was a
 # second, staler price list for selections SHOWER_DOOR_PRICES already covers,
@@ -708,6 +716,8 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
             sh = shower_spec.get("tile_height_in", 0) or 0
             if sw and sd and sh:
                 s_sf = (sw + 2 * sd) * sh / 144
+                # A shower room's door side, when tiled: backed and waterproofed too
+                s_sf += _shower_room_front_sf(shower_spec, sw, sh)
         auto_wet_sf += s_sf or 0
 
         # Shower floor SF (also needs waterproofing)
@@ -1058,7 +1068,8 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
             _dd = shower_spec.get("depth_in", 0) or 36
             _corner = _s_layout in ("neo_angle", "neo_angle_right", "corner", "corner_right")
             _add_decorative_tile(line_items, "shower walls", shower_spec, labor_mult,
-                                 run_in=_dw + (_dd if _corner else 2 * _dd))
+                                 run_in=_dw + (_dd if _corner else 2 * _dd)
+                                 + _shower_room_front_run_in(shower_spec, _dw))
 
     # Shower floor tile + pan/pre-slope — needed whenever the shower TYPE is
     # a real tiled-floor build, independent of wall_material (fixed 2026-08-26:

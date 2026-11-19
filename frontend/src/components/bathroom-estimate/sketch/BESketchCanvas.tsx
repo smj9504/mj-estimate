@@ -31,7 +31,7 @@ import BEPlumbingMarks from './BEPlumbingMarks';
 import { hasPlumbing, takesTubGlassPanel, tubGlassPanelSide } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
-import { showerFrontOpening, wallTileRegions } from './utils/wallFinish';
+import { showerFrontOpening, showerFrontTiled, wallTileRegions } from './utils/wallFinish';
 import { floorBorderOutline } from './utils/decoTile';
 import { snapToWalls } from './utils/wallSnap';
 import {
@@ -2174,6 +2174,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               onPropsChange={(props) => api.updateFixtureProperties(fix.id, props)}
               glassPanelIn={takesTubGlassPanel(fix) ? tubGlassPanel?.widthIn : undefined}
               showerOpening={fix.type === 'shower' ? showerFrontOpening(fix, walls, fixtures, ppf)?.span : undefined}
+              showerFrontTiled={fix.type === 'shower' && showerFrontTiled(fix, walls, fixtures, ppf)}
             />
           ))}
         </Layer>
@@ -2346,6 +2347,8 @@ interface FixtureNodeProps {
   glassPanelIn?: number;
   /** A shower in its own room: the stretch of its front its door hangs in */
   showerOpening?: [number, number];
+  /** That room's door side is one of its tiled walls (its 4th) */
+  showerFrontTiled?: boolean;
 }
 
 const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
@@ -2365,6 +2368,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   onPropsChange,
   glassPanelIn,
   showerOpening,
+  showerFrontTiled: frontTiled,
 }) => {
   const trTargetRef = useRef<Konva.Rect>(null);
   const trRef = useRef<Konva.Transformer>(null);
@@ -2393,6 +2397,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       soffitBottom: fix.properties.soffitBottom,
       noSlab: !!fix.properties.noSlab,
       showerOpeningSpan: showerOpening ?? null,
+      showerFrontTiled: !!frontTiled,
     },
   );
   // Hung on a wall: sized along it only, its depth off the wall fixed

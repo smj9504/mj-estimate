@@ -12,9 +12,11 @@ import type {
   BETileSpec,
   TileZoneType,
   BEPoint,
+  BEWall,
 } from '../../../../types/bathroomSketch';
 import { DEFAULT_TILE_SPEC, SHOWER_DOOR_HEIGHT_IN, TILE_ZONE_COLORS } from '../../../../types/bathroomSketch';
 import { clipPolygon, getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './beGeometry';
+import { showerFrontTileSF } from './wallFinish';
 
 let _zoneCounter = 0;
 function zoneId(): string {
@@ -111,12 +113,14 @@ export function findFixtureWallSides(
 
 /**
  * Generate all tile zones from current fixtures and rooms.
- * Called whenever fixtures or rooms change.
+ * Called whenever fixtures, rooms or walls change. The walls tell a shower
+ * in its own room, whose door side may be tiled too.
  */
 export function generateTileZones(
   fixtures: BEFixture[],
   rooms: BERoom[],
   pixelsPerFoot: number,
+  walls: BEWall[] = [],
 ): BETileZone[] {
   const zones: BETileZone[] = [];
 
@@ -179,7 +183,7 @@ export function generateTileZones(
 
     if (fix.type === 'shower') {
       // Shower wall tile (adjusted by layout)
-      const showerWallZone = generateShowerWallZone(fix, ppf);
+      const showerWallZone = generateShowerWallZone(fix, ppf, showerFrontTileSF(fix, walls, fixtures, ppf));
       if (showerWallZone) zones.push(showerWallZone);
 
       // Shower floor tile
@@ -576,7 +580,8 @@ function isNeoAngle(layout: string): boolean {
   return layout === 'neo_angle' || layout === 'neo_angle_right';
 }
 
-function generateShowerWallZone(fix: BEFixture, ppf: number): BETileZone | null {
+/** frontSF: a shower room's door side tiled too (its 4th wall), beside the opening and round it */
+function generateShowerWallZone(fix: BEFixture, ppf: number, frontSF = 0): BETileZone | null {
   const layout = fix.properties.showerLayout ?? 'alcove';
   const wallMaterial = fix.properties.showerWallMaterial ?? 'tile';
 
@@ -595,7 +600,7 @@ function generateShowerWallZone(fix: BEFixture, ppf: number): BETileZone | null 
   if (wallCount >= 2) perimeterInches += showerDepth; // side
   if (wallCount >= 3) perimeterInches += showerDepth; // other side
 
-  const areaSF = (perimeterInches * tileHeight) / 144;
+  const areaSF = (perimeterInches * tileHeight) / 144 + frontSF;
 
   const wPx = (showerWidth / 12) * ppf;
   const hPx = (showerDepth / 12) * ppf;

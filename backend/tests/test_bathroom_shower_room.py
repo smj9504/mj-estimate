@@ -111,3 +111,18 @@ def test_a_shower_room_saved_before_the_choice_keeps_its_tiled_front():
     saved = shower_tile(lines_of(estimate(ROOM)))
     tiled = shower_tile(lines_of(estimate({**ROOM, "front_tiled": True})))
     assert saved["quantity"] == tiled["quantity"]
+
+
+def test_a_tiled_front_is_backed_and_waterproofed_too():
+    durock = lambda spec: lines_of(estimate(spec))["Cement board (Durock) - wet area"]["quantity"]
+    walls_and_floor = (36 + 2 * 36) * 84 / 144 + 36 * 36 / 144
+    assert durock({**ROOM, "front_tiled": False}) == pytest.approx(walls_and_floor, abs=0.01)
+    front = (36 - 24) * 84 / 144 + (2 * 80 + 24) * OPENING_RETURN_IN / 144
+    assert durock({**ROOM, "front_tiled": True}) == pytest.approx(walls_and_floor + front, abs=0.01)
+
+
+def test_a_border_row_runs_along_a_tiled_front_too():
+    border = lambda spec: next(li for d, li in lines_of(estimate({**ROOM, "deco_border_rows": 1, **spec})).items()
+                               if d.startswith("Decorative tile border"))["quantity"]
+    assert border({"front_tiled": False}) == pytest.approx((36 + 2 * 36) / 12, abs=0.05)
+    assert border({"front_tiled": True}) == pytest.approx((36 + 2 * 36 + 12) / 12, abs=0.05)

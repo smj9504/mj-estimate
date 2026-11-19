@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { BEFixture, BEPoint, BERoom } from '../../../../types/bathroomSketch';
+import type { BEFixture, BEPoint, BERoom, BEWall } from '../../../../types/bathroomSketch';
 import { generateTileZones } from './beTileZoneGenerator';
 
 // 40 px to the foot: a 10 ft × 8 ft room from (0, 0) to (400, 320)
@@ -84,5 +84,29 @@ describe('shower door', () => {
     const glass = zoneOf(shower({ fixedPanelConfig: 'both' }), 'shower_glass_panel');
     expect(glass.areaSF).toBe(15);
     expect(piecesOf(glass).map((p) => [Math.min(...xs(p)), Math.max(...xs(p))])).toEqual([[100, 150], [250, 300]]);
+  });
+});
+
+describe('shower walls in their own room', () => {
+  // A 36" shower (120 px) against the top, its front on a wall 36" down with a 24" x 80" opening in it
+  const wall = (id: string, x0: number, y0: number, x1: number, y1: number): BEWall => ({
+    id, start: { x: x0, y: y0 }, end: { x: x1, y: y1 }, thickness: 6, heightInches: 96,
+  });
+  const front = wall('front', 0, 120, 120, 120);
+  const opening = { ...fixture('door', 60, 80, 24, 24, { noSlab: true }), id: 'opening' };
+  const shower = (count: number) => ({
+    ...fixture('shower', 60, 60, 36, 36, { showerLayout: 'alcove', showerWallCount: count, showerTileHeight: 84, showerWallMaterial: 'tile' }),
+    id: 'shower',
+  });
+  const wallsZone = (count: number, walls: BEWall[] = [front]) =>
+    generateTileZones([shower(count), opening], [room], PPF, walls).find((z) => z.type === 'shower_walls')!;
+
+  it('take the door side too with 4 tiled walls, beside the opening and round it', () => {
+    const three = ((36 + 2 * 36) * 84) / 144;
+    const doorSide = (12 * 84) / 144 + ((2 * 80 + 24) * 4.5) / 144;
+    expect(wallsZone(3).areaSF).toBeCloseTo(three, 1);
+    expect(wallsZone(4).areaSF).toBeCloseTo(three + doorSide, 1);
+    // No wall at its front: no room, no door side
+    expect(wallsZone(4, []).areaSF).toBeCloseTo(three, 1);
   });
 });

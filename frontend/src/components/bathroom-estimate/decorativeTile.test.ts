@@ -17,6 +17,14 @@ describe('decorative tile lengths', () => {
     expect(showerWallRunIn(undefined)).toBe(108);
   });
 
+  it("runs along a shower room's front either side of its opening when that's tiled too", () => {
+    const room = { width_in: 48, depth_in: 36, front_opening_in: 24 };
+    expect(showerWallRunIn({ ...room, front_tiled: true } as any)).toBe(144);
+    expect(showerWallRunIn({ ...room, front_tiled: false } as any)).toBe(120);
+    // Saved before the choice: tiled, as the estimate prices it
+    expect(showerWallRunIn(room as any)).toBe(144);
+  });
+
   it('gives the border LF of its rows', () => {
     expect(borderLf(2, 124)).toBe(20.7);
     expect(borderLf(null, 124)).toBe(0);

@@ -5,10 +5,12 @@
  * each all the way around them; walls and floor take the border's LF.
  *
  * The lengths around are the backend's: a tub surround along the back and
- * each end it tiles, a shower along its back and the side walls its layout has.
+ * each end it tiles, a shower along its back and the side walls its layout
+ * has, and a shower room's front either side of its opening when tiled.
  */
 
 import type { BathtubSpec, ShowerSpec } from '../../types/bathroomEstimate';
+import { showerRoomFrontRunIn } from './showerRoom';
 
 const CORNER_LAYOUTS = new Set(['corner', 'corner_right', 'neo_angle', 'neo_angle_right']);
 
@@ -22,11 +24,13 @@ export function tubSurroundRunIn(tub: (BathtubSpec & Record<string, any>) | null
   return length + (walls >= 3 ? 2 * depth : walls === 2 ? depth : 0);
 }
 
-/** Inches around a shower's tiled walls: the back, then both sides (one for a corner layout) */
+/** Inches around a shower's tiled walls: the back, then both sides (one for a
+ *  corner layout), then a shower room's tiled front either side of its opening */
 export function showerWallRunIn(shower: (ShowerSpec & Record<string, any>) | null | undefined): number {
   const width = Number(shower?.width_in) || 36;
   const depth = Number(shower?.depth_in) || 36;
-  return width + (CORNER_LAYOUTS.has(shower?.layout ?? 'alcove') ? depth : 2 * depth);
+  return width + (CORNER_LAYOUTS.has(shower?.layout ?? 'alcove') ? depth : 2 * depth)
+    + showerRoomFrontRunIn(shower);
 }
 
 /** LF of border for `rows` rows around `runIn` inches, to a tenth */

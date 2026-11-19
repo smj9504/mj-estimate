@@ -12,6 +12,7 @@
  */
 
 import type { BEFixture, BEPoint, BERoom, BEWall, BEWallTileRegion } from '../../../../types/bathroomSketch';
+import { showerRoomFrontSF } from '../../showerRoom';
 
 export type WallFinishLayer = 'existing' | 'new';
 
@@ -280,6 +281,26 @@ export function showerFrontTiled(
   return (shower.properties.showerWallCount ?? 3) >= SHOWER_ROOM_WALLS
     && (shower.properties.showerWallMaterial ?? 'tile') === 'tile'
     && !!showerFrontOpening(shower, walls, fixtures, pixelsPerFoot);
+}
+
+/**
+ * The SF of a shower room's front tiled inside (4 tiled walls): either side
+ * of its opening and round it, as the estimate prices it (the opening's size
+ * to the inch, as the sketch sends it). 0 unless the front is tiled.
+ */
+export function showerFrontTileSF(
+  shower: BEFixture, walls: BEWall[], fixtures: BEFixture[], pixelsPerFoot: number,
+): number {
+  if (!showerFrontTiled(shower, walls, fixtures, pixelsPerFoot)) return 0;
+  const opening = showerFrontOpening(shower, walls, fixtures, pixelsPerFoot)!;
+  return showerRoomFrontSF({
+    width_in: shower.dimensions.width,
+    tile_height_in: shower.properties.showerTileHeight ?? 96,
+    front_opening_in: Math.round(opening.widthIn),
+    front_opening_height_in: Math.round(opening.heightIn),
+    front_tiled: true,
+    layout: shower.properties.showerLayout ?? 'alcove',
+  });
 }
 
 export interface ShowerFrontTile {

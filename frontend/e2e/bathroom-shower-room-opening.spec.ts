@@ -85,6 +85,12 @@ const settled = async (page: Page) => {
 };
 
 const panel = (page: Page) => page.locator('.bes-panel');
+/** Every text drawn on the plan */
+const planTexts = (page: Page) => page.evaluate(() => {
+  const Konva = (window as any).Konva;
+  const stage = Konva.stages.find((s: any) => s.container().isConnected && s.container().offsetWidth > 0);
+  return stage.find('Text').map((t: any) => t.text() as string);
+});
 const back = (page: Page) => panel(page).getByRole('button').first().click();
 const setNum = async (page: Page, name: string, value: number) => {
   const box = panel(page).getByRole('spinbutton', { name });
@@ -245,6 +251,8 @@ test("a shower room's door side tiled as its 4th wall, or left to paint with 3",
     { id: 'opening', type: 'door', wallId: 's', position: { x: 1.5 * FT, y: 4.75 * FT }, dimensions: { width: 28, height: 6 }, rotation: 0, properties: { noSlab: true, openingHeightIn: 80 } },
   ] as any;
   (SKETCH as any).drywallRepairZones = [];
+  // The tile zones and their labels shown, as a new sketch has them
+  SKETCH.settings = { ...SKETCH.settings, showTileZones: true, showAreaLabels: true } as any;
   const sent = await open(page);
   await settled(page);
 
@@ -252,6 +260,9 @@ test("a shower room's door side tiled as its 4th wall, or left to paint with 3",
   const s = await onScreen(page, 1.5, 6.5);
   await page.mouse.click(s.x, s.y);
   await expect(panel(page).getByText('4 tiles the door side', { exact: true })).toBeVisible();
+  // The plan's shower wall tile: its back and sides, 36" + 2 x 36" to 84"
+  await expect.poll(() => planTexts(page)).toContainEqual(expect.stringContaining('Walls 63 SF'));
+  await page.screenshot({ path: test.info().outputPath('three-walls-plan.png') });
   await page.getByRole('button', { name: /Calculate/ }).first().click();
   await expect.poll(() => sent.calculated.length).toBe(1);
   expect(sent.calculated[0].shower_spec).toMatchObject({ front_opening_in: 28, front_tiled: false });
@@ -264,6 +275,8 @@ test("a shower room's door side tiled as its 4th wall, or left to paint with 3",
   await page.mouse.click(again.x, again.y);
   await setNum(page, 'Tiled walls', 4);
   await expect(panel(page).getByText('Door side too', { exact: true })).toBeVisible();
+  // ...and the door side: 8" beside the 28" opening to 84", and round it 4.5" deep: 73.5 SF
+  await expect.poll(() => planTexts(page)).toContainEqual(expect.stringContaining('Walls 73.5 SF'));
   await page.screenshot({ path: test.info().outputPath('four-walls-panel.png') });
   await page.getByRole('button', { name: /Calculate/ }).first().click();
   await expect.poll(() => sent.calculated.length).toBe(2);
