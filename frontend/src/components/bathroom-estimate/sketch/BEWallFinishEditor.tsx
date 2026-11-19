@@ -26,8 +26,12 @@ import {
   type FaceRect,
   type WallFinishLayer,
 } from './utils/wallFinish';
+import { wallBorderLF, wallBorderRuns, wallDecoInserts } from './utils/decoTile';
 
 const { Text } = Typography;
+
+/** A border row's colour on the wall's drawing */
+const BORDER_STROKE = '#b26a00';
 
 // The plan's colours: new tile blue, existing tile (to demo) red-orange
 const LAYER_STYLE: Record<WallFinishLayer, { fill: string; stroke: string }> = {
@@ -64,6 +68,13 @@ const BEWallFinishEditor: React.FC<BEWallFinishEditorProps> = ({ wall, ppf, fixt
   // Across the wall as drawn: from its left end seen from inside the room
   const shownX = (x0: number, x1: number): [number, number] =>
     startOnLeft ? [x0, x1] : [lengthIn - x1, lengthIn - x0];
+
+  // Decorative tile on the tile to install: border rows across it, inserts in it
+  const borderRuns = layer === 'new' ? wallBorderRuns(wall, fixtures, ppf) : [];
+  const borderLF = layer === 'new' ? round1(wallBorderLF(wall, fixtures, ppf)) : 0;
+  const inserts = layer === 'new' ? wallDecoInserts(wall, ppf) : 0;
+  const setDeco = (index: number, patch: Partial<BEWallTileRegion>) =>
+    save(regions.map((r, i) => (i === index ? { ...r, ...patch } : r)));
 
   const save = (next: BEWallTileRegion[]) => {
     // Regions read from the older fields get ids of their own once edited
@@ -151,6 +162,15 @@ const BEWallFinishEditor: React.FC<BEWallFinishEditorProps> = ({ wall, ppf, fixt
           fill: 'none', stroke: '#a8a49c', strokeDasharray: '2 2', ...hairline,
         }, 'Tub / shower surround, tiled with the wall'))}
         {openings.map((r, i) => rect(r, `d-${i}`, { fill: '#fff', stroke: '#73726e', strokeDasharray: '4 2', ...hairline }, 'Door / window'))}
+        {borderRuns.map((run, i) => {
+          const [x0, x1] = shownX(run.x0, run.x1);
+          return (
+            <line key={`b-${i}`} x1={x0} x2={x1} y1={heightIn - run.y} y2={heightIn - run.y}
+              stroke={BORDER_STROKE} strokeWidth={3} vectorEffect="non-scaling-stroke">
+              <title>Decorative border</title>
+            </line>
+          );
+        })}
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#73726e', marginTop: 2 }}>
         <span>Left, seen from the room</span>
@@ -202,6 +222,67 @@ const BEWallFinishEditor: React.FC<BEWallFinishEditorProps> = ({ wall, ppf, fixt
                   <Text type="secondary" style={{ fontSize: 11 }}>–</Text>
                   {num(r.topIn, 'topIn', heightIn, 'Up to, inches from the floor')}
                 </span>
+                {layer === 'new' && (
+                  <>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Border</Text>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                      {(r.decoBordersAtIn ?? []).map((y, j) => (
+                        <span key={j} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          <InputNumber
+                            size="small"
+                            min={r.bottomIn}
+                            max={r.topIn}
+                            step={0.5}
+                            precision={1}
+                            value={y}
+                            onChange={(v) => v != null && setDeco(i, {
+                              decoBordersAtIn: (r.decoBordersAtIn ?? []).map((h, k) => (k === j ? v : h)),
+                            })}
+                            style={{ width: 58 }}
+                            aria-label="Border row, inches from the floor"
+                          />
+                          <Button
+                            size="small"
+                            type="text"
+                            icon={<DeleteOutlined />}
+                            aria-label="Remove this border row"
+                            onClick={() => setDeco(i, { decoBordersAtIn: (r.decoBordersAtIn ?? []).filter((_, k) => k !== j) })}
+                          />
+                        </span>
+                      ))}
+                      <Tooltip title="A border, listello or liner row across this tile, at a height from the floor">
+                        <Button
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={() => setDeco(i, {
+                            decoBordersAtIn: [
+                              ...(r.decoBordersAtIn ?? []),
+                              // A wainscot's cap, or halfway up a whole wall
+                              r.topIn < heightIn ? round1(r.topIn - 1) : round1((r.bottomIn + r.topIn) / 2),
+                            ],
+                          })}
+                        >
+                          Row
+                        </Button>
+                      </Tooltip>
+                    </span>
+                    <span />
+                    <Text type="secondary" style={{ fontSize: 11 }}>Inserts</Text>
+                    <span>
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        max={200}
+                        precision={0}
+                        value={r.decoInserts ?? 0}
+                        onChange={(v) => v != null && setDeco(i, { decoInserts: v })}
+                        style={{ width: 58 }}
+                        aria-label="Accent inserts in this tile"
+                      />
+                    </span>
+                    <span />
+                  </>
+                )}
               </div>
             );
           })}
@@ -233,6 +314,12 @@ const BEWallFinishEditor: React.FC<BEWallFinishEditorProps> = ({ wall, ppf, fixt
           <div>
             Tile <strong style={{ color: '#37352f' }}>{areas.tileSF} SF</strong>
             {' · '}Paint <strong style={{ color: '#37352f' }}>{areas.paintSF} SF</strong>
+            {(borderLF > 0 || inserts > 0) && (
+              <div>
+                Decorative: border <strong style={{ color: '#37352f' }}>{borderLF} LF</strong>
+                {inserts > 0 && <>{' · '}inserts <strong style={{ color: '#37352f' }}>{inserts}</strong></>}
+              </div>
+            )}
             {areas.surroundInTileSF > 0 && <div>Includes the tub/shower surround, {areas.surroundInTileSF} SF</div>}
           </div>
         )}

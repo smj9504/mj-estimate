@@ -28,6 +28,7 @@ import {
   wallTileRegions,
   type FaceRect,
 } from './utils/wallFinish';
+import { BORDER_BAND_IN, floorBorderRuns, wallBorderRuns } from './utils/decoTile';
 
 /** A plan point in inches: [x, z]. */
 export type Pt = [number, number];
@@ -102,6 +103,8 @@ export interface WallSolid {
   /** The part behind a tub or shower: tiled with the fixture, or its prefab surround. */
   surrounds: { rect: FaceRect; finish: 'tile' | 'prefab'; fixtureId: string }[];
   openings: WallOpeningSolid[];
+  /** Decorative border rows across its tile after the work, as bands on its face (utils/decoTile) */
+  borders: FaceRect[];
 }
 
 export interface FixtureSolid {
@@ -121,6 +124,8 @@ export interface FixtureSolid {
 export interface BathroomModel {
   walls: WallSolid[];
   floors: Pt[][];
+  /** Decorative border round the floors, as runs (utils/decoTile) */
+  floorBorders: [Pt, Pt][];
   fixtures: FixtureSolid[];
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
   ceilingIn: number;
@@ -440,6 +445,11 @@ function wallSolid(
     tile: subtractRects(regions, holes.concat(kept.map((c) => clip(c.rect)))),
     surrounds,
     openings,
+    borders: view === 'after'
+      ? wallBorderRuns(wall, sketch.fixtures, ppf).map((r) => clip({
+        x0: r.x0, x1: r.x1, y0: r.y - BORDER_BAND_IN / 2, y1: r.y + BORDER_BAND_IN / 2,
+      }))
+      : [],
   };
 }
 
@@ -500,5 +510,9 @@ export function bathroomModel(
     : null;
   const ceilingIn = Math.max(96, ...sketch.walls.map((w) => w.heightInches));
 
-  return { walls, floors, fixtures, bounds, ceilingIn, looks: bathroomLooks(sketch, estimate) };
+  const floorBorders = view === 'after'
+    ? sketch.rooms.flatMap((r) => floorBorderRuns(r, sketch.fixtures, ppf)
+      .map(([a, b]): [Pt, Pt] => [toIn(a, ppf), toIn(b, ppf)]))
+    : [];
+  return { walls, floors, floorBorders, fixtures, bounds, ceilingIn, looks: bathroomLooks(sketch, estimate) };
 }

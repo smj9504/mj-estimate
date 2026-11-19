@@ -31,6 +31,7 @@ import { showerDoorPosition } from './utils/beGeometry';
 import {
   DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening,
 } from './utils/wallFinish';
+import { floorBorderLF, wallBorderLF, wallDecoInserts, wallHasDeco } from './utils/decoTile';
 import { useBESketchState } from './hooks/useBESketchState';
 import BESketchToolbar, { MARK_TOOLS, type BESketchView } from './BESketchToolbar';
 import BESketchCanvas from './BESketchCanvas';
@@ -132,6 +133,8 @@ export interface SketchFixtureSync {
   // Specs
   bathtub_spec?: Record<string, any>;
   shower_spec?: Record<string, any>;
+  /** Decorative tile marked on the sketch round the floor */
+  floor_spec?: Record<string, any>;
   vanity_spec?: Record<string, any>;
   toilet_spec?: Record<string, any>;
 
@@ -614,6 +617,31 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       insulation_type: primaryType,
       insulation_r_value: primaryRValue,
     };
+  }
+
+  // ── Decorative tile marked on the sketch → the surfaces it's on ──
+  // (only where the sketch marks it, so a figure typed on the form stays)
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const decoWalls = walls.filter((w) => wallHasDeco(w, ppf));
+  if (decoWalls.length) {
+    sync.walls_spec = {
+      ...(sync.walls_spec ?? {}),
+      deco_border_lf: round1(decoWalls.reduce((sum, w) => sum + wallBorderLF(w, fixtures, ppf), 0)),
+      deco_inserts: decoWalls.reduce((sum, w) => sum + wallDecoInserts(w, ppf), 0),
+    };
+  }
+  const decoRooms = rooms.filter((r) => r.floorBorderInsetIn != null || r.floorDecoInserts != null);
+  if (decoRooms.length) {
+    sync.floor_spec = {
+      deco_border_lf: round1(decoRooms.reduce((sum, r) => sum + floorBorderLF(r, fixtures, ppf), 0)),
+      deco_inserts: decoRooms.reduce((sum, r) => sum + (r.floorDecoInserts ?? 0), 0),
+    };
+  }
+  for (const [kind, spec] of [['bathtub', 'bathtub_spec'], ['shower', 'shower_spec']] as const) {
+    const fix = fixtures.find((f) => f.type === kind);
+    const p = fix?.properties;
+    if (!p || (p.decoBorderRows == null && p.decoInserts == null)) continue;
+    sync[spec] = { ...(sync[spec] ?? {}), deco_border_rows: p.decoBorderRows ?? 0, deco_inserts: p.decoInserts ?? 0 };
   }
 
   return sync;

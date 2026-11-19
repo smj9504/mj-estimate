@@ -103,6 +103,10 @@ export interface BEWallTileRegion {
   endIn: number;
   bottomIn: number;
   topIn: number;
+  /** Decorative border (listello) rows across this tile, inches from the floor to each row's middle (utils/decoTile) */
+  decoBordersAtIn?: number[];
+  /** Accent inserts set into this tile */
+  decoInserts?: number;
 }
 
 export interface BEWall {
@@ -165,6 +169,10 @@ export interface BERoom {
   floorAreaSF: number;
   /** Net floor area after sub-rooms deducted */
   netFloorAreaSF: number;
+  /** A decorative border round the floor this far in from the walls, inches; none when unset (utils/decoTile) */
+  floorBorderInsetIn?: number | null;
+  /** Accent inserts set into the floor tile */
+  floorDecoInserts?: number;
   /** Calculated wall area in SF */
   wallAreaSF: number;
   /** Calculated perimeter in LF */
@@ -218,6 +226,9 @@ export interface BEFixtureProperties {
    * trigger the "replace the valve while the wall is open" line item.
    */
   hasFaucet?: boolean;
+  /** Decorative tile on a tub surround or shower walls: border rows all the way round, and accent inserts */
+  decoBorderRows?: number;
+  decoInserts?: number;
   /**
    * The end of the tub's open side its fixed glass panel stands at, looking
    * in from the room (the estimate's Bathtub Glass Panel: its size and D&R or

@@ -388,7 +388,7 @@ export function useBESketchState(initialData?: BESketchData) {
   );
 
   const updateRoomMeta = useCallback(
-    (id: string, updates: Partial<Pick<BERoom, 'name' | 'roomType' | 'heightInches'>>) => {
+    (id: string, updates: Partial<Pick<BERoom, 'name' | 'roomType' | 'heightInches' | 'floorBorderInsetIn' | 'floorDecoInserts'>>) => {
       mutate((d) => ({
         ...d,
         rooms: d.rooms.map((r) => (r.id === id ? { ...r, ...updates } : r)),

@@ -32,6 +32,7 @@ import { hasPlumbing, takesTubGlassPanel, tubGlassPanelSide } from './utils/plum
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
 import { showerFrontOpening, wallTileRegions } from './utils/wallFinish';
+import { floorBorderOutline } from './utils/decoTile';
 import { snapToWalls } from './utils/wallSnap';
 import {
   buildPlanLabels,
@@ -1138,6 +1139,20 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                   listening={activeTool === 'select'}
                   onClick={() => { setSelectedId(room.id); }}
                 />
+                {/* A decorative border round the floor, in from the walls (fixtures drawn over it hide it under them) */}
+                {room.floorBorderInsetIn != null && (() => {
+                  const outline = floorBorderOutline(room, (room.floorBorderInsetIn / 12) * ppf);
+                  return outline ? (
+                    <Line
+                      points={outline.flatMap((p) => [p.x, p.y])}
+                      closed
+                      stroke="#b26a00"
+                      strokeWidth={2}
+                      dash={[6, 4]}
+                      listening={false}
+                    />
+                  ) : null;
+                })()}
                 {/* Room boundary edges: click each edge → select corresponding wall */}
                 {room.boundary.map((pt, idx) => {
                   const nIdx = (idx + 1) % room.boundary.length;

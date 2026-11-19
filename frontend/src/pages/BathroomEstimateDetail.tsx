@@ -656,6 +656,10 @@ const BathroomEstimateDetail: React.FC = () => {
     if (sync.toilet_spec) {
       updates.toilet_spec = { ...(current.toilet_spec || {}), ...sync.toilet_spec };
     }
+    // Decorative tile marked round the floor on the sketch
+    if (sync.floor_spec) {
+      updates.floor_spec = { ...(current.floor_spec || {}), ...sync.floor_spec };
+    }
     if (sync.electrical_spec || sync.sketch_lights) {
       const elec = { ...(current.electrical_spec || {}), ...(sync.electrical_spec || {}) };
       if (sync.sketch_lights) elec.lights = mergeFromSketch(current.electrical_spec?.lights, sync.sketch_lights);

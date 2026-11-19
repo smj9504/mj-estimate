@@ -202,6 +202,9 @@ function wallFrame(w: WallSolid) {
   return { a, b, flip, mirror };
 }
 
+/** Decorative border tile: a warm accent against the field tile */
+const BORDER_COLOR = '#a0784c';
+
 function buildOpening(
   o: WallOpeningSolid,
   flip: boolean,
@@ -281,6 +284,11 @@ function buildWall(
     const { material, repeat } = tileMaterial(looks.wallTile, textures);
     own(material);
     for (const r of w.tile.map(mirror)) add(facePanel(r, faceZ + 0.06, material, repeat));
+  }
+  // Decorative border rows across it, just proud of the tile
+  if (w.borders.length) {
+    const accent = own(mat(BORDER_COLOR, { roughness: 0.35 }));
+    for (const r of w.borders.map(mirror)) add(facePanel(r, faceZ + 0.12, accent));
   }
 
   // Behind a tub or shower: its tile, or its prefab surround
@@ -879,6 +887,12 @@ export function buildBathroomScene(
     else floor = new THREE.Mesh(geometry, mat(looks.floorPlain, { roughness: 0.7 }));
     floor.receiveShadow = true;
     root.add(floor);
+  }
+
+  // A decorative border round the floor, just proud of it
+  if (model.floorBorders.length) {
+    const accent = mat(BORDER_COLOR, { roughness: 0.35 });
+    for (const [a, b] of model.floorBorders) root.add(panelAlong(a, b, 0.02, 0.08, 2, accent));
   }
 
   const walls = model.walls.map((w) => buildWall(w, model, textures));

@@ -50,6 +50,7 @@ import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
 import { DOOR_HEIGHT_IN, showerFrontOpening, wallOpeningsOf } from './utils/wallFinish';
+import { FLOOR_BORDER_INSET_IN, floorBorderLF } from './utils/decoTile';
 import BEWallFinishEditor from './BEWallFinishEditor';
 
 // ── Names ──
@@ -468,6 +469,12 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               >
                 <Switch aria-label="Faucet on the surround" checked={p.hasFaucet ?? true} onChange={(v) => setProps({ hasFaucet: v })} />
               </Field>
+              <Field label="Border rows" hint="Decorative border rows, each all the way round the surround.">
+                <Num label="Surround border rows" value={p.decoBorderRows ?? 0} min={0} max={10} onChange={(v) => v != null && setProps({ decoBorderRows: v })} />
+              </Field>
+              <Field label="Inserts">
+                <Num label="Surround accent inserts" value={p.decoInserts ?? 0} min={0} max={200} unit="EA" onChange={(v) => v != null && setProps({ decoInserts: v })} />
+              </Field>
             </>
           )}
         </Group>
@@ -595,6 +602,12 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
           )}
           <Field label="Niches">
             <Num label="Niches" value={p.nicheCount ?? 0} min={0} max={4} onChange={(v) => setProps({ nicheCount: v ?? 0 })} />
+          </Field>
+          <Field label="Border rows" hint="Decorative border rows, each all the way round its tiled walls.">
+            <Num label="Shower border rows" value={p.decoBorderRows ?? 0} min={0} max={10} onChange={(v) => v != null && setProps({ decoBorderRows: v })} />
+          </Field>
+          <Field label="Inserts">
+            <Num label="Shower accent inserts" value={p.decoInserts ?? 0} min={0} max={200} unit="EA" onChange={(v) => v != null && setProps({ decoInserts: v })} />
           </Field>
           <Field label="Bench">
             <Switch aria-label="Shower bench" checked={p.hasBench ?? false} onChange={(v) => setProps({ hasBench: v })} />
@@ -1155,6 +1168,43 @@ const RoomInspector: React.FC<{ room: BERoom; api: BESketchStateAPI }> = ({ room
           onChange={(v) => v && v >= 60 && api.setRoomHeight(room.id, v)}
         />
       </Field>
+
+      <Group title="Floor decorative tile">
+        <Field
+          label="Border"
+          hint={room.floorBorderInsetIn != null
+            ? `${Math.round(floorBorderLF(room, api.data.fixtures, ppf) * 10) / 10} LF round the floor, stopping under the tub, shower, vanity and toilet.`
+            : undefined}
+        >
+          <Switch
+            aria-label="Floor border"
+            checked={room.floorBorderInsetIn != null}
+            onChange={(v) => api.updateRoomMeta(room.id, { floorBorderInsetIn: v ? FLOOR_BORDER_INSET_IN : null })}
+          />
+        </Field>
+        {room.floorBorderInsetIn != null && (
+          <Field label="In from walls">
+            <Num
+              label="Floor border in from the walls, inches"
+              value={room.floorBorderInsetIn}
+              min={0}
+              max={48}
+              unit="in"
+              onChange={(v) => v != null && api.updateRoomMeta(room.id, { floorBorderInsetIn: v })}
+            />
+          </Field>
+        )}
+        <Field label="Inserts">
+          <Num
+            label="Floor accent inserts"
+            value={room.floorDecoInserts ?? 0}
+            min={0}
+            max={200}
+            unit="EA"
+            onChange={(v) => v != null && api.updateRoomMeta(room.id, { floorDecoInserts: v })}
+          />
+        </Field>
+      </Group>
     </>
   );
 };
