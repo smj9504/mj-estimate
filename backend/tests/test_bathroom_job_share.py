@@ -8,7 +8,7 @@ others leave them off and name the estimate that has them. Pricing or
 deleting one brings the others' job lines in step, never their other
 lines. On a throwaway SQLite database."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 
@@ -79,7 +79,7 @@ def bathroom(service, designation, address="12 Elm St", **fields):
     # Made a minute apart (SQLite keeps whole seconds)
     _made.append(created["id"])
     est = service.estimate_repo.find_by_id_with_relations(created["id"])
-    est.created_at = datetime(2026, 11, 19, 9, len(_made) % 60)
+    est.created_at = datetime(2026, 1, 1) + timedelta(minutes=len(_made))
     service.session.flush()
     return created
 
@@ -246,3 +246,61 @@ def test_the_page_is_told_the_jobs_bathrooms(service):
         "carrier": "Master Bathroom", "carries": False,
     }
     assert service.get_estimate(master["id"])["job"]["carries"] is True
+
+
+# ── Switching between the job's bathrooms, adding one ──
+
+def test_a_bathroom_added_on_the_job_takes_the_houses_facts(service):
+    master = bathroom(service, "master", year_built=1985)
+    hall = service.add_bathroom(master["id"], "hall")
+    assert hall["group_id"] != master["group_id"]
+    assert hall["designation"] == "hall" and hall["kind"] == "restore"
+    for field in ("property_address", "city", "state", "zip_code", "year_built"):
+        assert hall[field] == master[field]
+    # Its scope is its own
+    assert not hall["replace_tub"]
+
+    rows = service.get_job_bathrooms(hall["id"])
+    assert [(r["name"], r["current"]) for r in rows] == [("Master Bathroom", False), ("Hall Bathroom", True)]
+    assert rows[0]["estimate_id"] == master["id"]
+
+
+def test_a_bathroom_needs_a_claim_or_an_address_to_join(service):
+    lone = service.create_estimate(BathroomEstimateCreate(designation="hall"))
+    with pytest.raises(ValueError):
+        service.add_bathroom(lone["id"], "master")
+    assert [r["name"] for r in service.get_job_bathrooms(lone["id"])] == ["Hall Bathroom"]
+
+
+def test_the_houses_facts_changed_on_one_bathroom_change_on_all(service):
+    from app.domains.bathroom_estimate.schemas import BathroomEstimateUpdate
+    master = bathroom(service, "master")
+    hall = service.add_bathroom(master["id"], "hall")
+    service.update_estimate(master["id"], BathroomEstimateUpdate(
+        property_address="12 Elm Street", year_built=1960, designation="master", length_ft=9,
+    ))
+    hall_now = service.get_estimate(hall["id"])
+    assert hall_now["property_address"] == "12 Elm Street" and hall_now["year_built"] == 1960
+    # One bathroom's own facts stay its own
+    assert hall_now["designation"] == "hall" and hall_now["length_ft"] != 9
+    assert [r["name"] for r in service.get_job_bathrooms(hall["id"])] == ["Master Bathroom", "Hall Bathroom"]
+
+
+def test_a_save_that_changes_nothing_of_the_house_leaves_the_others(service):
+    from app.domains.bathroom_estimate.schemas import BathroomEstimateUpdate
+    master = bathroom(service, "master")
+    hall = service.add_bathroom(master["id"], "hall")
+    service.update_estimate(hall["id"], BathroomEstimateUpdate(city="Gaithersburg"))
+    # The master's form sends its (old) city back with everything else
+    service.update_estimate(master["id"], BathroomEstimateUpdate(city="Gaithersburg", length_ft=10))
+    assert service.get_estimate(hall["id"])["city"] == "Gaithersburg"
+    assert service.get_estimate(master["id"])["city"] == "Gaithersburg"
+
+
+def test_a_bathroom_priced_on_its_own_keeps_its_own_facts(service):
+    from app.domains.bathroom_estimate.schemas import BathroomEstimateUpdate
+    master = bathroom(service, "master")
+    copy = bathroom(service, "master", hidden_costs={"price_alone": True})
+    service.update_estimate(master["id"], BathroomEstimateUpdate(year_built=1950))
+    assert service.get_estimate(copy["id"])["year_built"] is None
+    assert [r["alone"] for r in service.get_job_bathrooms(master["id"])] == [False, True]

@@ -53,12 +53,14 @@ from .pricing import (
     WATERPROOF_TYPES,
 )
 from .schemas import (
+    AddBathroom,
     BathroomEstimateCreate,
     BathroomEstimateGroupResponse,
     BathroomEstimateListResponse,
     BathroomEstimateResponse,
     BathroomEstimateUpdate,
     HistoryResponse,
+    JobBathroom,
     LineItemCreate,
     LineItemUpdate,
     OptionLabelUpdate,
@@ -267,6 +269,41 @@ def get_estimate_group(
     _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.get_group(estimate_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+# ── The job's bathrooms (each its own estimate group) ──
+
+@router.get("/{estimate_id}/bathrooms", response_model=list[JobBathroom])
+def get_job_bathrooms(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The bathrooms of this estimate's job (its claim, or its address), to switch between."""
+    _require_estimate(session, current_user, estimate_id)
+    result = BathroomEstimateService(session).get_job_bathrooms(estimate_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.post("/{estimate_id}/bathrooms", response_model=BathroomEstimateResponse)
+def add_bathroom(
+    estimate_id: str,
+    data: AddBathroom = Body(default=AddBathroom()),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Another bathroom on this estimate's job, with the house's facts."""
+    _require_estimate(session, current_user, estimate_id)
+    service = BathroomEstimateService(session)
+    try:
+        result = service.add_bathroom(estimate_id, data.designation, created_by_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Estimate not found")
     return result

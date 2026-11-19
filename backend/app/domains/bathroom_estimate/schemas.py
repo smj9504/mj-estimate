@@ -255,6 +255,24 @@ class ProjectTypeUpdate(BaseModel):
 
 # ── Response schemas ──
 
+class JobBathroom(BaseModel):
+    """One bathroom of a job, for the page to switch to"""
+    group_id: str
+    name: str
+    # The estimate to open for it: its restoration, else its first option
+    estimate_id: str
+    designation: Optional[str] = None
+    total: float = 0
+    calculated: bool = False
+    # Priced on its own (hidden_costs.price_alone): not sharing the job's costs
+    alone: bool = False
+    current: bool = False
+
+
+class AddBathroom(BaseModel):
+    designation: Optional[str] = None
+
+
 class JobSummary(BaseModel):
     """The bathrooms of the job an estimate is one of"""
     bathrooms: List[str]

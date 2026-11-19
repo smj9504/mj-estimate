@@ -261,6 +261,29 @@ export interface SubstrateSpec {
   subfloor_repair_sf?: number;
 }
 
+/** One bathroom of a job (its own estimate group), to switch to */
+export interface JobBathroom {
+  group_id: string;
+  name: string;
+  /** The estimate to open for it: its restoration, else its first option */
+  estimate_id: string;
+  designation?: string | null;
+  total: number;
+  calculated: boolean;
+  /** Priced on its own: not sharing the job's costs */
+  alone: boolean;
+  current: boolean;
+}
+
+/** A bathroom by its designation (backend job_share.BATH_NAMES) */
+export const BATH_NAMES: Record<string, string> = {
+  master: 'Master Bathroom',
+  hall: 'Hall Bathroom',
+  powder: 'Powder Room',
+  three_quarter: 'Bathroom (3/4)',
+  jack_jill: 'Jack & Jill Bathroom',
+};
+
 /** The bathrooms (estimate groups) of the job an estimate is one of */
 export interface BathroomJob {
   bathrooms: string[];

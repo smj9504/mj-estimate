@@ -41,6 +41,19 @@ GROUP_SHARED_FIELDS = (
     "zip_code", "building_type", "year_built", "designation",
 )
 
+# Facts about the house rather than one bathroom: every bathroom of a job
+# (job_share) shares them, so changing one bathroom's changes them all.
+JOB_SHARED_FIELDS = (
+    "claim_id", "company_id", "property_address", "city", "state",
+    "zip_code", "building_type", "year_built",
+)
+
+
+def _same_value(a: Any, b: Any) -> bool:
+    """A form sends every field each save: only a real change counts"""
+    return str(a if a is not None else "").strip() == str(b if b is not None else "").strip()
+
+
 # Columns a copy never takes from its source: its identity, its place in a
 # job and its bookkeeping. Everything else is the scope and is copied, so a
 # column added later is copied without anyone having to list it.
@@ -188,6 +201,10 @@ class BathroomEstimateService:
             return None
 
         update_dict = data.dict(exclude_unset=True)
+        # The house's facts that change: the job's other bathrooms take them too
+        job_moved = {k: update_dict[k] for k in JOB_SHARED_FIELDS
+                     if k in update_dict and not _same_value(getattr(estimate, k), update_dict[k])}
+        other_bathrooms = self._other_bathrooms(estimate) if job_moved and not _alone(estimate) else []
         company_moved = (
             "company_id" in update_dict
             and str(update_dict["company_id"] or "") != str(estimate.company_id or "")
@@ -211,6 +228,12 @@ class BathroomEstimateService:
                         pass
 
             self._share_with_group(estimate, update_dict)
+            for other in other_bathrooms:
+                changed = {k: v for k, v in job_moved.items() if not _same_value(getattr(other, k), v)}
+                if changed:
+                    self.estimate_repo.update(str(other.id), changed)
+                    if "company_id" in changed:
+                        other.price_book_id = None
             if company_moved:
                 # Its prices were the old company's: the next calculation
                 # pins the job to the new company's
@@ -700,6 +723,66 @@ class BathroomEstimateService:
         member.subtotal = subtotal
         member.total = subtotal
         return True
+
+    def _other_bathrooms(self, estimate: BathroomEstimate) -> List[BathroomEstimate]:
+        """Every estimate of the job's other bathrooms (not those priced on their own)"""
+        own = _group_key(estimate)
+        groups: Dict[str, List[BathroomEstimate]] = {}
+        for est in self._job_estimates(estimate):
+            groups.setdefault(_group_key(est), []).append(est)
+        return [m for key, g in groups.items() if key != own and not _alone(self._job_rep(g)) for m in g]
+
+    def get_job_bathrooms(self, estimate_id: str) -> Optional[List[Dict[str, Any]]]:
+        """The bathrooms of the job the estimate is in, the first made first,
+        each with the estimate to open for it (its restoration, else its first
+        option). A job is its claim, or with no claim its address and company."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        own = _group_key(estimate)
+        groups: Dict[str, List[BathroomEstimate]] = {}
+        for est in self._job_estimates(estimate):
+            groups.setdefault(_group_key(est), []).append(est)
+        if own not in groups:
+            groups[own] = [m for m in self._group_members(estimate) if m.kind != "existing"] or [estimate]
+        ordered = sorted(groups.values(),
+                         key=lambda g: (min(m.created_at or datetime.min for m in g), _group_key(g[0])))
+        names = self._group_names(ordered)
+        out = []
+        for group in ordered:
+            key = _group_key(group[0])
+            rep = self._job_rep(group)
+            out.append({
+                "group_id": key, "name": names[key], "estimate_id": str(rep.id),
+                "designation": rep.designation, "total": float(rep.total or 0),
+                "calculated": bool(rep.line_items), "alone": _alone(rep), "current": key == own,
+            })
+        return out
+
+    def add_bathroom(self, estimate_id: str, designation: Optional[str] = None,
+                     created_by_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Another bathroom on the estimate's job: a new estimate of its own
+        with the house's facts (claim, company, address…) and the job's kind"""
+        source = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not source:
+            return None
+        if not source.claim_id and not (source.property_address or "").strip():
+            raise ValueError(
+                "Set the claim or the property address first: that's what puts "
+                "the job's bathrooms together."
+            )
+        facts = {k: getattr(source, k) for k in JOB_SHARED_FIELDS}
+        if facts.get("claim_id") is not None:
+            facts["claim_id"] = str(facts["claim_id"])
+        if facts.get("company_id") is not None:
+            facts["company_id"] = str(facts["company_id"])
+        return self.create_estimate(
+            BathroomEstimateCreate(
+                project_type=source.project_type or "insurance",
+                designation=designation, **facts,
+            ),
+            created_by_id=created_by_id,
+        )
 
     def _job_summary(self, estimate: BathroomEstimate) -> Optional[Dict[str, Any]]:
         """The job's bathrooms and which has the job costs, for the page;

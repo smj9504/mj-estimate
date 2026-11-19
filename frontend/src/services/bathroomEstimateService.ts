@@ -15,6 +15,7 @@ import type {
   BathroomPricingInfo,
   BathroomProjectType,
   BathroomSelectionSlot,
+  JobBathroom,
 } from '../types/bathroomEstimate';
 
 const BASE_URL = '/api/bathroom-estimates';
@@ -75,6 +76,18 @@ export const bathroomEstimateService = {
   async getGroup(id: string) {
     const { data } = await api.get(`${BASE_URL}/${id}/group`);
     return data as BathroomEstimateGroup;
+  },
+
+  /** The bathrooms of this estimate's job (its claim, or its address), to switch between. */
+  async getBathrooms(id: string) {
+    const { data } = await api.get(`${BASE_URL}/${id}/bathrooms`);
+    return data as JobBathroom[];
+  },
+
+  /** Another bathroom on this estimate's job: a new estimate with the house's facts. */
+  async addBathroom(id: string, designation?: string) {
+    const { data } = await api.post(`${BASE_URL}/${id}/bathrooms`, { designation: designation || null });
+    return data as BathroomEstimate;
   },
 
   /** A new option in the same job, starting as a copy of this estimate. */

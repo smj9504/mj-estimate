@@ -65,6 +65,7 @@ import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/B
 import { fitFixturesToProducts } from '../components/bathroom-estimate/sketch/utils/productFit';
 import BESelectionsPanel from '../components/bathroom-estimate/BESelectionsPanel';
 import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
+import BEBathroomBar from '../components/bathroom-estimate/BEBathroomBar';
 import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
 import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
 import BEFixtureRows from '../components/bathroom-estimate/BEFixtureRows';
@@ -162,6 +163,14 @@ const BathroomEstimateDetail: React.FC = () => {
     queryKey: ['bathroom-pricing-info', id],
     queryFn: () => bathroomEstimateService.getPricingInfo(id),
   });
+
+  // The job's bathrooms (BEBathroomBar shows them): Project Info says what they share
+  const { data: jobBathrooms } = useQuery({
+    queryKey: ['bathroom-job', id],
+    queryFn: () => bathroomEstimateService.getBathrooms(id!),
+    enabled: !!id,
+  });
+  const multiBath = (jobBathrooms?.length ?? 0) > 1;
 
   // Cost Guide rows and scenario totals, computed from the live rate tables.
   const costGuide = useMemo(() => {
@@ -274,7 +283,9 @@ const BathroomEstimateDetail: React.FC = () => {
     onSuccess: () => {
       unsavedRef.current = false;
       message.success('Saved');
-      queryClient.invalidateQueries({ queryKey: ['bathroom-estimate', id] });
+      // The house's facts go to the job's other bathrooms too
+      queryClient.invalidateQueries({ queryKey: ['bathroom-estimate'] });
+      queryClient.invalidateQueries({ queryKey: ['bathroom-job'] });
       queryClient.invalidateQueries({ queryKey: ['bathroom-layout-changes', id] });
     },
     onError: () => message.error('Save failed'),
@@ -286,6 +297,7 @@ const BathroomEstimateDetail: React.FC = () => {
     onSuccess: (priced) => {
       unsavedRef.current = false;
       message.success('Calculated successfully');
+      queryClient.invalidateQueries({ queryKey: ['bathroom-job'] });
       if (priced?.job_updated?.length) {
         // Another bathroom's estimate on the job: its dumpster, permit or trip moved
         message.info(`Also updated: ${priced.job_updated.join(', ')} (the job's shared costs)`, 6);
@@ -967,6 +979,7 @@ const BathroomEstimateDetail: React.FC = () => {
 
       {estimate && (
         <>
+          <BEBathroomBar estimate={estimate} onOpen={openMember} guardUnsaved={guardUnsaved} />
           <BEGroupBar
             estimate={estimate}
             onOpen={openMember}
@@ -1057,6 +1070,12 @@ const BathroomEstimateDetail: React.FC = () => {
             label: 'Project Info',
             children: (
               <Card className="be-tab-card">
+                {multiBath && (
+                  <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+                    Company, client / claim and property are the house&rsquo;s: changed here, they change on
+                    every bathroom of this job. The bathroom&rsquo;s type and size are its own.
+                  </Text>
+                )}
                 <Divider orientation="left">Company</Divider>
                 <Row gutter={16}>
                   <Col xs={24} sm={12} md={8}>
@@ -1168,6 +1187,9 @@ const BathroomEstimateDetail: React.FC = () => {
                       <InputNumber style={{ width: '100%' }} min={1800} max={2030} />
                     </Form.Item>
                   </Col>
+                </Row>
+                <Divider orientation="left">This bathroom</Divider>
+                <Row gutter={16}>
                   <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Bathroom Type" name="designation">
                       <Select options={selectOpts(pricingInfo?.designations)} allowClear />
@@ -1179,7 +1201,6 @@ const BathroomEstimateDetail: React.FC = () => {
                     </Form.Item>
                   </Col>
                 </Row>
-                <Divider orientation="left">Dimensions</Divider>
                 <Row gutter={16}>
                   <Col xs={12} sm={8} md={4}>
                     <Form.Item label="Length (ft)" name="length_ft">
