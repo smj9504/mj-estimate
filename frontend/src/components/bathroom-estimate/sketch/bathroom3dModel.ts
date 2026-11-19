@@ -69,6 +69,8 @@ export interface BathroomLooks {
   tubShower: boolean;
   /** A fixed glass panel on the tub's open side (bathtub_spec glass_panel_*), inches. */
   tubGlassPanel: { widthIn: number; heightIn: number } | null;
+  /** Sliding glass doors across the tub's front (bathtub_spec glass_door_*): in place of the curtain rod. */
+  tubGlassDoors: { heightIn: number; frameless: boolean } | null;
 }
 
 export interface WallOpeningSolid {
@@ -216,6 +218,7 @@ export const DEFAULT_LOOKS: BathroomLooks = {
   metal: METAL_COLORS.chrome,
   tubShower: false,
   tubGlassPanel: null,
+  tubGlassDoors: null,
 };
 
 // A product's look.material (product library) as the tile looks name it
@@ -313,6 +316,12 @@ export function bathroomLooks(sketch: BESketchData, estimate?: Record<string, an
     // Detached and reset or new, it stands there after the job (the size the backend prices when blank)
     tubGlassPanel: tub.glass_panel_action === 'detach_reset' || tub.glass_panel_action === 'replace'
       ? { widthIn: Number(tub.glass_panel_width_in) || 30, heightIn: Number(tub.glass_panel_height_in) || 58 }
+      : null,
+    tubGlassDoors: tub.glass_door_action === 'detach_reset' || tub.glass_door_action === 'replace'
+      ? {
+        heightIn: (tub.glass_door_frameless && Number(tub.glass_door_height_in)) || 58,
+        frameless: !!tub.glass_door_frameless,
+      }
       : null,
   };
 }

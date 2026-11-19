@@ -98,6 +98,19 @@ PRICE_TABLES = [
         units={"minimum": "EA"},
         note="A fixed glass panel on the tub, per SF of glass; never under the minimum.",
     ),
+    TableSpec(
+        "TUB_GLASS_DOORS", "Bathtub", kind=MIXED, share=0.58, title="Sliding doors",
+        kinds={"detach_reset": LABOR, "frameless_detach_reset_per_sf": LABOR},
+        labels={"standard": "Framed set, standard (chrome)",
+                "mid": "Framed set, chrome with obscure glass",
+                "high": "Framed set, bronze or brass",
+                "premium": "Framed set, bronze or brass with frosted or mirrored glass",
+                "frameless_per_sf": "Frameless, per SF",
+                "detach_reset": "Framed set, detach & reset",
+                "frameless_detach_reset_per_sf": "Frameless, detach & reset, per SF"},
+        note="Sliding glass doors across the tub; replacing takes the old set out. "
+             "Frameless never under the glass panel's minimum.",
+    ),
     # ── Shower ──
     TableSpec("SHOWER_DOOR_PRICES", "Shower Door", kind=MATERIAL, size_format='{}" opening',
               labels={"any": "Any size"}),

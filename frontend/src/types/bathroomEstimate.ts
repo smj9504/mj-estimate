@@ -89,6 +89,16 @@ export interface DecorativeTile {
 
 export type GlassPanelAction = 'none' | 'detach_reset' | 'replace';
 
+/** A framed tub door set's grade (backend TUB_GLASS_DOORS) */
+export type TubDoorGrade = 'standard' | 'mid' | 'high' | 'premium';
+
+export const TUB_DOOR_GRADES: { value: TubDoorGrade; label: string }[] = [
+  { value: 'standard', label: 'Standard (chrome frame)' },
+  { value: 'mid', label: 'Chrome frame, obscure glass' },
+  { value: 'high', label: 'Bronze or brass frame' },
+  { value: 'premium', label: 'Bronze or brass, frosted or mirrored glass' },
+];
+
 export interface BathtubSpec {
   type?: string;          // alcove, drop_in, freestanding, walk_in, none
   material?: string;      // acrylic, porcelain_steel, cast_iron, fiberglass
@@ -114,6 +124,14 @@ export interface BathtubSpec {
   glass_panel_height_in?: number | null;
   /** New frosted (obscure) glass, when replaced */
   glass_panel_frosted?: boolean;
+  /** Sliding glass doors across the tub's open side (in place of a curtain) */
+  glass_door_action?: GlassPanelAction;
+  /** Frameless doors are priced by their SF; a framed set per set */
+  glass_door_frameless?: boolean;
+  /** A new framed set's grade */
+  glass_door_grade?: TubDoorGrade;
+  glass_door_width_in?: number | null;
+  glass_door_height_in?: number | null;
   /** Decorative tile on the surround (DecorativeTile) */
   deco_border_rows?: number | null;
   deco_inserts?: number | null;

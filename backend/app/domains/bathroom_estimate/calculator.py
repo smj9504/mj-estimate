@@ -63,6 +63,9 @@ from .pricing import (
     TRIM_GRADE_MULTIPLIER,
     DETACH_RESET_COSTS,
     DECORATIVE_TILE,
+    TUB_GLASS_DOOR_GRADES,
+    TUB_GLASS_DOOR_LOOKS,
+    TUB_GLASS_DOORS,
     TUB_GLASS_PANEL,
     VANITY_EXTRAS,
     VANITY_PRICES,
@@ -1427,6 +1430,40 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             _g_cost = _g_min
             _g_note += f" | Minimum charge ${_g_min:,.2f}"
         _add(line_items, 5, _g_label, 1, "EA", round(_g_cost * labor_mult, 2), "fixture", notes=_g_note)
+
+    # ── Tub sliding glass doors ──
+    # A sliding door set across the tub's open side, detached and reset or
+    # replaced (tub_spec glass_door_action). A framed set is priced per set,
+    # by grade when new; frameless by its SF, never under the glazier's
+    # minimum. Like the panel, not tied to the tub's own action.
+    _door_act = tub_spec.get("glass_door_action") or "none"
+    if _door_act in ("detach_reset", "replace") and (tub_spec.get("type") or "alcove") != "none":
+        if tub_spec.get("glass_door_frameless"):
+            _dw = _count(tub_spec.get("glass_door_width_in")) or 60
+            _dh = _count(tub_spec.get("glass_door_height_in")) or 58
+            _dsf = round(_dw * _dh / 144, 1)
+            if _door_act == "detach_reset":
+                _d_cost = _dsf * TUB_GLASS_DOORS["frameless_detach_reset_per_sf"]
+                _d_note = "Labor only: take the doors and their roller bar down, store, reset and re-seal"
+            else:
+                _d_cost = _dsf * TUB_GLASS_DOORS["frameless_per_sf"]
+                _d_note = "Remove old set, new frameless sliding glass doors with their roller bar, installed and sealed"
+            _d_note = f'Frameless {_dw:g}" x {_dh:g}" = {_dsf:g} SF | {_d_note}'
+            _d_min = TUB_GLASS_PANEL["minimum"]
+            if _d_cost < _d_min:
+                _d_cost = _d_min
+                _d_note += f" | Minimum charge ${_d_min:,.2f}"
+        elif _door_act == "detach_reset":
+            _d_cost = TUB_GLASS_DOORS["detach_reset"]
+            _d_note = "Framed set | Labor only: take the doors and tracks down, store, reset and re-seal"
+        else:
+            _grade = tub_spec.get("glass_door_grade")
+            _grade = _grade if _grade in TUB_GLASS_DOOR_GRADES else "mid"
+            _d_cost = TUB_GLASS_DOORS[_grade]
+            _d_note = (f"Framed set, {TUB_GLASS_DOOR_LOOKS[_grade]} | "
+                       "Remove old set, new sliding glass doors with their tracks, installed and sealed")
+        _d_label = "Tub sliding doors - " + ("Detach & Reset" if _door_act == "detach_reset" else "R&R")
+        _add(line_items, 5, _d_label, 1, "EA", round(_d_cost * labor_mult, 2), "fixture", notes=_d_note)
 
     # Shower (consolidated: body → 1 item, door → 1 item, max 2 items)
     if estimate.replace_shower:

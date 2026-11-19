@@ -144,6 +144,17 @@ describe('looks', () => {
     expect(bathroomLooks(s, { bathtub_spec: { glass_panel_action: 'replace', glass_panel_width_in: 34, glass_panel_height_in: 56 } }).tubGlassPanel)
       .toEqual({ widthIn: 34, heightIn: 56 });
   });
+
+  it('hangs tub sliding doors kept or new; a framed set is drawn at the usual height', () => {
+    const s = sketch([north()]);
+    expect(bathroomLooks(s, {}).tubGlassDoors).toBeNull();
+    expect(bathroomLooks(s, { bathtub_spec: { glass_door_action: 'none' } }).tubGlassDoors).toBeNull();
+    expect(bathroomLooks(s, { bathtub_spec: { glass_door_action: 'detach_reset', glass_door_height_in: 70 } }).tubGlassDoors)
+      .toEqual({ heightIn: 58, frameless: false });
+    expect(bathroomLooks(s, {
+      bathtub_spec: { glass_door_action: 'replace', glass_door_frameless: true, glass_door_height_in: 62 },
+    }).tubGlassDoors).toEqual({ heightIn: 62, frameless: true });
+  });
 });
 
 describe('bathroomLooks with picked products', () => {

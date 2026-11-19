@@ -546,7 +546,7 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
   }
   g.add(fixtureFaucet);
 
-  if (kit.looks.tubShower && sub === 'standard_alcove') {
+  if (kit.looks.tubShower && sub === 'standard_alcove' && !kit.looks.tubGlassDoors) {
     const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, W, 16), kit.metal);
     rod.rotation.z = Math.PI / 2;
     rod.position.set(0, GLASS_TOP_IN + 2, D / 2 - 1);
@@ -567,6 +567,25 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     // The channel up the wall it's fixed to
     const wallEnd = fromLeft ? a : b;
     g.add(boxAt(0.9, top - rim, 0.9, kit.metal, wallEnd[0] + (fromLeft ? 0.45 : -0.45), (rim + top) / 2, wallEnd[1] + inset[1]));
+  }
+
+  // Sliding doors across the front rim: two panels overlapping in the middle,
+  // one track behind the other; a framed set has its tracks and side rails,
+  // a frameless one only its roller bar on top
+  const doors = kit.looks.tubGlassDoors;
+  if (doors && (sub === 'standard_alcove' || sub === 'drop_in')) {
+    const top = Math.min(f.ceilingIn, rim + doors.heightIn);
+    const overlap = Math.min(3, W / 10) / W;
+    g.add(panelAlong(local(0, 1), local(0.5 + overlap, 1), rim + 0.5, top - 1, 0.25, kit.glass, [0, -2.2]));
+    g.add(panelAlong(local(0.5 - overlap, 1), local(1, 1), rim + 0.5, top - 1, 0.25, kit.glass, [0, -1]));
+    g.add(panelAlong(local(0, 1), local(1, 1), top - 1, top + (doors.frameless ? 0 : 0.5), doors.frameless ? 0.8 : 2, kit.metal, [0, -1.6]));
+    if (!doors.frameless) {
+      g.add(panelAlong(local(0, 1), local(1, 1), rim, rim + 0.75, 2, kit.metal, [0, -1.6]));
+      for (const u of [0, 1]) {
+        const [x, z] = local(u, 1);
+        g.add(boxAt(0.9, top - rim, 2, kit.metal, x + (u === 0 ? 0.45 : -0.45), (rim + top) / 2, z - 1.6));
+      }
+    }
   }
 }
 

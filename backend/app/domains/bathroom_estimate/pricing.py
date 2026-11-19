@@ -398,6 +398,29 @@ TUB_GLASS_PANEL = {
     "minimum": xact(181.03),             # MSD MN: mirror / shower door labor minimum
 }
 
+# Sliding glass doors across a tub's open side (2026-11-19). A framed set
+# is priced per set by grade, from Xactimate's tub door line; frameless
+# by its SF, as a custom frameless partition, never under the glazier's
+# minimum (TUB_GLASS_PANEL). Replacing includes taking the old set out
+# (TUBDR and SDC+ are "&").
+TUB_GLASS_DOORS = {
+    "standard": xact(524.77),        # MSD TUBDR-: chrome frame
+    "mid": xact(603.50),             # MSD TUBDR: chrome frame, obscure glass
+    "high": xact(713.43),            # MSD TUBDR+: bronze or brass frame
+    "premium": xact(872.68),         # MSD TUBDR++: bronze or brass, frosted or mirrored glass
+    "frameless_per_sf": xact(97.61),  # MSD SDC+: 1/2" frameless glass, per SF
+    "detach_reset": xact(278.31),    # MSD TUBDRRS: a framed set, doors and tracks
+    "frameless_detach_reset_per_sf": xact(15.96),  # MSD SDC+RS
+}
+# A framed set's grade, as the line note names it
+TUB_GLASS_DOOR_LOOKS = {
+    "standard": "chrome frame",
+    "mid": "chrome frame, obscure glass",
+    "high": "bronze or brass frame",
+    "premium": "bronze or brass frame, frosted or mirrored glass",
+}
+TUB_GLASS_DOOR_GRADES = list(TUB_GLASS_DOOR_LOOKS)
+
 # Shower door / enclosure
 # Material price by type × opening width (inches)
 # Sources: Angi 2026, HomeGuide 2026, ThisOldHouse 2026

@@ -59,7 +59,7 @@ import type {
   BathroomEstimateHistory,
   BathroomPricingInfo,
 } from '../types/bathroomEstimate';
-import { PHASE_LABELS, isCustomTileShower, memberName } from '../types/bathroomEstimate';
+import { PHASE_LABELS, TUB_DOOR_GRADES, isCustomTileShower, memberName } from '../types/bathroomEstimate';
 import BESketchTab, { buildSketchSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 import { fitFixturesToProducts } from '../components/bathroom-estimate/sketch/utils/productFit';
@@ -1854,6 +1854,69 @@ const BathroomEstimateDetail: React.FC = () => {
                                       <Checkbox>Frosted Glass</Checkbox>
                                     </Form.Item>
                                   </Col>
+                                )}
+                              </>
+                            )}
+                          </Row>
+                        );
+                      }}
+                    </Form.Item>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                      prev?.bathtub_spec?.glass_door_action !== cur?.bathtub_spec?.glass_door_action ||
+                      prev?.bathtub_spec?.glass_door_frameless !== cur?.bathtub_spec?.glass_door_frameless
+                    }>
+                      {() => {
+                        const doors = form.getFieldValue(['bathtub_spec', 'glass_door_action']) || 'none';
+                        const frameless = !!form.getFieldValue(['bathtub_spec', 'glass_door_frameless']);
+                        return (
+                          <Row gutter={16} align="bottom">
+                            <Col xs={24} sm={12} md={8}>
+                              <Form.Item label="Sliding Doors" name={['bathtub_spec', 'glass_door_action']}
+                                tooltip="Sliding glass doors across the tub, in place of a curtain"
+                                getValueProps={(v?: string) => ({ value: v || 'none' })}>
+                                <Radio.Group onChange={(e) => {
+                                  // Doors take the curtain's place
+                                  if (e.target.value !== 'none') form.setFieldValue(['bathtub_spec', 'curtain_rod'], false);
+                                }}>
+                                  <Radio.Button value="none">None</Radio.Button>
+                                  <Radio.Button value="detach_reset">D&R</Radio.Button>
+                                  <Radio.Button value="replace">R&R</Radio.Button>
+                                </Radio.Group>
+                              </Form.Item>
+                            </Col>
+                            {doors !== 'none' && (
+                              <>
+                                <Col xs={24} sm={12} md={6}>
+                                  <Form.Item label="Frame" name={['bathtub_spec', 'glass_door_frameless']}
+                                    getValueProps={(v?: boolean) => ({ value: v ? 'frameless' : 'framed' })}
+                                    getValueFromEvent={(e) => e.target.value === 'frameless'}>
+                                    <Radio.Group>
+                                      <Radio.Button value="framed">Framed</Radio.Button>
+                                      <Radio.Button value="frameless">Frameless</Radio.Button>
+                                    </Radio.Group>
+                                  </Form.Item>
+                                </Col>
+                                {!frameless && doors === 'replace' && (
+                                  <Col xs={24} sm={12} md={8}>
+                                    <Form.Item label="Grade" name={['bathtub_spec', 'glass_door_grade']}
+                                      getValueProps={(v?: string) => ({ value: v || 'mid' })}>
+                                      <Select options={TUB_DOOR_GRADES} />
+                                    </Form.Item>
+                                  </Col>
+                                )}
+                                {frameless && (
+                                  <>
+                                    <Col xs={12} sm={6} md={4}>
+                                      <Form.Item label="Width" name={['bathtub_spec', 'glass_door_width_in']}>
+                                        <InputNumber style={{ width: '100%' }} min={24} max={96} placeholder="60" addonAfter="in" />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={12} sm={6} md={4}>
+                                      <Form.Item label="Height" name={['bathtub_spec', 'glass_door_height_in']}>
+                                        <InputNumber style={{ width: '100%' }} min={24} max={96} placeholder="58" addonAfter="in" />
+                                      </Form.Item>
+                                    </Col>
+                                  </>
                                 )}
                               </>
                             )}
