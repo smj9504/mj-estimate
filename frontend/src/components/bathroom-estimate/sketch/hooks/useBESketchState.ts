@@ -35,6 +35,7 @@ import {
 } from '../../../../types/bathroomSketch';
 import { generateTileZones } from '../utils/beTileZoneGenerator';
 import { roomsFromWalls } from '../utils/beRoomDetect';
+import { wallStripAreaSF } from '../utils/wallFinish';
 
 let _idCounter = 0;
 function generateId(prefix: string): string {
@@ -132,6 +133,26 @@ function withWallRooms(d: BESketchData): BESketchData {
   if (!found.length) return d;
   const made = found.map((f) => measuredRoom(f.boundary, f.wallIds, ppf, f.name, f.roomType, f.parentRoomId));
   return { ...d, rooms: recalcNetAreas([...d.rooms, ...made]) };
+}
+
+/**
+ * Drywall repair and insulation drawn along a wall, measured less the doors,
+ * openings and windows in them (utils/wallFinish wallStripAreaSF). The same
+ * data back when nothing moved.
+ */
+function withWallStripAreas(d: BESketchData): BESketchData {
+  const ppf = d.settings.pixelsPerFoot;
+  let changed = false;
+  const measure = <Z extends { surface: 'wall' | 'ceiling'; boundary: BEPoint[]; areaSF: number }>(z: Z, heightIn: number): Z => {
+    if (z.surface !== 'wall' || z.boundary.length < 2) return z;
+    const areaSF = wallStripAreaSF(z.boundary, heightIn, d.walls, d.fixtures, ppf);
+    if (areaSF === z.areaSF) return z;
+    changed = true;
+    return { ...z, areaSF };
+  };
+  const drywallRepairZones = (d.drywallRepairZones ?? []).map((z) => measure(z, z.repairHeightInches ?? 96));
+  const insulationZones = (d.insulationZones ?? []).map((z) => measure(z, z.heightInches ?? 96));
+  return changed ? { ...d, drywallRepairZones, insulationZones } : d;
 }
 
 // ── Undo/Redo history ──
@@ -824,6 +845,21 @@ export function useBESketchState(initialData?: BESketchData) {
     setData((prev) => ({ ...prev, tileZones: newZones }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixtureSignature, roomSignature, data.settings.pixelsPerFoot]);
+
+  // ── Drywall repair and insulation along walls: less the openings in them,
+  // whenever the walls, the doors and windows or the strips move ──
+  const stripSignature = JSON.stringify([
+    data.walls.map((w) => [w.id, w.start, w.end]),
+    (data.drywallRepairZones ?? []).map((z) => [z.id, z.surface, z.boundary, z.repairHeightInches, z.areaSF]),
+    (data.insulationZones ?? []).map((z) => [z.id, z.surface, z.boundary, z.heightInches, z.areaSF]),
+  ]);
+  useEffect(() => {
+    if (withWallStripAreas(data) === data) return;
+    setData((prev) => withWallStripAreas(prev));
+    // The estimate's drywall and insulation follow: a change to save
+    setIsDirty(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stripSignature, fixtureSignature, data.settings.pixelsPerFoot]);
 
   return {
     // Data

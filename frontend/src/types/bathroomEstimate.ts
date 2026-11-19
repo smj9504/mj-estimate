@@ -197,7 +197,12 @@ export interface WallsSpec {
   deco_inserts?: number | null;
   baseboard_material?: string;
   quarter_round?: boolean;
+  /** Doors whose trim is done, one side each (the sketch's doors and openings) */
   door_trim_count?: number;
+  /** Their casing, LF (from the sketch: two legs and a head each) */
+  door_trim_lf?: number;
+  /** replace: new casing and paint (default); paint; none */
+  door_trim_action?: 'replace' | 'paint' | 'none';
   window_trim_count?: number;
   colors?: number;
   /** Seal & prime area SF (drywall repair areas only) */

@@ -4,6 +4,8 @@ import {
   openingDoorPosition,
   showerFrontOpening,
   coveredArea,
+  wallOpeningsOf,
+  wallStripAreaSF,
   roomWallFinishTotals,
   subtractRects,
   wallFinishAreas,
@@ -196,5 +198,52 @@ describe('a shower in its own room', () => {
     expect(openingDoorPosition([0, 0.6])).toBe('left');
     expect(openingDoorPosition([0.4, 1])).toBe('right');
     expect(openingDoorPosition([0, 1])).toBe('center');
+  });
+});
+
+describe('an opening in walls drawn one on the other', () => {
+  // The bathroom's 5' wall, and the 4' wall of the room off it along the same line, drawn the other way
+  const bath = wall('a', 0, 200, 200, 200);
+  const room = wall('b', 160, 200, 0, 200);
+  const opening = (x: number) => ({
+    ...fixture('door', x, 190, 24, 6), id: `o${x}`, wallId: 'a', properties: { noSlab: true },
+  });
+
+  it('cuts through both, each along its own length', () => {
+    expect(wallOpeningsOf(bath, [opening(60)], PPF).map((o) => o.rect)).toEqual([{ x0: 6, x1: 30, y0: 0, y1: 80 }]);
+    expect(wallOpeningsOf(room, [opening(60)], PPF).map((o) => o.rect)).toEqual([{ x0: 18, x1: 42, y0: 0, y1: 80 }]);
+  });
+
+  it('cuts each only as far as it reaches', () => {
+    expect(wallOpeningsOf(bath, [opening(180)], PPF).map((o) => o.rect)).toEqual([{ x0: 42, x1: 60, y0: 0, y1: 80 }]);
+    expect(wallOpeningsOf(room, [opening(180)], PPF).map((o) => o.rect)).toEqual([{ x0: 0, x1: 6, y0: 0, y1: 80 }]);
+  });
+
+  it('leaves a wall across it alone', () => {
+    expect(wallOpeningsOf(wall('c', 100, 0, 100, 200), [opening(60)], PPF)).toEqual([]);
+    expect(wallOpeningsOf(wall('d', 0, 260, 200, 260), [opening(60)], PPF)).toEqual([]);
+  });
+});
+
+describe('drywall repair or insulation drawn along a wall', () => {
+  // The north wall, 96" long; a 30" opening in it from 33" to 63" (80" high), a 30" window from 0 to 30" (sill 36", 48" high)
+  const opening = { ...fixture('door', 160, -10, 30, 6), id: 'opening', properties: { noSlab: true } };
+  const window = fixture('window', 50, 0, 30, 6);
+  const along = [{ x: 0, y: 0 }, { x: 320, y: 0 }];
+
+  it('leaves out the doors, openings and windows in it, up to its height', () => {
+    expect(wallStripAreaSF(along, 96, [north()], [], PPF)).toBe(64);
+    expect(wallStripAreaSF(along, 96, [north()], [opening], PPF)).toBeCloseTo(64 - (30 * 80) / 144, 2);
+    expect(wallStripAreaSF(along, 96, [north()], [opening, window], PPF)).toBeCloseTo(64 - (30 * 80) / 144 - (30 * 48) / 144, 2);
+    // 4' high: the window's lower foot of glass only, and the opening's bottom 4'
+    expect(wallStripAreaSF(along, 48, [north()], [opening, window], PPF)).toBeCloseTo(32 - (30 * 48) / 144 - (30 * 12) / 144, 2);
+  });
+
+  it('takes out only the part of an opening in its stretch', () => {
+    expect(wallStripAreaSF([{ x: 0, y: 0 }, { x: 160, y: 0 }], 96, [north()], [opening], PPF)).toBeCloseTo(32 - (15 * 80) / 144, 2);
+  });
+
+  it('is its whole length along no wall', () => {
+    expect(wallStripAreaSF([{ x: 0, y: 100 }, { x: 160, y: 100 }], 96, [north()], [opening], PPF)).toBe(32);
   });
 });

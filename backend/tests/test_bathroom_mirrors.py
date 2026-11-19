@@ -110,10 +110,14 @@ def test_quarter_round_matches_the_flooring_estimate_and_a_pinned_book_keeps_its
         return {li["description"]: li for li in calculate_estimate(est)["line_items"]
                 if li["description"].startswith("Quarter round")}
 
+    # The flooring estimate's seal & paint, in a bathroom with the moisture-resistant
+    # bath-paint premium on it (owner, 2026-11-19: bathroom paint is always that)
+    from app.domains.bathroom_estimate.pricing import MOISTURE_RESISTANT_PAINT_MULT as MR
+    painting = "Quarter round painting (moisture-resistant, mid grade)"
     lines = quarter_round_lines()
     assert lines["Quarter round - MDF (supply + install)"]["unit_price"] == pytest.approx(2.33 * MULT, abs=0.01)
-    assert lines["Quarter round painting"]["unit_price"] == pytest.approx(1.29 * MULT, abs=0.01)
+    assert lines[painting]["unit_price"] == pytest.approx(1.29 * MR * MULT, abs=0.01)
     # A book taken before the quarter round had its own paint rate: still the trim rate
     with use_prices({"PAINT_RATES.trim_per_lf": [0.6, 3.5]}):
         pinned = quarter_round_lines()
-    assert pinned["Quarter round painting"]["unit_price"] == pytest.approx(4.10 * MULT, abs=0.01)
+    assert pinned[painting]["unit_price"] == pytest.approx(4.10 * MR * MULT, abs=0.01)

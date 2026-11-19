@@ -2247,8 +2247,20 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={6} md={3}>
-                        <Form.Item label="Door Trim" name={['walls_spec', 'door_trim_count']}>
+                        <Form.Item label="Doors" name={['walls_spec', 'door_trim_count']}
+                          tooltip="Doors and openings whose trim is done, one side each. The sketch counts them.">
                           <InputNumber style={{ width: '100%' }} min={0} max={10} placeholder="0" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={5}>
+                        <Form.Item label="Door Trim" name={['walls_spec', 'door_trim_action']}
+                          tooltip="New casing put up and painted, or the trim painted only. Bath paint is always moisture-resistant."
+                          getValueProps={(v?: string) => ({ value: v || 'replace' })}>
+                          <Select options={[
+                            { value: 'replace', label: 'Install & paint' },
+                            { value: 'paint', label: 'Paint only' },
+                            { value: 'none', label: 'None' },
+                          ]} />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={6} md={3}>
@@ -2277,8 +2289,9 @@ const BathroomEstimateDetail: React.FC = () => {
                             {showPaint && (
                               <Row gutter={16} style={{ marginBottom: 8 }}>
                                 <Col xs={12} sm={12} md={6}>
-                                  <Form.Item label="Paint Grade" name={['walls_spec', 'paint_grade']}>
-                                    <Select options={selectOpts(pricingInfo?.paint_grades)} allowClear />
+                                  <Form.Item label="Paint Grade" name={['walls_spec', 'paint_grade']}
+                                    tooltip="Bathroom paint is always moisture-resistant; the grade goes on top">
+                                    <Select options={selectOpts(pricingInfo?.paint_grades)} allowClear placeholder="Mid (moisture-resistant)" />
                                   </Form.Item>
                                 </Col>
                                 {finish === 'paint_and_tile' && (

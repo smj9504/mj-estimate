@@ -33,6 +33,8 @@ from .pricing import (
     MIRROR_PRICES,
     TUB_FAUCET_PRICES,
     MOISTURE_RESISTANT_PAINT_MULT,
+    DOOR_CASING_LF_DEFAULT,
+    DOOR_TRIM,
     PAINT_GRADE_MULTIPLIER,
     PAINT_PREP,
     PAINT_RATES,
@@ -2413,7 +2415,8 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
     # Phase 6: Finish (Paint, Trim, Caulk)
     # ────────────────────────────────────────
     walls = estimate.walls_spec or {}
-    paint_grade = walls.get("paint_grade")  # None if not specified
+    # Painted walls are painted however the grade was left: mid unless chosen
+    paint_grade = walls.get("paint_grade") or "mid"
     wall_finish = walls.get("wall_finish", "paint" if walls.get("paint_walls") else None)
     paint_ceiling = walls.get("paint_ceiling", False)
     pg_mult = PAINT_GRADE_MULTIPLIER.get(paint_grade, 1.0) if paint_grade else 1.0
@@ -2631,23 +2634,35 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
              PAINT_RATES["ceiling_per_sf"] * wc_paint_rate_mult,
              "finish")
 
-    # ── Door/window trim paint ──
-    _door_trim = walls.get("door_trim_count", 0) or 0
-    _win_trim = walls.get("window_trim_count", 0) or 0
-    if _door_trim > 0:
+    # ── Door/window trim: new casing and paint, one side each ──
+    # (walls_spec door_trim_action: replace = new casing and paint, the
+    # default; paint; none). The sketch gives the doors and their casing's LF.
+    _door_trim = int(_count(walls.get("door_trim_count")))
+    _win_trim = int(_count(walls.get("window_trim_count")))
+    _door_action = walls.get("door_trim_action") or "replace"
+    _trim_paint_rate = DOOR_TRIM["paint_per_side"] * pg_mult * MOISTURE_RESISTANT_PAINT_MULT * labor_mult
+    if _door_trim > 0 and _door_action == "replace":
+        _casing_lf = round(_count(walls.get("door_trim_lf")) or _door_trim * DOOR_CASING_LF_DEFAULT, 1)
         _add(line_items, 6,
-             f"Door trim paint ({_door_trim} pc)",
-             _door_trim, "EA",
-             round(30.00 * labor_mult, 2),
+             f"Door casing - remove & install new ({_door_trim} door{'s' if _door_trim != 1 else ''})",
+             _casing_lf, "LF",
+             DOOR_TRIM["casing_per_lf"] * labor_mult,
              "finish",
-             notes="Prep, prime & paint door trim casing")
+             notes="2 1/4\" casing, one side each: old casing off, new casing nailed and caulked; painted below")
+    if _door_trim > 0 and _door_action in ("replace", "paint"):
+        _add(line_items, 6,
+             f"Door trim & jamb painting ({wc_paint_grade})",
+             _door_trim, "EA",
+             _trim_paint_rate,
+             "finish",
+             notes="Per side: prep, prime and 2 coats on the casing and jamb")
     if _win_trim > 0:
         _add(line_items, 6,
-             f"Window trim paint ({_win_trim} pc)",
+             f"Window trim & jamb painting ({wc_paint_grade})",
              _win_trim, "EA",
-             round(30.00 * labor_mult, 2),
+             _trim_paint_rate,
              "finish",
-             notes="Prep, prime & paint window trim casing")
+             notes="Per side: prep, prime and 2 coats on the casing and jamb")
 
     # ── Paint prep: masking + floor protection ──
     _any_paint = _wall_paint_added or paint_ceiling or (full_paint_ceil_sf > 0)
@@ -2782,9 +2797,10 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                  bb_lf, "LF",
                  bb_rate * labor_mult, "finish",
                  notes=bb_notes)
+            # Bath paint on the trim too (semi-gloss, moisture-resistant)
             bb_pg_mult = (PAINT_GRADE_MULTIPLIER.get(
-                paint_grade, 1.0) if paint_grade else 1.0)
-            _add(line_items, 6, "Baseboard painting",
+                paint_grade, 1.0) if paint_grade else 1.0) * MOISTURE_RESISTANT_PAINT_MULT
+            _add(line_items, 6, f"Baseboard painting ({wc_paint_grade})",
                  bb_lf, "LF",
                  PAINT_RATES["trim_per_lf"]
                  * bb_pg_mult * labor_mult, "finish")
@@ -2804,7 +2820,7 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                             if in_active_book("PAINT_RATES.quarter_round_per_lf")
                             else PAINT_RATES["trim_per_lf"])
                 _add(line_items, 6,
-                     "Quarter round painting",
+                     f"Quarter round painting ({wc_paint_grade})",
                      bb_lf, "LF",
                      qr_paint * bb_pg_mult * labor_mult, "finish")
 
@@ -2962,9 +2978,9 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
 
     trim_paint_lf = hc.get("trim_paint_lf") or 0
     if hc.get("trim_paint") and trim_paint_lf > 0:
-        _add(line_items, 6, "Trim paint (post-install touch-up)",
+        _add(line_items, 6, "Trim paint, moisture-resistant (post-install touch-up)",
              trim_paint_lf, "LF",
-             HIDDEN_COSTS["trim_paint_per_lf"] * labor_mult, "finish")
+             HIDDEN_COSTS["trim_paint_per_lf"] * MOISTURE_RESISTANT_PAINT_MULT * labor_mult, "finish")
 
     # Phase 7: Accessories, cleanup, punch list, permit
     _add(line_items, 7, "Final cleaning (move-in ready)", 1, "LS",

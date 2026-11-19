@@ -310,7 +310,19 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     // Determine wall_finish mode
     const hasAnyTile = tileWallSF > 0;
     const hasAnyPaint = paintWallSF > 0;
+    // Its doors' and openings' trim, one side each, two legs and a head of casing
+    // (a shower room's opening is tiled round, not cased); its windows' trim
+    const showerEntries = new Set(fixtures
+      .filter((f) => f.type === 'shower')
+      .map((s) => showerFrontOpening(s, walls, fixtures, ppf)?.openingId)
+      .filter(Boolean));
+    const trimDoors = fixtures.filter((f) => f.type === 'door' && !showerEntries.has(f.id));
+    const trimWindows = fixtures.filter((f) => f.type === 'window');
+    const casingLF = trimDoors.reduce((sum, d) => sum
+      + (2 * ((d.properties.openingHeightIn ?? DOOR_HEIGHT_IN) + 2) + d.dimensions.width + 5) / 12, 0);
     const wallsSpecBase: Record<string, any> = {
+      ...(trimDoors.length ? { door_trim_count: trimDoors.length, door_trim_lf: Math.round(casingLF * 10) / 10 } : {}),
+      ...(trimWindows.length ? { window_trim_count: trimWindows.length } : {}),
       ...(existingTileWallSF > 0 ? { existing_tile_wall_sf: existingTileWallSF } : {}),
       // Always sent, so a soffit taken off the plan comes off the estimate
       ...soffitAreas(fixtures, bathroom, ppf),
@@ -863,7 +875,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
       onFixtureSync(sync);
     }
     // Walls too: their tile regions set the tile, paint and demo areas
-  }, [api.data.fixtures, api.data.rooms, api.data.walls, api.isDirty, onFixtureSync]);
+  }, [api.data.fixtures, api.data.rooms, api.data.walls, api.data.drywallRepairZones, api.data.insulationZones, api.isDirty, onFixtureSync]);
 
   // ── Save handler ──
   const handleSave = useCallback(async () => {

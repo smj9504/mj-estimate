@@ -791,9 +791,21 @@ PAINT_GRADE_MULTIPLIER = {
     "premium": 1.30,                  # Sherwin Cashmere, BM Aura
 }
 
-# Bathroom walls and ceilings always take moisture-resistant (mildew-resistant
-# bath) paint: this premium goes on top of the chosen grade
+# Paint in a bathroom is always moisture-resistant (mildew-resistant bath
+# paint, semi-gloss enamel on trim): this premium goes on top of the chosen
+# grade on every paint line, walls, ceilings and trim (owner, 2026-11-19)
 MOISTURE_RESISTANT_PAINT_MULT = 1.20
+
+# A door's or window's trim, one side each (2026-11-19): the casing taken off
+# and new casing put up, and the trim and jamb painted (the grade and the
+# bath-paint premium on top)
+DOOR_TRIM = {
+    "casing_per_lf": xact(3.50),       # FNC C: casing 2 1/4", remove old and install new ("&")
+    "paint_per_side": xact(46.13),     # PNT DORT: paint door/window trim & jamb, 2 coats, per side
+}
+# A door's casing, one side, when the sketch doesn't give it: a 30" x 80" door
+DOOR_CASING_LF_DEFAULT = 17
+DOOR_TRIM_ACTIONS = ["replace", "paint", "none"]
 
 # 2026-08-26: +6% (Tier B)
 BASEBOARD_PRICES = {

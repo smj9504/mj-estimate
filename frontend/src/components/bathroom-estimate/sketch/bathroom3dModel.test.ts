@@ -48,6 +48,19 @@ describe('a shower room in 3D', () => {
     // With no wall at its front, it's an open-front shower
     expect(bathroomModel(sketch([north()], [shower])).fixtures[0].showerOpening).toBeNull();
   });
+
+  it("stands against the shower room's walls whichever room it's filed under, and tiles none in front of it", () => {
+    // The shower room's own walls round a 36" shower filed under the bathroom (its roomId), tiled floor to ceiling
+    const tiled = { tileRegions: [{ id: 't', startIn: 0, endIn: 999, bottomIn: 0, topIn: 96 }] };
+    const walls = [north(tiled), wall('w2', 0, 0, 0, 120, tiled), wall('e2', 120, 0, 120, 120, tiled), wall('front', 0, 120, 120, 120)];
+    const shower = { ...fixture('shower', 'shower', 60, 60, 36, 36, { showerLayout: 'alcove', showerTileHeight: 84 }), roomId: 'r' };
+    const model = bathroomModel(sketch(walls, [shower]));
+    // It needs no walls of its own in front of the room's (they'd hide the room's tile)
+    expect(model.fixtures[0].against).toMatchObject({ north: true, east: true, west: true });
+    // The tiled walls show their tile; the wall at its open front gets none of the shower's
+    expect(model.walls.find((w) => w.id === 'w2')!.tile).toEqual([{ x0: 0, x1: 36, y0: 0, y1: 96 }]);
+    expect(model.walls.find((w) => w.id === 'front')!.surrounds).toEqual([]);
+  });
 });
 
 describe('bathroomModel walls', () => {

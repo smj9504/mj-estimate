@@ -534,9 +534,10 @@ const door: FixtureShape = {
 const doorOpening: FixtureShape = {
   label: 'Opening',
   paths: [
+    // The wall's ends either side, no wider than the wall
     { d: 'M0.02,1 L0.98,1', fill: N, stroke: '#ffffff', strokeWidth: 6 },
-    { d: 'M0,0.3 L0,1.7', fill: N, stroke: S, strokeWidth: 2.5 },
-    { d: 'M1,0.3 L1,1.7', fill: N, stroke: S, strokeWidth: 2.5 },
+    { d: 'M0,0.8 L0,1.2', fill: N, stroke: S, strokeWidth: 1.5 },
+    { d: 'M1,0.8 L1,1.2', fill: N, stroke: S, strokeWidth: 1.5 },
   ],
 };
 

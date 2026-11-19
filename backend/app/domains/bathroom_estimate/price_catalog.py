@@ -166,6 +166,13 @@ PRICE_TABLES = [
               labels={"quarter_round_per_lf": "Quarter round - seal & paint"},
               note="Mid grade; the paint grade and bath-paint premium multiply it."),
     TableSpec("PAINT_PREP", "Paint & Trim", kind=MIXED, share=_FINISH),
+    TableSpec(
+        "DOOR_TRIM", "Paint & Trim", kind=MIXED, share=_FINISH, title="Door trim",
+        units={"paint_per_side": "EA"},
+        labels={"casing_per_lf": "Casing, remove & install new, per LF",
+                "paint_per_side": "Trim & jamb paint, per side"},
+        note="One side of a door or window; the paint grade and bath-paint premium multiply the paint.",
+    ),
     TableSpec("BASEBOARD_PRICES", "Paint & Trim", kind=MIXED, share=_FINISH, unit="LF"),
     TableSpec("QUARTER_ROUND_PRICES", "Paint & Trim", kind=MIXED, share=_FINISH, unit="LF"),
     TableSpec("ACCESSORY_PRICES", "Accessories", kind=MIXED, share=_ACCESSORY,

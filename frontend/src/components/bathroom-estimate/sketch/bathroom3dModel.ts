@@ -24,6 +24,7 @@ import {
   wallLengthIn,
   wallOpeningsOf,
   showerFrontOpening,
+  fixtureSidesAgainstWalls,
   wallTileRegions,
   type FaceRect,
 } from './utils/wallFinish';
@@ -447,13 +448,20 @@ function fixtureSolid(fix: BEFixture, sketch: BESketchData): FixtureSolid {
   const room = sketch.rooms.find((r) => r.id === fix.roomId) ?? sketch.rooms.find((r) => !r.parentRoomId) ?? sketch.rooms[0];
   const wPx = (fix.dimensions.width / 12) * ppf;
   const hPx = (fix.dimensions.height / 12) * ppf;
+  // Against its room's outline, or any wall along it: a shower in its own room
+  // filed under the bathroom stands against the shower room's walls all the same
+  const byRoom = findFixtureWallSides(fix, room, wPx, hPx);
+  const byWalls = fixtureSidesAgainstWalls(fix, sketch.walls, ppf);
+  const against = byRoom
+    ? { north: byRoom.north || byWalls.north, south: byRoom.south || byWalls.south, east: byRoom.east || byWalls.east, west: byRoom.west || byWalls.west }
+    : byWalls;
   return {
     fixture: fix,
     center: toIn(fix.position, ppf),
     rotationDeg: fix.rotation || 0,
     widthIn: fix.dimensions.width,
     depthIn: fix.dimensions.height,
-    against: findFixtureWallSides(fix, room, wPx, hPx),
+    against,
     ceilingIn: room?.heightInches || 96,
     showerOpening: fix.type === 'shower' ? showerFrontOpening(fix, sketch.walls, sketch.fixtures, ppf)?.span ?? null : null,
   };

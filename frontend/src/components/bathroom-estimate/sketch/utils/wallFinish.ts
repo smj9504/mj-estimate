@@ -170,8 +170,10 @@ export interface WallOpening {
 /**
  * Door and window openings in this wall. The part of the plan symbol in the
  * wall is a door's closed panel (its bottom edge — the door swings off it)
- * or a window's middle line; a door or window not tied to a wall is in this
- * one when that edge lies along it.
+ * or a window's middle line. It's in the wall it's tied to, and in any wall
+ * that edge lies along: two rooms' walls drawn one on the other (the
+ * bathroom's and the room off it) are one wall, cut through by the opening,
+ * each as far as it reaches.
  */
 export function wallOpeningsOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): WallOpening[] {
   const openings: WallOpening[] = [];
@@ -180,19 +182,42 @@ export function wallOpeningsOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoo
     const hw = ((fix.dimensions.width / 12) * pixelsPerFoot) / 2;
     const ly = fix.type === 'door' ? ((fix.dimensions.height / 12) * pixelsPerFoot) / 2 : 0;
     const ends = [fixturePoint(fix, -hw, ly), fixturePoint(fix, hw, ly)].map((p) => alongWall(wall, p, pixelsPerFoot));
-    const onWall = fix.wallId
-      ? fix.wallId === wall.id
-      : ends.every((a) => a.offPx <= AGAINST_WALL_PX / 2 && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
-    if (!onWall) continue;
+    const along = ends.every((a) => a.offPx <= AGAINST_WALL_PX / 2)
+      && Math.min(Math.max(ends[0].tPx, ends[1].tPx), ends[0].lenPx) - Math.max(Math.min(ends[0].tPx, ends[1].tPx), 0) > 1;
+    if (fix.wallId !== wall.id && !along) continue;
     const p = fix.properties || {};
     const y0 = fix.type === 'door' ? 0 : (p.sillHeightIn ?? WINDOW_SILL_IN);
     const y1 = fix.type === 'door'
       ? (p.openingHeightIn ?? DOOR_HEIGHT_IN)
       : y0 + (p.openingHeightIn ?? WINDOW_HEIGHT_IN);
+    // As far as this wall reaches
+    const lenIn = (ends[0].lenPx / pixelsPerFoot) * 12;
     const xs = ends.map((a) => a.alongIn);
-    openings.push({ rect: { x0: Math.min(...xs), x1: Math.max(...xs), y0, y1 }, fixture: fix });
+    const x0 = Math.max(0, Math.min(...xs));
+    const x1 = Math.min(lenIn, Math.max(...xs));
+    if (x1 - x0 <= 0.01) continue;
+    openings.push({ rect: { x0, x1, y0, y1 }, fixture: fix });
   }
   return openings;
+}
+
+/**
+ * A strip of wall drawn along a wall (drywall repair, insulation): its area up
+ * to its height, less the doors, openings and windows in that stretch of the
+ * wall. A strip along no wall is its whole length times its height.
+ */
+export function wallStripAreaSF(
+  line: BEPoint[], heightIn: number, walls: BEWall[], fixtures: BEFixture[], pixelsPerFoot: number,
+): number {
+  const [p, q] = line;
+  const gross = ((Math.hypot(q.x - p.x, q.y - p.y) / pixelsPerFoot) * 12 * heightIn) / 144;
+  const wall = walls.find((w) => [p, q]
+    .map((pt) => alongWall(w, pt, pixelsPerFoot))
+    .every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX));
+  if (!wall) return Math.round(gross * 100) / 100;
+  const [a0, a1] = [p, q].map((pt) => alongWall(wall, pt, pixelsPerFoot).alongIn).sort((x, y) => x - y);
+  const holes = wallOpeningsOf(wall, fixtures, pixelsPerFoot).map((o) => o.rect);
+  return Math.round((coveredArea([{ x0: a0, x1: a1, y0: 0, y1: heightIn }], holes) / 144) * 100) / 100;
 }
 
 /**
@@ -283,10 +308,13 @@ export function wallFixtureCovers(wall: BEWall, fixtures: BEFixture[], pixelsPer
     } else {
       continue;
     }
-    const near = fixtureCorners(fix, pixelsPerFoot)
-      .map((c) => alongWall(wall, c, pixelsPerFoot))
-      .filter((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
+    const corners = fixtureCorners(fix, pixelsPerFoot).map((c) => alongWall(wall, c, pixelsPerFoot));
+    const onIt = corners.map((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
+    const near = corners.filter((_, i) => onIt[i]);
     if (near.length < 2) continue;
+    // A shower's front is its door or opening, not tiled with it: a wall there
+    // (a shower room's) has no surround from it, on either face
+    if (fix.type === 'shower' && near.length === 2 && onIt[2] && onIt[3]) continue;
     const xs = near.map((a) => a.alongIn);
     const rect = {
       x0: Math.max(0, Math.min(...xs)), x1: Math.min(lengthIn, Math.max(...xs)), y0: 0, y1: Math.min(top, wall.heightInches),
@@ -296,6 +324,21 @@ export function wallFixtureCovers(wall: BEWall, fixtures: BEFixture[], pixelsPer
     covers.push({ rect, fixture: fix, tiled });
   }
   return covers;
+}
+
+/**
+ * Which of a fixture's sides (in its own frame: north its back) stand along a
+ * wall, both their corners on the wall's line, whatever room the fixture is
+ * filed under: a shower in its own room stands against that room's walls.
+ */
+export function fixtureSidesAgainstWalls(
+  fix: BEFixture, walls: BEWall[], pixelsPerFoot: number,
+): { north: boolean; south: boolean; east: boolean; west: boolean } {
+  const [nw, ne, se, sw] = fixtureCorners(fix, pixelsPerFoot);
+  const along = (pts: BEPoint[]) => walls.some((w) => pts
+    .map((p) => alongWall(w, p, pixelsPerFoot))
+    .every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX));
+  return { north: along([nw, ne]), east: along([ne, se]), south: along([se, sw]), west: along([sw, nw]) };
 }
 
 export const wallFixtureCover = (wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] =>
