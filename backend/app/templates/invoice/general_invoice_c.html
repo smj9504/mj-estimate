@@ -19,8 +19,8 @@
       @bottom-center {
         content: counter(page) " / " counter(pages);
         font-family: 'Trebuchet MS', Calibri, sans-serif;
-        font-size: 10px;
-        color: #aaa;
+        font-size: 11px;
+        color: #6b6b6b;
       }
     }
 
@@ -61,7 +61,7 @@
       color: #0D47A1;
     }
     .company-block .company-info {
-      font-size: 11px;
+      font-size: 12px;
       color: #666;
       line-height: 1.4;
     }
@@ -87,10 +87,9 @@
       background: #F0F4FA;
       padding: 10px 12px;
       border-radius: 4px;
-      border-left: 3px solid #0D47A1;
     }
     .meta-card .mc-label {
-      font-size: 8px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 1px;
       color: #0D47A1;
@@ -102,7 +101,7 @@
       margin-top: 2px;
     }
     .meta-card .mc-note {
-      font-size: 11px;
+      font-size: 12px;
       color: #333;
       margin-top: 2px;
     }
@@ -119,7 +118,7 @@
       line-height: 1.5;
     }
     .addr-block .addr-title {
-      font-size: 10px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 1px;
       color: #0D47A1;
@@ -170,7 +169,6 @@
       margin-bottom: 0;
       padding: 6px 8px;
       background: #F0F4FA;
-      border-left: 3px solid #0D47A1;
     }
 
     .items-table {
@@ -180,7 +178,7 @@
     }
     .items-table th {
       text-align: left;
-      font-size: 9px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #fff;
@@ -199,13 +197,13 @@
     .items-table tr:nth-child(even) td { background: #FAFCFF; }
     .item-desc {
       font-style: italic;
-      font-size: 11px;
-      color: #777;
+      font-size: 12px;
+      color: #666;
       padding: 0 8px 1px 24px;
     }
     .photos-ref {
-      font-size: 11px;
-      color: #1890ff;
+      font-size: 12px;
+      color: #0958d9;
       padding: 2px 8px 4px 24px;
     }
 
@@ -296,7 +294,7 @@
       border-radius: 4px;
     }
     .photo-card .photo-title {
-      font-size: 10px;
+      font-size: 11px;
       color: #666;
       margin-top: 3px;
       text-align: center;
@@ -370,15 +368,16 @@
   {% endif %}
 </div>
 
+{% set due_when = 'upon receipt' if revised_date else 'by ' ~ (due_date|format_date) %}
 <div class="amount-banner {% if balance_due is defined and balance_due <= 0.01 %}paid{% endif %}">
   {% if balance_due is defined and balance_due <= 0.01 %}
   <span class="ab-label">Status</span>
   <span class="ab-value">&#10003; PAID IN FULL</span>
   {% elif total_paid is defined and total_paid > 0 %}
-  <span class="ab-label">Balance Due {% if revised_date %}upon receipt{% else %}by {{ due_date|format_date }}{% endif %}</span>
+  <span class="ab-label">Balance Due {{ due_when }}</span>
   <span class="ab-value">${{ balance_due|format_amount }}</span>
   {% else %}
-  <span class="ab-label">Amount Due {% if revised_date %}upon receipt{% else %}by {{ due_date|format_date }}{% endif %}</span>
+  <span class="ab-label">Amount Due {{ due_when }}</span>
   <span class="ab-value">${{ total|format_amount }}</span>
   {% endif %}
 </div>
@@ -408,13 +407,17 @@
         <tr>
           {% if is_lump_sum_document %}
           <th style="width:100%;">Item</th>
+          {% elif section.isLumpSum %}
+          {# A lump-sum section is priced only by its subtotal: no price or total per item, so Qty and Unit end the row #}
+          <th style="width:82%;">Item</th>
+          <th class="right" style="width:10%;">Qty</th>
+          <th class="right" style="width:8%;">Unit</th>
           {% else %}
           <th style="width:50%;">Item</th>
           <th class="right" style="width:10%;">Qty</th>
           <th class="right" style="width:8%;">Unit</th>
-          {# A lump-sum section is priced only by its subtotal: no price or total per item #}
-          <th class="right" style="width:16%;">{% if not section.isLumpSum %}Price{% endif %}</th>
-          <th class="right" style="width:16%;">{% if not section.isLumpSum %}Total{% endif %}</th>
+          <th class="right" style="width:16%;">Price</th>
+          <th class="right" style="width:16%;">Total</th>
           {% endif %}
         </tr>
       </thead>
@@ -426,12 +429,14 @@
           {% if not is_lump_sum_document %}
           <td class="right">{{ item.quantity|format_quantity }}</td>
           <td class="right">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</td>
-          <td class="right">{% if not section.isLumpSum %}{{ item.rate|format_currency }}{% endif %}</td>
-          <td class="right">{% if not section.isLumpSum %}{{ (item.quantity * item.rate)|format_currency }}{% endif %}</td>
+          {% if not section.isLumpSum %}
+          <td class="right">{{ item.rate|format_currency }}</td>
+          <td class="right">{{ (item.quantity * item.rate)|format_currency }}</td>
+          {% endif %}
           {% endif %}
         </tr>
         {% if item.note %}
-        <tr><td colspan="5"><div class="item-desc">{{ item.note.replace('\n', '<br>') | safe }}</div></td></tr>
+        <tr><td colspan="{{ 1 if is_lump_sum_document else (3 if section.isLumpSum else 5) }}"><div class="item-desc">{{ item.note.replace('\n', '<br>') | safe }}</div></td></tr>
         {% endif %}
         {% endfor %}
       </tbody>
@@ -523,7 +528,7 @@
       </div>
       {% if adjustment.note %}
       <div class="total-row" style="margin-top:-2px;margin-bottom:2px;">
-        <span class="total-label" style="font-size:0.85em;color:#888;padding-left:8px;">{{ adjustment.note }}</span>
+        <span class="total-label" style="font-size:11px;color:#666;padding-left:8px;">{{ adjustment.note }}</span>
         <span class="total-value"></span>
       </div>
       {% endif %}

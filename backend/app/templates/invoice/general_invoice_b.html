@@ -10,15 +10,15 @@
       @top-left {
         content: "Invoice #{{ invoice_number }}";
         font-family: 'Palatino Linotype', serif;
-        font-size: 10px;
-        color: #888;
+        font-size: 11px;
+        color: #6b6b6b;
       }
 
       @bottom-center {
         content: "Page " counter(page) " of " counter(pages);
         font-family: 'Palatino Linotype', serif;
-        font-size: 10px;
-        color: #888;
+        font-size: 11px;
+        color: #6b6b6b;
       }
     }
 
@@ -53,7 +53,7 @@
     }
     .header-left .invoice-details {
       margin-top: 8px;
-      font-size: 11px;
+      font-size: 12px;
       color: #666;
       line-height: 1.6;
     }
@@ -79,10 +79,10 @@
       line-height: 1.5;
     }
     .address-block .block-title {
-      font-size: 9px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 1.5px;
-      color: #888;
+      color: #6b6b6b;
       margin-bottom: 4px;
       font-weight: 700;
     }
@@ -102,7 +102,7 @@
       margin-bottom: 20px;
       text-align: center;
     }
-    .amount-due-box h3 {
+    .amount-due-box h2 {
       font-size: 16px;
       font-weight: 700;
       margin: 0;
@@ -111,8 +111,8 @@
       color: #2e7d32;
     }
     .amount-due-box .sub-info {
-      font-size: 11px;
-      color: #888;
+      font-size: 12px;
+      color: #666;
       margin-top: 4px;
     }
 
@@ -146,7 +146,7 @@
     }
     .items-table th {
       text-align: left;
-      font-size: 10px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #666;
@@ -165,13 +165,13 @@
     .items-table tr:last-child td { border-bottom: 1px solid #ccc; }
     .item-desc {
       font-style: italic;
-      font-size: 11px;
-      color: #777;
+      font-size: 12px;
+      color: #666;
       padding: 2px 8px 4px 24px;
     }
     .photos-ref {
-      font-size: 11px;
-      color: #1890ff;
+      font-size: 12px;
+      color: #0958d9;
       padding: 2px 8px 4px 24px;
     }
 
@@ -255,7 +255,7 @@
       border: 1px solid #ddd;
     }
     .photo-card .photo-title {
-      font-size: 10px;
+      font-size: 11px;
       color: #666;
       margin-top: 3px;
       text-align: center;
@@ -326,12 +326,12 @@
 
 <div class="amount-due-box">
   {% if balance_due is defined and balance_due <= 0.01 %}
-  <h3 class="paid-full">&#10003; PAID IN FULL</h3>
+  <h2 class="paid-full">&#10003; PAID IN FULL</h2>
   {% elif total_paid is defined and total_paid > 0 %}
-  <h3>${{ balance_due|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h3>
+  <h2>${{ balance_due|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h2>
   <div class="sub-info">Original: ${{ total|format_amount }} | Paid: ${{ total_paid|format_amount }}</div>
   {% else %}
-  <h3>${{ total|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h3>
+  <h2>${{ total|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h2>
   {% endif %}
 </div>
 
@@ -360,13 +360,17 @@
         <tr>
           {% if is_lump_sum_document %}
           <th style="width:100%;">Description</th>
+          {% elif section.isLumpSum %}
+          {# A lump-sum section is priced only by its subtotal: no rate or amount per item, so Qty and Unit end the row #}
+          <th style="width:82%;">Description</th>
+          <th class="right" style="width:10%;">Qty</th>
+          <th class="right" style="width:8%;">Unit</th>
           {% else %}
           <th style="width:50%;">Description</th>
           <th class="right" style="width:10%;">Qty</th>
           <th class="right" style="width:8%;">Unit</th>
-          {# A lump-sum section is priced only by its subtotal: no rate or amount per item #}
-          <th class="right" style="width:16%;">{% if not section.isLumpSum %}Rate{% endif %}</th>
-          <th class="right" style="width:16%;">{% if not section.isLumpSum %}Amount{% endif %}</th>
+          <th class="right" style="width:16%;">Rate</th>
+          <th class="right" style="width:16%;">Amount</th>
           {% endif %}
         </tr>
       </thead>
@@ -378,12 +382,14 @@
           {% if not is_lump_sum_document %}
           <td class="right">{{ item.quantity|format_quantity }}</td>
           <td class="right">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</td>
-          <td class="right">{% if not section.isLumpSum %}{{ item.rate|format_currency }}{% endif %}</td>
-          <td class="right">{% if not section.isLumpSum %}{{ (item.quantity * item.rate)|format_currency }}{% endif %}</td>
+          {% if not section.isLumpSum %}
+          <td class="right">{{ item.rate|format_currency }}</td>
+          <td class="right">{{ (item.quantity * item.rate)|format_currency }}</td>
+          {% endif %}
           {% endif %}
         </tr>
         {% if item.note %}
-        <tr><td colspan="5"><div class="item-desc">{{ item.note.replace('\n', '<br>') | safe }}</div></td></tr>
+        <tr><td colspan="{{ 1 if is_lump_sum_document else (3 if section.isLumpSum else 5) }}"><div class="item-desc">{{ item.note.replace('\n', '<br>') | safe }}</div></td></tr>
         {% endif %}
         {% endfor %}
       </tbody>
@@ -475,7 +481,7 @@
       </div>
       {% if adjustment.note %}
       <div class="total-row" style="margin-top:-2px;margin-bottom:2px;">
-        <span class="total-label" style="font-size:0.85em;color:#888;padding-left:8px;">{{ adjustment.note }}</span>
+        <span class="total-label" style="font-size:11px;color:#666;padding-left:8px;">{{ adjustment.note }}</span>
         <span class="total-value"></span>
       </div>
       {% endif %}

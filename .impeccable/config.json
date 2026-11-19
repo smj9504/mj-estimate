@@ -29,6 +29,38 @@
         ],
         "createdAt": "2026-10-25T16:11:52.068Z",
         "reason": "Claude: throwaway low-fidelity structure sketch for a closed decision round; not shipped"
+      },
+      {
+        "rule": "overused-font",
+        "value": "*",
+        "files": [
+          "backend/app/templates/estimate/invoice_style.html",
+          "backend/app/templates/estimate/standard.html",
+          "backend/app/templates/invoice/general_invoice.html"
+        ],
+        "createdAt": "2026-11-19T16:30:34.534Z",
+        "reason": "User confirmed 2026-11-19: PDF templates keep their fonts (Arial prints as Liberation Sans on Render, standard estimate loads Inter); DESIGN.md covers app screens, not PDFs"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          "backend/app/templates/estimate/standard.html",
+          "backend/app/templates/invoice/general_invoice_b.html",
+          "backend/app/templates/invoice/general_invoice_c.html"
+        ],
+        "createdAt": "2026-11-19T16:30:34.951Z",
+        "reason": "User confirmed 2026-11-19: PDF template variants keep their own faces (B Palatino formal, C Trebuchet modern, standard estimate Inter); DESIGN.md covers app screens, not PDFs"
+      },
+      {
+        "rule": "tight-leading",
+        "value": "*",
+        "files": [
+          "backend/app/templates/estimate/invoice_style.html",
+          "backend/app/templates/invoice/general_invoice.html"
+        ],
+        "createdAt": "2026-11-19T16:30:35.420Z",
+        "reason": "Claude: body sets unitless line-height 1.4, which CSS inherits as a factor; detector reads it as 16.8px for 13-14px children. WeasyPrint render measured 13.65pt between wrapped 13px lines (= 1.4x)"
       }
     ]
   }

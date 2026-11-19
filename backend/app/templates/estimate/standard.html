@@ -59,7 +59,7 @@
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             font-size: 13px;
-            line-height: 1.2;
+            line-height: 1.4;
             color: #111827;
             background: white;
         }
@@ -89,7 +89,7 @@
             font-weight: 600;
             margin-bottom: 24px;
             letter-spacing: -0.02em;
-            color: #059669;
+            color: #047857;
         }
         
         .estimate-meta {
@@ -161,7 +161,7 @@
         .info-line {
             font-size: 13px;
             color: #374151;
-            line-height: 1.2;
+            line-height: 1.4;
         }
         
         /* Amount Banner */
@@ -171,13 +171,13 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 2px solid #059669;
+            border-bottom: 2px solid #047857;
         }
         
         .amount-text {
             font-size: 18px;
             font-weight: 600;
-            color: #059669;
+            color: #047857;
         }
         
         /* Items Table */
@@ -241,7 +241,7 @@
         .item-description {
             font-size: 12px;
             color: #374151;
-            line-height: 1.2;
+            line-height: 1.4;
             margin-top: 1px; 
             padding-left: 14px; /* Small gap between name and description */
         }
@@ -258,7 +258,7 @@
         .section-header {
             font-size: 15px;
             font-weight: 600;
-            color: #059669;
+            color: #047857;
             margin-top: 18px;
             margin-bottom: 8px;
             padding: 10px 12px;
@@ -308,7 +308,7 @@
 
         .room-header {
             font-size: 13px;
-            color: #059669;
+            color: #047857;
             font-weight: 600;
         }
         
@@ -368,7 +368,7 @@
         .insurance-item {
             font-size: 13px;
             color: #374151;
-            line-height: 1.2;
+            line-height: 1.4;
         }
 
         .insurance-label {
@@ -400,7 +400,7 @@
         .section-content {
             font-size: 13px;
             color: #374151;
-            line-height: 1.2;
+            line-height: 1.4;
             white-space: pre-wrap;
         }
         
@@ -453,7 +453,7 @@
         
         .valid-until {
             font-size: 13px;
-            color: #059669;
+            color: #047857;
             font-weight: 500;
         }
         
@@ -586,13 +586,17 @@
                         <tr>
                             {% if is_lump_sum_document %}
                             <th style="width: 100%;">Item</th>
+                            {% elif section.isLumpSum %}
+                            {# A lump-sum section is priced only by its subtotal: no price or total per item, so Qty and Unit end the row #}
+                            <th style="width: 88%;">Item</th>
+                            <th class="text-center" style="width: 7%;">Qty</th>
+                            <th class="text-center" style="width: 5%;">Unit</th>
                             {% else %}
                             <th style="width: 58%;">Item</th>
                             <th class="text-center" style="width: 7%;">Qty</th>
                             <th class="text-center" style="width: 5%;">Unit</th>
-                            {# A lump-sum section is priced only by its subtotal: no price or total per item #}
-                            <th class="text-right" style="width: 15%;">{% if not section.isLumpSum %}Price{% endif %}</th>
-                            <th class="text-right" style="width: 25%;">{% if not section.isLumpSum %}Total{% endif %}</th>
+                            <th class="text-right" style="width: 15%;">Price</th>
+                            <th class="text-right" style="width: 25%;">Total</th>
                             {% endif %}
                         </tr>
                     </thead>
@@ -612,8 +616,10 @@
                             {% if not is_lump_sum_document %}
                             <td class="text-center">{{ item.quantity }}</td>
                             <td class="text-center">{{ item.unit if item.unit else 'EA' }}</td>
-                            <td class="text-right">{% if not section.isLumpSum %}{{ item.rate|format_currency }}{% endif %}</td>
-                            <td class="text-right">{% if not section.isLumpSum %}{{ (item.quantity * item.rate)|format_currency }}{% endif %}</td>
+                            {% if not section.isLumpSum %}
+                            <td class="text-right">{{ item.rate|format_currency }}</td>
+                            <td class="text-right">{{ (item.quantity * item.rate)|format_currency }}</td>
+                            {% endif %}
                             {% endif %}
                         </tr>
                         {% endfor %}
@@ -745,13 +751,13 @@
                         <div style="flex: 1;">
                             <span style="font-size: 13px; color: #111827; font-weight: 500;">{{ item.label or 'Payment ' ~ loop.index }}</span>
                             {% if item.due_label %}
-                            <span style="font-size: 11px; color: #9CA3AF; margin-left: 6px;">{{ item.due_label }}</span>
+                            <span style="font-size: 11px; color: #6B7280; margin-left: 6px;">{{ item.due_label }}</span>
                             {% endif %}
                         </div>
                         <div style="text-align: right; font-size: 13px; font-weight: 500; color: #111827; white-space: nowrap;">
                             {% if item.type == 'percentage' %}
                                 {{ format_amount(total * item.value / 100) }}
-                                <span style="font-size: 11px; color: #9CA3AF; font-weight: 400;">({{ item.value }}%)</span>
+                                <span style="font-size: 11px; color: #6B7280; font-weight: 400;">({{ item.value }}%)</span>
                             {% else %}
                                 {{ format_amount(item.value) }}
                             {% endif %}

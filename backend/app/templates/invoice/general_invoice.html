@@ -44,6 +44,7 @@
     body {
       font-family: Arial, sans-serif;
       font-size: 12px;
+      line-height: 1.4;
       color: #000;
       margin: 25px;
     }
@@ -109,10 +110,13 @@
       margin: 30px 0px 20px 0px;
       font-weight: bold;
     }
-    .amount-due h3 {
+    .amount-due h2 {
       font-weight: bold;
       font-size: 18px;
       margin: 0;
+    }
+    .amount-due .paid-full {
+      color: #1e7e34;
     }
     .line-header {
       font-weight: bold;
@@ -134,6 +138,8 @@
     .col-unit  { width: 5%; text-align: right; }
     .col-price { width: 15%; text-align: right; }
     .col-total { width: 15%; text-align: right; }
+    /* Lump-sum section: no price or total, the item takes their width */
+    .lump-sum .col-item { width: 85%; }
     .col-desc { width: 80%; }
     .col-desc {
       font-style: italic;
@@ -144,7 +150,7 @@
     }
     .col-photos-ref {
       font-size: 12px;
-      color: #1890ff;
+      color: #0958d9;
       margin-left: 30px;
       margin-top: 2px;
     }
@@ -336,12 +342,12 @@
 
 <div class="amount-due">
   {% if balance_due is defined and balance_due <= 0.01 %}
-  <h3 style="color: #28a745;">&#10003; PAID IN FULL</h3>
+  <h2 class="paid-full">&#10003; PAID IN FULL</h2>
   {% elif total_paid is defined and total_paid > 0 %}
-  <h3>${{ balance_due|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h3>
+  <h2>${{ balance_due|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h2>
   <p style="font-size: 12px; color: #666; margin-top: 5px;">Original: ${{ total|format_amount }} | Paid: ${{ total_paid|format_amount }}</p>
   {% else %}
-  <h3>${{ total|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h3>
+  <h2>${{ total|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h2>
   {% endif %}
 </div>
 
@@ -368,26 +374,30 @@
       <div class="section-title">{{ section.title }}</div>
     {% endif %}
 
-    <div class="line-header">
+    {# A lump-sum section is priced only by its subtotal: no price or total per item, so Qty and Unit end the row #}
+    <div class="line-header{% if section.isLumpSum %} lump-sum{% endif %}">
         <div class="col-item"{% if is_lump_sum_document %} style="width: 100%;"{% endif %}>Item</div>
         {% if not is_lump_sum_document %}
         <div class="col-qty">Qty</div>
         <div class="col-unit">Unit</div>
-        {# A lump-sum section is priced only by its subtotal: no price or total per item #}
-        <div class="col-price">{% if not section.isLumpSum %}Price{% endif %}</div>
-        <div class="col-total">{% if not section.isLumpSum %}Total{% endif %}</div>
+        {% if not section.isLumpSum %}
+        <div class="col-price">Price</div>
+        <div class="col-total">Total</div>
+        {% endif %}
         {% endif %}
     </div>
 
     {% for item in section['items'] %}
     {% set item_counter.value = item_counter.value + 1 %}
-    <div class="line-row">
+    <div class="line-row{% if section.isLumpSum %} lump-sum{% endif %}">
       <div class="col-item"{% if is_lump_sum_document %} style="width: 100%;"{% endif %}>{{ item_counter.value }}. {{ item.description if item.description else item.name }}</div>
       {% if not is_lump_sum_document %}
       <div class="col-qty">{{ item.quantity|format_quantity }}</div>
       <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
-      <div class="col-price">{% if not section.isLumpSum %}{{ item.rate|format_currency }}{% endif %}</div>
-      <div class="col-total">{% if not section.isLumpSum %}{{ (item.quantity * item.rate)|format_currency }}{% endif %}</div>
+      {% if not section.isLumpSum %}
+      <div class="col-price">{{ item.rate|format_currency }}</div>
+      <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
+      {% endif %}
       {% endif %}
     </div>
 
@@ -417,7 +427,7 @@
   {% if sections and sections|length > 0 %}
     {% for section in sections %}
       <!-- Section Header -->
-      <div class="line-row" style="background-color: #f5f5f5; font-weight: 600; margin-top: 8px;">
+      <div class="line-row" style="background-color: #f5f5f5; font-weight: 600; margin-top: 8px; padding-left: 8px; padding-right: 8px;">
         <div class="col-item">{{ section.title }}</div>
         <div class="col-qty"></div>
         <div class="col-unit"></div>
@@ -442,7 +452,7 @@
       {% endfor %}
 
       <!-- Section Subtotal -->
-      <div class="line-row" style="font-weight: 600; border-top: 1px solid #ddd; background-color: #fafafa;">
+      <div class="line-row" style="font-weight: 600; border-top: 1px solid #ddd; background-color: #fafafa; padding-left: 8px; padding-right: 8px;">
         <div class="col-item" style="text-align: right; padding-right: 10px;">{{ section.title }} Subtotal</div>
         <div class="col-qty"></div>
         <div class="col-unit"></div>
