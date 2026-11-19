@@ -1,8 +1,9 @@
 /**
- * PDFs with the 3D view in them: an option's own PDF, and the customer
- * proposal with every estimate of the job. The pictures are drawn in the
- * browser (bathroom3dSnapshot, loaded on demand with three.js) and sent with
- * the request. The restoration's PDF — the carrier's — never gets one.
+ * PDFs with pictures drawn in the browser and sent with the request: each
+ * bathroom's plan as its Sketch tab draws it (bathroomPlanSnapshot), and the
+ * 3D view on an option's PDF and the customer proposal (bathroom3dSnapshot,
+ * loaded on demand with three.js). The restoration's PDF — the carrier's —
+ * never gets a 3D view.
  */
 
 import { bathroomEstimateService } from '../../services/bathroomEstimateService';
@@ -24,6 +25,39 @@ async function snapshots(
   }
 }
 
+/** Each estimate's plan, drawn as on its Sketch tab (as saved), by id; none for one with no sketch */
+export async function planImages(
+  estimates: Pick<BathroomEstimate, 'id' | 'sketch_data'>[],
+): Promise<Record<string, string>> {
+  try {
+    const { renderPlanSnapshots } = await import('./sketch/bathroomPlanSnapshot');
+    return await renderPlanSnapshots(estimates.map((e) => ({ key: e.id, sketch: e.sketch_data as any, estimate: e as any })));
+  } catch {
+    // The PDF goes with the server's outline of the plan
+    return {};
+  }
+}
+
+/** One estimate's PDF with its plan (and an option's 3D view), from anywhere: the estimate list too */
+export async function exportEstimatePdfWithPictures(estimateOrId: BathroomEstimate | string, opts: {
+  show_breakdown_prices?: boolean;
+  show_signature?: boolean;
+  /** The plan as the open Sketch tab has it, for when it can't be drawn from the saved sketch */
+  sketchImage?: string;
+} = {}) {
+  const estimate = typeof estimateOrId === 'string'
+    ? await bathroomEstimateService.getById(estimateOrId)
+    : estimateOrId;
+  const plans = await planImages([estimate]);
+  await bathroomEstimateService.exportPdf(estimate.id, {
+    show_breakdown_prices: opts.show_breakdown_prices,
+    show_signature: opts.show_signature,
+    sketch_image: plans[estimate.id] ?? opts.sketchImage,
+    render_image: await optionRender(estimate),
+    address: estimate.property_address,
+  });
+}
+
 /** The 3D picture for an option's PDF; none for the restoration or the current layout. */
 export async function optionRender(estimate?: BathroomEstimate | null): Promise<string | undefined> {
   if (!estimate || estimate.kind !== 'option') return undefined;
@@ -33,9 +67,8 @@ export async function optionRender(estimate?: BathroomEstimate | null): Promise<
 
 /**
  * A PDF of the job's bathrooms (one estimate each): every bathroom in one
- * PDF, or one priced on its own. Each option in it pictured in 3D; the open
- * estimate's plan as drawn on its Sketch tab (the others' plans are drawn
- * by the server).
+ * PDF, or one priced on its own. Each bathroom's plan as its Sketch tab
+ * draws it, each option pictured in 3D.
  */
 export async function exportBathroomsPdfWith3D(open: BathroomEstimate, estimateIds: string[], opts: {
   show_breakdown_prices: boolean;
@@ -48,11 +81,15 @@ export async function exportBathroomsPdfWith3D(open: BathroomEstimate, estimateI
     id === open.id ? Promise.resolve(open) : bathroomEstimateService.getById(id)));
   const options = estimates.filter((e) => e.kind === 'option');
   const renders = options.length ? await snapshots(options, { width: 1400, height: 820 }) : {};
+  // Every bathroom's plan as its Sketch tab draws it; the open one's live
+  // picture only when its saved sketch can't be drawn
+  const plans = await planImages(estimates);
+  if (opts.sketchImage && estimateIds.includes(open.id) && !plans[open.id]) plans[open.id] = opts.sketchImage;
   await bathroomEstimateService.exportBathroomsPdf(open.id, {
     estimate_ids: estimateIds,
     show_breakdown_prices: opts.show_breakdown_prices,
     show_signature: opts.show_signature,
-    sketch_images: opts.sketchImage && estimateIds.includes(open.id) ? { [open.id]: opts.sketchImage } : {},
+    sketch_images: plans,
     renders,
     address: open.property_address,
     suffix: opts.suffix,

@@ -29,6 +29,7 @@ import { useNavigate } from 'react-router-dom';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import type { BathroomEstimate, BathroomProjectType } from '../types/bathroomEstimate';
 import { PROJECT_TYPE_LABELS } from '../components/bathroom-estimate/BEGroupBar';
+import { exportEstimatePdfWithPictures } from '../components/bathroom-estimate/bathroomPdf';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -94,6 +95,18 @@ const BathroomEstimateList: React.FC = () => {
   const deletePrompt = (record: BathroomEstimate) => {
     const count = record.group_members?.length || 1;
     return count > 1 ? `Delete this job and all ${count} of its estimates?` : 'Delete this estimate?';
+  };
+
+  // An estimate's PDF with its plan as its Sketch tab draws it (and an option's 3D view)
+  const exportListPdf = async (estimateId: string) => {
+    const done = message.loading('Making the PDF…', 0);
+    try {
+      await exportEstimatePdfWithPictures(estimateId);
+    } catch {
+      message.error('Could not make the PDF');
+    } finally {
+      done();
+    }
   };
 
   const cloneMutation = useMutation({
@@ -220,7 +233,7 @@ const BathroomEstimateList: React.FC = () => {
           <Button
             size="small"
             icon={<FilePdfOutlined />}
-            onClick={() => bathroomEstimateService.exportPdf(record.id, { address: record.property_address })}
+            onClick={() => exportListPdf(record.id)}
             disabled={record.status === 'draft'}
           />
           <Button
@@ -257,7 +270,7 @@ const BathroomEstimateList: React.FC = () => {
                   icon: <FilePdfOutlined />,
                   label: 'Export PDF',
                   disabled: record.status === 'draft',
-                  onClick: () => bathroomEstimateService.exportPdf(record.id, { address: record.property_address }),
+                  onClick: () => exportListPdf(record.id),
                 },
                 {
                   key: 'clone',

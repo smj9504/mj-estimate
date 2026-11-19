@@ -73,7 +73,7 @@ import BEMirrorRows from '../components/bathroom-estimate/BEMirrorRows';
 import BEDecorativeTileFields from '../components/bathroom-estimate/BEDecorativeTileFields';
 import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRows';
 import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
-import { exportBathroomsPdfWith3D, exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
+import { exportBathroomsPdfWith3D, exportEstimatePdfWithPictures, exportProposalWith3D } from '../components/bathroom-estimate/bathroomPdf';
 import BEPdfBathroomsModal, { sharingBathrooms } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { showerRoomFrontSF } from '../components/bathroom-estimate/showerRoom';
 import type { PdfBathroomsPick } from '../components/bathroom-estimate/BEPdfBathroomsModal';
@@ -418,22 +418,21 @@ const BathroomEstimateDetail: React.FC = () => {
   }, [form, calculateMutation]);
 
   // ── PDFs ──
-  // The plan as drawn, and on an option its 3D view too (drawn here, which takes a moment)
+  // The plan as its Sketch tab draws it (as saved), and on an option its 3D
+  // view too (drawn here, which takes a moment)
   const exportEstimatePdf = useCallback(async (opts: { show_breakdown_prices: boolean; show_signature: boolean }) => {
+    if (!estimate) return;
     const capture = (window as any).__beSketchCapture;
     const sketchImage = typeof capture === 'function' ? capture() : undefined;
-    const done = estimate?.kind === 'option' ? message.loading('Drawing the 3D view for the PDF…', 0) : undefined;
+    const done = message.loading(estimate.kind === 'option' ? 'Drawing the plan and the 3D view for the PDF…' : 'Making the PDF…', 0);
     try {
-      await bathroomEstimateService.exportPdf(id!, {
-        ...opts,
-        sketch_image: sketchImage,
-        render_image: await optionRender(estimate),
-        address: estimate?.property_address,
-      });
+      await exportEstimatePdfWithPictures(estimate, { ...opts, sketchImage });
+    } catch {
+      message.error('Could not make the PDF');
     } finally {
-      done?.();
+      done();
     }
-  }, [estimate, id]);
+  }, [estimate]);
 
   // Allowance warnings first (each bathroom's, named, when several); then `run`
   const validateThen = useCallback(async (ids: string[], names: Record<string, string>, run: () => void) => {
