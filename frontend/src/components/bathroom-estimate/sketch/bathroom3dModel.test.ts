@@ -62,6 +62,55 @@ describe('a shower room in 3D', () => {
     expect(model.walls.find((w) => w.id === 'front')!.surrounds).toEqual([]);
   });
 
+  describe('its front met to the wall it stands against', () => {
+    // A 36" shower against the top; its front wall's line 36" + gap down, a 24" opening in it
+    const room = (frontY: number, extra: Partial<BEFixture['properties']> = {}, rotation = 0) => {
+      const front = wall('front', 0, frontY, 120, frontY);
+      const shower = { ...fixture('shower', 'shower', 60, 60, 36, 36, { showerLayout: 'alcove', showerDoorType: 'swing', ...extra }), rotation };
+      // A door's opening is its symbol's edge on the wall (40 px from its middle)
+      const opening = fixture('opening', 'door', 60, frontY - 40, 24, 24, { noSlab: true });
+      return { front, shower, opening };
+    };
+    const solid = (s: BESketchData) => bathroomModel(s).fixtures.find((f) => f.fixture.id === 'shower')!;
+
+    it('runs a shower drawn short of the wall up to it, its back where it was', () => {
+      // 3" short of the wall's line (10 px); the room's on the shower's side, so its face is the line
+      const { front, shower, opening } = room(130);
+      const f = solid(sketch([north(), front], [shower, opening]));
+      expect(f.depthIn).toBeCloseTo(39);
+      expect(f.center[1]).toBeCloseTo(18 + 1.5);
+      expect(f.center[1] - f.depthIn / 2).toBeCloseTo(0);
+    });
+
+    it("stops one at the wall's framing when the wall's room is the bathroom beyond", () => {
+      const { front, shower, opening } = room(120);
+      const s = sketch([north(), front], [shower, opening]);
+      s.rooms = [{ ...s.rooms[0], boundary: [{ x: 0, y: 120 }, { x: 320, y: 120 }, { x: 320, y: 300 }, { x: 0, y: 300 }] }];
+      const f = solid(s);
+      // The framing (4.5") stands on the shower's side of the line
+      expect(f.depthIn).toBeCloseTo(36 - 4.5);
+      expect(f.center[1] - f.depthIn / 2).toBeCloseTo(0);
+    });
+
+    it('meets it whichever way the shower is turned', () => {
+      // Turned round: its front faces the top wall, 2" off it; its back on a wall 36" down
+      const shower = { ...fixture('shower', 'shower', 60, 60 + 20 / 3, 36, 36, { showerLayout: 'alcove', showerDoorType: 'swing' }), rotation: 180 };
+      const opening = { ...fixture('opening', 'door', 60, 40, 24, 24, { noSlab: true }), rotation: 180 };
+      const s = sketch([north(), wall('back', 0, 120 + 20 / 3, 120, 120 + 20 / 3)], [shower, opening]);
+      const f = solid(s);
+      expect(f.showerOpening).not.toBeNull();
+      expect(f.depthIn).toBeCloseTo(38);
+      expect(f.center[1] + f.depthIn / 2).toBeCloseTo(18 + 2 + 18);
+    });
+
+    it('leaves an open-front shower, or one far off the wall, as placed', () => {
+      const { shower } = room(130);
+      expect(solid(sketch([north()], [shower])).depthIn).toBe(36);
+      const far = room(200);
+      expect(solid(sketch([north(), far.front], [far.shower, far.opening])).depthIn).toBe(36);
+    });
+  });
+
   describe('with its front tiled too (4 tiled walls)', () => {
     const front = wall('front', 0, 120, 120, 120);
     const shower = fixture('shower', 'shower', 60, 60, 36, 36, { showerLayout: 'alcove', showerDoorType: 'swing', showerWallCount: 4, showerTileHeight: 84 });

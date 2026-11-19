@@ -481,6 +481,45 @@ function wallSolid(
   };
 }
 
+// The most a shower room's front is moved to meet its wall, inches: further
+// off than this, it isn't that wall's shower
+const FRONT_TO_WALL_MAX_IN = 12;
+
+/**
+ * A shower in its own room, its front met to the wall it stands against:
+ * that wall's face on the shower's side (its line when the shower is in the
+ * wall's room, the far face of its framing otherwise, as wallSolid builds
+ * it). The plan places the shower by eye, a few inches short of the wall's
+ * line or over it; drawn as placed, its floor, curb and door stopped short
+ * of the tiled wall, a gap between. Its back stays where it is. Null when
+ * it isn't a shower room, or is too far off to be.
+ */
+function showerFrontToWall(fix: BEFixture, sketch: BESketchData): { center: Pt; depthIn: number } | null {
+  const ppf = sketch.settings.pixelsPerFoot;
+  const opening = showerFrontOpening(fix, sketch.walls, sketch.fixtures, ppf);
+  const wall = opening && sketch.walls.find((w) => w.id === opening.wallId);
+  if (!wall) return null;
+  const a = toIn(wall.start, ppf);
+  const b = toIn(wall.end, ppf);
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const inward = wallInward(wall, sketch.rooms);
+  const normal: Pt = inward ?? [-(b[1] - a[1]) / len, (b[0] - a[0]) / len];
+  const thick = Math.max(WALL_THICKNESS_IN, (wall.thickness / ppf) * 12);
+  const c = toIn(fix.position, ppf);
+  const side = (c[0] - a[0]) * normal[0] + (c[1] - a[1]) * normal[1];
+  // The face toward the shower, from the line: the framing goes away from its room
+  const faceOff = !inward ? thick / 2 : side >= 0 ? 0 : thick;
+  const delta = Math.abs(side) - faceOff - fix.dimensions.height / 2;
+  if (Math.abs(delta) < 0.05 || Math.abs(delta) > FRONT_TO_WALL_MAX_IN) return null;
+  // Its front, the way it faces (its own +y, turned)
+  const rad = ((fix.rotation || 0) * Math.PI) / 180;
+  const front: Pt = [-Math.sin(rad), Math.cos(rad)];
+  return {
+    center: [c[0] + (front[0] * delta) / 2, c[1] + (front[1] * delta) / 2],
+    depthIn: fix.dimensions.height + delta,
+  };
+}
+
 function fixtureSolid(fix: BEFixture, sketch: BESketchData): FixtureSolid {
   const ppf = sketch.settings.pixelsPerFoot;
   const room = sketch.rooms.find((r) => r.id === fix.roomId) ?? sketch.rooms.find((r) => !r.parentRoomId) ?? sketch.rooms[0];
@@ -493,12 +532,14 @@ function fixtureSolid(fix: BEFixture, sketch: BESketchData): FixtureSolid {
   const against = byRoom
     ? { north: byRoom.north || byWalls.north, south: byRoom.south || byWalls.south, east: byRoom.east || byWalls.east, west: byRoom.west || byWalls.west }
     : byWalls;
+  // A shower room's floor, curb and door run to its wall's face
+  const met = fix.type === 'shower' ? showerFrontToWall(fix, sketch) : null;
   return {
     fixture: fix,
-    center: toIn(fix.position, ppf),
+    center: met?.center ?? toIn(fix.position, ppf),
     rotationDeg: fix.rotation || 0,
     widthIn: fix.dimensions.width,
-    depthIn: fix.dimensions.height,
+    depthIn: met?.depthIn ?? fix.dimensions.height,
     against,
     ceilingIn: room?.heightInches || 96,
     showerOpening: fix.type === 'shower' ? showerFrontOpening(fix, sketch.walls, sketch.fixtures, ppf)?.span ?? null : null,
