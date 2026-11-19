@@ -300,6 +300,15 @@ export interface BathroomsPdfPreview {
   carrier: string | null;
 }
 
+/**
+ * A bathroom's name: a listed type's ("Master Bathroom"), a name typed in as
+ * typed ("Basement bath"), else "Bathroom" (backend job_share.bathroom_name)
+ */
+export const bathroomName = (designation?: string | null): string => {
+  const typed = (designation ?? '').replace(/\s+/g, ' ').trim();
+  return BATH_NAMES[typed] ?? (typed || 'Bathroom');
+};
+
 /** A bathroom by its designation (backend job_share.BATH_NAMES) */
 export const BATH_NAMES: Record<string, string> = {
   master: 'Master Bathroom',

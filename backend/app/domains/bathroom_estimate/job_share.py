@@ -27,6 +27,25 @@ BATH_NAMES = {
     "jack_jill": "Jack & Jill Bathroom",
 }
 
+def _typed(designation) -> str:
+    """A bathroom's type as stored: a listed one's key, or a name typed in"""
+    return " ".join(str(designation or "").split())
+
+
+def bathroom_name(designation) -> str:
+    """A bathroom's name: a listed type's ("Master Bathroom"), a name typed in
+    as typed ("Basement bath"), or "Bathroom" without either"""
+    typed = _typed(designation)
+    return BATH_NAMES.get(typed) or typed or "Bathroom"
+
+
+def bathroom_type_label(designation) -> str:
+    """Its type for a description line: a listed type title-cased ("Master",
+    "Three Quarter"), a name typed in as typed; empty without either"""
+    typed = _typed(designation)
+    return typed.replace("_", " ").title() if typed in BATH_NAMES else typed
+
+
 # The lines a bathroom's place in the job decides (calculator descriptions)
 JOB_LINE_PREFIXES = (
     "Dumpster rental (",

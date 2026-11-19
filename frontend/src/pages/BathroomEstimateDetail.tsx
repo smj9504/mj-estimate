@@ -59,13 +59,14 @@ import type {
   BathroomEstimateHistory,
   BathroomPricingInfo,
 } from '../types/bathroomEstimate';
-import { PHASE_LABELS, TUB_DOOR_GRADES, isCustomTileShower, memberName } from '../types/bathroomEstimate';
+import { PHASE_LABELS, TUB_DOOR_GRADES, bathroomName, isCustomTileShower, memberName } from '../types/bathroomEstimate';
 import BESketchTab, { buildSketchSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 import { fitFixturesToProducts } from '../components/bathroom-estimate/sketch/utils/productFit';
 import BESelectionsPanel from '../components/bathroom-estimate/BESelectionsPanel';
 import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
 import BEBathroomBar from '../components/bathroom-estimate/BEBathroomBar';
+import BathroomTypeSelect from '../components/bathroom-estimate/BathroomTypeSelect';
 import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
 import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
 import BEFixtureRows from '../components/bathroom-estimate/BEFixtureRows';
@@ -1184,8 +1185,9 @@ const BathroomEstimateDetail: React.FC = () => {
                 <Divider orientation="left">This bathroom</Divider>
                 <Row gutter={16}>
                   <Col xs={12} sm={12} md={6}>
-                    <Form.Item label="Bathroom Type" name="designation">
-                      <Select options={selectOpts(pricingInfo?.designations)} allowClear />
+                    <Form.Item label="Bathroom" name="designation"
+                      tooltip="Pick a type, or type a name of its own (e.g. Basement bath): it names the bathroom on the job, the PDF and the rebuild estimate">
+                      <BathroomTypeSelect aria-label="Bathroom type or name" />
                     </Form.Item>
                   </Col>
                   <Col xs={12} sm={12} md={6}>
@@ -3393,7 +3395,7 @@ const BathroomEstimateDetail: React.FC = () => {
             claimId={estimate.claim_id}
             defaultTitle={
               estimate.designation
-                ? `${estimate.designation} Bathroom${estimate.property_address ? ` — ${estimate.property_address}` : ''}`
+                ? `${bathroomName(estimate.designation)}${estimate.property_address ? ` — ${estimate.property_address}` : ''}`
                 : estimate.property_address || 'Bathroom Estimate'
             }
             defaultAmount={estimate.total}

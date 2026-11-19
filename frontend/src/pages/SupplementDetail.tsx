@@ -41,6 +41,7 @@ import type {
   SupplementFollowUp, BidItemType,
 } from '../types/supplement';
 import type { ClaimNegotiation, NegotiationSection } from '../types/client';
+import { bathroomName } from '../types/bathroomEstimate';
 import { sanitizeHtml } from '../utils/safeHtml';
 
 // Section category config — matches ClaimFollowUpDashboard
@@ -2408,7 +2409,7 @@ const SupplementDetail: React.FC = () => {
                     if (est) {
                       bidItemForm.setFieldsValue({
                         title: est.designation
-                          ? `${est.designation} Bathroom${est.property_address ? ` — ${est.property_address}` : ''}`
+                          ? `${bathroomName(est.designation)}${est.property_address ? ` — ${est.property_address}` : ''}`
                           : est.property_address || 'Bathroom Estimate',
                         custom_amount: est.total ?? undefined,
                       });

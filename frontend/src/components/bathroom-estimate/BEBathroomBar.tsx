@@ -8,12 +8,13 @@
  */
 
 import React, { useState } from 'react';
-import { Button, Modal, Segmented, Select, Tooltip, message } from 'antd';
+import { Button, Modal, Segmented, Tooltip, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { bathroomEstimateService } from '../../services/bathroomEstimateService';
 import type { BathroomEstimate, JobBathroom } from '../../types/bathroomEstimate';
-import { BATH_NAMES } from '../../types/bathroomEstimate';
+import { bathroomName } from '../../types/bathroomEstimate';
+import BathroomTypeSelect from './BathroomTypeSelect';
 
 const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
@@ -38,7 +39,7 @@ const BEBathroomBar: React.FC<BEBathroomBarProps> = ({ estimate, onOpen, guardUn
   const add = useMutation({
     mutationFn: () => bathroomEstimateService.addBathroom(estimate.id, designation),
     onSuccess: (created) => {
-      message.success(`${BATH_NAMES[created.designation || ''] ?? 'Bathroom'} added to this job`);
+      message.success(`${bathroomName(created.designation)} added to this job`);
       setAdding(false);
       setDesignation(undefined);
       queryClient.invalidateQueries({ queryKey: ['bathroom-job'] });
@@ -108,14 +109,11 @@ const BEBathroomBar: React.FC<BEBathroomBarProps> = ({ estimate, onOpen, guardUn
           It starts with this job&rsquo;s company, claim and address. Its demo, sketch, fixtures,
           finishes and costs are its own.
         </p>
-        <Select
+        <BathroomTypeSelect
           aria-label="Bathroom type"
           style={{ width: '100%' }}
-          placeholder="Bathroom type"
           value={designation}
           onChange={setDesignation}
-          allowClear
-          options={Object.entries(BATH_NAMES).map(([value, label]) => ({ value, label }))}
         />
       </Modal>
     </div>

@@ -18,6 +18,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from app.domains.bathroom_estimate.job_share import bathroom_name
+
 KINDS = ("flooring", "bathroom", "cabinet")
 KIND_LABELS = {
     "flooring": "Flooring estimate",
@@ -31,14 +33,6 @@ KIND_PATHS = {
     "cabinet": "/cabinet-estimates",
 }
 
-# A bathroom estimate's room, by its designation
-_BATH_NAMES = {
-    "master": "Master Bathroom",
-    "hall": "Hall Bathroom",
-    "powder": "Powder Room",
-    "three_quarter": "Bathroom",
-    "jack_jill": "Jack & Jill Bathroom",
-}
 
 
 def model_of(kind: str) -> Any:
@@ -64,9 +58,8 @@ def _num(value: Any) -> Optional[float]:
 def label_of(kind: str, est: Any) -> str:
     label = KIND_LABELS[kind]
     if kind == "bathroom":
-        name = _BATH_NAMES.get(str(getattr(est, "designation", "") or ""))
-        if name:
-            label = f"{label} - {name}"
+        if (getattr(est, "designation", "") or "").strip():
+            label = f"{label} - {bathroom_name(est.designation)}"
     option = getattr(est, "option_label", None)
     if getattr(est, "kind", None) == "option" and option:
         label = f"{label} · {option}"
@@ -129,7 +122,7 @@ def _bathroom(est: Any) -> Dict[str, Any]:
     floor = _num(est.floor_sf)
     length, width = _num(est.length_ft), _num(est.width_ft)
     room = {
-        "key": "bathroom", "name": _BATH_NAMES.get(str(est.designation or ""), "Bathroom"), "level_name": None,
+        "key": "bathroom", "name": bathroom_name(est.designation), "level_name": None,
         "measures": {
             "floor_sf": floor, "ceiling_sf": floor, "wall_sf": _num(est.wall_sf),
             "perimeter_lf": round(2 * (length + width), 2) if length and width else None,

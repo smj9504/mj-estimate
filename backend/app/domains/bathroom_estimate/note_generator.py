@@ -7,6 +7,8 @@ Falls back to template-based generation if AI is unavailable.
 import logging
 from typing import Optional
 
+from .job_share import BATH_NAMES, bathroom_type_label
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,7 +67,9 @@ def _generate_template_note(estimate) -> str:
     parts = []
 
     # Opening
-    designation = (estimate.designation or "").replace("_", " ")
+    # A listed type in words ("three quarter"), a name typed in as typed
+    designation = bathroom_type_label(estimate.designation)
+    designation = designation.lower() if (estimate.designation or "") in BATH_NAMES else designation
     bath_fn = (estimate.bath_function or "full").replace("_", " ")
     address = estimate.property_address or "the subject property"
 

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from .cabinets import CABINET_TYPES, cabinet_groups
 from .layout_changes import layout_change_line_items
 from .lights import LIGHT_TYPES, light_groups
-from .job_share import elsewhere_line
+from .job_share import bathroom_type_label, elsewhere_line
 from .mirrors import mirror_count, mirror_groups, price_by_width
 from .selections import Picks
 from app.domains.unit_prices.tables import in_active_book
@@ -2451,7 +2451,7 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
     _room_names = [r.get("name", "Bathroom")
                    for r in _sketch_rooms_p6 if not r.get("parentRoomId")]
     _room_label = _room_names[0] if _room_names else (
-        (estimate.designation or "").replace("_", " ").title() or "Bathroom"
+        bathroom_type_label(estimate.designation) or "Bathroom"
     )
     _wall_paint_added = False  # track to prevent duplicate
 

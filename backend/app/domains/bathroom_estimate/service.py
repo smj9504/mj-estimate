@@ -17,7 +17,7 @@ from app.domains.unit_prices.service import UnitPriceService
 from app.domains.unit_prices.tables import use_prices
 
 from .calculator import calculate_estimate
-from .job_share import BATH_NAMES, JobShare, is_job_line
+from .job_share import JobShare, bathroom_name, is_job_line
 from .layout_changes import layout_changes
 from .models import (
     BathroomEstimate,
@@ -611,7 +611,7 @@ class BathroomEstimateService:
         seen: Dict[str, int] = {}
         for group in groups:
             rep = BathroomEstimateService._job_rep(group)
-            base = BATH_NAMES.get(str(rep.designation or ""), "Bathroom")
+            base = bathroom_name(rep.designation)
             seen[base] = seen.get(base, 0) + 1
             names[_group_key(group[0])] = base if seen[base] == 1 else f"{base} {seen[base]}"
         return names

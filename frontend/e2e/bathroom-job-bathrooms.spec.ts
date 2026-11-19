@@ -75,8 +75,8 @@ test('switches between the job\'s bathrooms on the same tab, and adds one', asyn
   // A new bathroom, with the house's facts, opened
   await bar(page).getByRole('button', { name: /Bathroom/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Add a bathroom to this job' });
-  await dialog.getByRole('combobox', { name: 'Bathroom type' }).click();
-  await page.locator('.ant-select-dropdown').getByText('Powder Room', { exact: true }).click();
+  await dialog.locator('.ant-select-selector').click();
+  await page.locator('.ant-select-dropdown:visible').getByText('Powder', { exact: true }).click();
   await page.screenshot({ path: test.info().outputPath('add.png') });
   await dialog.getByRole('button', { name: 'Add bathroom' }).click();
   await expect.poll(() => added.length).toBe(1);

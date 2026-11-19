@@ -440,3 +440,12 @@ def test_the_job_pdf_has_each_bathroom_and_the_job_total(service):
     # The terms and the signature once, the payment schedule on the job total
     assert text.count("Customer Signature") == 1 and text.count("Payment Schedule") == 1
     assert f"${round(total * 0.33, 2):,.2f}" in text
+
+
+def test_a_bathroom_named_by_hand_is_that_on_the_job(service):
+    master = bathroom(service, "master")
+    service.add_bathroom(master["id"], "Kids bath")
+    service.add_bathroom(master["id"], "Kids bath")
+    assert [r["name"] for r in service.get_job_bathrooms(master["id"])] == [
+        "Master Bathroom", "Kids bath", "Kids bath 2",
+    ]

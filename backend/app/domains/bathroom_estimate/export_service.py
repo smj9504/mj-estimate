@@ -8,6 +8,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from .job_share import bathroom_type_label
+
 logger = logging.getLogger(__name__)
 
 
@@ -275,7 +277,7 @@ def _filter_notes_prices(notes: Optional[str], show_prices: bool) -> Optional[st
 
 def _bath_desc(estimate: Dict[str, Any]) -> str:
     """The bathroom's type and function, e.g. "Master - Full"."""
-    designation = (estimate.get("designation") or "").replace("_", " ").title()
+    designation = bathroom_type_label(estimate.get("designation"))
     bath_fn = (estimate.get("bath_function") or "").replace("_", " ").title()
     return " - ".join(filter(None, [designation, bath_fn]))
 
@@ -1097,7 +1099,7 @@ class BathroomExportService:
         if first.get("client_name"):
             info_data.append(["Client:", first["client_name"]])
         bath_desc = " - ".join(filter(None, [
-            (first.get("designation") or "").replace("_", " ").title(),
+            bathroom_type_label(first.get("designation")),
             (first.get("bath_function") or "").replace("_", " ").title(),
         ]))
         if bath_desc:
