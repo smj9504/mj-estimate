@@ -33,6 +33,23 @@ const tub = fixture('tub', 'bathtub', 100, 160 / 3, 60, 32, { bathtubSubType: 's
 // A door as the plan places it: its symbol in the room, its closed panel on the south wall
 const door = fixture('door', 'door', 160, 200 - 160 / 3, 32, 32);
 
+describe('a shower room in 3D', () => {
+  it('cuts an opening with no door in its wall, and hangs the shower door in it', () => {
+    // A 36" shower in the north-west corner, its front on a wall 36" out with a 24" opening (no slab) in it
+    const front = wall('front', 0, 120, 120, 120);
+    const shower = fixture('shower', 'shower', 60, 60, 36, 36, { showerLayout: 'alcove', showerDoorType: 'swing' });
+    const opening = fixture('opening', 'door', 60, 80, 24, 24, { noSlab: true });
+    const model = bathroomModel(sketch([north(), front], [shower, opening]));
+    const cut = model.walls.find((w) => w.id === 'front')!.openings;
+    expect(cut).toMatchObject([{ kind: 'door', noSlab: true, rect: { x0: 6, x1: 30 } }]);
+    const solid = model.fixtures.find((f) => f.fixture.id === 'shower')!;
+    expect(solid.showerOpening![0]).toBeCloseTo(6 / 36);
+    expect(solid.showerOpening![1]).toBeCloseTo(30 / 36);
+    // With no wall at its front, it's an open-front shower
+    expect(bathroomModel(sketch([north()], [shower])).fixtures[0].showerOpening).toBeNull();
+  });
+});
+
 describe('bathroomModel walls', () => {
   it('stands each wall on its plan line in inches, its room on the inward side', () => {
     const model = bathroomModel(sketch([north(), south]));

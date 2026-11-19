@@ -23,6 +23,7 @@ import {
   wallFixtureCovers,
   wallLengthIn,
   wallOpeningsOf,
+  showerFrontOpening,
   wallTileRegions,
   type FaceRect,
 } from './utils/wallFinish';
@@ -80,6 +81,8 @@ export interface WallOpeningSolid {
   /** A door: which end of the opening its hinge is at, and whether it swings into the room. */
   hingeAtStart: boolean;
   swingsIn: boolean;
+  /** An opening with no door in it */
+  noSlab?: boolean;
 }
 
 export interface WallSolid {
@@ -110,6 +113,8 @@ export interface FixtureSolid {
   against: { north: boolean; south: boolean; east: boolean; west: boolean } | null;
   /** The room's ceiling height, for lights. */
   ceilingIn: number;
+  /** A shower in its own room: the stretch of its front its door hangs in (the wall is the rest) */
+  showerOpening?: [number, number] | null;
 }
 
 export interface BathroomModel {
@@ -403,6 +408,7 @@ function wallSolid(
       fixtureId: fixture.id,
       hingeAtStart: Math.abs(hingeAlong - r.x0) <= Math.abs(hingeAlong - r.x1),
       swingsIn: side >= 0,
+      ...(fixture.properties?.noSlab ? { noSlab: true } : {}),
     };
   });
   const holes = openings.map((o) => o.rect);
@@ -449,6 +455,7 @@ function fixtureSolid(fix: BEFixture, sketch: BESketchData): FixtureSolid {
     depthIn: fix.dimensions.height,
     against: findFixtureWallSides(fix, room, wPx, hPx),
     ceilingIn: room?.heightInches || 96,
+    showerOpening: fix.type === 'shower' ? showerFrontOpening(fix, sketch.walls, sketch.fixtures, ppf)?.span ?? null : null,
   };
 }
 

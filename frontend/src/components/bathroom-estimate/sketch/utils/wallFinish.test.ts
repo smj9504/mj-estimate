@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { BEFixture, BERoom, BEWall } from '../../../../types/bathroomSketch';
 import {
+  openingDoorPosition,
+  showerFrontOpening,
   coveredArea,
   roomWallFinishTotals,
   subtractRects,
@@ -162,5 +164,37 @@ describe('wallStartOnLeft', () => {
     // Facing the south wall, its west end (the start) is on your right
     expect(wallStartOnLeft(southWall, [room])).toBe(false);
     expect(wallStartOnLeft(wall('loose', 0, 0, 10, 0), [room])).toBe(true);
+  });
+});
+
+describe('a shower in its own room', () => {
+  // A 36" shower against the north wall, its front on a wall 36" out; a 24" door's opening in it, 6" from the left
+  const front = wall('front', 0, 120, 120, 120);
+  const shower = fixture('shower', 60, 60, 36, 36, { properties: { showerLayout: 'alcove', showerDoorType: 'swing' } });
+  const opening = { ...fixture('door', 60, 80, 24, 24), id: 'opening', properties: { noSlab: true } };
+
+  it("hangs its door in the wall's opening", () => {
+    const found = showerFrontOpening(shower, [north(), front], [shower, opening], PPF)!;
+    expect(found).toMatchObject({ widthIn: 24, heightIn: 80, wallId: 'front', openingId: 'opening' });
+    expect(found.span[0]).toBeCloseTo(6 / 36);
+    expect(found.span[1]).toBeCloseTo(30 / 36);
+    expect(openingDoorPosition(found.span)).toBe('center');
+    // A door with its slab is an opening too
+    expect(showerFrontOpening(shower, [front], [shower, { ...opening, properties: {} }], PPF)?.widthIn).toBe(24);
+  });
+
+  it('is an open-front shower with no wall or no opening at its front', () => {
+    expect(showerFrontOpening(shower, [north()], [shower, opening], PPF)).toBeNull();
+    expect(showerFrontOpening(shower, [front], [shower], PPF)).toBeNull();
+    // A door elsewhere on the wall isn't the shower's
+    expect(showerFrontOpening(shower, [wall('long', 0, 120, 400, 120)], [shower, { ...opening, position: { x: 300, y: 80 } }], PPF)).toBeNull();
+    // Nor is a neo-angle's front a wall
+    expect(showerFrontOpening({ ...shower, properties: { showerLayout: 'neo_angle' } }, [front], [shower, opening], PPF)).toBeNull();
+  });
+
+  it('reads a door against one side as there', () => {
+    expect(openingDoorPosition([0, 0.6])).toBe('left');
+    expect(openingDoorPosition([0.4, 1])).toBe('right');
+    expect(openingDoorPosition([0, 1])).toBe('center');
   });
 });

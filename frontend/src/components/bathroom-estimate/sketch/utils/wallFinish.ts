@@ -195,6 +195,60 @@ export function wallOpeningsOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoo
   return openings;
 }
 
+/**
+ * A shower in its own room: its front stands against a wall with a door's
+ * opening in it (the door's slab or none). Its glass door hangs in the
+ * opening, and the wall either side is its front, tiled on the inside.
+ */
+export interface ShowerFrontOpening {
+  /** The opening's stretch of the front, as fractions of the shower's width from its left */
+  span: [number, number];
+  widthIn: number;
+  heightIn: number;
+  wallId: string;
+  openingId: string;
+}
+
+export function showerFrontOpening(
+  shower: BEFixture, walls: BEWall[], fixtures: BEFixture[], pixelsPerFoot: number,
+): ShowerFrontOpening | null {
+  if (shower.type !== 'shower') return null;
+  const layout = shower.properties.showerLayout ?? 'alcove';
+  if (layout === 'neo_angle' || layout === 'neo_angle_right') return null;
+  const hw = ((shower.dimensions.width / 12) * pixelsPerFoot) / 2;
+  const hh = ((shower.dimensions.height / 12) * pixelsPerFoot) / 2;
+  const front = [fixturePoint(shower, -hw, hh), fixturePoint(shower, hw, hh)];
+  const doors = fixtures.filter((f) => f.type === 'door');
+  if (!doors.length) return null;
+  for (const wall of walls) {
+    const [l, r] = front.map((p) => alongWall(wall, p, pixelsPerFoot));
+    const against = [l, r].every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
+    if (!against || Math.abs(r.alongIn - l.alongIn) < 1) continue;
+    for (const o of wallOpeningsOf(wall, doors, pixelsPerFoot)) {
+      const lo = Math.max(Math.min(l.alongIn, r.alongIn), o.rect.x0);
+      const hi = Math.min(Math.max(l.alongIn, r.alongIn), o.rect.x1);
+      if (hi - lo < 6) continue;
+      const frac = (x: number) => (x - l.alongIn) / (r.alongIn - l.alongIn);
+      const [s, e] = [frac(lo), frac(hi)].sort((a, b) => a - b);
+      return {
+        span: [Math.max(0, s), Math.min(1, e)],
+        widthIn: Math.round((hi - lo) * 100) / 100,
+        heightIn: o.rect.y1 - o.rect.y0,
+        wallId: wall.id,
+        openingId: o.fixture.id,
+      };
+    }
+  }
+  return null;
+}
+
+/** Where a door in a shower room's opening sits, for what reads it as left / centre / right */
+export function openingDoorPosition([s, e]: [number, number]): 'left' | 'center' | 'right' {
+  if (s <= 0.02 && e < 0.98) return 'left';
+  if (e >= 0.98 && s > 0.02) return 'right';
+  return 'center';
+}
+
 export const wallOpenings = (wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] =>
   wallOpeningsOf(wall, fixtures, pixelsPerFoot).map((o) => o.rect);
 

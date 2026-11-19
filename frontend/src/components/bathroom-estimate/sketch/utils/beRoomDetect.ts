@@ -8,12 +8,13 @@
  * - outside every room: a room of its own (the first the Bathroom, the
  *   rest "Room", e.g. a nook built off the bathroom's wall);
  * - inside a room, closed by walls of its own: a closet in it (a sub-room);
- * - inside a room, cut off by walls run to the room's walls: left alone
- *   (a partition, a shower wall).
+ * - inside a room, cut off by walls run to the room's walls: each piece a
+ *   room in it but the largest, the rest of the room;
+ * - closed round a shower: a shower room ("Shower").
  * Areas already rooms, and slivers, are skipped.
  */
 
-import type { BEPoint, BERoom, BERoomType, BEWall } from '../../../../types/bathroomSketch';
+import type { BEFixture, BEPoint, BERoom, BERoomType, BEWall } from '../../../../types/bathroomSketch';
 
 /** Ends this close (px) are one point; a point this close to a wall is on it */
 const TOL = 8;
@@ -233,27 +234,41 @@ export interface DetectedRoom {
  * A room's walls are its own: a wall another room already has (the wall a
  * nook shares with the bathroom) stays that room's.
  */
-export function roomsFromWalls(walls: BEWall[], rooms: BERoom[], pixelsPerFoot: number): DetectedRoom[] {
+export function roomsFromWalls(
+  walls: BEWall[], rooms: BERoom[], pixelsPerFoot: number, fixtures: BEFixture[] = [],
+): DetectedRoom[] {
   const minArea = MIN_ROOM_SF * pixelsPerFoot * pixelsPerFoot;
   const taken = new Set(rooms.flatMap((r) => r.wallIds));
   const roomArea = (r: BERoom) => Math.abs(signedArea(r.boundary));
   const out: DetectedRoom[] = [];
   const names = new Set(rooms.map((r) => r.name));
   let hasBathroom = rooms.some((r) => !r.parentRoomId && r.roomType === 'bathroom');
+  // Pieces of a room cut off by walls run to its walls, by the room
+  const pieces = new Map<string, { face: WallFace; shower: boolean; ownWalls: string[] }[]>();
 
   for (const face of wallFaces(walls)) {
     if (face.areaPx2 < minArea) continue;
     const inside = pointInside(face.boundary);
     if (!inside) continue;
+    // Walls closed round a shower: a shower room
+    const shower = fixtures.some((f) => f.type === 'shower' && pointInPolygon(f.position, face.boundary));
     const holders = rooms.filter((r) => r.boundary.length >= 3 && pointInPolygon(inside, r.boundary));
     // Already a room
     if (holders.some((r) => Math.abs(roomArea(r) - face.areaPx2) <= 0.05 * face.areaPx2)) continue;
     const ownWalls = face.edgeWalls.flat().filter((id, i, all) => all.indexOf(id) === i && !taken.has(id));
     const parent = holders.find((r) => !r.parentRoomId);
     if (parent) {
-      // Inside a room: a closet only when its walls are all its own
-      if (face.edgeWalls.flat().some((id) => taken.has(id))) continue;
-      out.push({ boundary: face.boundary, wallIds: ownWalls, parentRoomId: parent.id, name: 'Closet', roomType: 'closet' });
+      // Inside a room, cut off by walls run to the room's walls: a piece of it
+      if (face.edgeWalls.flat().some((id) => taken.has(id))) {
+        if (!pieces.has(parent.id)) pieces.set(parent.id, []);
+        pieces.get(parent.id)!.push({ face, shower, ownWalls });
+        continue;
+      }
+      // Closed by walls of its own: a closet in it
+      out.push({
+        boundary: face.boundary, wallIds: ownWalls, parentRoomId: parent.id,
+        name: shower ? 'Shower' : 'Closet', roomType: shower ? 'shower' : 'closet',
+      });
       continue;
     }
     if (holders.length) continue;
@@ -262,7 +277,7 @@ export function roomsFromWalls(walls: BEWall[], rooms: BERoom[], pixelsPerFoot: 
       const p = r.boundary.length >= 3 ? pointInside(r.boundary) : null;
       return !!p && pointInPolygon(p, face.boundary);
     })) continue;
-    let name = hasBathroom ? 'Room' : 'Bathroom';
+    let name = !hasBathroom ? 'Bathroom' : shower ? 'Shower' : 'Room';
     if (name === 'Room') {
       for (let n = 2; names.has(name); n++) name = `Room ${n}`;
     }
@@ -273,9 +288,22 @@ export function roomsFromWalls(walls: BEWall[], rooms: BERoom[], pixelsPerFoot: 
       boundary: face.boundary,
       wallIds: oneEach ? face.edgeWalls.map((ids) => ids[0]) : ownWalls,
       name,
-      roomType: hasBathroom ? 'other' : 'bathroom',
+      roomType: !hasBathroom ? 'bathroom' : shower ? 'shower' : 'other',
     });
     hasBathroom = true;
   }
+
+  // A room cut into pieces: each is a room in it but the largest, the rest of
+  // the room (one without a shower: a shower room is its own however big)
+  pieces.forEach((list, parentId) => {
+    const rest = list.slice().sort((a, b) => Number(a.shower) - Number(b.shower) || b.face.areaPx2 - a.face.areaPx2)[0];
+    for (const piece of list) {
+      if (piece === rest) continue;
+      out.push({
+        boundary: piece.face.boundary, wallIds: piece.ownWalls, parentRoomId: parentId,
+        name: piece.shower ? 'Shower' : 'Closet', roomType: piece.shower ? 'shower' : 'closet',
+      });
+    }
+  });
   return out;
 }

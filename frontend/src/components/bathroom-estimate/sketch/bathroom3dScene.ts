@@ -13,7 +13,7 @@ import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN, SOFFIT_BOTTOM_IN } from '../..
 import { DEFAULT_BAR_BULBS, cabinetKind, lightKindOf } from '../fixtureRows';
 import { drainOf, faucetEdge, faucetOf, tubGlassPanelSide, type Edge } from './utils/plumbingPoints';
 import { getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './utils/beGeometry';
-import { subtractRects, type FaceRect } from './utils/wallFinish';
+import { openingDoorPosition, subtractRects, type FaceRect } from './utils/wallFinish';
 
 const COLORS = {
   ground: '#e9e6df',
@@ -229,6 +229,9 @@ function buildOpening(
     if (roomSide) add(boxAt(w + 4, 0.75, 3.5, m.trim, x0 + w / 2, y0 - 0.375, 1.25));
     return;
   }
+
+  // An opening with no door: its jambs and casing only
+  if (o.noSlab) return;
 
   // The door, open into the side its plan symbol swings to
   const hingeAtStart = flip ? !o.hingeAtStart : o.hingeAtStart;
@@ -664,11 +667,13 @@ function buildShower(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     const along = (t: number): Pt => [front[0][0] + (front[1][0] - front[0][0]) * t, front[0][1] + (front[1][1] - front[0][1]) * t];
     const frontLen = Math.hypot(front[1][0] - front[0][0], front[1][1] - front[0][1]);
     const neo = layout === 'neo_angle' || layout === 'neo_angle_right';
-    const position = showerDoorPosition(p);
-    const door: [number, number] = neo ? [0, 1] : showerDoorSpan(position, (p.showerDoorWidth ?? W * 0.5) / W);
+    // In a shower room the door hangs in the wall's opening, the wall the rest of the front
+    const opening = f.showerOpening ?? null;
+    const position = opening ? openingDoorPosition(opening) : showerDoorPosition(p);
+    const door: [number, number] = neo ? [0, 1] : opening ?? showerDoorSpan(position, (p.showerDoorWidth ?? W * 0.5) / W);
     const gap = 0.2 / frontLen;
     const glass: [number, number][] = [[door[0] + gap, door[1] - gap]];
-    if (!neo) {
+    if (!neo && !opening) {
       const panels = showerFrontPanels(p.fixedPanelConfig, door);
       glass.push(...panels);
       const returnMat = mat(kit.looks.showerTile.color, { roughness: kit.looks.showerTile.roughness });

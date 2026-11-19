@@ -193,6 +193,7 @@ function buildShowerShape(
   panelConfig: 'none' | 'left' | 'right' | 'both',
   doorRatio: number, // 0-1, door width as fraction of shower width
   doorPosition: ShowerDoorPosition,
+  openingSpan?: [number, number] | null,
 ): FixtureShape {
   // Neo-angle layouts use a dedicated builder
   if (layout === 'neo_angle' || layout === 'neo_angle_right') {
@@ -200,8 +201,9 @@ function buildShowerShape(
   }
 
   const paths: PathEntry[] = [];
-  const [doorStart, doorEnd] = showerDoorSpan(doorPosition, doorRatio);
-  const panels = showerFrontPanels(panelConfig, [doorStart, doorEnd]);
+  // In a shower room the door is the opening's, the wall either side its front
+  const [doorStart, doorEnd] = openingSpan ?? showerDoorSpan(doorPosition, doorRatio);
+  const panels = openingSpan ? [] : showerFrontPanels(panelConfig, [doorStart, doorEnd]);
   const hasLeft = panels.some(([s]) => s === 0);
   const hasRight = panels.some(([, e]) => e === 1);
 
@@ -528,6 +530,16 @@ const door: FixtureShape = {
   ],
 };
 
+/** An opening with no door in it: the wall broken between two jambs */
+const doorOpening: FixtureShape = {
+  label: 'Opening',
+  paths: [
+    { d: 'M0.02,1 L0.98,1', fill: N, stroke: '#ffffff', strokeWidth: 6 },
+    { d: 'M0,0.3 L0,1.7', fill: N, stroke: S, strokeWidth: 2.5 },
+    { d: 'M1,0.3 L1,1.7', fill: N, stroke: S, strokeWidth: 2.5 },
+  ],
+};
+
 // ── Window (plan view: wall opening) ──
 
 const windowShape: FixtureShape = {
@@ -661,6 +673,10 @@ function buildSoffit(bottomIn: number): FixtureShape {
 
 /** What a fixture's plan symbol needs beyond its type, sub-type and size */
 export interface FixtureShapeExtras {
+  /** A door with no slab: just its opening */
+  noSlab?: boolean;
+  /** A shower in its own room: its door's stretch of the front is the opening's, with no glass panels */
+  showerOpeningSpan?: [number, number] | null;
   /** Width over depth on the plan, to keep a vanity bar's lights round */
   aspect?: number;
   lightBulbs?: number;
@@ -705,6 +721,7 @@ export function getFixtureShape(
         fixedPanelConfig ?? 'none',
         showerDoorRatio ?? 0.5,
         showerDoorPosition ?? 'center',
+        extras.showerOpeningSpan,
       );
     case 'vanity':
       if (vanitySubType === 'pedestal_sink') return pedestalSink;
@@ -713,7 +730,7 @@ export function getFixtureShape(
     case 'toilet':
       return toilet;
     case 'door':
-      return door;
+      return extras.noSlab ? doorOpening : door;
     case 'window':
       return windowShape;
     case 'mirror':

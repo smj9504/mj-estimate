@@ -8,7 +8,7 @@
 
 import React, { useCallback, useContext } from 'react';
 import { Button, Input, InputNumber, Segmented, Select, Switch, Tooltip, message } from 'antd';
-import { ArrowLeftOutlined, DeleteOutlined, RotateRightOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, RotateRightOutlined } from '@ant-design/icons';
 import type {
   BathtubSubType,
   BEDamageZone,
@@ -49,6 +49,7 @@ import {
 import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
+import { DOOR_HEIGHT_IN, showerFrontOpening, wallOpeningsOf } from './utils/wallFinish';
 import BEWallFinishEditor from './BEWallFinishEditor';
 
 // ── Names ──
@@ -92,10 +93,14 @@ const ROOM_TYPES: { value: string; label: string; name: string }[] = [
   { value: 'closet', label: 'Closet', name: 'Closet' },
   { value: 'toilet_room', label: 'Toilet room', name: 'Toilet Room' },
   { value: 'linen_closet', label: 'Linen closet', name: 'Linen Closet' },
+  { value: 'shower', label: 'Shower', name: 'Shower' },
   { value: 'other', label: 'Other', name: 'Room' },
 ];
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** An opening's strip on the plan, inches deep: a wall's thickness, no door to swing */
+const OPENING_DEPTH_IN = 6;
 
 type PanelConfig = 'none' | 'left' | 'right' | 'both';
 
@@ -151,6 +156,7 @@ export function findSelection(data: BESketchStateAPI['data'], id: string | null)
 export function selectionTitle(sel: SketchSelection): string {
   switch (sel.kind) {
     case 'fixture':
+      if (sel.item.type === 'door' && sel.item.properties.noSlab) return 'Opening';
       return sel.item.type === 'light' && sel.item.properties.recessedParentId
         ? 'Recessed can'
         : FIXTURE_LABELS[sel.item.type];
@@ -513,6 +519,8 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     const doorMoves = glassDoor && !layout.startsWith('neo_angle') && doorWidth < fixture.dimensions.width;
     const doorPosition = doorMoves ? showerDoorPosition(p) : 'center';
     const panelConfig = p.fixedPanelConfig ?? 'none';
+    // In its own room: the door hangs in the wall's opening, the wall the rest of the front
+    const opening = showerFrontOpening(fixture, data.walls, data.fixtures, data.settings.pixelsPerFoot);
     const hasGlass = isCornerOrNeo
       || (!!p.showerDoorType && p.showerDoorType !== 'none' && p.showerDoorType !== 'curtain')
       || (p.fixedPanelConfig ?? 'none') !== 'none';
@@ -629,7 +637,15 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               ]}
             />
           </Field>
-          {glassDoor && (
+          {opening && (
+            <Field
+              label="Shower room"
+              hint={`Its front is the wall, with a ${Math.round(opening.widthIn)}" opening the door hangs in (on the plan). The wall is tiled inside, either side and round the opening.`}
+            >
+              <span className="bes-field-value">{Math.round(opening.widthIn)}" opening</span>
+            </Field>
+          )}
+          {glassDoor && !opening && (
             <Field label="Door width">
               <Num
                 label="Door width, inches"
@@ -641,7 +657,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               />
             </Field>
           )}
-          {doorMoves && (
+          {doorMoves && !opening && (
             <Field label="Door position" hint="Looking in from outside. A swing door hinges on the side it's against.">
               <Select
                 aria-label="Door position"
@@ -655,7 +671,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               />
             </Field>
           )}
-          <Field label="Fixed panel">
+          {!opening && <Field label="Fixed panel">
             <Select
               aria-label="Fixed glass panel"
               value={panelConfig}
@@ -667,7 +683,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
                 { value: 'both', label: 'Both sides', disabled: doorPosition !== 'center' },
               ]}
             />
-          </Field>
+          </Field>}
           {hasGlass && (
             <Field label="Height" hint="The glass, on the curb. The wall tile has its own height.">
               <Num
@@ -903,6 +919,92 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     );
   }
 
+  if (fixture.type === 'door') {
+    const ppf = data.settings.pixelsPerFoot;
+    const rad = ((fixture.rotation || 0) * Math.PI) / 180;
+    // Its box's long side on the wall is the opening; the box itself is a door's swing or an opening's strip
+    const wall = data.walls.find((w) => w.id === fixture.wallId)
+      ?? data.walls.find((w) => wallOpeningsOf(w, [fixture], ppf).length > 0);
+    const onWall = wall ? wallOpeningsOf(wall, [fixture], ppf)[0] : undefined;
+    const wallLen = wall ? Math.round((Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y) / ppf) * 12) : 0;
+    // Slab or no slab, its side on the wall stays put: the box grows or shrinks away from the wall
+    const setSlab = (slab: boolean) => {
+      const oldDepth = fixture.dimensions.height;
+      const newDepth = slab ? fixture.dimensions.width : OPENING_DEPTH_IN;
+      const shift = (((oldDepth - newDepth) / 2) / 12) * ppf;
+      updateFixture(fixture.id, {
+        dimensions: { ...fixture.dimensions, height: newDepth },
+        position: { x: fixture.position.x - Math.sin(rad) * shift, y: fixture.position.y + Math.cos(rad) * shift },
+        properties: { ...p, noSlab: !slab },
+      });
+    };
+    // Along its wall from its left end (its top end, for a wall up and down the
+    // plan) to the opening's near side, however the wall was drawn
+    const across = wall ? Math.abs(wall.end.x - wall.start.x) >= Math.abs(wall.end.y - wall.start.y) : true;
+    const fromStart = !wall || (across ? wall.start.x <= wall.end.x : wall.start.y <= wall.end.y);
+    const fromEnd = onWall ? (fromStart ? onWall.rect.x0 : wallLen - onWall.rect.x1) : 0;
+    const setFrom = (inches: number | null) => {
+      if (inches == null || !wall || !onWall) return;
+      const x0 = fromStart ? inches : wallLen - fixture.dimensions.width - inches;
+      const dIn = x0 - onWall.rect.x0;
+      const len = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y) || 1;
+      const ux = (wall.end.x - wall.start.x) / len;
+      const uy = (wall.end.y - wall.start.y) / len;
+      const dPx = (dIn / 12) * ppf;
+      updateFixture(fixture.id, { position: { x: fixture.position.x + ux * dPx, y: fixture.position.y + uy * dPx } });
+    };
+    return (
+      <>
+        <Field label="Width">
+          <Num
+            label="Opening width, inches"
+            value={fixture.dimensions.width}
+            min={12}
+            max={Math.max(12, wallLen || 120)}
+            unit="in"
+            onChange={(v) => v && updateFixture(fixture.id, {
+              dimensions: { width: v, height: p.noSlab ? fixture.dimensions.height : v },
+            })}
+          />
+        </Field>
+        <Field label="Height">
+          <Num
+            label="Opening height, inches"
+            value={p.openingHeightIn ?? DOOR_HEIGHT_IN}
+            min={24}
+            max={wall?.heightInches ?? 120}
+            unit="in"
+            onChange={(v) => v && setProps({ openingHeightIn: v })}
+          />
+        </Field>
+        {onWall && (
+          <Field
+            label={across ? 'From left' : 'From top'}
+            hint={`From the wall's ${across ? 'left' : 'top'} end to the opening. Or drag it along the wall.`}
+          >
+            <Num
+              label="Distance from the wall's end, inches"
+              value={Math.round(fromEnd)}
+              min={0}
+              max={Math.max(0, wallLen - fixture.dimensions.width)}
+              unit="in"
+              onChange={setFrom}
+            />
+          </Field>
+        )}
+        {!p.noSlab && rotation}
+        <Field
+          label="Door slab"
+          hint={p.noSlab
+            ? 'An opening with no door in it. A shower standing against it hangs its glass door here.'
+            : undefined}
+        >
+          <Switch aria-label="Door slab" checked={!p.noSlab} onChange={setSlab} />
+        </Field>
+      </>
+    );
+  }
+
   return (
     <>
       {size}
@@ -920,6 +1022,25 @@ const WallInspector: React.FC<{ wall: BEWall; api: BESketchStateAPI }> = ({ wall
   const lengthPx = Math.sqrt(dx * dx + dy * dy);
   const lengthIn = Math.round((lengthPx / ppf) * 12);
   const angle = Math.atan2(dy, dx);
+
+  // An opening cut in the middle of this wall, lying along it: its box on one side, its long side on the wall
+  const addOpening = () => {
+    const widthIn = Math.min(30, lengthIn - 2);
+    const hh = ((OPENING_DEPTH_IN / 12) * ppf) / 2;
+    const mid = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+    // Turned to read upright, however the wall was drawn
+    const turn = angle > Math.PI / 2 || angle <= -Math.PI / 2 ? angle + Math.PI : angle;
+    const id = api.addFixture(
+      'door',
+      { x: mid.x + Math.sin(turn) * hh, y: mid.y - Math.cos(turn) * hh },
+      undefined,
+      wall.id,
+      { noSlab: true, openingHeightIn: DOOR_HEIGHT_IN },
+      { width: widthIn, height: OPENING_DEPTH_IN },
+      (((turn * 180) / Math.PI) + 360) % 360,
+    );
+    api.setSelectedId(id);
+  };
 
   const setLength = (inches: number | null) => {
     if (!inches || inches < 1) return;
@@ -962,6 +1083,23 @@ const WallInspector: React.FC<{ wall: BEWall; api: BESketchStateAPI }> = ({ wall
         />
       </Field>
       <Fact label="Area">{round1((lengthIn / 12) * (wall.heightInches / 12))} SF</Fact>
+
+      <Group title="Openings">
+        {wallOpeningsOf(wall, api.data.fixtures.filter((f) => f.type === 'door'), ppf).map(({ rect, fixture: f }) => (
+          <button key={f.id} type="button" className="bes-row" onClick={() => api.setSelectedId(f.id)}>
+            <span className="bes-row-name">{f.properties.noSlab ? 'Opening' : 'Door'}</span>
+            <span className="bes-row-meta">{Math.round(rect.x1 - rect.x0)}" × {Math.round(rect.y1 - rect.y0)}"</span>
+          </button>
+        ))}
+        <Button
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={addOpening}
+          disabled={lengthIn < 14}
+        >
+          Opening
+        </Button>
+      </Group>
 
       <div className="bes-wall-finish">
         <BEWallFinishEditor

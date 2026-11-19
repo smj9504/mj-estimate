@@ -95,6 +95,23 @@ def _scale_dollar_amounts(text: str, factor: float) -> str:
     return _DOLLAR_RE.sub(_replace, text)
 
 
+# How deep a shower room's opening is, inches: a 2x4 wall with its backer
+# and finish both sides, tiled round on its jambs and head
+OPENING_RETURN_IN = 4.5
+
+
+def _shower_room_front_sf(shower_spec: Dict[str, Any], width_in: float, tile_h_in: float) -> float:
+    """A shower room's front wall tile (sketch: a shower against a wall with
+    an opening): inside either side of the opening, and round the opening"""
+    opening = _count(shower_spec.get("front_opening_in"))
+    if (not opening or not width_in or not tile_h_in
+            or shower_spec.get("layout") in ("neo_angle", "neo_angle_right")):
+        return 0.0
+    open_h = min(_count(shower_spec.get("front_opening_height_in")) or 80, tile_h_in)
+    front = max(0.0, width_in - opening) * tile_h_in / 144
+    returns = (2 * open_h + (opening if tile_h_in > open_h else 0)) * OPENING_RETURN_IN / 144
+    return front + returns
+
 # Legacy `shower_spec["enclosure"]` values → canonical door_type keys.
 # The old SHOWER_ENCLOSURE_PRICES lookup table was removed (§7-3): it was a
 # second, staler price list for selections SHOWER_DOOR_PRICES already covers,
@@ -251,6 +268,7 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
             _sd = _shower_spec_demo.get("depth_in", 0) or 36
             _sh = _shower_spec_demo.get("tile_height_in", 0) or 84
             _auto_wall_sf += (_sw + 2 * _sd) * _sh / 144
+            _auto_wall_sf += _shower_room_front_sf(_shower_spec_demo, _sw, _sh)
         if _auto_wall_tub:
             _tl = _tub_spec_demo.get("tub_length_in", 0) or 60
             _td = _tub_spec_demo.get("tub_depth_in", 0) or 32
@@ -300,7 +318,8 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                 _dsw = _shower_spec_demo.get("width_in", 0) or 36
                 _dsd = _shower_spec_demo.get("depth_in", 0) or 36
                 _dsh = _shower_spec_demo.get("tile_height_in", 0) or 84
-                _shower_demo_sf = round((_dsw + 2 * _dsd) * _dsh / 144, 1)
+                _shower_demo_sf = round((_dsw + 2 * _dsd) * _dsh / 144
+                                        + _shower_room_front_sf(_shower_spec_demo, _dsw, _dsh), 1)
                 _shower_tile_cost = round(_shower_demo_sf * DEMO_RATES["wall_tile_per_sf"] * labor_mult, 2)
                 demo_total += _shower_tile_cost
                 # Note: label added later when merged with shower unit tear-out
@@ -952,6 +971,7 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
     # prefab-wall + tiled-pan-floor combo is a normal, user-reachable one.
     tile_spec = shower_spec.get("tile_spec", {})
     _s_layout = shower_spec.get("layout", "alcove")
+    _s_front_note = None
     if _s_is_tile_shower and _s_wall_mat == "tile":
         shower_wall_sf = tile_spec.get("sf", 0)
         if not shower_wall_sf:
@@ -971,6 +991,17 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                 else:
                     shower_wall_sf = (
                         (sw + 2 * sd) * sh / 144)
+                # A shower room: its front is a wall with an opening the door
+                # hangs in, tiled inside either side of the opening and round it
+                # (the opening's jambs, and its head when the tile goes above it)
+                _s_open = _count(shower_spec.get("front_opening_in"))
+                if _s_open and _s_layout not in ("neo_angle", "neo_angle_right"):
+                    _s_open_h = min(_count(shower_spec.get("front_opening_height_in")) or 80, sh)
+                    _s_front_sf = max(0.0, sw - _s_open) * sh / 144
+                    _s_returns_sf = (2 * _s_open_h + (_s_open if sh > _s_open_h else 0)) * OPENING_RETURN_IN / 144
+                    shower_wall_sf += _s_front_sf + _s_returns_sf
+                    _s_front_note = (f"Incl. the front wall beside its {_s_open:g}\" opening {_s_front_sf:.1f} SF "
+                                     f"and the opening's returns {_s_returns_sf:.1f} SF")
         # Where the room's wall tile runs over the whole of a shower wall
         # (a wall tiled floor to ceiling), that wall is one tile: priced
         # with the wall tile below, not here
@@ -1003,6 +1034,8 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                 st_parts.append(f"Sealer: ${st_sealer_cost:,.2f}")
             if s_with_wall:
                 st_parts.append(f"Less {s_with_wall:.1f}SF tiled with the wall tile")
+            if _s_front_note:
+                st_parts.append(_s_front_note)
 
             _add(line_items, 4,
                  f"Shower wall tile complete - {st_name} ({stile_size}, {spattern})",

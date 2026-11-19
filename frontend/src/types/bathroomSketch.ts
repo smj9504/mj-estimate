@@ -146,7 +146,7 @@ export interface BEWall {
 // Room
 // =====================
 
-export type BERoomType = 'bathroom' | 'closet' | 'toilet_room' | 'linen_closet' | 'other';
+export type BERoomType = 'bathroom' | 'closet' | 'toilet_room' | 'linen_closet' | 'shower' | 'other';
 
 export interface BERoom {
   id: string;
@@ -311,6 +311,12 @@ export interface BEFixtureProperties {
   soffitBottom?: number;
 
   // --- Door/Window ---
+  /**
+   * A door's opening with no door in it: a cased opening, or the way into a
+   * shower room (a shower whose front stands against the wall, its glass door
+   * hung in the opening: utils/wallFinish showerFrontOpening).
+   */
+  noSlab?: boolean;
   swingDirection?: 'in' | 'out';
   handleSide?: 'left' | 'right';
 

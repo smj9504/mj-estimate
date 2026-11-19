@@ -31,7 +31,7 @@ import BEPlumbingMarks from './BEPlumbingMarks';
 import { hasPlumbing, takesTubGlassPanel, tubGlassPanelSide } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
-import { wallTileRegions } from './utils/wallFinish';
+import { showerFrontOpening, wallTileRegions } from './utils/wallFinish';
 import { snapToWalls } from './utils/wallSnap';
 import {
   buildPlanLabels,
@@ -2158,6 +2158,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               onRotate={(deg) => api.updateFixture(fix.id, { rotation: deg })}
               onPropsChange={(props) => api.updateFixtureProperties(fix.id, props)}
               glassPanelIn={takesTubGlassPanel(fix) ? tubGlassPanel?.widthIn : undefined}
+              showerOpening={fix.type === 'shower' ? showerFrontOpening(fix, walls, fixtures, ppf)?.span : undefined}
             />
           ))}
         </Layer>
@@ -2328,6 +2329,8 @@ interface FixtureNodeProps {
   onPropsChange: (props: Partial<BEFixture['properties']>) => void;
   /** A tub's fixed glass panel, its width in inches */
   glassPanelIn?: number;
+  /** A shower in its own room: the stretch of its front its door hangs in */
+  showerOpening?: [number, number];
 }
 
 const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
@@ -2346,6 +2349,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   onRotate,
   onPropsChange,
   glassPanelIn,
+  showerOpening,
 }) => {
   const trTargetRef = useRef<Konva.Rect>(null);
   const trRef = useRef<Konva.Transformer>(null);
@@ -2372,6 +2376,8 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       lightBulbs: fix.properties.lightBulbs,
       cabinetType: fix.properties.cabinetType,
       soffitBottom: fix.properties.soffitBottom,
+      noSlab: !!fix.properties.noSlab,
+      showerOpeningSpan: showerOpening ?? null,
     },
   );
   // Hung on a wall: sized along it only, its depth off the wall fixed

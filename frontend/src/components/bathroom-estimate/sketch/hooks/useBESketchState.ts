@@ -128,7 +128,7 @@ function measuredRoom(
  */
 function withWallRooms(d: BESketchData): BESketchData {
   const ppf = d.settings.pixelsPerFoot;
-  const found = roomsFromWalls(d.walls, d.rooms, ppf);
+  const found = roomsFromWalls(d.walls, d.rooms, ppf, d.fixtures);
   if (!found.length) return d;
   const made = found.map((f) => measuredRoom(f.boundary, f.wallIds, ppf, f.name, f.roomType, f.parentRoomId));
   return { ...d, rooms: recalcNetAreas([...d.rooms, ...made]) };
@@ -418,6 +418,7 @@ export function useBESketchState(initialData?: BESketchData) {
       wallId?: string,
       properties?: Partial<BEFixtureProperties>,
       overrideDimensions?: BEDimensions,
+      rotation = 0,
     ) => {
       const defaults = BE_FIXTURE_DEFAULTS[type];
       const fixture: BEFixture = {
@@ -425,7 +426,7 @@ export function useBESketchState(initialData?: BESketchData) {
         type,
         position,
         dimensions: overrideDimensions ? { ...overrideDimensions } : { ...defaults },
-        rotation: 0,
+        rotation,
         roomId,
         wallId,
         properties: properties ?? {},

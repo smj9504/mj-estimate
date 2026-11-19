@@ -28,7 +28,9 @@ import { cabinetsFromSketch, lightsFromSketch, type FixtureRow } from '../fixtur
 import { mirrorsFromSketch, type MirrorRow } from '../mirrorRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { showerDoorPosition } from './utils/beGeometry';
-import { roomWallFinishTotals } from './utils/wallFinish';
+import {
+  DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening,
+} from './utils/wallFinish';
 import { useBESketchState } from './hooks/useBESketchState';
 import BESketchToolbar, { MARK_TOOLS, type BESketchView } from './BESketchToolbar';
 import BESketchCanvas from './BESketchCanvas';
@@ -218,8 +220,10 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     let doorWindowDeductSF = 0;
     for (const fix of fixtures) {
       if (fix.type !== 'door' && fix.type !== 'window') continue;
+      // Its face in the wall: as wide as it is on the plan, as tall as its opening
+      // (the plan's depth is a door's swing or a window's strip, not its height)
       const fW = fix.dimensions.width / 12;  // ft
-      const fH = fix.dimensions.height / 12; // ft
+      const fH = (fix.properties.openingHeightIn ?? (fix.type === 'door' ? DOOR_HEIGHT_IN : WINDOW_HEIGHT_IN)) / 12;
       doorWindowDeductSF += fW * fH;
     }
     let totalWallSF = Math.max(0, grossWallSF - doorWindowDeductSF);
@@ -252,6 +256,9 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       } else {
         coveredWallSF += (sW + sD) * sTileH;
       }
+      // A shower room's front wall is tiled inside, either side of its opening
+      const front = showerFrontOpening(showerFix, walls, fixtures, ppf);
+      if (front) coveredWallSF += Math.max(0, sW - front.widthIn / 12) * sTileH;
     }
 
     // Bathtub: walls covered by surround (skip freestanding)
@@ -420,6 +427,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
 
   if (shower) {
     const p = shower.properties;
+    // In its own room: the door is the opening's, the wall either side its front
+    const opening = showerFrontOpening(shower, walls, fixtures, ppf);
     sync.shower_spec = {
       type: (p.showerWallCount ?? 3) > 0 ? 'custom_tile' : 'one_piece',
       width_in: shower.dimensions.width,
@@ -431,10 +440,13 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       bench_length: p.benchLength ?? 36,
       curb_height: p.curbHeight ?? 4,
       door_type: p.showerDoorType ?? 'none',
-      door_width_in: p.showerDoorWidth ?? Math.round(shower.dimensions.width * 0.5),
+      door_width_in: opening ? Math.round(opening.widthIn) : p.showerDoorWidth ?? Math.round(shower.dimensions.width * 0.5),
       door_height_in: p.showerDoorHeight ?? SHOWER_DOOR_HEIGHT_IN,
-      door_position: showerDoorPosition(p),
-      fixed_panel_config: p.fixedPanelConfig ?? 'none',
+      door_position: opening ? openingDoorPosition(opening.span) : showerDoorPosition(p),
+      fixed_panel_config: opening ? 'none' : p.fixedPanelConfig ?? 'none',
+      // A shower room's front wall: tiled inside either side of the opening, and its returns
+      front_opening_in: opening ? Math.round(opening.widthIn) : 0,
+      front_opening_height_in: opening ? Math.round(opening.heightIn) : 0,
       layout: p.showerLayout ?? 'alcove',
       wall_material: p.showerWallMaterial ?? 'tile',
       tiled_with_wall_sf: surroundInTile[shower.id] ?? 0,
