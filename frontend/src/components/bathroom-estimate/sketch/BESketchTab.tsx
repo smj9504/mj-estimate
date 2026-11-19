@@ -12,7 +12,7 @@
  *   />
  */
 
-import React, { useState, useRef, useCallback, useEffect, Suspense } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, Suspense } from 'react';
 import { Button, Dropdown, Segmented, message, Spin, Tooltip, Grid, Drawer } from 'antd';
 import {
   CheckOutlined,
@@ -33,6 +33,8 @@ import { useBESketchState } from './hooks/useBESketchState';
 import BESketchToolbar, { MARK_TOOLS, type BESketchView } from './BESketchToolbar';
 import BESketchCanvas from './BESketchCanvas';
 import BESketchSidebar from './BESketchSidebar';
+import { tubGlassPanelOf } from './bathroom3dModel';
+import { SketchEstimateContext } from './sketchEstimateContext';
 import BELayoutPicker from './BELayoutPicker';
 import { findSelection, selectionTitle } from './BESketchInspector';
 import { bathroomEstimateService } from '../../../services/bathroomEstimateService';
@@ -601,6 +603,10 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   baselineName,
   reloadKey = 0,
 }) => {
+  // The estimate's tub glass panel, placed on the plan
+  const tubGlassPanel = useMemo(() => tubGlassPanelOf(estimateData), [estimateData]);
+  const sketchEstimate = useMemo(() => ({ tubGlassPanel }), [tubGlassPanel]);
+
   const api = useBESketchState();
   const lastLoadedRef = useRef<string | null>(null);
 
@@ -893,6 +899,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           <BESketchCanvas
             api={api} width={canvasSize.width} height={canvasSize.height} stageRef={stageRef} onZoomChange={setZoomLevel}
             zoom={zoomLevel} baseline={baselineSketch} baselineName={baselineName}
+            tubGlassPanel={tubGlassPanel}
           />
 
           {hint && (
@@ -994,7 +1001,9 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
 
         {/* Desktop: the panel beside the canvas */}
         {!isMobile && !sidebarCollapsed && (
-          <BESketchSidebar api={api} width={PANEL_WIDTH} />
+          <SketchEstimateContext.Provider value={sketchEstimate}>
+            <BESketchSidebar api={api} width={PANEL_WIDTH} />
+          </SketchEstimateContext.Provider>
         )}
       </div>
 
@@ -1008,7 +1017,9 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           height="70vh"
           styles={{ body: { padding: 0 } }}
         >
-          <BESketchSidebar api={api} width="100%" sheet />
+          <SketchEstimateContext.Provider value={sketchEstimate}>
+            <BESketchSidebar api={api} width="100%" sheet />
+          </SketchEstimateContext.Provider>
         </Drawer>
       )}
     </div>

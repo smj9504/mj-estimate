@@ -92,6 +92,25 @@ export function faucetEdge(f: BEFixture, pt: Pt01 = faucetOf(f)): Edge | null {
   return null;
 }
 
+/** A tub with an open side a fixed glass panel can stand on */
+export function takesTubGlassPanel(f: BEFixture): boolean {
+  const sub = f.properties.bathtubSubType ?? 'standard_alcove';
+  return f.type === 'bathtub' && (sub === 'standard_alcove' || sub === 'drop_in');
+}
+
+/**
+ * The end of a tub's open side its glass panel stands at, looking in from
+ * the room: as set on the plan, else its faucet's end (where the 3D view
+ * always stood it).
+ */
+export function tubGlassPanelSide(f: BEFixture): 'left' | 'right' {
+  const set = f.properties.glassPanelSide;
+  if (set === 'left' || set === 'right') return set;
+  const fp = faucetOf(f);
+  const edge = faucetEdge(f, fp);
+  return edge === 'west' || (edge !== 'east' && fp.x <= 0.5) ? 'left' : 'right';
+}
+
 export function clampDrain(pt: Pt01): Pt01 {
   return { x: clamp(pt.x, DRAIN_MARGIN, 1 - DRAIN_MARGIN), y: clamp(pt.y, DRAIN_MARGIN, 1 - DRAIN_MARGIN) };
 }

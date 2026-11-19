@@ -203,6 +203,18 @@ const look = (material: string, widthIn: number, heightIn: number, pattern: stri
   material, widthIn, heightIn, pattern, color, grout, roughness: TILE_ROUGHNESS[material] ?? 0.4,
 });
 
+/**
+ * The tub's fixed glass panel on the estimate (bathtub_spec glass_panel_*),
+ * inches: detached and reset or new, it stands there after the job (the size
+ * the backend prices when blank). Null without one.
+ */
+export function tubGlassPanelOf(estimate?: Record<string, any> | null): { widthIn: number; heightIn: number } | null {
+  const tub = estimate?.bathtub_spec || {};
+  return tub.glass_panel_action === 'detach_reset' || tub.glass_panel_action === 'replace'
+    ? { widthIn: Number(tub.glass_panel_width_in) || 30, heightIn: Number(tub.glass_panel_height_in) || 58 }
+    : null;
+}
+
 export const DEFAULT_LOOKS: BathroomLooks = {
   paint: '#efebe3',
   floor: look('porcelain', 24, 12, 'straight', '#cfcac0', '#a9a398'),
@@ -313,10 +325,7 @@ export function bathroomLooks(sketch: BESketchData, estimate?: Record<string, an
       || (!sketch.fixtures.some((f) => f.type === 'shower')
         && sketch.fixtures.some((f) => f.type === 'bathtub' && f.properties.bathtubSubType !== 'freestanding'
           && f.properties.hasSurround !== false && (f.properties.surroundHeight ?? 60) >= 60)),
-    // Detached and reset or new, it stands there after the job (the size the backend prices when blank)
-    tubGlassPanel: tub.glass_panel_action === 'detach_reset' || tub.glass_panel_action === 'replace'
-      ? { widthIn: Number(tub.glass_panel_width_in) || 30, heightIn: Number(tub.glass_panel_height_in) || 58 }
-      : null,
+    tubGlassPanel: tubGlassPanelOf(estimate),
     tubGlassDoors: tub.glass_door_action === 'detach_reset' || tub.glass_door_action === 'replace'
       ? {
         heightIn: (tub.glass_door_frameless && Number(tub.glass_door_height_in)) || 58,

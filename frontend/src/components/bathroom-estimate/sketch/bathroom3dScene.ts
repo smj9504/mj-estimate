@@ -11,7 +11,7 @@ import type { BathroomLooks, BathroomModel, FixtureSolid, Pt, TileLook, WallOpen
 import type { TileTextureCache } from './bathroom3dTextures';
 import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN, SOFFIT_BOTTOM_IN } from '../../../types/bathroomSketch';
 import { DEFAULT_BAR_BULBS, cabinetKind, lightKindOf } from '../fixtureRows';
-import { drainOf, faucetEdge, faucetOf, type Edge } from './utils/plumbingPoints';
+import { drainOf, faucetEdge, faucetOf, tubGlassPanelSide, type Edge } from './utils/plumbingPoints';
 import { getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './utils/beGeometry';
 import { subtractRects, type FaceRect } from './utils/wallFinish';
 
@@ -554,11 +554,12 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     g.add(rod);
   }
 
-  // A fixed glass panel standing on the front rim from the faucet's end, in its channel
+  // A fixed glass panel standing on the front rim from the end set on the plan
+  // (the faucet's, unset), in its channel
   const glassPanel = kit.looks.tubGlassPanel;
   if (glassPanel && (sub === 'standard_alcove' || sub === 'drop_in')) {
     const span = Math.min(1, glassPanel.widthIn / W);
-    const fromLeft = edge === 'west' || (edge !== 'east' && fp.x <= 0.5);
+    const fromLeft = tubGlassPanelSide(f.fixture) === 'left';
     const [a, b] = fromLeft ? [local(0, 1), local(span, 1)] : [local(1 - span, 1), local(1, 1)];
     const top = Math.min(f.ceilingIn, rim + glassPanel.heightIn);
     const inset: Pt = [0, -1.5];

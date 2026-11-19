@@ -9,6 +9,8 @@ import {
   onPlan,
   presetOf,
   snapFaucet,
+  takesTubGlassPanel,
+  tubGlassPanelSide,
 } from './plumbingPoints';
 
 // The same cases as backend tests/test_bathroom_plumbing_points.py: both sides read a sketch alike
@@ -64,5 +66,22 @@ describe('faucet and drain points', () => {
     expect(presetOf(drainPresets(dragged), drainOf(dragged), false)).toBe('custom');
     // A corner shower glassed on the right offers the back and left walls
     expect(faucetPresets(shower({ showerLayout: 'corner' })).map((p) => p.value)).toEqual(['north', 'west']);
+  });
+});
+
+describe("a tub's glass panel", () => {
+  it("stands at the faucet's end until set on the plan", () => {
+    expect(tubGlassPanelSide(tub())).toBe('left');
+    expect(tubGlassPanelSide(tub({ faucetPos: { x: 1, y: 0.5 } }))).toBe('right');
+    expect(tubGlassPanelSide(tub({ faucetPos: { x: 0.8, y: 0 } }))).toBe('right');
+    expect(tubGlassPanelSide(tub({ glassPanelSide: 'right' }))).toBe('right');
+    expect(tubGlassPanelSide(tub({ faucetPos: { x: 1, y: 0.5 }, glassPanelSide: 'left' }))).toBe('left');
+  });
+
+  it('goes on a tub with an open side only', () => {
+    expect(takesTubGlassPanel(tub())).toBe(true);
+    expect(takesTubGlassPanel(tub({ bathtubSubType: 'drop_in' }))).toBe(true);
+    expect(takesTubGlassPanel(tub({ bathtubSubType: 'freestanding' }))).toBe(false);
+    expect(takesTubGlassPanel(shower())).toBe(false);
   });
 });

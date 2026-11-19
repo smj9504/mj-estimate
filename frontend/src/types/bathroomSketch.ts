@@ -218,6 +218,12 @@ export interface BEFixtureProperties {
    * trigger the "replace the valve while the wall is open" line item.
    */
   hasFaucet?: boolean;
+  /**
+   * The end of the tub's open side its fixed glass panel stands at, looking
+   * in from the room (the estimate's Bathtub Glass Panel: its size and D&R or
+   * R&R). Unset: the faucet's end. See utils/plumbingPoints tubGlassPanelSide.
+   */
+  glassPanelSide?: 'left' | 'right';
 
   // --- Shower ---
   showerFloorType?: ShowerFloorType;

@@ -6,8 +6,8 @@
  * the work is (surround, deck, walls, bench, glass).
  */
 
-import React, { useCallback } from 'react';
-import { Button, Input, InputNumber, Select, Switch, Tooltip, message } from 'antd';
+import React, { useCallback, useContext } from 'react';
+import { Button, Input, InputNumber, Segmented, Select, Switch, Tooltip, message } from 'antd';
 import { ArrowLeftOutlined, DeleteOutlined, RotateRightOutlined } from '@ant-design/icons';
 import type {
   BathtubSubType,
@@ -43,7 +43,10 @@ import {
   faucetOf,
   faucetPresets,
   presetOf,
+  takesTubGlassPanel,
+  tubGlassPanelSide,
 } from './utils/plumbingPoints';
+import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
 import BEWallFinishEditor from './BEWallFinishEditor';
@@ -301,6 +304,31 @@ const PlumbingFields: React.FC<{ fixture: BEFixture; setProps: (p: Partial<BEFix
   );
 };
 
+// ── A tub's fixed glass panel: where it stands; its size and D&R / R&R are on the estimate ──
+
+const TubGlassPanelFields: React.FC<{ fixture: BEFixture; setProps: (p: Partial<BEFixture['properties']>) => void }> = ({ fixture, setProps }) => {
+  const { tubGlassPanel } = useContext(SketchEstimateContext);
+  return (
+    <Group title="Glass panel">
+      {tubGlassPanel ? (
+        <Field
+          label="Fixed at"
+          hint={`${tubGlassPanel.widthIn}" wide. Or click the glass on the plan. Its size, D&R or R&R: Shower & Tub \u2192 Bathtub.`}
+        >
+          <Segmented
+            aria-label="Glass panel end"
+            value={tubGlassPanelSide(fixture)}
+            onChange={(v) => setProps({ glassPanelSide: v as 'left' | 'right' })}
+            options={[{ value: 'left', label: 'Left end' }, { value: 'right', label: 'Right end' }]}
+          />
+        </Field>
+      ) : (
+        <div className="bes-field-hint">None on the estimate. Add one under Shower & Tub {'\u2192'} Bathtub {'\u2192'} Glass Panel.</div>
+      )}
+    </Group>
+  );
+};
+
 // ── Fixture ──
 
 const TUB_TYPES: { value: BathtubSubType; label: string }[] = [
@@ -413,6 +441,8 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         {rotation}
 
         <PlumbingFields fixture={fixture} setProps={setProps} />
+
+        {takesTubGlassPanel(fixture) && <TubGlassPanelFields fixture={fixture} setProps={setProps} />}
 
         <Group title="Surround">
           <Field label="Tile">

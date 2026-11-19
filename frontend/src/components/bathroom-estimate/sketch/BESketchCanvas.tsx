@@ -28,7 +28,7 @@ import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
 import { isWallLight } from '../fixtureRows';
 import BEPlumbingMarks from './BEPlumbingMarks';
-import { hasPlumbing } from './utils/plumbingPoints';
+import { hasPlumbing, takesTubGlassPanel, tubGlassPanelSide } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
 import { wallTileRegions } from './utils/wallFinish';
@@ -53,6 +53,8 @@ interface BESketchCanvasProps {
   /** For an option: the bathroom as it is (the restoration, or a remodel's current layout), drawn faintly under it. */
   baseline?: BESketchData | null;
   baselineName?: string;
+  /** The tub's fixed glass panel on the estimate, inches: drawn on the tub's front at its end */
+  tubGlassPanel?: { widthIn: number; heightIn: number } | null;
 }
 
 // ── Helpers ──
@@ -322,7 +324,7 @@ const centroidOf = (pts: BEPoint[]): BEPoint => ({
 
 // ── Component ──
 
-const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, stageRef: externalStageRef, onZoomChange, zoom = 1, baseline, baselineName }) => {
+const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, stageRef: externalStageRef, onZoomChange, zoom = 1, baseline, baselineName, tubGlassPanel }) => {
   const internalStageRef = useRef<Konva.Stage>(null);
   const stageRef = externalStageRef ?? internalStageRef;
   const {
@@ -2155,6 +2157,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               onResize={(w, h) => api.updateFixture(fix.id, { dimensions: { width: w, height: h } })}
               onRotate={(deg) => api.updateFixture(fix.id, { rotation: deg })}
               onPropsChange={(props) => api.updateFixtureProperties(fix.id, props)}
+              glassPanelIn={takesTubGlassPanel(fix) ? tubGlassPanel?.widthIn : undefined}
             />
           ))}
         </Layer>
@@ -2323,6 +2326,8 @@ interface FixtureNodeProps {
   onRotate: (degrees: number) => void;
   /** A tub's or shower's faucet or drain dragged */
   onPropsChange: (props: Partial<BEFixture['properties']>) => void;
+  /** A tub's fixed glass panel, its width in inches */
+  glassPanelIn?: number;
 }
 
 const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
@@ -2340,6 +2345,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   onResize,
   onRotate,
   onPropsChange,
+  glassPanelIn,
 }) => {
   const trTargetRef = useRef<Konva.Rect>(null);
   const trRef = useRef<Konva.Transformer>(null);
@@ -2435,6 +2441,38 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
           listening={false}
         />
       ))}
+
+      {/* A tub's fixed glass panel on its open side, from the end it's fixed at;
+          selected, a click moves it to the other end */}
+      {glassPanelIn ? (() => {
+        const span = Math.min(wPx, (glassPanelIn / 12) * ppf);
+        const left = tubGlassPanelSide(fix) === 'left';
+        const x0 = left ? -wPx / 2 : wPx / 2 - span;
+        const y = hPx / 2 - 2;
+        const editable = isSelected && isDraggable;
+        return (
+          <Line
+            name="tub-glass-panel"
+            points={[x0, y, x0 + span, y]}
+            stroke="#1e88e5"
+            strokeWidth={4}
+            lineCap="round"
+            opacity={0.85}
+            hitStrokeWidth={14}
+            listening={editable}
+            onClick={(e) => {
+              e.cancelBubble = true;
+              onPropsChange({ glassPanelSide: left ? 'right' : 'left' });
+            }}
+            onTap={(e) => {
+              e.cancelBubble = true;
+              onPropsChange({ glassPanelSide: left ? 'right' : 'left' });
+            }}
+            onMouseEnter={(e) => { const c = e.target.getStage()?.container(); if (c) c.style.cursor = 'pointer'; }}
+            onMouseLeave={(e) => { const c = e.target.getStage()?.container(); if (c) c.style.cursor = ''; }}
+          />
+        );
+      })() : null}
 
       {hasPlumbing(fix) && (
         <BEPlumbingMarks
