@@ -364,8 +364,9 @@
           <th style="width:50%;">Description</th>
           <th class="right" style="width:10%;">Qty</th>
           <th class="right" style="width:8%;">Unit</th>
-          <th class="right" style="width:16%;">Rate</th>
-          <th class="right" style="width:16%;">Amount</th>
+          {# A lump-sum section is priced only by its subtotal: no rate or amount per item #}
+          <th class="right" style="width:16%;">{% if not section.isLumpSum %}Rate{% endif %}</th>
+          <th class="right" style="width:16%;">{% if not section.isLumpSum %}Amount{% endif %}</th>
           {% endif %}
         </tr>
       </thead>
@@ -377,8 +378,8 @@
           {% if not is_lump_sum_document %}
           <td class="right">{{ item.quantity|format_quantity }}</td>
           <td class="right">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</td>
-          <td class="right">{{ item.rate|format_currency }}</td>
-          <td class="right">{{ (item.quantity * item.rate)|format_currency }}</td>
+          <td class="right">{% if not section.isLumpSum %}{{ item.rate|format_currency }}{% endif %}</td>
+          <td class="right">{% if not section.isLumpSum %}{{ (item.quantity * item.rate)|format_currency }}{% endif %}</td>
           {% endif %}
         </tr>
         {% if item.note %}

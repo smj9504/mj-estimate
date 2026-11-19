@@ -1465,7 +1465,9 @@ print(os.path.getsize(output_path))
                     'title': section.get('title', ''),
                     'items': processed_items,
                     'subtotal': section_subtotal,
-                    'showSubtotal': section.get('showSubtotal', True)
+                    'showSubtotal': section.get('showSubtotal', True),
+                    # The template leaves a lump-sum section's item prices blank
+                    'isLumpSum': is_lump_sum,
                 }
                 processed_sections.append(processed_section)
                 total_subtotal += section_subtotal

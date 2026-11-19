@@ -288,8 +288,9 @@
         {% if not is_lump_sum_document %}
         <div class="col-qty">Qty</div>
         <div class="col-unit">Unit</div>
-        <div class="col-price">Price</div>
-        <div class="col-total">Total</div>
+        {# A lump-sum section is priced only by its subtotal: no price or total per item #}
+        <div class="col-price">{% if not section.isLumpSum %}Price{% endif %}</div>
+        <div class="col-total">{% if not section.isLumpSum %}Total{% endif %}</div>
         {% endif %}
     </div>
 
@@ -301,8 +302,8 @@
       {% if not is_lump_sum_document %}
       <div class="col-qty">{{ item.quantity or 0 }}</div>
       <div class="col-unit">{{ item.unit or 'EA' }}</div>
-      <div class="col-price">{{ (item.rate or 0)|format_currency }}</div>
-      <div class="col-total">{{ ((item.quantity or 0) * (item.rate or 0))|format_currency }}</div>
+      <div class="col-price">{% if not section.isLumpSum %}{{ (item.rate or 0)|format_currency }}{% endif %}</div>
+      <div class="col-total">{% if not section.isLumpSum %}{{ ((item.quantity or 0) * (item.rate or 0))|format_currency }}{% endif %}</div>
       {% endif %}
     </div>
 
