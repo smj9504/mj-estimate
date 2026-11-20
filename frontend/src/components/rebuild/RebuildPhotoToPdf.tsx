@@ -1,7 +1,14 @@
 /**
- * Photos to PDF: one photo per page, in the order listed. Photos come from
+ * Photos to PDF, in the order listed: completion photos two to a page, other
+ * kinds (a photo of a paper COC, invoice...) one. Every page carries the
+ * property's address at the top, and the file is named by it. Photos come from
  * this device or from the client (the claim's photo sets, CompanyCam imports
  * included); the server reads the client's photos where they are stored.
+ *
+ * While the document is Completion Photos, a photo uploaded here is saved to
+ * the client's Completion photos as it is added (the client page shows it), and
+ * the PDF takes that copy. Other kinds - a photo of a paper COC or invoice -
+ * stay in their PDF only.
  */
 
 import React, { useCallback, useState } from 'react';
@@ -10,9 +17,11 @@ import {
 } from 'antd';
 import {
   UploadOutlined, RotateRightOutlined, DeleteOutlined, ArrowUpOutlined,
-  ArrowDownOutlined, FilePdfOutlined, PictureOutlined,
+  ArrowDownOutlined, FilePdfOutlined, PictureOutlined, LoadingOutlined,
 } from '@ant-design/icons';
+import { useQueryClient } from '@tanstack/react-query';
 import { rebuildService } from '../../services/rebuildService';
+import { fileService } from '../../services/fileService';
 import { useSheetModal } from '../common/ui';
 import RebuildClaimPhotoPicker, { type ClaimPhotoPick } from './RebuildClaimPhotoPicker';
 import type { RebuildProject, RebuildCompletionDoc } from '../../types/rebuild';
@@ -34,7 +43,8 @@ type PhotoItem = {
   origin: string;
   rotation: number; // 0, 90, 180, 270
 } & (
-  | { kind: 'upload'; file: File }
+  // saving: on its way to the client's Completion photos
+  | { kind: 'upload'; file: File; saving?: boolean }
   | { kind: 'claim'; source: ClaimPhotoPick['source']; id: string }
 );
 
@@ -51,9 +61,25 @@ const DOC_TYPE_OPTIONS = [
 /** The server's limit for one PDF */
 const MAX_PHOTOS = 100;
 
+/** As the server lays them out (RebuildService.PHOTOS_PER_PAGE); other kinds one */
+const PHOTOS_PER_PAGE: Record<string, number> = { completion_photo: 2 };
+
+const plural = (n: number, word: string) => `${n} ${word}${n !== 1 ? 's' : ''}`;
+
+/** The document kind whose uploads go to the client's photos, and their category there */
+const SAVES_TO_CLIENT = 'completion_photo';
+const CLIENT_PHOTO_CATEGORY = 'completion';
+/** Photos sent to the client at once */
+const SAVE_CONCURRENCY = 3;
+
+const revokePreview = (p: PhotoItem) => {
+  if (p.preview.startsWith('blob:')) URL.revokeObjectURL(p.preview);
+};
+
 let idCounter = 0;
 
 const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess }) => {
+  const queryClient = useQueryClient();
   const { isPhone, sheetProps } = useSheetModal();
   // Touch gets 40px fields and photo actions
   const ctlSize = isPhone ? 'large' : 'middle';
@@ -62,31 +88,81 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
   const [title, setTitle] = useState('Completion Photos');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const savesToClient = docType === SAVES_TO_CLIENT;
 
   const handleClose = () => {
-    photos.forEach(p => { if (p.kind === 'upload') URL.revokeObjectURL(p.preview); });
+    // A photo still on its way to the client gets there all the same
+    photos.forEach(revokePreview);
     setPhotos([]);
     setDocType('completion_photo');
     setTitle('Completion Photos');
     onClose();
   };
 
+  /** Uploads go to the client's Completion photos; each, once there, is a claim photo of the list */
+  const saveToClient = useCallback(async (items: Array<{ key: string; file: File }>) => {
+    const queue = [...items];
+    let saved = 0;
+    let failed = 0;
+    const worker = async () => {
+      for (let item = queue.shift(); item; item = queue.shift()) {
+        const { key, file } = item;
+        try {
+          const [stored] = await fileService.uploadFiles([file], 'claim', project.claim_id, CLIENT_PHOTO_CATEGORY);
+          saved++;
+          setPhotos(prev => prev.map(p => {
+            if (p.key !== key) return p;
+            // Chrome can't draw an iPhone's HEIC; the server keeps it as a JPEG
+            const heic = /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+            if (heic) revokePreview(p);
+            return {
+              kind: 'claim', key, source: 'claim', id: stored.id,
+              name: p.name,
+              preview: heic ? fileService.getPreviewUrl(stored.id) : p.preview,
+              origin: "Uploaded · on the client's Completion photos",
+              rotation: p.rotation,
+            };
+          }));
+        } catch {
+          failed++;
+          // Still in this PDF, from this device
+          setPhotos(prev => prev.map(p => (p.key === key && p.kind === 'upload'
+            ? { ...p, saving: false, origin: 'From this device · not saved to the client' }
+            : p)));
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(SAVE_CONCURRENCY, items.length) }, worker));
+    if (saved) {
+      // The client page and the photo picker show them without a reload
+      queryClient.invalidateQueries({ queryKey: ['files-infinite', 'claim', project.claim_id] });
+      queryClient.invalidateQueries({ queryKey: ['files', 'claim', project.claim_id] });
+    }
+    if (failed) {
+      message.error(`${plural(failed, 'photo')} could not be saved to the client. They stay in this PDF only.`);
+    } else if (saved) {
+      message.success(`${plural(saved, 'photo')} saved to the client's Completion photos`);
+    }
+  }, [project.claim_id, queryClient]);
+
   const handleFilesAdd = useCallback((fileList: FileList | File[]) => {
-    const added: PhotoItem[] = [];
+    const added: Array<PhotoItem & { kind: 'upload' }> = [];
     for (const file of Array.from(fileList)) {
-      if (!file.type.startsWith('image/')) continue;
+      if (!file.type.startsWith('image/') && !/\.hei[cf]$/i.test(file.name)) continue;
       added.push({
         kind: 'upload',
         key: `upload_${++idCounter}`,
         file,
         name: file.name,
         preview: URL.createObjectURL(file),
-        origin: 'From this device',
+        origin: savesToClient ? "Saving to the client's Completion photos…" : 'From this device',
         rotation: 0,
+        saving: savesToClient,
       });
     }
     setPhotos(prev => [...prev, ...added]);
-  }, []);
+    if (savesToClient && added.length) saveToClient(added);
+  }, [savesToClient, saveToClient]);
 
   const addClaimPhotos = (picks: ClaimPhotoPick[]) => {
     // A photo already on the list stays where it is
@@ -113,10 +189,11 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
     setPhotos(prev => prev.map(p => (p.key === key ? { ...p, rotation: (p.rotation + 90) % 360 } : p)));
   };
 
+  // Out of this PDF only: a photo saved to the client stays there
   const removePhoto = (key: string) => {
     setPhotos(prev => {
       const removed = prev.find(p => p.key === key);
-      if (removed?.kind === 'upload') URL.revokeObjectURL(removed.preview);
+      if (removed) revokePreview(removed);
       return prev.filter(p => p.key !== key);
     });
   };
@@ -133,6 +210,7 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
   };
 
   const tooMany = photos.length > MAX_PHOTOS;
+  const saving = photos.some(p => p.kind === 'upload' && p.saving);
 
   const handleGenerate = async () => {
     if (photos.length === 0) {
@@ -170,7 +248,7 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
     }
   };
 
-  const pageCount = `${photos.length} page${photos.length !== 1 ? 's' : ''}`;
+  const pageCount = plural(Math.ceil(photos.length / (PHOTOS_PER_PAGE[docType] ?? 1)), 'page');
 
   return (
     <>
@@ -187,10 +265,10 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
               type="primary"
               icon={<FilePdfOutlined />}
               loading={generating}
-              disabled={photos.length === 0 || tooMany}
+              disabled={photos.length === 0 || tooMany || saving}
               onClick={handleGenerate}
             >
-              {photos.length ? `Generate PDF (${pageCount})` : 'Generate PDF'}
+              {saving ? 'Saving photos…' : photos.length ? `Generate PDF (${pageCount})` : 'Generate PDF'}
             </Button>
           </>
         }
@@ -227,7 +305,7 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
               </span>
             </button>
             <Upload.Dragger
-              accept="image/*"
+              accept="image/*,.heic,.heif"
               multiple
               showUploadList={false}
               beforeUpload={(file, fileList) => {
@@ -243,7 +321,9 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
                 <UploadOutlined className="rb-photo-source-icon" aria-hidden="true" />
                 <span className="rb-photo-source-text">
                   <span className="rb-photo-source-title">{isPhone ? 'Add from this phone' : 'Upload from this computer'}</span>
-                  <span className="rb-photo-source-meta">{isPhone ? 'Camera roll or files' : 'Click, or drop photos here'}</span>
+                  <span className="rb-photo-source-meta">
+                    {savesToClient ? "Also saved to the client's Completion photos" : 'Used in this PDF only'}
+                  </span>
                 </span>
               </span>
             </Upload.Dragger>
@@ -252,8 +332,8 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
           {photos.length > 0 && (
             <div className="rb-photo-pages">
               <div className="rb-photo-pages-head">
-                <span>Pages, in order</span>
-                <span className="rb-num">{pageCount}</span>
+                <span>Photos, in order</span>
+                <span className="rb-num">{plural(photos.length, 'photo')} · {pageCount}</span>
               </div>
               {tooMany && (
                 <p className="rb-photo-warn" role="alert">
@@ -276,6 +356,7 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
                     <div className="rb-photo-text">
                       <Text ellipsis className="rb-photo-name">{item.name}</Text>
                       <span className="rb-photo-meta">
+                        {item.kind === 'upload' && item.saving && <><LoadingOutlined aria-hidden="true" /> </>}
                         {item.origin}
                         {item.rotation > 0 && ` · Rotated ${item.rotation}°`}
                       </span>

@@ -460,7 +460,6 @@ def serve_completion_doc_pdf(project_id: str, doc_id: str):
     No staff check: the frontend opens this URL directly (no auth header).
     """
     from pathlib import Path
-    from starlette.responses import Response
 
     service = _get_service()
     docs = service.get_completion_docs(project_id)
@@ -475,14 +474,12 @@ def serve_completion_doc_pdf(project_id: str, doc_id: str):
     # Try cloud storage
     if not file_url.startswith('/uploads/'):
         try:
+            from app.domains.client.document_files import inline_response
             from app.domains.storage.factory import StorageFactory
             storage = StorageFactory.get_instance()
             pdf_bytes = storage.download(file_url)
-            return Response(
-                content=pdf_bytes,
-                media_type="application/pdf",
-                headers={"Content-Disposition": f'inline; filename="{doc.get("file_name", "document.pdf")}"'}
-            )
+            # Saved from the viewer under its name, address and all
+            return inline_response(pdf_bytes, doc.get("file_name") or "document.pdf", "application/pdf")
         except Exception:
             pass
 
@@ -491,6 +488,9 @@ def serve_completion_doc_pdf(project_id: str, doc_id: str):
     local_path = backend_dir / file_url.lstrip('/')
     if local_path.exists():
         from starlette.responses import FileResponse
-        return FileResponse(path=str(local_path), media_type="application/pdf")
+        return FileResponse(
+            path=str(local_path), media_type="application/pdf",
+            filename=doc.get("file_name") or "document.pdf", content_disposition_type="inline",
+        )
 
     raise HTTPException(status_code=404, detail="PDF file not found")

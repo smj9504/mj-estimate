@@ -54,6 +54,7 @@ def db(monkeypatch, tmp_path):
 
     def fake_upload(file_bytes, filename, **kw):
         saved['pdf'] = file_bytes
+        saved['filename'] = filename
         return {'file_url': f'local/{filename}', 'file_path': filename}
     monkeypatch.setattr('app.common.utils.storage_helpers.upload_bytes_to_storage', fake_upload)
 
@@ -76,10 +77,11 @@ def jpeg(size, color='red', orientation=None) -> bytes:
     return out.getvalue()
 
 
-def make_project(s):
-    client = Client(id=uuid.uuid4(), display_name='Pat Homeowner', owners=[])
+def make_project(s, property_address=None, **client_address):
+    client = Client(id=uuid.uuid4(), display_name='Pat Homeowner', owners=[], **client_address)
     claim = Claim(id=uuid.uuid4(), client_id=client.id, claim_number='CLM-1')
-    project = RebuildProject(id=uuid.uuid4(), claim_id=claim.id, title='Rebuild - 12 Oak St', status='pending')
+    project = RebuildProject(id=uuid.uuid4(), claim_id=claim.id, title='Rebuild - 12 Oak St', status='pending',
+                             property_address=property_address)
     s.add_all([client, claim, project])
     s.commit()
     return project, claim
@@ -115,10 +117,11 @@ def upload(data: bytes, name='phone.jpg') -> UploadFile:
     return UploadFile(file=BytesIO(data), filename=name)
 
 
-def make_pdf(s, project, photos=None, pages=None, rotations=None):
+def make_pdf(s, project, photos=None, pages=None, rotations=None,
+             doc_type='completion_photo', title='Completion Photos'):
     return rebuild_api.photos_to_pdf(
         project_id=str(project.id), photos=photos, pages=json.dumps(pages) if pages is not None else '',
-        rotations=json.dumps(rotations or {}), doc_type='completion_photo', title='Completion Photos',
+        rotations=json.dumps(rotations or {}), doc_type=doc_type, title=title,
         db=s, current_staff=None,
     )
 
@@ -128,33 +131,104 @@ def pdf_pages(data: bytes):
     return PdfReader(BytesIO(data)).pages
 
 
-def test_uploads_and_claim_photos_make_one_pdf_in_the_chosen_order(db):
+def shapes(page):
+    out = []
+    for image in page.images:
+        w, h = image.image.size
+        out.append('portrait' if h > w else 'landscape')
+    return sorted(out)
+
+
+def test_uploads_and_claim_photos_make_one_pdf_in_the_chosen_order_two_to_a_page(db):
     project, claim = make_project(db)
     wm = add_wm_photo(db, claim.id)
     done = add_claim_file(db, claim.id)
 
     doc = make_pdf(db, project, photos=[upload(jpeg((400, 300)))], pages=[
         {'source': 'claim', 'id': done.id},
-        {'upload': 0},
         {'source': 'wm', 'id': str(wm.id)},
+        {'upload': 0},
     ])
 
     assert doc['doc_type'] == 'completion_photo'
     pages = pdf_pages(db.saved['pdf'])
-    assert len(pages) == 3
-    # Each page's one picture keeps its photo's shape: landscape, landscape, portrait
-    shapes = []
-    for page in pages:
-        (image,) = page.images
-        w, h = image.image.size
-        shapes.append('portrait' if h > w else 'landscape')
-    assert shapes == ['landscape', 'landscape', 'portrait']
+    # The first two share a page, the third has the last one to itself; each
+    # keeps its photo's shape
+    assert [shapes(p) for p in pages] == [['landscape', 'portrait'], ['landscape']]
 
 
 def test_uploads_alone_still_work_without_a_page_order(db):
     project, _ = make_project(db)
-    make_pdf(db, project, photos=[upload(jpeg((400, 300))), upload(jpeg((300, 400)))])
+    make_pdf(db, project, photos=[upload(jpeg((400, 300))), upload(jpeg((300, 400))), upload(jpeg((40, 30)))])
     assert len(pdf_pages(db.saved['pdf'])) == 2
+
+
+def test_every_page_has_the_address_on_top_and_its_number_below(db):
+    project, _ = make_project(db, property_address='12 Oak St, Springfield, IL 62701')
+    doc = make_pdf(db, project, photos=[upload(jpeg((400, 300))) for _ in range(5)])
+
+    pages = pdf_pages(db.saved['pdf'])
+    assert len(pages) == 3
+    for n, page in enumerate(pages, 1):
+        text = page.extract_text()
+        assert '12 Oak St, Springfield, IL 62701' in text
+        assert 'Completion Photos' in text
+        assert f'Page {n} of 3' in text
+    # Named by the address, downloaded and attached under it
+    assert doc['file_name'] == '12 Oak St, Springfield, IL 62701 - Completion Photos.pdf'
+    assert db.saved['filename'] == doc['file_name']
+
+
+def test_without_a_project_address_the_clients_is_used(db):
+    project, _ = make_project(db, address='7 Elm Ave', city='Dayton', state='OH', zipcode='45402')
+    doc = make_pdf(db, project, photos=[upload(jpeg((400, 300)))])
+    assert '7 Elm Ave' in pdf_pages(db.saved['pdf'])[0].extract_text()
+    assert doc['file_name'].startswith('7 Elm Ave')
+    assert doc['file_name'].endswith(' - Completion Photos.pdf')
+
+
+def test_with_no_address_at_all_the_title_heads_the_page_and_names_the_file(db):
+    project, _ = make_project(db)
+    doc = make_pdf(db, project, photos=[upload(jpeg((400, 300)))])
+    assert 'Completion Photos' in pdf_pages(db.saved['pdf'])[0].extract_text()
+    assert doc['file_name'] == 'Completion Photos.pdf'
+
+
+def test_a_photographed_paper_document_keeps_a_page_to_itself(db):
+    project, _ = make_project(db, property_address='12 Oak St')
+    doc = make_pdf(db, project, photos=[upload(jpeg((300, 400))), upload(jpeg((300, 400)))],
+                   doc_type='coc', title='Certificate of Completion')
+    pages = pdf_pages(db.saved['pdf'])
+    assert len(pages) == 2
+    assert '12 Oak St' in pages[1].extract_text()
+    assert doc['file_name'] == '12 Oak St - Certificate of Completion.pdf'
+
+
+def test_the_file_name_drops_what_a_file_name_cant_hold():
+    name = RebuildService._photo_pdf_file_name('12 Oak St #3', 'Before/After: "final"?')
+    assert name == '12 Oak St #3 - Before After final.pdf'
+
+
+def test_a_title_in_another_script_stays_on_the_doc_but_storage_gets_ascii(db):
+    project, _ = make_project(db, property_address='12 Oak St')
+    doc = make_pdf(db, project, photos=[upload(jpeg((400, 300)))], title='완료 사진')
+    assert doc['file_name'] == '12 Oak St - 완료 사진.pdf'
+    assert db.saved['filename'] == '12 Oak St.pdf'
+
+
+def test_the_pdf_opens_under_its_name(db, monkeypatch):
+    project, _ = make_project(db, property_address='12 Oak St, Springfield, IL 62701')
+    doc = make_pdf(db, project, photos=[upload(jpeg((400, 300)))], title='완료 사진')
+    pdf = db.saved['pdf']
+    monkeypatch.setattr('app.domains.storage.factory.StorageFactory.get_instance',
+                        lambda *a: SimpleNamespace(download=lambda *a, **k: pdf))
+
+    response = rebuild_api.serve_completion_doc_pdf(str(project.id), str(doc['id']))
+
+    disposition = response.headers['content-disposition']
+    assert disposition.startswith('inline; filename="12 Oak St, Springfield, IL 62701 -')
+    assert "filename*=UTF-8''12%20Oak%20St%2C%20Springfield%2C%20IL%2062701%20-%20%EC%99%84" in disposition
+    assert response.body == pdf
 
 
 def test_a_trashed_photo_or_another_claims_photo_is_refused(db):

@@ -591,6 +591,72 @@ class RebuildService:
     PDF_PHOTO_PX = 1600
     PDF_PHOTO_QUALITY = 85
     MAX_PDF_PHOTOS = 100
+    # Completion photos go two to a page, one above the other. A photo of a
+    # paper document (COC, invoice...) keeps a page to itself so it stays readable.
+    PHOTOS_PER_PAGE = {'completion_photo': 2}
+
+    @staticmethod
+    def _photo_pdf_address(session, project) -> str:
+        """The property's address as one line: the project's, else its claim's client's"""
+        address = (project.property_address or '').strip()
+        if address:
+            return address
+        from app.domains.client.models import Claim
+        from app.domains.rebuild.auto_create import claim_property_address
+
+        claim = session.query(Claim).filter(Claim.id == project.claim_id).first()
+        return (claim_property_address(session, claim) if claim else '').strip()
+
+    @staticmethod
+    def _photo_pdf_file_name(address: str, title: str) -> str:
+        """"123 Main St, Springfield, IL 62701 - Completion Photos.pdf": the name
+        it downloads and attaches as. What a file name can't hold is dropped."""
+        import re
+
+        def clean(text: str) -> str:
+            text = re.sub(r'[\\/:*?"<>|\x00-\x1f]', ' ', text or '')
+            return re.sub(r'\s+', ' ', text).strip(' .')
+
+        stem = ' - '.join(p for p in (clean(address), clean(title)) if p) or 'Photos'
+        return f"{stem[:150].rstrip(' .')}.pdf"
+
+    @staticmethod
+    def _photo_page_frame(c, address: str, title: str, page_no: int, page_count: int) -> None:
+        """A photo page's header (the address, the document's title on the right)
+        and footer (page n of N)"""
+        from reportlab.lib.colors import HexColor
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        page_w, page_h = letter
+        left, right = 36, page_w - 36
+
+        def fit(text: str, font: str, size: float, width: float) -> str:
+            if stringWidth(text, font, size) <= width:
+                return text
+            while text and stringWidth(text + '…', font, size) > width:
+                text = text[:-1]
+            return text.rstrip() + '…'
+
+        # No address: the title takes its place on the left
+        lead, side = (address, title) if address else (title, '')
+        side = fit(side, 'Helvetica', 9, (right - left) * 0.4) if side else ''
+        side_w = stringWidth(side, 'Helvetica', 9) + 18 if side else 0
+        baseline = page_h - 46
+        c.setFillColor(HexColor('#1f2937'))
+        c.setFont('Helvetica-Bold', 11)
+        c.drawString(left, baseline, fit(lead, 'Helvetica-Bold', 11, right - left - side_w))
+        if side:
+            c.setFillColor(HexColor('#6b7280'))
+            c.setFont('Helvetica', 9)
+            c.drawRightString(right, baseline, side)
+        c.setStrokeColor(HexColor('#d1d5db'))
+        c.setLineWidth(0.5)
+        c.line(left, page_h - 54, right, page_h - 54)
+
+        c.setFillColor(HexColor('#6b7280'))
+        c.setFont('Helvetica', 8)
+        c.drawCentredString(page_w / 2, 28, f"Page {page_no} of {page_count}")
 
     @classmethod
     def _photo_page_jpeg(cls, photo_bytes: bytes, rotation: int):
@@ -621,11 +687,13 @@ class RebuildService:
 
     def photos_to_pdf(self, project_id: str, pages: list, rotations: Dict[int, int],
                       doc_type: str, title: str) -> Dict[str, Any]:
-        """Photos as a PDF, one per letter page, saved as a completion doc.
+        """Photos as a letter-size PDF, saved as a completion doc: completion
+        photos two to a page, any other kind one. Each page carries the
+        property's address at the top, and the file is named by it.
 
-        pages: (name, load) per page in order; load() returns the photo's bytes.
-            Each is loaded when its page is drawn, so one photo is in memory at a time.
-        rotations: {page index: degrees clockwise} e.g. {0: 90, 2: 180}
+        pages: (name, load) per photo in order; load() returns the photo's bytes.
+            Each is loaded when it is drawn, so one photo is in memory at a time.
+        rotations: {photo index: degrees clockwise} e.g. {0: 90, 2: 180}
         """
         session = self._s()
         try:
@@ -643,30 +711,43 @@ class RebuildService:
             if len(pages) > self.MAX_PDF_PHOTOS:
                 raise ValueError(f"A PDF takes up to {self.MAX_PDF_PHOTOS} photos; split them into two documents")
 
+            address = self._photo_pdf_address(session, project)
+            per_page = self.PHOTOS_PER_PAGE.get(doc_type, 1)
+            page_count = -(-len(pages) // per_page)
+
             pdf_buffer = BytesIO()
             c = rl_canvas.Canvas(pdf_buffer, pagesize=letter)
+            c.setTitle(' - '.join(p for p in (address, title) if p))
             page_w, page_h = letter
             margin = 36  # 0.5 inch
-            max_w = page_w - 2 * margin
-            max_h = page_h - 2 * margin
+            top = page_h - 66  # under the header's rule
+            bottom = 44  # over the page number
+            gap = 14
+            slot_w = page_w - 2 * margin
+            slot_h = (top - bottom - gap * (per_page - 1)) / per_page
 
             for idx, (name, load) in enumerate(pages):
+                slot = idx % per_page
+                if slot == 0:
+                    if idx:
+                        c.showPage()
+                    self._photo_page_frame(c, address, title, idx // per_page + 1, page_count)
                 try:
                     jpeg, (img_w, img_h) = self._photo_page_jpeg(load(), rotations.get(idx, 0))
                 except Exception as e:
                     logger.warning(f"Photo {idx + 1} ({name}) for project {project_id} could not be read: {e}")
                     raise ValueError(f"Photo {idx + 1} ({name}) could not be read")
 
-                # Fit the page, centred, keeping its shape
-                ratio = min(max_w / img_w, max_h / img_h)
+                # Fit its slot, centred, keeping its shape. A last photo alone
+                # on its page takes the top slot, the size of the others.
+                ratio = min(slot_w / img_w, slot_h / img_h)
                 draw_w = img_w * ratio
                 draw_h = img_h * ratio
+                slot_bottom = top - (slot + 1) * slot_h - slot * gap
                 c.drawImage(
-                    ImageReader(jpeg), (page_w - draw_w) / 2, (page_h - draw_h) / 2,
+                    ImageReader(jpeg), (page_w - draw_w) / 2, slot_bottom + (slot_h - draw_h) / 2,
                     width=draw_w, height=draw_h,
                 )
-                if idx < len(pages) - 1:
-                    c.showPage()
 
             c.save()
             pdf_bytes = pdf_buffer.getvalue()
@@ -675,13 +756,15 @@ class RebuildService:
             # Upload to cloud storage
             from app.common.utils.storage_helpers import upload_bytes_to_storage
 
-            address_short = (project.property_address or 'project').split(',')[0].strip().replace(' ', '_')[:30]
-            file_name = f"{doc_type.upper()}_{address_short}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
+            file_name = self._photo_pdf_file_name(address, title)
+            # Cloud metadata takes ASCII only; the doc keeps the name as typed
+            storage_name = self._photo_pdf_file_name(
+                *(t.encode('ascii', 'ignore').decode('ascii') for t in (address, title)))
             file_id = str(uuid.uuid4())
 
             storage_info = upload_bytes_to_storage(
                 file_bytes=pdf_bytes,
-                filename=file_name,
+                filename=storage_name,
                 context="rebuild",
                 context_id=str(project_id),
                 category="docs",
