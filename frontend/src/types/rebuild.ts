@@ -2,7 +2,7 @@
  * Rebuild (construction project) types
  */
 
-export type ProjectStatus = 'pending' | 'assigned' | 'in_progress' | 'completed' | 'invoiced' | 'docs_sent' | 'closed';
+export type ProjectStatus = 'pending' | 'assigned' | 'in_progress' | 'completed' | 'invoiced' | 'docs_sent' | 'closed' | 'cancelled';
 export type CompletionDocType = 'coc' | 'invoice' | 'completion_photo' | 'warranty' | 'permit' | 'lien_waiver' | 'other';
 
 export interface RebuildContractor {
@@ -130,6 +130,7 @@ export const PROJECT_STATUS_COLORS: Record<ProjectStatus, string> = {
   invoiced: 'cyan',
   docs_sent: 'geekblue',
   closed: 'default',
+  cancelled: 'red',
 };
 
 export const DOC_TYPE_LABELS: Record<CompletionDocType, string> = {

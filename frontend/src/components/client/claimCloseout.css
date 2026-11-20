@@ -1,0 +1,103 @@
+/* Closing a claim: its linked work, one row each with what it becomes
+   (ClaimCloseout.tsx). White Sheet tokens only. */
+
+.cco-intro {
+  margin: 0 0 12px;
+  color: var(--color-neutral-600);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cco-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-neutral-200);
+}
+
+.cco-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.cco-row.is-missing {
+  background: var(--color-error-light);
+  margin: 0 -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.cco-what {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.cco-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+.cco-group {
+  color: var(--color-neutral-600);
+  font-size: 12px;
+}
+.cco-name {
+  color: var(--color-neutral-900);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.cco-state {
+  color: var(--color-neutral-600);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.cco-must {
+  color: var(--color-warning);
+  font-weight: 500;
+}
+.cco-changed {
+  flex-basis: 100%;
+  padding-left: 24px;
+  color: var(--color-warning);
+}
+
+.cco-select {
+  flex: 0 0 220px;
+  max-width: 100%;
+}
+
+.cco-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--color-neutral-600);
+}
+
+.cco-none {
+  padding: 10px 0;
+  color: var(--color-neutral-600);
+}
+
+.cco-done {
+  margin-top: 10px;
+  color: var(--color-neutral-600);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cco-done-head {
+  color: var(--color-neutral-700);
+}
+
+.cco-alert {
+  margin-top: 12px;
+}
+
+@media (max-width: 600px) {
+  .cco-select {
+    flex: 1 1 100%;
+  }
+}

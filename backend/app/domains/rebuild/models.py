@@ -117,12 +117,14 @@ class RebuildProject(Base, BaseModel):
     # Property (denormalized for easy listing)
     property_address = Column(String(500))
 
-    # Status workflow: pending -> assigned -> in_progress -> completed -> invoiced -> closed
+    # Status workflow: pending -> assigned -> in_progress -> completed -> invoiced -> closed;
+    # cancelled when the claim closed or was denied before the work was done
+    # (client/claim_closeout.py)
     status = Column(
         String(50),
         nullable=False,
         default='pending',
-        comment="pending | assigned | in_progress | completed | invoiced | docs_sent | closed"
+        comment="pending | assigned | in_progress | completed | invoiced | docs_sent | closed | cancelled"
     )
 
     # Dates

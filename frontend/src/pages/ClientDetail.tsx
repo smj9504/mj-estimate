@@ -71,6 +71,7 @@ import '../components/client/clientRecord.css';
 import { tagTones } from '../styles/tokens';
 import ClaimSection from '../components/client/ClaimSection';
 import ClaimStagePill from '../components/client/ClaimStagePill';
+import { ClaimCloseoutModal, ClaimReopenModal } from '../components/client/ClaimCloseout';
 import { ClientNickname, NicknameFormItem } from '../components/client/ClientNickname';
 import { WMStatusPill } from '../components/water-mitigation/wmStatus';
 import { WorkOrderStatusPill } from '../components/work-order/workOrderUi';
@@ -123,8 +124,13 @@ import type {
   PdfExtractionResult,
   CabinetEstimateSummary,
   PlumberReportSummary,
+  CloseoutChoice,
+  CloseoutItem,
+  CloseoutItemKey,
+  ReopenItem,
 } from '../types/client';
 import {
+  DONE_CLAIM_STATUSES,
   CLAIM_STATUS_CONFIG,
   CLAIM_STAGE_CONFIG,
   OVERRIDE_STAGES,
@@ -3195,12 +3201,52 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
     },
   });
 
+  // Closed/Denied wraps up the claim's linked work as picked in a second
+  // step; leaving Closed/Denied offers to put it back
+  const [closeout, setCloseout] = useState<{
+    claimId: string; payload: ClaimCreate; toStatus: 'closed' | 'denied'; items: CloseoutItem[];
+  } | null>(null);
+  const [reopen, setReopen] = useState<{
+    claimId: string; payload: ClaimCreate; closedAs: 'closed' | 'denied' | null; items: ReopenItem[];
+  } | null>(null);
+
+  const saveWithLinkedWork = async (claimId: string, payload: ClaimCreate) => {
+    await updateClaimMutation.mutateAsync({ claimId, payload });
+    setCloseout(null);
+    setReopen(null);
+    // Rebuild, supplement, follow-up and WM lists all moved
+    queryClient.invalidateQueries();
+  };
+
   const handleClaimSubmit = async (values: ClaimCreate) => {
-    if (editingClaim) {
-      await updateClaimMutation.mutateAsync({ claimId: editingClaim.id, payload: values });
-    } else {
+    if (!editingClaim) {
       await createClaimMutation.mutateAsync(values);
+      return;
     }
+    const was = editingClaim.status;
+    const next = values.status;
+    if (next && next !== was) {
+      try {
+        if (DONE_CLAIM_STATUSES.includes(next)) {
+          const to = next as 'closed' | 'denied';
+          const preview = await claimService.closeoutPreview(client.id, editingClaim.id, to);
+          if (preview.items.some(i => !i.done)) {
+            setCloseout({ claimId: editingClaim.id, payload: values, toStatus: to, items: preview.items });
+            return;
+          }
+        } else if (was && DONE_CLAIM_STATUSES.includes(was)) {
+          const preview = await claimService.reopenPreview(client.id, editingClaim.id);
+          if (preview.items.length > 0) {
+            setReopen({ claimId: editingClaim.id, payload: values, closedAs: preview.to_status, items: preview.items });
+            return;
+          }
+        }
+      } catch (err: any) {
+        message.error(err?.response?.data?.detail || "Couldn't load the claim's linked work.");
+        return;
+      }
+    }
+    await updateClaimMutation.mutateAsync({ claimId: editingClaim.id, payload: values });
   };
 
   return (
@@ -3308,6 +3354,34 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
         }}
         onSubmit={handleClaimSubmit}
         loading={createClaimMutation.isPending || updateClaimMutation.isPending}
+      />
+
+      <ClaimCloseoutModal
+        open={!!closeout}
+        toStatus={closeout?.toStatus ?? 'closed'}
+        noun={isCashJob(editingClaim) ? 'Cash job' : 'Claim'}
+        items={closeout?.items ?? []}
+        saving={updateClaimMutation.isPending}
+        onCancel={() => setCloseout(null)}
+        onConfirm={(choices: CloseoutChoice[]) => {
+          if (closeout) {
+            saveWithLinkedWork(closeout.claimId, { ...closeout.payload, closeout_items: choices }).catch(() => {});
+          }
+        }}
+      />
+
+      <ClaimReopenModal
+        open={!!reopen}
+        noun={isCashJob(editingClaim) ? 'Cash job' : 'Claim'}
+        closedAs={reopen?.closedAs ?? null}
+        items={reopen?.items ?? []}
+        saving={updateClaimMutation.isPending}
+        onCancel={() => setReopen(null)}
+        onConfirm={(keys: CloseoutItemKey[]) => {
+          if (reopen) {
+            saveWithLinkedWork(reopen.claimId, { ...reopen.payload, reopen_items: keys }).catch(() => {});
+          }
+        }}
       />
 
       {/* Email Composer Drawer */}

@@ -26,6 +26,10 @@ import { JOB_STATUS_OPTIONS } from '../../types/waterMitigation';
 import { WMStatusPill } from '../water-mitigation/wmStatus';
 import { ESTIMATE_OUTCOME_TASK_TYPES, PAYMENT_TASK_TYPES } from './claimProgress';
 import RebuildEstimateCompanySelect from './RebuildEstimateCompanySelect';
+import {
+  CloseoutChoices, closeoutChoices, initialCloseoutPicks, missingCloseoutPicks,
+} from '../client/ClaimCloseout';
+import type { CloseoutItem } from '../../types/client';
 
 const { TextArea } = Input;
 
@@ -96,6 +100,11 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
   const [existingWmPdf, setExistingWmPdf] = useState<ExistingPdf | undefined>();
   // Once the WM job status is picked by hand, a new outcome no longer changes it
   const wmStatusTouched = useRef(false);
+  // Denied + Complete closes the claim: what its other linked work becomes
+  // (null while loading or when it couldn't be loaded)
+  const [closeoutItems, setCloseoutItems] = useState<CloseoutItem[] | null>(null);
+  const [closeoutPicks, setCloseoutPicks] = useState<Record<string, string | undefined>>({});
+  const [closeoutTried, setCloseoutTried] = useState(false);
 
   // Keep the last task on screen while the dialog animates closed
   const lastTask = useRef<FollowUpTask | null>(null);
@@ -105,6 +114,7 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
   const isPaymentTask = !!shown && PAYMENT_TASK_TYPES.includes(shown.task_type);
   const isEstimateOutcomeTask = !!shown && ESTIMATE_OUTCOME_TASK_TYPES.includes(shown.task_type);
   const isDeniedWithNextStep = outcome === 'denied' && !!deniedAction && deniedAction !== 'complete';
+  const closesClaim = isEstimateOutcomeTask && outcome === 'denied' && deniedAction === 'complete';
   // A WM docs follow-up moves its WM job on as it resolves
   const currentWmStatus = shown?.task_type === 'wm_docs_sent' ? shown.wm_job_status : null;
   const showWmStatus = !!currentWmStatus && !isDeniedWithNextStep;
@@ -120,7 +130,28 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
     setExistingPdf(undefined);
     setExistingWmPdf(undefined);
     wmStatusTouched.current = false;
+    setCloseoutItems(null);
+    setCloseoutPicks({});
+    setCloseoutTried(false);
   };
+
+  useEffect(() => {
+    if (!closesClaim || !shown) {
+      setCloseoutItems(null);
+      return;
+    }
+    let cancelled = false;
+    claimFollowUpService.closeoutPreview(shown.id, 'denied').then(preview => {
+      if (cancelled) return;
+      setCloseoutItems(preview.items);
+      setCloseoutPicks(initialCloseoutPicks(preview.items));
+      setCloseoutTried(false);
+    }).catch(() => {
+      if (!cancelled) message.warning("Couldn't load the claim's other work; it will be left as it is.");
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closesClaim, shown?.id]);
 
   // Fresh form for every task; estimate-intake stages prefill from the
   // carrier estimate already on the claim.
@@ -230,6 +261,8 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
       queryClient.invalidateQueries({ queryKey: ['supplements'] });
       queryClient.invalidateQueries({ queryKey: ['supplement-stats'] });
       queryClient.invalidateQueries({ queryKey: ['wm-followup-task'] });
+      // Closing the claim moved its rebuild, supplement and WM lists too
+      if (variables.body?.closeout_items) queryClient.invalidateQueries();
       if (shown) onResolved?.(resolved || shown);
       close();
     },
@@ -310,6 +343,14 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
   const submit = () => {
     form.validateFields().then(values => {
       if (!shown) return;
+      if (closesClaim && closeoutItems) {
+        const missing = missingCloseoutPicks(closeoutItems, closeoutPicks);
+        if (missing.length > 0) {
+          setCloseoutTried(true);
+          message.error(`Pick what happens to: ${missing.join('; ')}`);
+          return;
+        }
+      }
       resolveMutation.mutate({
         taskId: shown.id,
         body: {
@@ -330,6 +371,8 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
           wm_approved_amount: values.outcome === 'wm_invoice_accepted'
             ? values.wm_approved_amount ?? undefined : undefined,
           wm_job_status: showWmStatus ? values.wm_job_status : undefined,
+          closeout_items: closesClaim && closeoutItems
+            ? closeoutChoices(closeoutItems, closeoutPicks) : undefined,
           file,
           wm_estimate_file: wmFile,
         },
@@ -411,6 +454,24 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
                 </span>
               )}
             />
+          </Form.Item>
+        )}
+
+        {closesClaim && (
+          <Form.Item
+            label="The claim's other work"
+            tooltip="The claim closes as Denied. Each item is set as picked; the ones marked Pick one need your call. Reopening the claim offers to put them back."
+          >
+            {closeoutItems === null ? (
+              <span className="fu-form-hint">Loading the claim's linked work…</span>
+            ) : (
+              <CloseoutChoices
+                items={closeoutItems}
+                picks={closeoutPicks}
+                onPick={(key, value) => setCloseoutPicks(p => ({ ...p, [key]: value }))}
+                showMissing={closeoutTried}
+              />
+            )}
           </Form.Item>
         )}
 

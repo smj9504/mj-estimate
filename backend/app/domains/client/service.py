@@ -143,9 +143,17 @@ class ClaimService(BaseService[Dict[str, Any], str]):
         finally:
             session.close()
 
-    def update(self, entity_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update(self, entity_id: str, update_data: Dict[str, Any],
+               closeout_items: Optional[List[Dict[str, Any]]] = None,
+               reopen_items: Optional[List[Dict[str, Any]]] = None,
+               staff_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Stamp appraisal_date when a claim moves to appraisal without one,
-        so its history always says when it left negotiation."""
+        so its history always says when it left negotiation.
+
+        A status change to Closed/Denied with closeout_items ({kind, id, to})
+        sets the claim's linked work to what was picked; leaving Closed/Denied
+        puts back the reopen_items ({kind, id}) of the last closeout
+        (claim_closeout.py). Both are saved with the claim, or neither."""
         if update_data.get('claim_type') == 'cash':
             for field in CASH_JOB_CLEARED_FIELDS:
                 update_data.pop(field, None)
@@ -164,7 +172,43 @@ class ClaimService(BaseService[Dict[str, Any], str]):
                     check_rebuild_estimate_company(session, entity_id, company_id)
                 finally:
                     session.close()
-        return super().update(entity_id, update_data)
+        if 'status' not in update_data:
+            return super().update(entity_id, update_data)
+        return self._update_with_status(entity_id, update_data, closeout_items, reopen_items, staff_id)
+
+    def _update_with_status(self, entity_id: str, update_data: Dict[str, Any],
+                            closeout_items: Optional[List[Dict[str, Any]]],
+                            reopen_items: Optional[List[Dict[str, Any]]],
+                            staff_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        from app.domains.client.claim_closeout import (
+            DONE_CLAIM_STATUSES, apply_closeout, apply_reopen, check_closeout,
+        )
+        from app.domains.client.models import Claim
+
+        session = self.database.get_session()
+        try:
+            before = session.query(Claim.status).filter(Claim.id == entity_id).scalar()
+            after = update_data.get('status')
+            closing = after != before and after in DONE_CLAIM_STATUSES and closeout_items is not None
+            reopening = (after != before and before in DONE_CLAIM_STATUSES
+                         and after not in DONE_CLAIM_STATUSES)
+            if closing:
+                # Refuse a missing or wrong pick before anything is written
+                check_closeout(session, entity_id, after, closeout_items)
+            result = self._get_repository_instance(session).update(entity_id, update_data)
+            if not result:
+                return None
+            if closing:
+                apply_closeout(session, entity_id, before, after, closeout_items, staff_id=staff_id)
+            elif reopening:
+                apply_reopen(session, entity_id, reopen_items, staff_id=staff_id)
+            session.commit()
+            return result
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def get_with_details(self, claim_id: str) -> Optional[Dict[str, Any]]:
         """Get claim with negotiations and document counts"""

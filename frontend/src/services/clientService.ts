@@ -28,6 +28,8 @@ import type {
   ClaimTodoDashboard,
   SignatureOnFileKind,
   SignaturesOnFile,
+  CloseoutPreview,
+  ReopenPreview,
 } from '../types/client';
 
 // ============================================================
@@ -184,6 +186,18 @@ export const claimService = {
   async delete(clientId: string, claimId: string) {
     const { data } = await api.delete(`/api/clients/${clientId}/claims/${claimId}`);
     return data;
+  },
+
+  /** The claim's linked work, with what each item may become once it is closed or denied */
+  async closeoutPreview(clientId: string, claimId: string, to: 'closed' | 'denied') {
+    const { data } = await api.get(`/api/clients/${clientId}/claims/${claimId}/closeout-preview`, { params: { to } });
+    return data as CloseoutPreview;
+  },
+
+  /** What closing the claim last changed, to put back when it opens again */
+  async reopenPreview(clientId: string, claimId: string) {
+    const { data } = await api.get(`/api/clients/${clientId}/claims/${claimId}/reopen-preview`);
+    return data as ReopenPreview;
   },
 
   async getDocuments(clientId: string, claimId: string) {

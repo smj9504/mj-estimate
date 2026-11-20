@@ -10,10 +10,11 @@ import { fileService } from '../../services/fileService';
 import type { ProjectStatus, RebuildCompletionDoc } from '../../types/rebuild';
 
 export const REBUILD_STATUSES: ProjectStatus[] = [
-  'pending', 'assigned', 'in_progress', 'completed', 'invoiced', 'docs_sent', 'closed',
+  'pending', 'assigned', 'in_progress', 'completed', 'invoiced', 'docs_sent', 'closed', 'cancelled',
 ];
 
-/** Pending still needs a contractor, so it is the warm tone; closed is the only grey */
+/** Pending still needs a contractor, so it is the warm tone; closed is the only grey.
+ * Cancelled: the claim ended before the work did (closed or denied) */
 export const REBUILD_STATUS_TONES: Record<string, TagTone> = {
   pending: 'orange',
   assigned: 'blue',
@@ -22,6 +23,7 @@ export const REBUILD_STATUS_TONES: Record<string, TagTone> = {
   invoiced: 'yellow',
   docs_sent: 'pink',
   closed: 'gray',
+  cancelled: 'red',
 };
 
 export const rebuildStatusLabel = (status?: string) => (status ? humanize(status) : 'Unknown');

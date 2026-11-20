@@ -632,7 +632,71 @@ export interface ClaimCreate {
   notes?: string;
   initial_acv?: number;
   initial_rcv?: number;
+  /** With a change to closed/denied: what each linked item becomes */
+  closeout_items?: CloseoutChoice[];
+  /** With a change out of closed/denied: the last closeout's items to put back */
+  reopen_items?: CloseoutItemKey[];
 }
+
+// ============================================================
+// Closing a claim wraps up its linked work; reopening puts it back
+// (backend/app/domains/client/claim_closeout.py)
+// ============================================================
+
+export type CloseoutKind = 'rebuild' | 'supplement' | 'followup' | 'wm_job';
+
+export interface CloseoutItemKey {
+  kind: CloseoutKind;
+  id: string;
+}
+
+/** `to` is one of the item's option values; 'keep' leaves it as it is */
+export interface CloseoutChoice extends CloseoutItemKey {
+  to: string;
+}
+
+export interface CloseoutItem extends CloseoutItemKey {
+  /** Rebuild, Supplement, Estimate request, Follow-up, WM job */
+  group: string;
+  label: string;
+  status: string;
+  status_label: string;
+  /** Already finished: shown, not changed */
+  done: boolean;
+  /** What it is now, in words ("Construction in progress") */
+  state: string | null;
+  options: { value: string; label: string }[];
+  /** null: the person must pick */
+  default: string | null;
+  /** Follow-ups only: the kind of task */
+  task_type?: string;
+}
+
+export interface CloseoutPreview {
+  to_status: 'closed' | 'denied';
+  items: CloseoutItem[];
+}
+
+export interface ReopenItem extends CloseoutItemKey {
+  group: string;
+  label: string;
+  before_status: string;
+  before_label: string;
+  status: string;
+  status_label: string;
+  /** Changed by hand (or by other work) since the claim was closed */
+  changed_since: boolean;
+  default: boolean;
+}
+
+export interface ReopenPreview {
+  closeout_id: string | null;
+  to_status: 'closed' | 'denied' | null;
+  closed_at: string | null;
+  items: ReopenItem[];
+}
+
+export const DONE_CLAIM_STATUSES: ClaimStatus[] = ['closed', 'denied'];
 
 // ============================================================
 // Client

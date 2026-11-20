@@ -3,6 +3,7 @@
  */
 
 import api from './api';
+import type { CloseoutChoice, CloseoutPreview } from '../types/client';
 import type {
   FollowUpTask,
   FollowUpTaskCreate,
@@ -105,6 +106,8 @@ export const claimFollowUpService = {
       wm_approved_amount?: number;
       /** WM docs follow-ups: the status the WM job moves to, or 'keep' */
       wm_job_status?: string;
+      /** Denied + Close the claim: what the claim's other linked work becomes */
+      closeout_items?: CloseoutChoice[];
       file?: File;
       wm_estimate_file?: File;
     }
@@ -125,12 +128,19 @@ export const claimFollowUpService = {
     if (body?.rebuild_estimate_company_id) formData.append('rebuild_estimate_company_id', body.rebuild_estimate_company_id);
     if (body?.wm_approved_amount != null) formData.append('wm_approved_amount', String(body.wm_approved_amount));
     if (body?.wm_job_status) formData.append('wm_job_status', body.wm_job_status);
+    if (body?.closeout_items) formData.append('closeout_items', JSON.stringify(body.closeout_items));
     if (body?.file) formData.append('file', body.file);
     if (body?.wm_estimate_file) formData.append('wm_estimate_file', body.wm_estimate_file);
 
     const { data } = await api.post(`${BASE_URL}/tasks/${taskId}/resolve`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
+    return data;
+  },
+
+  /** The task's claim's other linked work, with what each may become once the claim is denied */
+  async closeoutPreview(taskId: string, to: 'closed' | 'denied' = 'denied'): Promise<CloseoutPreview> {
+    const { data } = await api.get(`${BASE_URL}/tasks/${taskId}/closeout-preview`, { params: { to } });
     return data;
   },
 

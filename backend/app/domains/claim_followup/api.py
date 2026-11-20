@@ -379,6 +379,27 @@ def _parse_pdf_amount(file_content: bytes) -> Optional[float]:
     return None
 
 
+@router.get("/tasks/{task_id}/closeout-preview")
+def task_closeout_preview(
+    task_id: str,
+    to: str = Query('denied', description="closed | denied"),
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    """The task's claim's other linked work, with what each may become once
+    resolving this task closes the claim (outcome denied, Close the claim)"""
+    from app.domains.claim_followup.models import FollowUpTask
+    from app.domains.client.claim_closeout import closeout_preview
+    _require_task(db, current_staff, task_id)
+    claim_id = db.query(FollowUpTask.claim_id).filter(FollowUpTask.id == task_id).scalar()
+    if not claim_id:
+        raise HTTPException(status_code=404, detail="Task not found")
+    try:
+        return closeout_preview(db, str(claim_id), to, exclude_task_id=task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/tasks/{task_id}/resolve")
 async def resolve_task(
     task_id: str,
@@ -397,6 +418,7 @@ async def resolve_task(
     rebuild_estimate_company_id: Optional[str] = Form(None),
     wm_approved_amount: Optional[float] = Form(None),
     wm_job_status: Optional[str] = Form(None),
+    closeout_items: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     wm_estimate_file: Optional[UploadFile] = File(None),
     request_db=Depends(get_db),
@@ -412,6 +434,9 @@ async def resolve_task(
       'wm_invoice_accepted'); defaults to the invoice amount
     - wm_job_status: WM docs follow-ups only — the status its WM job moves to,
       or 'keep' (see wm_docs_sync.WM_STATUSES_ON_RESOLVE)
+    - closeout_items: JSON [{kind, id, to}] — with outcome 'denied' that closes
+      the claim, what its other linked work becomes (client/claim_closeout.py;
+      GET /tasks/{id}/closeout-preview lists it)
     """
     _require_task(request_db, current_staff, task_id)
     service = _get_service()
@@ -548,6 +573,16 @@ async def resolve_task(
             'wm_file_name': wm_file_name,
         }
 
+    parsed_closeout = None
+    if closeout_items:
+        import json
+        try:
+            parsed_closeout = json.loads(closeout_items)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="closeout_items must be a JSON list")
+        if not isinstance(parsed_closeout, list):
+            raise HTTPException(status_code=400, detail="closeout_items must be a JSON list")
+
     try:
         result = service.resolve_task(
             task_id,
@@ -560,6 +595,8 @@ async def resolve_task(
             rebuild_estimate_company_id=rebuild_estimate_company_id,
             wm_approved_amount=wm_approved_amount,
             wm_job_status=wm_job_status,
+            closeout_items=parsed_closeout,
+            staff_id=str(current_staff.id) if current_staff is not None else None,
         )
     except (SameCompanyAsWMError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))

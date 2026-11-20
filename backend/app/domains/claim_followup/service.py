@@ -36,6 +36,63 @@ def is_wm_payment_task(task: Dict[str, Any]) -> bool:
     return task_type == 'payment_check' and bool(_WM_TITLE.search(task.get('title') or ''))
 
 
+def sync_payment_to_wm(session, task: Dict[str, Any], data: Dict[str, Any]) -> None:
+    """Sync payment_status/payment_note from a payment follow-up to the WM job.
+
+    A WM payment follow-up always syncs. The rebuild payment follow-up only
+    does when the carrier folded the WM cost into the rebuild estimate, so
+    the rebuild check is also the WM check; otherwise the WM money is
+    chased on its own and the rebuild payment must not overwrite it.
+    """
+    try:
+        task_type = task.get('task_type', '')
+        if task_type not in ('payment_check', 'wm_payment_check'):
+            return
+
+        claim_id = task.get('claim_id')
+        if not claim_id:
+            return
+
+        from app.domains.client.models import Claim
+        from app.domains.water_mitigation.models import (
+            WaterMitigationJob,
+        )
+        if not is_wm_payment_task(task):
+            wm_cost_status = session.query(Claim.wm_cost_status).filter(
+                Claim.id == claim_id
+            ).scalar()
+            if wm_cost_status != 'included_in_rebuild':
+                return
+
+        wm_job = None
+        if task.get('wm_job_id'):
+            wm_job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == task['wm_job_id']
+            ).first()
+        if wm_job is None:
+            # The claim's job; the oldest active one when it has several
+            wm_job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.claim_id == claim_id
+            ).order_by(
+                WaterMitigationJob.active.desc().nullslast(),
+                WaterMitigationJob.created_at,
+            ).first()
+        if not wm_job:
+            return
+
+        if 'payment_status' in data and data['payment_status']:
+            wm_job.payment_status = data['payment_status']
+        if 'payment_note' in data and data['payment_note']:
+            wm_job.payment_note = data['payment_note']
+
+        logger.info(
+            f"Synced payment status to WM job {wm_job.id}: "
+            f"{data.get('payment_status')}"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to sync payment to WM: {e}")
+
+
 NO_SENDING_ACCOUNT = (
     "Choose a sending account. Email goes out only from an account added "
     "under Email Accounts."
@@ -344,8 +401,13 @@ class ClaimFollowUpService:
         rebuild_estimate_company_id: Optional[str] = None,
         wm_approved_amount: Optional[float] = None,
         wm_job_status: Optional[str] = None,
+        closeout_items: Optional[List[Dict[str, Any]]] = None,
+        staff_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Mark a task as resolved and process outcome.
+
+        closeout_items ({kind, id, to}): with outcome='denied' that closes the
+        claim, what its other linked work becomes (client/claim_closeout.py).
 
         When outcome='denied' and denied_action is dispute/appraisal/attorney,
         the task is NOT resolved — instead it is converted to the new type
@@ -392,6 +454,18 @@ class ClaimFollowUpService:
 
             # Normal resolve flow
             task_before = repo.get_by_id(task_id)
+
+            # Denied closes the claim: refuse a missing or wrong pick for its
+            # other linked work before anything is written
+            if (outcome == 'denied' and closeout_items is not None
+                    and task_before and task_before.get('claim_id')
+                    and task_before.get('task_type') not in ('payment_check', 'wm_payment_check')):
+                from app.domains.client.claim_closeout import check_closeout
+                check_closeout(
+                    session, str(task_before['claim_id']), 'denied', closeout_items,
+                    exclude_task_id=task_id,
+                )
+
             result = repo.resolve_task(task_id, resolution_notes)
             if not result:
                 return None
@@ -422,6 +496,12 @@ class ClaimFollowUpService:
             # projects / payment tasks and overwrite claim estimate data).
             task_type = (task_before or {}).get('task_type')
             picked_wm_status = bool(wm_job_status) and task_type == WM_DOCS_TASK_TYPE
+            claim_status_before = None
+            if outcome == 'denied' and claim_id:
+                from app.domains.client.models import Claim
+                claim_status_before = session.query(Claim.status).filter(
+                    Claim.id == str(claim_id)
+                ).scalar()
             if outcome and claim_id and task_type not in ('payment_check', 'wm_payment_check'):
                 self._process_resolve_outcome(
                     session, claim_id, result, outcome, resolution_notes,
@@ -434,6 +514,17 @@ class ClaimFollowUpService:
             # The WM job moves to what the Resolve form picked for it
             if picked_wm_status:
                 set_wm_status_on_resolve(session, {**task_before, 'claim_id': claim_id}, wm_job_status)
+
+            # Denied closed the claim: its other linked work as picked
+            if closeout_items is not None and claim_status_before is not None:
+                from app.domains.client.claim_closeout import apply_closeout
+                from app.domains.client.models import Claim
+                now_status = session.query(Claim.status).filter(Claim.id == str(claim_id)).scalar()
+                if now_status == 'denied' and claim_status_before != 'denied':
+                    apply_closeout(
+                        session, str(claim_id), claim_status_before, 'denied', closeout_items,
+                        staff_id=staff_id, exclude_task_id=task_id,
+                    )
 
             session.commit()
             return result
@@ -908,60 +999,8 @@ class ClaimFollowUpService:
     def _sync_payment_to_wm(
         self, session, task: Dict[str, Any], data: Dict[str, Any]
     ):
-        """Sync payment_status/payment_note from a payment follow-up to the WM job.
-
-        A WM payment follow-up always syncs. The rebuild payment follow-up only
-        does when the carrier folded the WM cost into the rebuild estimate, so
-        the rebuild check is also the WM check; otherwise the WM money is
-        chased on its own and the rebuild payment must not overwrite it.
-        """
-        try:
-            task_type = task.get('task_type', '')
-            if task_type not in ('payment_check', 'wm_payment_check'):
-                return
-
-            claim_id = task.get('claim_id')
-            if not claim_id:
-                return
-
-            from app.domains.client.models import Claim
-            from app.domains.water_mitigation.models import (
-                WaterMitigationJob,
-            )
-            if not is_wm_payment_task(task):
-                wm_cost_status = session.query(Claim.wm_cost_status).filter(
-                    Claim.id == claim_id
-                ).scalar()
-                if wm_cost_status != 'included_in_rebuild':
-                    return
-
-            wm_job = None
-            if task.get('wm_job_id'):
-                wm_job = session.query(WaterMitigationJob).filter(
-                    WaterMitigationJob.id == task['wm_job_id']
-                ).first()
-            if wm_job is None:
-                # The claim's job; the oldest active one when it has several
-                wm_job = session.query(WaterMitigationJob).filter(
-                    WaterMitigationJob.claim_id == claim_id
-                ).order_by(
-                    WaterMitigationJob.active.desc().nullslast(),
-                    WaterMitigationJob.created_at,
-                ).first()
-            if not wm_job:
-                return
-
-            if 'payment_status' in data and data['payment_status']:
-                wm_job.payment_status = data['payment_status']
-            if 'payment_note' in data and data['payment_note']:
-                wm_job.payment_note = data['payment_note']
-
-            logger.info(
-                f"Synced payment status to WM job {wm_job.id}: "
-                f"{data.get('payment_status')}"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to sync payment to WM: {e}")
+        """See sync_payment_to_wm"""
+        sync_payment_to_wm(session, task, data)
 
     def _auto_create_payment_task(
         self,

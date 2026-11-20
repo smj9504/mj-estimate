@@ -9,7 +9,7 @@ import tempfile
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth import company_scope
@@ -560,8 +560,12 @@ def update_claim(
     current_staff=Depends(get_current_staff),
     service: ClaimService = Depends(_get_claim_service),
 ):
-    """Update a claim or cash job; company_ids replaces the companies working it"""
+    """Update a claim or cash job; company_ids replaces the companies working it.
+    closeout_items / reopen_items go with a status change to or from
+    Closed/Denied (claim_closeout.py; previews below)."""
     update_dict = data.dict(exclude_unset=True)
+    closeout_items = update_dict.pop('closeout_items', None)
+    reopen_items = update_dict.pop('reopen_items', None)
     company_ids = update_dict.pop('company_ids', None)
     if company_ids is not None:
         company_ids = _checked_company_ids(db, current_staff, company_ids, creating=False, claim_id=claim_id)
@@ -576,7 +580,11 @@ def update_claim(
             update_dict['pa_contact_id'] = contact_id or None
             _sync_claim_pa_fields(update_dict, contact_id)
 
-        result = service.update(claim_id, update_dict) if update_dict else service.get_by_id(claim_id)
+        result = service.update(
+            claim_id, update_dict,
+            closeout_items=closeout_items, reopen_items=reopen_items,
+            staff_id=str(current_staff.id) if current_staff is not None else None,
+        ) if update_dict else service.get_by_id(claim_id)
         if not result:
             raise HTTPException(status_code=404, detail="Claim not found")
         if company_ids is not None:
@@ -591,6 +599,33 @@ def update_claim(
     except Exception as e:
         logger.error(f"Error updating claim: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{client_id}/claims/{claim_id}/closeout-preview", response_model=None)
+def claim_closeout_preview(
+    client_id: str,
+    claim_id: str,
+    to: str = Query(..., description="closed | denied"),
+    db=Depends(get_db),
+):
+    """The claim's rebuild projects, supplements, follow-ups and WM jobs, with
+    what each may become once the claim is closed or denied"""
+    from app.domains.client.claim_closeout import closeout_preview
+    try:
+        return closeout_preview(db, claim_id, to)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{client_id}/claims/{claim_id}/reopen-preview", response_model=None)
+def claim_reopen_preview(
+    client_id: str,
+    claim_id: str,
+    db=Depends(get_db),
+):
+    """What closing the claim last changed, to offer putting it back"""
+    from app.domains.client.claim_closeout import reopen_preview
+    return reopen_preview(db, claim_id)
 
 
 @router.delete("/{client_id}/claims/{claim_id}")

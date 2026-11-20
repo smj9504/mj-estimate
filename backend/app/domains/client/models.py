@@ -589,3 +589,27 @@ class ClaimActivity(Base, BaseModel):
 
     # Relationship
     claim = relationship("Claim", back_populates="activities")
+
+
+class ClaimCloseout(Base, BaseModel):
+    """What closing or denying a claim did to the work linked to it (its
+    rebuild projects, supplements, follow-up tasks and WM jobs), so reopening
+    the claim can put each back the way it was (client/claim_closeout.py)."""
+    __tablename__ = "claim_closeouts"
+    __table_args__ = (
+        Index('ix_claim_closeouts_claim_id', 'claim_id'),
+        {'extend_existing': True}
+    )
+
+    claim_id = Column(
+        UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    from_status = Column(String(50))
+    to_status = Column(String(50), nullable=False, comment="closed | denied")
+    # [{kind, id, label, before: {...}, after: {...}}], only the items it changed
+    items = Column(JSON, nullable=False, default=list)
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+    # Set once the claim is opened again (or closed anew); a later reopen
+    # only offers the newest record still open
+    reopened_at = Column(DateTime(timezone=True))

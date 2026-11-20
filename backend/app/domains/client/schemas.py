@@ -282,10 +282,24 @@ class ClaimUpdate(BaseModel):
     construction_started_at: Optional[datetime] = None
     construction_completed_at: Optional[datetime] = None
     notes: Optional[str] = None
+    # With a status change to closed/denied: what each linked rebuild,
+    # supplement, follow-up and WM job becomes, [{kind, id, to}]
+    # (client/claim_closeout.py). Without it they are left as they are.
+    closeout_items: Optional[List[Dict[str, Any]]] = None
+    # With a status change out of closed/denied: the items of the last
+    # closeout to put back, [{kind, id}]
+    reopen_items: Optional[List[Dict[str, Any]]] = None
 
     _claim_type = validator('claim_type', allow_reuse=True)(_check_claim_type)
     _stage_override = validator('stage_override', allow_reuse=True)(_check_stage_override)
     _additional_adjusters = validator('additional_adjusters', allow_reuse=True)(clean_additional_adjusters)
+
+    @validator('status')
+    def validate_status(cls, v):
+        allowed = ['open', 'negotiating', 'appraisal', 'settled', 'closed', 'denied']
+        if v and v not in allowed:
+            raise ValueError(f"status must be one of {allowed}")
+        return v
 
     @validator('wm_cost_status')
     def validate_wm_cost_status(cls, v):
