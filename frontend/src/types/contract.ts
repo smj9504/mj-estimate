@@ -85,6 +85,8 @@ export interface FieldMappingItem {
   fieldType?: FieldType;       // default 'text'
   signerRole?: string;         // for signature/initial: 'homeowner' | 'company_rep' | 'witness'
   inputMode?: InputMode;       // who fills this field: prefilled (auto), creator (at generation), signer (at signing)
+  /** Text area: typed in on several lines, printed from the top of its box with its line breaks */
+  multiline?: boolean;
 }
 
 export interface AvailableField {
@@ -207,6 +209,8 @@ export interface SignerEditableField {
   fontSize: number;
   fontColor: string;
   currentValue?: string | null;
+  /** A text area: typed in on several lines */
+  multiline?: boolean;
 }
 
 export interface ContractViewData {
@@ -290,7 +294,8 @@ export interface OnsiteCompany {
   templates: { id: string; name: string; document_type: DocumentType }[];
 }
 
-export type OnsiteQuestionKind = 'text' | 'date' | 'address' | 'phone' | 'email';
+/** textarea: a text field mapped as a text area, typed on several lines */
+export type OnsiteQuestionKind = 'text' | 'textarea' | 'date' | 'address' | 'phone' | 'email';
 
 export interface OnsiteQuestion {
   key: string;

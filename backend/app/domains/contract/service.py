@@ -17,14 +17,88 @@ from app.domains.contract.signature_lines import TASK_ASSIGN_CLAIM, TASK_COMPANY
 logger = logging.getLogger(__name__)
 
 
+def wrap_text_area(text: str, font_name: str, size: float, width: float) -> List[str]:
+    """A text area's lines: one per line typed (a blank one kept), each
+    wrapped at word breaks to the width, and a word wider than that broken
+    where it reaches the edge."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    def fits(s: str) -> bool:
+        return stringWidth(s, font_name, size) <= width
+
+    lines: List[str] = []
+    for typed in str(text).replace('\r\n', '\n').replace('\r', '\n').split('\n'):
+        words = typed.split()
+        if not words:
+            lines.append('')
+            continue
+        current = ''
+        for word in words:
+            candidate = f'{current} {word}' if current else word
+            if fits(candidate):
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+            # A word too wide for a line of its own goes on in pieces
+            while not fits(word) and len(word) > 1:
+                cut = len(word) - 1
+                while cut > 1 and not fits(word[:cut]):
+                    cut -= 1
+                lines.append(word[:cut])
+                word = word[cut:]
+            current = word
+        lines.append(current)
+    return lines
+
+
+def _draw_text_area(canvas_obj, text: str, fx: float, fy: float,
+                    fw: float, fh: float, font_size: float) -> None:
+    """A text area's value, from the top of its box down, keeping the line
+    breaks typed into it. The font shrinks (to 6pt at the least) only when
+    the lines don't fit the box; what still doesn't fit is left off."""
+    font_name = "Helvetica"
+    pad = 2
+    usable_w = fw - 2 * pad
+    usable_h = fh - 2 * pad
+    sz = float(font_size)
+    lines = wrap_text_area(text, font_name, sz, usable_w)
+    while sz > 6 and len(lines) * sz * 1.2 > usable_h:
+        sz = max(6.0, sz - 0.5)
+        lines = wrap_text_area(text, font_name, sz, usable_w)
+    while lines and not lines[-1]:
+        lines.pop()
+    if not lines:
+        return
+
+    canvas_obj.setFont(font_name, sz)
+    line_height = sz * 1.2
+    # Baseline of the first line: the box's top, less padding and the font's ascent
+    first = fy + fh - pad - 1 - sz * 0.8
+    for i, line in enumerate(lines):
+        ty = first - i * line_height
+        if ty < fy:
+            break
+        if line:
+            canvas_obj.drawString(fx + pad, ty, line)
+
+
 def _draw_text_wrapped(canvas_obj, text: str, fx: float, fy: float,
-                       fw: float, fh: float, font_size: float):
+                       fw: float, fh: float, font_size: float, multiline: bool = False):
     """Draw text in a PDF field, wrapping to multiple lines if needed.
 
     Instead of shrinking font size when text overflows, this function
     wraps text into multiple lines within the field boundaries.
+    multiline (a text area): line breaks kept, text from the top of the box
+    (_draw_text_area).
     """
     from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    if multiline:
+        _draw_text_area(canvas_obj, text, fx, fy, fw, fh, font_size)
+        return
+    # A one-line field reads a line break as a space (drawn, it prints as a stray glyph)
+    text = ' '.join(part.strip() for part in str(text).splitlines() if part.strip())
 
     usable_w = fw - 4  # 2pt padding each side
     font_name = "Helvetica"
@@ -752,7 +826,8 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                             c.setFillColorRGB(0, 0, 0)
 
                         # Draw text with word-wrap support
-                        _draw_text_wrapped(c, value, fx, fy, fw, fh, font_size)
+                        _draw_text_wrapped(c, value, fx, fy, fw, fh, font_size,
+                                           multiline=bool(field.get('multiline')))
 
                     c.save()
                     overlay_buffer.seek(0)
@@ -1486,7 +1561,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                         c.setFillColorRGB(r, g, b)
                     except Exception:
                         c.setFillColorRGB(0, 0, 0)
-                    _draw_text_wrapped(c, value, fx, fy, fw, fh, fs)
+                    _draw_text_wrapped(c, value, fx, fy, fw, fh, fs, multiline=bool(m.get('multiline')))
 
                 for mapping, img_data in sigs_on_page:
                     fx = mapping.get('x', 0) * pw

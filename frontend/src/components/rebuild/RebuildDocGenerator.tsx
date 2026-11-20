@@ -30,6 +30,8 @@ interface Props {
 interface FieldMapping {
   fieldKey?: string;
   label?: string;
+  /** A text area: typed on several lines */
+  multiline?: boolean;
 }
 
 interface TemplateInfo {
@@ -61,9 +63,13 @@ const DOC_TYPE_OPTIONS = [
 
 /** One entry per mapped field (a box repeated on several pages counts once) */
 const uniqueBy = (mappings: FieldMapping[], keep: (key: string) => boolean) =>
-  mappings.reduce((acc: { key: string; label: string }[], m) => {
+  mappings.reduce((acc: { key: string; label: string; multiline: boolean }[], m) => {
     const key = m.fieldKey || '';
-    if (key && keep(key) && !acc.some(a => a.key === key)) acc.push({ key, label: m.label || key });
+    if (!key || !keep(key)) return acc;
+    const seen = acc.find(a => a.key === key);
+    // Any box for it being a text area makes it typed on several lines
+    if (seen) seen.multiline = seen.multiline || !!m.multiline;
+    else acc.push({ key, label: m.label || key, multiline: !!m.multiline });
     return acc;
   }, []);
 
@@ -277,13 +283,23 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
               {fields.map(f => (
                 <label key={f.key} className="rbg-value">
                   <span className="rbg-value-label">{f.label}</span>
-                  <Input
-                    size={size}
-                    value={valueOf(f.key)}
-                    onChange={e => setOverrides(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    placeholder="Empty"
-                    aria-label={f.label}
-                  />
+                  {f.multiline ? (
+                    <Input.TextArea
+                      value={valueOf(f.key)}
+                      onChange={e => setOverrides(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      placeholder="Empty"
+                      aria-label={f.label}
+                      autoSize={{ minRows: 3, maxRows: 10 }}
+                    />
+                  ) : (
+                    <Input
+                      size={size}
+                      value={valueOf(f.key)}
+                      onChange={e => setOverrides(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      placeholder="Empty"
+                      aria-label={f.label}
+                    />
+                  )}
                 </label>
               ))}
             </div>

@@ -108,8 +108,9 @@ def known_value(values: Dict[str, Any], key: str) -> str:
     return ''
 
 
-def kind_of(key: str) -> str:
-    """How the field should be entered on a phone"""
+def kind_of(key: str, multiline: bool = False) -> str:
+    """How the field should be entered on a phone; a plain text field mapped
+    as a text area is typed on several lines ('textarea')"""
     field = key.partition('.')[2]
     if 'date' in field:
         return 'date'
@@ -119,7 +120,7 @@ def kind_of(key: str) -> str:
         return 'phone'
     if 'email' in field:
         return 'email'
-    return 'text'
+    return 'textarea' if multiline else 'text'
 
 
 def parse_date(value: Optional[str]) -> Optional[datetime]:
@@ -159,6 +160,9 @@ def build_questions(
             continue
         asked_as = question_key(key)
         if asked_as in questions:
+            # Any box for it being a text area makes it asked on several lines
+            if mapping.get('multiline') and questions[asked_as]['kind'] == 'text':
+                questions[asked_as]['kind'] = 'textarea'
             continue
         value = known_value(known, asked_as)
         # The company's details come from its record; only a gap is worth asking about
@@ -167,7 +171,7 @@ def build_questions(
         questions[asked_as] = {
             'key': asked_as,
             'label': mapping.get('label') or asked_as,
-            'kind': kind_of(asked_as),
+            'kind': kind_of(asked_as, multiline=bool(mapping.get('multiline'))),
             'value': value,
         }
     period = [questions.pop(key) for key in (MITIGATION_START, MITIGATION_END) if key in questions]

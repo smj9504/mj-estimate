@@ -426,7 +426,20 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
               key={m.id}
               label={<Text style={{ fontSize: 12 }}>{m.label || m.fieldKey}</Text>}
             >
-              {editable ? (
+              {editable && m.multiline ? (
+                <TextArea
+                  size="small"
+                  aria-label={m.label || m.fieldKey}
+                  value={val}
+                  onChange={(e) => {
+                    if (parts.length === 2) handlePrefillEdit(parts[0], parts[1], e.target.value);
+                  }}
+                  style={{ fontSize: 12 }}
+                  variant="borderless"
+                  placeholder="(empty) Enter starts a new line"
+                  autoSize={{ minRows: 3, maxRows: 10 }}
+                />
+              ) : editable ? (
                 <Input
                   size="small"
                   value={val}
@@ -438,7 +451,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
                   placeholder="(empty)"
                 />
               ) : (
-                <Text style={{ fontSize: 12 }} type="secondary">
+                <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap' }} type="secondary">
                   {val || '(empty)'}
                 </Text>
               )}
@@ -581,17 +594,32 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
                     const parts = m.fieldKey.split('.', 2);
                     return (
                       <Descriptions.Item key={m.id} label={<Text style={{ fontSize: 12 }}>{m.label || m.fieldKey}</Text>}>
-                        <Input
-                          size="small"
-                          aria-label={m.label || m.fieldKey}
-                          value={resolveValue(m.fieldKey)}
-                          onChange={(e) => {
-                            if (parts.length === 2) handlePrefillEdit(parts[0], parts[1], e.target.value);
-                          }}
-                          style={{ fontSize: 12 }}
-                          variant="borderless"
-                          placeholder="(empty)"
-                        />
+                        {m.multiline ? (
+                          <TextArea
+                            size="small"
+                            aria-label={m.label || m.fieldKey}
+                            value={resolveValue(m.fieldKey)}
+                            onChange={(e) => {
+                              if (parts.length === 2) handlePrefillEdit(parts[0], parts[1], e.target.value);
+                            }}
+                            style={{ fontSize: 12 }}
+                            variant="borderless"
+                            placeholder="(empty) Enter starts a new line"
+                            autoSize={{ minRows: 3, maxRows: 10 }}
+                          />
+                        ) : (
+                          <Input
+                            size="small"
+                            aria-label={m.label || m.fieldKey}
+                            value={resolveValue(m.fieldKey)}
+                            onChange={(e) => {
+                              if (parts.length === 2) handlePrefillEdit(parts[0], parts[1], e.target.value);
+                            }}
+                            style={{ fontSize: 12 }}
+                            variant="borderless"
+                            placeholder="(empty)"
+                          />
+                        )}
                       </Descriptions.Item>
                     );
                   })}

@@ -132,6 +132,18 @@ const QuestionInput: React.FC<{
     }
     return <DateInput id={id} value={value} onChange={set} autoFocus={autoFocus} />;
   }
+  if (kind === 'textarea') {
+    // Enter starts a new line here, so it doesn't move on to the next field
+    return (
+      <Input.TextArea
+        id={id}
+        value={value}
+        onChange={e => set(e.target.value)}
+        autoFocus={autoFocus}
+        autoSize={{ minRows: 3, maxRows: 10 }}
+      />
+    );
+  }
   if (kind === 'address') {
     return (
       <AddressAutocomplete
@@ -242,7 +254,10 @@ const FieldsStep: React.FC<FieldsStepProps> = ({
               <React.Fragment key={question.key}>
                 <button type="button" className="os-review-row" onClick={() => onShow(index, true)}>
                   <span className="os-review-label">{question.label}</span>
-                  <span className="os-review-value">
+                  <span
+                    className="os-review-value"
+                    style={question.kind === 'textarea' ? { whiteSpace: 'pre-line' } : undefined}
+                  >
                     {value || <Pill tone="yellow">Skipped</Pill>}
                   </span>
                 </button>

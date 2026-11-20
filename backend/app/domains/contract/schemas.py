@@ -99,6 +99,9 @@ class FieldMappingItem(BaseModel):
     inputMode: Optional[str] = Field(
         None, description="prefilled (auto from data) | creator (filled at generation) | signer (filled at signing)"
     )
+    multiline: Optional[bool] = Field(
+        None, description="Text area: typed in on several lines, printed from the top of the box with its line breaks"
+    )
 
 
 class FieldMappingUpdate(BaseModel):
@@ -256,6 +259,8 @@ class SignerEditableField(BaseModel):
     fontSize: int = 12
     fontColor: str = "#000000"
     currentValue: Optional[str] = None
+    # A text area: typed in on several lines
+    multiline: bool = False
 
 
 class ContractViewResponse(BaseModel):

@@ -250,6 +250,7 @@ def _extract_signer_editable_fields(contract: dict):
             fontSize=m.get('fontSize', 12),
             fontColor=m.get('fontColor', '#000000'),
             currentValue=current_val,
+            multiline=bool(m.get('multiline')),
         ))
 
     return result
@@ -711,7 +712,7 @@ def _generate_filled_pdf_bytes(
                     c.setFillColorRGB(0, 0, 0)
 
                 # Draw text with word-wrap support
-                _draw_text_wrapped(c, val, fx, fy, fw, fh, fs)
+                _draw_text_wrapped(c, val, fx, fy, fw, fh, fs, multiline=bool(f.get('multiline')))
 
             c.save()
             buf.seek(0)

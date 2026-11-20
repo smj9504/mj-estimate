@@ -511,12 +511,23 @@ const ContractSigning: React.FC = () => {
           {signerEditableFields.map(f => (
             <div key={f.id} style={{ marginBottom: 12 }}>
               <Text style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>{f.label}</Text>
-              <Input
-                value={signerFieldValues[f.fieldKey] || ''}
-                onChange={e => setSignerFieldValues(prev => ({ ...prev, [f.fieldKey]: e.target.value }))}
-                placeholder={f.label}
-                style={{ height: 44, fontSize: 16, borderRadius: 6 }}
-              />
+              {f.multiline ? (
+                <Input.TextArea
+                  aria-label={f.label}
+                  value={signerFieldValues[f.fieldKey] || ''}
+                  onChange={e => setSignerFieldValues(prev => ({ ...prev, [f.fieldKey]: e.target.value }))}
+                  placeholder={f.label}
+                  autoSize={{ minRows: 3, maxRows: 10 }}
+                  style={{ fontSize: 16, borderRadius: 6 }}
+                />
+              ) : (
+                <Input
+                  value={signerFieldValues[f.fieldKey] || ''}
+                  onChange={e => setSignerFieldValues(prev => ({ ...prev, [f.fieldKey]: e.target.value }))}
+                  placeholder={f.label}
+                  style={{ height: 44, fontSize: 16, borderRadius: 6 }}
+                />
+              )}
             </div>
           ))}
         </Card>

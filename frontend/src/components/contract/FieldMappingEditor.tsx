@@ -16,7 +16,7 @@ import {
 import {
   PlusOutlined, DeleteOutlined, SaveOutlined,
   ZoomInOutlined, ZoomOutOutlined, LeftOutlined, RightOutlined,
-  EditOutlined,
+  EditOutlined, AlignLeftOutlined,
 } from '@ant-design/icons';
 import * as pdfjs from 'pdfjs-dist';
 import { contractTemplateService } from '../../services/contractService';
@@ -48,6 +48,10 @@ interface RenderedPage {
 
 let idCounter = 0;
 const genId = () => `fm_${Date.now()}_${++idCounter}`;
+
+/** A text area's box starts this tall (page ratio), room for a few lines */
+const TEXT_AREA_HEIGHT = 0.1;
+const TEXT_AREA_MIN_HEIGHT = 0.06;
 
 const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
   open, templateId, templateName, fileUrl, onClose, onSaved,
@@ -176,18 +180,20 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
     }
   };
 
-  const handleAddField = () => {
+  /** multiline: a text area, typed on several lines and printed with its line breaks */
+  const handleAddField = (multiline = false) => {
     const newField: FieldMappingItem = {
       id: genId(),
       pageIndex: currentPage,
       x: 0.1,
       y: 0.1,
-      width: 0.25,
-      height: 0.03,
+      width: multiline ? 0.4 : 0.25,
+      height: multiline ? TEXT_AREA_HEIGHT : 0.03,
       fieldKey: '',
-      label: 'New Field',
+      label: multiline ? 'New Text Area' : 'New Field',
       fontSize: 12,
       fontColor: '#000000',
+      ...(multiline ? { multiline: true } : {}),
     };
     setFields(prev => [...prev, newField]);
     setSelectedFieldId(newField.id);
@@ -274,11 +280,21 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
           updated.width = Math.max(f.width, 0.08);
           updated.height = Math.max(f.height, 0.04);
         }
+        updated.multiline = undefined;
       } else {
         updated.fieldType = 'text';
         updated.signerRole = undefined;
       }
       return updated;
+    }));
+  };
+
+  /** Text or text area; a text area gets a box tall enough for a few lines */
+  const handleMultilineChange = (fieldId: string, multiline: boolean) => {
+    setFields(prev => prev.map(f => {
+      if (f.id !== fieldId) return f;
+      if (!multiline) return { ...f, multiline: undefined };
+      return { ...f, multiline: true, height: Math.max(f.height, TEXT_AREA_MIN_HEIGHT) };
     }));
   };
 
@@ -379,10 +395,19 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
               <Button
                 size="small"
                 icon={<PlusOutlined />}
-                onClick={handleAddField}
+                onClick={() => handleAddField()}
               >
                 Add Text Field
               </Button>
+              <Tooltip title="Several lines; Enter starts a new line, and the PDF keeps the line breaks">
+                <Button
+                  size="small"
+                  icon={<AlignLeftOutlined />}
+                  onClick={() => handleAddField(true)}
+                >
+                  Add Text Area
+                </Button>
+              </Tooltip>
               <Dropdown menu={{ items: signatureMenuItems }} trigger={['click']}>
                 <Button
                   type="primary"
@@ -491,7 +516,7 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                             <KonvaText
                               text={isSignatureField(field.fieldKey)
                                 ? `✍ ${field.label}`
-                                : field.label}
+                                : field.multiline ? `¶ ${field.label}` : field.label}
                               fontSize={10 * scale}
                               fill={catColor}
                               x={4}
@@ -570,6 +595,29 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                     />
                   </div>
                 )}
+                {/* Text or text area */}
+                {!isSignatureField(selectedField.fieldKey) && (
+                  <div style={{ marginTop: 12 }}>
+                    <Text style={{ fontSize: 12 }}>Type:</Text>
+                    <Select
+                      style={{ width: '100%', marginTop: 4 }}
+                      value={selectedField.multiline ? 'textarea' : 'text'}
+                      onChange={(val) => handleMultilineChange(selectedField.id, val === 'textarea')}
+                      size="small"
+                      aria-label="Field type"
+                      options={[
+                        { label: 'Text (one line)', value: 'text' },
+                        { label: 'Text area (several lines)', value: 'textarea' },
+                      ]}
+                    />
+                    {selectedField.multiline && (
+                      <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 11 }}>
+                        Printed from the top of the box, keeping the line breaks typed in.
+                        Make the box tall enough for the lines.
+                      </Text>
+                    )}
+                  </div>
+                )}
                 {/* Input mode: who fills this field */}
                 {selectedField.fieldType !== 'signature' && selectedField.fieldType !== 'initial' && selectedField.fieldType !== 'date_signed' && (
                   <div style={{ marginTop: 12 }}>
@@ -623,7 +671,7 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 style={{ marginTop: 16 }}
               >
-                <Button size="small" type="primary" onClick={handleAddField}>
+                <Button size="small" type="primary" onClick={() => handleAddField()}>
                   Add First Field
                 </Button>
               </Empty>
@@ -679,6 +727,7 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                         description={
                           <span style={{ fontSize: 11 }}>
                             Page {field.pageIndex + 1} | {field.fieldKey || 'No data source'}
+                            {field.multiline && ' | Text area'}
                           </span>
                         }
                       />

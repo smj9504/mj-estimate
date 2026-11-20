@@ -880,7 +880,8 @@ class RebuildService:
                     continue
                 fx, fy, fw, fh = _box(m, pw, ph)
                 _fill_color(c, m.get('fontColor', '#000000'))
-                _draw_text_wrapped(c, value, fx, fy, fw, fh, m.get('fontSize', 12))
+                _draw_text_wrapped(c, value, fx, fy, fw, fh, m.get('fontSize', 12),
+                                   multiline=bool(m.get('multiline')))
 
             for m in page_sigs:
                 fx, fy, fw, fh = _box(m, pw, ph, 0.2, 0.06)

@@ -816,6 +816,15 @@ const FieldEditSignStep: React.FC<{
                       format="MM/DD/YYYY"
                       style={{ width: '100%', height: 44, fontSize: 16 }}
                     />
+                  ) : f.multiline ? (
+                    <Input.TextArea
+                      aria-label={f.label}
+                      value={fieldValues[f.fieldKey] || ''}
+                      onChange={e => updateField(f.fieldKey, e.target.value)}
+                      placeholder={f.label}
+                      autoSize={{ minRows: 3, maxRows: 10 }}
+                      style={{ fontSize: 16, borderRadius: 6 }}
+                    />
                   ) : (
                     <Input
                       value={fieldValues[f.fieldKey] || ''}
