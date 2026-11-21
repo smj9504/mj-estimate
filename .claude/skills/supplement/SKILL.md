@@ -44,6 +44,7 @@ description: Use when the user asks to turn an Xactimate estimate that copies th
 
 ## 4. Xactimate에 반영 (승인 후)
 - **작업 방법:** Computer use로 진행하고, 방법은 메모리 `xactimate-x1-sketch-howto`를 따른다. Xactimate는 한 세션만 조작한다.
+- **O&P:** Parameters → Overhead and Profit을 **Overhead 15%, Profit 10%**, 전체 적용으로 바꾼다. `/xactimate` 단계에서는 PDF의 O&P를 그대로 두었다.
 - **입력 규칙:** REVISED, BID ITEM, bid 줄 만들기는 `rules/bid-items.md`의 "Xactimate 입력 방법"을 따른다. 수량 수정과 항목 추가는 `rules/line-items.md`의 "Xactimate 입력 방법"을 따른다. 수량만 고칠 때는 수량을 바꾸고 note에 한 줄로 이유를 쓴다.
 - **줄 추가:** 새 줄은 검토 표의 방에, 코드, activity, 수량 그대로 넣는다. 수량은 가능하면 Calc 공식(F, W, PF 등)으로 넣는다.
 - **저장 확인:** 바꿀 때마다 "Saved"가 표시되는지 확인한다.
