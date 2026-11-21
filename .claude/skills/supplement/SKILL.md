@@ -1,6 +1,6 @@
 ---
 name: supplement
-description: Use when the user asks to turn an Xactimate estimate that copies the carrier's PDF into a supplement request estimate ("/supplement 6315 Cardinal Hill", "supplement 견적서로 바꿔줘", "빠진 거 추가해줘"). For each room it chooses between replacing the work with a bid item (bathroom with shower/tub tile, pack-out) and adding or fixing line items. It applies the rules in this skill's rules/ folder and the app's Cheat Sheet, shows a review table for approval, then edits the Xactimate X1 project (REVISED / BID ITEM notes, Bathroom or Moving bid items). Run it after /xactimate.
+description: Use when the user asks to turn an Xactimate estimate that copies the carrier's PDF into a supplement request estimate ("/supplement 6315 Cardinal Hill", "supplement 견적서로 바꿔줘", "빠진 거 추가해줘"). For each room it chooses between replacing the work with a bid item (bathroom with shower/tub tile, pack-out) and adding or fixing line items. It applies the rules in this skill's rules/ folder and the app's Cheat Sheet, always stops to get the user's approval of a review table of every addition and change, and only then edits the Xactimate X1 project (REVISED / BID ITEM notes, Bathroom or Moving bid items). Run it after /xactimate.
 ---
 
 # Supplement 견적서 만들기
@@ -30,10 +30,22 @@ description: Use when the user asks to turn an Xactimate estimate that copies th
 ## 2. 방별 처리 방식 정하기
 `rules/bid-items.md`의 조건을 방마다 확인해서, 각 방을 **bid 대체**와 **line item 보충** 중 하나로 정한다. bid로 정한 방에는 line item 규칙을 적용하지 않는다.
 
-## 3. 검토 표 만들기 (Xactimate를 고치기 전에)
-아래 형식으로 표를 만들어 사용자에게 보여주고 승인을 받는다.
+## 3. 검토 표 만들고 사용자 확인 받기 (필수, 건너뛰지 않음)
+**사용자가 승인하기 전에는 Xactimate를 절대 수정하지 않는다.** 1~3단계에서는 PDF, 노트, SimpleWorks만 읽는다. Xactimate는 열어서 보기만 할 수 있다. 사용자가 "중간에 묻지 말라"고 해도 이 확인 단계는 생략하지 않는다(사용자 지시 2026-11-22).
 
-| # | 방 | 조치(추가/수정/REVISED/bid) | 항목(코드) | 수량 | 근거 규칙 | 확신도 |
+아래 형식으로 Xactimate에서 바꿀 **모든 변경**을 표로 보여준다. 들어가는 것:
+- 추가할 줄.
+- 수량을 고칠 줄.
+- REVISED로 표시할 줄.
+- 넣을 bid 줄(금액, 회사명, Estimate #).
+- O&P 변경(기존 → 15/10).
+
+| # | 방 | 조치(추가/수정/REVISED/bid/O&P) | 항목(코드) | 수량(기존 → 변경) | 근거 규칙 | 확신도 |
+
+그다음 멈추고 사용자의 답을 기다린다.
+- **승인 범위:** 사용자가 승인한 줄만 반영한다. "1~5번만", "8번 빼고"처럼 일부만 승인하면 그 범위만 반영한다.
+- **고친 경우:** 사용자가 표를 고치면 고친 표를 다시 보여주고 다시 승인을 받는다.
+- **확신도 '확인' 줄:** 사용자가 따로 답하지 않으면 넣지 않는다.
 
 - **확신도:**
   - 높음: 규칙상 필수이고, 수량이 PDF나 스케치로 정해진다.
@@ -42,7 +54,8 @@ description: Use when the user asks to turn an Xactimate estimate that copies th
 - **보험사에 유리하게 빠진 것만 다룬다.** 보험사가 이미 우리에게 유리하게 준 항목(예: Contents를 규칙보다 큰 사이즈로 준 경우)은 건드리지 않고 "건드리지 않은 것"에 따로 적는다.
 - **수정 기록:** 사용자가 표를 고치면, 그 이유를 규칙 파일에 반영할지 묻고 반영한다.
 
-## 4. Xactimate에 반영 (승인 후)
+## 4. Xactimate에 반영 (승인된 줄만)
+- **범위:** 3단계에서 승인된 변경만 한다. 작업 중에 새로 필요한 변경을 발견하면, 하지 말고 멈춰서 따로 확인받는다.
 - **작업 방법:** Computer use로 진행하고, 방법은 메모리 `xactimate-x1-sketch-howto`를 따른다. Xactimate는 한 세션만 조작한다.
 - **O&P:** Parameters → Overhead and Profit을 **Overhead 15%, Profit 10%**, 전체 적용으로 바꾼다. `/xactimate` 단계에서는 PDF의 O&P를 그대로 두었다.
 - **입력 규칙:** REVISED, BID ITEM, bid 줄 만들기는 `rules/bid-items.md`의 "Xactimate 입력 방법"을 따른다. 수량 수정과 항목 추가는 `rules/line-items.md`의 "Xactimate 입력 방법"을 따른다. 수량만 고칠 때는 수량을 바꾸고 note에 한 줄로 이유를 쓴다.
