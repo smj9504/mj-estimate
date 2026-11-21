@@ -16,6 +16,8 @@ claude-*
 .claude/skills/*
 !.claude/skills/update-unit-prices/
 !.claude/skills/update-unit-prices/**
+!.claude/skills/xactimate/
+!.claude/skills/xactimate/**
 
 # Dependencies
 node_modules/
