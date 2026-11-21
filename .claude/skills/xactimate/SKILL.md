@@ -1,6 +1,6 @@
 ---
 name: xactimate
-description: Use when the user asks to enter an insurance estimate into Xactimate — draw the sketch and fill the line items from a carrier/Xactimate estimate PDF ("/xactimate 6315 Cardinal Hill", "xactimate에 스케치랑 line item 넣어줘", "rebuild만 넣어줘"). Finds the PDF in SimpleWorks by address or customer name (or takes a given file path), creates or reuses the Xactimate X1 desktop project, fills Claim Info (insured name, address, claim/policy #) and O&P, sketches every level, enters the line items with PDF quantities, and checks totals against the PDF. Needs computer use and the Xactimate desktop app open.
+description: Use when the user asks to enter an insurance estimate into Xactimate — draw the sketch and fill the line items from a carrier/Xactimate estimate PDF ("/xactimate 6315 Cardinal Hill", "xactimate에 스케치랑 line item 넣어줘", "rebuild만 넣어줘"). Finds the PDF in SimpleWorks by address or customer name (or takes a given file path), creates or reuses the Xactimate X1 desktop project, fills Claim Info (insured name, contact, address, type of loss) and O&P 15/10, sketches every level, enters the line items with PDF quantities, and checks totals against the PDF. Needs computer use and the Xactimate desktop app open.
 ---
 
 # Xactimate 견적 입력 (PDF → 스케치 + line item)
@@ -40,12 +40,11 @@ description: Use when the user asks to enter an insurance estimate into Xactimat
 
 ## 2. Xactimate 프로젝트와 Claim Info
 - **프로젝트 고르기:** 같은 주소의 프로젝트가 이미 있으면 그것을 쓴다. 없으면 새로 만든다. 다른 프로젝트는 열거나 수정하지 않는다.
-- **Claim Info:** PDF에 있는 만큼만 넣는다.
-  - Insured 이름, Property 주소, 전화, 이메일.
-  - Claim #, Policy #.
-  - Type of Loss, Date of Loss.
-  - 보험사(Company), Price list.
-- **O&P:** PDF의 O&P 비율(예: 10%/10%)을 그대로 설정한다.
+- **Claim Info:** 아래 칸만 PDF대로 넣는다(메모리 `xactimate-claim-info-defaults`).
+  - Insured Info: 이름, 이메일, Street, City, State, Zip, 전화.
+  - Type of Loss: 목록에서 고른다(예: WATER).
+  - **비워 둔다:** Deductible($0), Est. Completed, Claim #, Policy #.
+- **O&P:** PDF와 상관없이 Parameters → Overhead 15%, Profit 10%, 전체 적용.
 
 ## 3. 스케치
 - **범위:** PDF의 모든 레벨(Main Level, Level 2, Basement 등)과 방을 그린다. 치수, 문, 창문, missing wall, 계단, 블록(욕조나 캐비닛처럼 면적에서 빠지는 것)까지 포함한다.
@@ -68,7 +67,7 @@ description: Use when the user asks to enter an insurance estimate into Xactimat
 - **Labor minimum:** Xactimate가 자동으로 붙인 labor minimum 중 PDF에 없는 것은 해제한다.
 
 ## 5. 검증과 보고
-1. 방별 합계와 전체 RCV를 PDF와 비교한다. $5 이상 차이 나는 방은 원인을 찾아 고친다.
+1. 방별 합계와 line item 합계(O&P 제외)를 PDF와 비교한다. $5 이상 차이 나는 방은 원인을 찾아 고친다. O&P를 15/10으로 두므로 RCV는 PDF와 달라도 된다.
 2. 화면에 "Saved"가 표시됐는지 확인한다.
 3. 레벨별 스케치와 방별 항목 목록을 스크린샷으로 찍어 SendUserFile로 보낸다.
 4. 이번에 새로 알게 된 Xactimate 조작법이 있으면 `xactimate-x1-sketch-howto` 메모리에 추가한다.
