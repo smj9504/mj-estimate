@@ -21,11 +21,15 @@ description: Use when the user asks to turn an Xactimate estimate that copies th
 
 ## 1. 자료 모으기
 1. **견적 내용:** `/xactimate` 때 쓴 노트(`<주소>-plan.md`)가 있으면 읽는다. 방별 치수(C/F/W/PF/PC), line item, 문과 창문이 들어 있다. 노트가 없으면 PDF를 다시 읽는다.
-2. **bid 견적:** SimpleWorks에서 이 클레임의 bid item을 찾는다(Supplement 화면, 또는 클라이언트 Documents). 찾을 것:
+2. **bid 견적:** SimpleWorks에서 이 클레임의 bid item을 찾는다(Supplement 화면, 또는 클라이언트 Documents). API로는 `GET /api/supplements/{id}/bid-items`, `GET /api/bathroom-estimates?claim_id=...`로 본다. 찾을 것:
    - 욕실 견적(bathroom estimate), pack-out 견적 등.
    - 각각의 금액, 견적을 만든 회사명, Estimate #.
    - 데이터 구조: `bid_item_estimates`. bathroom, cabinet, packing 등이 각 견적에 연결돼 있다.
-3. **bid 견적이 없을 때:** bid가 필요한 방인데 견적이 없으면, 검토 표에 "bid 견적 필요"로 표시하고 계속한다.
+3. **철거(demo)된 부분:** 무엇을 어디서 뜯었는지 모르면, 이 클레임 water mitigation job의 sketch나 scope를 본다(사용자 지시 2026-11-22). supplement 응답의 `wm_jobs[].id`가 job id다. 백엔드는 `https://mjestimate-backend.onrender.com`이고, 로그인한 SimpleWorks 탭에서 `localStorage.auth_token`을 Bearer로 붙여 읽는다.
+   - **Scope:** `GET /api/water-mitigation/scope/jobs/{job_id}/locations`, 그다음 `/api/water-mitigation/scope/locations/{id}/items`. 층별로 철거 항목과 수량이 나온다(예: Ceiling 139.78 SF, Recessed Light Detach 2 EA).
+   - **Sketch:** `GET /api/water-mitigation/sketch/jobs/{job_id}/floors`, 그다음 `/api/water-mitigation/sketch/floors/{id}`. `demolition_zones`에 재료, 면(ceiling/wall/floor), 가로세로 치수가 있다. tape joint 경계 길이 같은 수량 계산에 쓴다.
+   - mitigation 때 detach만 하고 끝난 항목(조명, 가구 등)은 rebuild에서 reset이 필요한지 확인한다.
+4. **bid 견적이 없을 때:** bid가 필요한 방인데 견적이 없으면, 검토 표에 "bid 견적 필요"로 표시하고 계속한다.
 
 ## 2. 방별 처리 방식 정하기
 `rules/bid-items.md`의 조건을 방마다 확인해서, 각 방을 **bid 대체**와 **line item 보충** 중 하나로 정한다. bid로 정한 방에는 line item 규칙을 적용하지 않는다.
