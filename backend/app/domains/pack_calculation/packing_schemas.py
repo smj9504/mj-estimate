@@ -153,6 +153,9 @@ class QuickEstimateRequest(BaseModel):
     claim_id: Optional[str] = None
     calculation_name: Optional[str] = None
     project_address: Optional[str] = None
+    # The estimate this calculation saves over. Without it, one on the claim
+    # is saved over, so a claim keeps a single packing estimate.
+    estimate_id: Optional[str] = None
 
     rooms: List[RoomInput]
     crew_size: int = Field(default=4, ge=2, le=6)
@@ -367,6 +370,9 @@ class RoomsEstimateRequest(BaseModel):
     claim_id: Optional[str] = None
     calculation_name: Optional[str] = None
     project_address: Optional[str] = None
+    # The estimate this calculation saves over. Without it, one on the claim
+    # is saved over, so a claim keeps a single packing estimate.
+    estimate_id: Optional[str] = None
 
     rooms: List[RoomContentInput]
     crew_size: int = Field(default=4, ge=2, le=6)
