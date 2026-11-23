@@ -22,7 +22,10 @@ bid로 바꾸는 방에서는 보험사 줄을 **지우지 않는다.** 줄의 �
 | P2 | P1에 해당 | `Moving (Bid Item)` 줄을 1 EA @ pack-out 금액으로 넣는다. Note = **BID ITEM**, 줄 메모에 `<회사명> (Estimate #<번호>)` |
 
 ## Xactimate 입력 방법
-- **Note 드롭다운:** Quick Entry 오른쪽의 Note 칸이다. 목록은 BID ITEM, REVISED, AGENT PAY, EK, OPEN ITEM, SEE FLOORING. 줄을 선택하고, 이 드롭다운에서 값을 고른 뒤 저장(OK)한다.
+- **Note 드롭다운:** Quick Entry 오른쪽 패널의 **Unit Price 탭** 안에 있는 Note 칸이다(SmartList). 목록은 BID ITEM, REVISED, AGENT PAY, EK, OPEN ITEM, SEE FLOORING.
+  - 여는 법: 줄 선택 → 오른쪽 탭 `Unit Price`를 **더블클릭** → 패널 빈 곳 클릭 → Note의 ◂ 버튼 **더블클릭**(포커스만 잡힘) → **Alt+Down**으로 목록 열기 → 값 클릭 → OK.
+  - 지우는 법: Note 아래 **Clear Note** 링크를 더블클릭 → OK.
+  - **주의: REVISED를 고르면 그 줄의 단가와 금액이 $0이 되고 RCV 칸에 "REVISED"가 표시된다**(Birkdale 2026-11-24 확인. Kitchen 줄에 넣자 Grand Total이 그 줄 금액만큼 줄었다). 그래서 REVISED는 bid로 대체해서 금액을 빼야 하는 줄에만 맞는다.
 - **bid 줄 만들기:**
   1. Search에서 `Tile (Bid Item)`을 찾아 넣는다(Moving은 `Moving (Bid Item)`).
   2. Desc를 `Bathroom (Bid Item)`으로 바꾼다.
