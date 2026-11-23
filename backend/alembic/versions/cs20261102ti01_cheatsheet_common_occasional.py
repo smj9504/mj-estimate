@@ -40,7 +40,7 @@ OCCASIONAL_ROWS = {
     "drywall": ["d2", "d7", "d8", "d11", "d13"],
     "texture": ["tx2", "tx6", "tx7", "tx8"],
     "paint": ["p3", "p11", "p15"],
-    "trim": ["tr5", "tr6", "tr9", "tr11", "tf7", "tf9"],
+    "trim": ["tr5", "tr6", "tr7b", "tr9", "tr11", "tf7", "tf9"],
     "room-general": ["rg7"],
     "bathroom": ["b3", "b5", "b8", "b10", "b12", "b14", "b15", "b16", "b19", "b20", "b33"],
     "kitchen": ["k2", "k3", "k6", "k8", "k9", "k10", "k11", "ka2", "ka4", "ka5", "ka9"],
@@ -52,7 +52,7 @@ OCCASIONAL_ROWS = {
 OCCASIONAL_RULES = {
     "waste": ["Drywall 부분 교체 Waste 규칙", "Waste 계산 예시"],
     "paint-rules": ["Scrape & Prep for Paint — 언제 추가하나"],
-    "trim": ["Paint Grade vs Stain Grade 판단"],
+    "trim": ["Paint Grade vs Stain Grade 판단", "Wood Floor 교체 시 Door Casing — 바닥 높이가 바뀔 때만"],
     "electrical": ["Megohmmeter — 무엇을 검사하나", "Megohmmeter — 필요 없는 경우"],
     "qty": ["부분 작업 시 Qty 계산법"],
 }
