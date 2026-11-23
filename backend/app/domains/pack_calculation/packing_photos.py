@@ -653,8 +653,8 @@ async def load_room_photo(db: Session, calc_id: str, file_id: str) -> str:
 
 
 def delete_unused_room_photos(db: Session, file_ids: List[str]) -> None:
-    """After an estimate is deleted, remove its photos that no other estimate
-    uses: recalculating saves a new estimate on the same photos."""
+    """After an estimate is deleted or recalculated, remove the photos it had that
+    no estimate uses now: estimates off a claim can share photos."""
     from app.domains.client.client_delete import StoredFile, _not_used_elsewhere, delete_stored_files
     from app.domains.file.models import File
 

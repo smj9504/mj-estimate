@@ -72,6 +72,9 @@ const PackCalculatorNew: React.FC = () => {
   );
   // The name of the estimate being recalculated, if it has one
   const calculationName: string | null = recalcState?.calculationName || null;
+  // The estimate calculating saves over: the one being recalculated, then the
+  // one the first calculation here saved, so calculating again doesn't add another
+  const estimateId = useRef<string | undefined>(recalcState?.recalculateFrom || undefined);
 
   // Room state
   const [rooms, setRooms] = useState<PackingRoom[]>([]);
@@ -262,6 +265,7 @@ const PackCalculatorNew: React.FC = () => {
           claim_id: selectedClaimId || undefined,
           calculation_name: calculationName || undefined,
           project_address: projectAddress || undefined,
+          estimate_id: estimateId.current,
           rooms: roomInputs,
           crew_size: settings.crew_size,
           storage_months: settings.storage_months,
@@ -297,6 +301,7 @@ const PackCalculatorNew: React.FC = () => {
           claim_id: selectedClaimId || undefined,
           calculation_name: calculationName || undefined,
           project_address: projectAddress || undefined,
+          estimate_id: estimateId.current,
           rooms: contentRooms.map((room, i) => ({ ...room, photo_ids: photoIds[i] })),
           crew_size: settings.crew_size,
           storage_months: settings.storage_months,
@@ -314,6 +319,7 @@ const PackCalculatorNew: React.FC = () => {
         });
       }
 
+      if (response.id) estimateId.current = response.id;
       setResult(response);
       setCollapsedSections(new Set());
       setCalculatedInputs(inputsAtStart);

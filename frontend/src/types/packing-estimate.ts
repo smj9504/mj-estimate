@@ -84,6 +84,8 @@ export interface QuickEstimateRequest {
   claim_id?: string;
   calculation_name?: string;
   project_address?: string;
+  /** The estimate this saves over; without it, the claim's own is saved over */
+  estimate_id?: string;
   rooms: RoomInput[];
   crew_size: number;
   storage_months: number;
@@ -240,6 +242,8 @@ export interface ContentEstimateRequest {
   claim_id?: string;
   calculation_name?: string;
   project_address?: string;
+  /** The estimate this saves over; without it, the claim's own is saved over */
+  estimate_id?: string;
   rooms: ContentRoomInput[];
   crew_size: number;
   storage_months: number;
