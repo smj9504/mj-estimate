@@ -21,3 +21,24 @@
 .wm-list-item .ant-list-item-meta-content {
   min-width: 0;
 }
+
+/* Horizontal layout follows the window's width, but the row is only as wide
+   as the job page's pane: with the sidebar open or a half-screen window the
+   buttons kept their full width and squeezed the name to a letter per line.
+   The name keeps 320px; past that the buttons drop to a line of their own,
+   at the right, and wrap there if even that is too narrow. */
+.ant-list:not(.ant-list-vertical) .wm-list-item {
+  flex-wrap: wrap;
+  column-gap: 24px;
+  row-gap: 4px;
+}
+
+.ant-list:not(.ant-list-vertical) .wm-list-item .ant-list-item-meta {
+  flex: 1 1 320px;
+}
+
+.ant-list:not(.ant-list-vertical) .wm-list-item .ant-list-item-action {
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-inline-start: auto;
+}
