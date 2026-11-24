@@ -38,6 +38,7 @@ import { roomsFromWalls } from '../utils/beRoomDetect';
 import { roomWallAreaSF } from '../utils/beGeometry';
 import { wallStripAreaSF } from '../utils/wallFinish';
 import { joinWalls, offsetWall, splitWall, splitWallTwice } from '../utils/wallSplit';
+import { removeRoomWithWalls } from '../utils/roomDelete';
 
 let _idCounter = 0;
 function generateId(prefix: string): string {
@@ -488,11 +489,10 @@ export function useBESketchState(initialData?: BESketchData) {
 
   const removeRoom = useCallback(
     (id: string) => {
+      // Its walls go with it, but for what another room still stands on (utils/roomDelete)
       mutate((d) => {
-        const filtered = d.rooms.filter((r) => r.id !== id);
-        // Re-parent children: clear parentRoomId for any child rooms
-        const updated = filtered.map((r) => r.parentRoomId === id ? { ...r, parentRoomId: undefined } : r);
-        return { ...d, rooms: recalcNetAreas(updated), fixtures: d.fixtures.filter((f) => f.roomId !== id) };
+        const next = removeRoomWithWalls(d, id, () => generateId('wall'));
+        return { ...next, rooms: recalcNetAreas(next.rooms) };
       });
       if (selectedId === id) setSelectedId(null);
     },
