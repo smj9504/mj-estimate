@@ -53,3 +53,29 @@ describe("a drop-in tub's deck side by side", () => {
     expect(basin.startsWith(`M${Math.round((28 / 108) * 10000) / 10000},0.25`)).toBe(true);
   });
 });
+
+describe("a drop-in's faucet and drain", () => {
+  // Imported here so the deck's own tests above stay about the deck
+  it('are on its tub, not out on the deck', async () => {
+    const { drainOf, faucetOf, faucetPresets, drainPresets, snapFaucet } = await import('./plumbingPoints');
+    const tub = platform(SIDES);
+    const W = 108;
+    const D = 48;
+    // The right end, picked: on the tub's right rim (84" across), not the 2' ledge past it
+    const right = faucetPresets(tub).find((p) => p.value === 'east')!.pt!;
+    expect(right.x * W).toBeCloseTo(84 - 0.75);
+    expect(right.y * D).toBeCloseTo(28);
+    // Dragged out onto the deck, it comes back to the rim
+    const dragged = snapFaucet(tub, { x: 0.97, y: 0.5 });
+    expect(dragged.x * W).toBeCloseTo(84 - 0.75);
+    // Unset: the middle of its back rim (the tub's back, 12" in)
+    const fp = faucetOf(tub);
+    expect([fp.x * W, fp.y * D]).toEqual([54, 12.75]);
+    // Its drain under it, inside the tub
+    const dp = drainOf({ ...tub, properties: { ...tub.properties, faucetPos: right } });
+    expect(dp.x * W).toBeLessThanOrEqual(84 - 3 + 1e-9);
+    expect(dp.x * W).toBeGreaterThan(24);
+    // The drain's right end is the tub's, 3" in
+    expect(drainPresets(tub).find((p) => p.value === 'east')!.pt!.x * W).toBeCloseTo(81);
+  });
+});

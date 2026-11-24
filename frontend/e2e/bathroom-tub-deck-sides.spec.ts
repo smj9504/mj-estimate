@@ -83,6 +83,12 @@ test("a drop-in tub's deck set side by side: wide ledges at the ends, a lip at t
   await setNum(page, 'Left deck, inches', '24');
   await setNum(page, 'Right deck, inches', '24');
   await expect(panel(page).getByText('The tub inside: 60" × 32".')).toBeVisible();
+
+  // Its faucet at the right end: on the tub's rim there, not out on the 2' ledge
+  const faucet = panel(page).getByRole('combobox', { name: 'Faucet position' });
+  await faucet.click({ force: true });
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: 'Right end' }).click();
+  await expect(faucet.locator('xpath=ancestor::div[contains(@class,"ant-select")][1]')).toContainText('Right end');
   await page.waitForTimeout(500);
   await page.screenshot({ path: test.info().outputPath('deck-plan.png') });
 
@@ -94,6 +100,12 @@ test("a drop-in tub's deck set side by side: wide ledges at the ends, a lip at t
   expect(tub.deck_tile_sf).toBeCloseTo((108 * 48 - 60 * 32) / 144, 1);
   expect(tub.deck_side_widths_in).toEqual({ back: 12, front: 4, left: 24, right: 24 });
   expect(tub.deck_tub_in).toEqual([60, 32]);
+  // The faucet saved on the tub's right rim: 84" - 0.75" across the 108" platform
+  const sketch = calculated[0].sketch_data ?? null;
+  if (sketch) {
+    const fixture = sketch.fixtures.find((f: any) => f.type === 'bathtub');
+    expect(fixture.properties.faucetPos.x * 108).toBeCloseTo(83.25, 1);
+  }
 
   // In 3D: the tub dropped in where the decks leave it
   await page.getByRole('tab', { name: /Sketch/ }).click();
