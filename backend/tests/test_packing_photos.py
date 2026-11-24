@@ -484,7 +484,7 @@ def test_deleting_an_estimate_removes_only_the_photos_no_other_estimate_uses(env
     shared = _room_photo(database, tmp_path, 'shared.jpg')
     own = _room_photo(database, tmp_path, 'own.jpg')
 
-    # Recalculating saves a new estimate on the same photos
+    # Two estimates on no claim can share photos
     original = _photo_estimate(api, {'Kitchen': [shared, own]})
     recalculated = _photo_estimate(api, {'Kitchen': [shared]})
 
@@ -601,3 +601,73 @@ def test_an_older_estimate_finds_its_rooms_photos_on_its_claim(env):
     # One on no claim has nowhere to look
     alone = _photo_estimate(api, {'Kitchen': []})
     assert api.get(f'/api/packing-estimate/{alone}/claim-room-photos').json() == {'rooms': [[]]}
+
+
+def _estimate_ids(database):
+    from app.domains.pack_calculation.models import PackCalculation
+
+    s = database.get_session()
+    ids = [str(c.id) for c in s.query(PackCalculation).all()]
+    s.close()
+    return ids
+
+
+def test_recalculating_saves_over_the_estimate_instead_of_adding_one(env):
+    api, database, tmp_path, _ = env
+    kept = _room_photo(database, tmp_path, 'kept.jpg')
+    dropped = _room_photo(database, tmp_path, 'dropped.jpg')
+
+    calc_id = _photo_estimate(api, {'Kitchen': [kept, dropped], 'Den': []})
+    url = f'/api/packing-estimate/{calc_id}'
+    assert api.put(url, json={'calculation_name': 'Pack-out', 'status': 'approved'}).status_code == 200
+
+    again = _photo_estimate(api, {'Kitchen': [kept]}, estimate_id=calc_id, crew_size=3)
+    assert again == calc_id
+    assert _estimate_ids(database) == [calc_id]
+
+    saved = api.get(url).json()
+    assert [(r['room_name'], r['photos'], len(r['items'])) for r in saved['rooms']] == [
+        ('Kitchen', [kept], 1),
+    ]
+    assert saved['crew_size'] == 3
+    # Its name stays; the new amounts need approving again
+    assert (saved['calculation_name'], saved['status']) == ('Pack-out', 'draft')
+    # The photo it no longer has goes, the one it kept stays
+    assert _file_exists(database, kept)
+    assert not _file_exists(database, dropped)
+
+
+def test_a_claim_keeps_one_packing_estimate(env):
+    api, database, tmp_path, _ = env
+    ids = _seed(database, tmp_path)
+
+    first = _photo_estimate(api, {'Kitchen': []}, claim_id=ids.claim)
+    # A new estimate on the claim, from the builder or another person, saves over it
+    second = _photo_estimate(api, {'Den': []}, claim_id=ids.claim)
+    quick = api.post('/api/packing-estimate/quick-estimate', json={
+        'claim_id': ids.claim,
+        'rooms': [{'preset': 'bedroom_standard'}],
+    })
+    assert quick.status_code == 200, quick.text
+
+    assert first == second == quick.json()['id']
+    assert _estimate_ids(database) == [first]
+    saved = api.get(f'/api/packing-estimate/{first}').json()
+    assert saved['mode'] == 'quick' and not saved.get('rooms')
+
+    # Without a claim, each one is new
+    elsewhere = _photo_estimate(api, {'Kitchen': []})
+    assert elsewhere != first
+
+
+def test_an_estimate_out_of_sight_cant_be_saved_over(env):
+    api, database, tmp_path, staff = env
+    calc_id = _photo_estimate(api, {'Kitchen': []})
+
+    staff['role'] = StaffRole.staff
+    resp = api.post('/api/packing-estimate/content-estimate', json={
+        'estimate_id': calc_id, 'rooms': [{'room_name': 'Den', 'items': []}],
+    })
+    assert resp.status_code == 404
+    staff['role'] = StaffRole.admin
+    assert api.get(f'/api/packing-estimate/{calc_id}').json()['rooms'][0]['room_name'] == 'Kitchen'

@@ -91,6 +91,7 @@ def quick_estimate(
     from .packing_service import EstimateCalculator
     if request.claim_id:
         require_claim(db, current_user, request.claim_id)
+    existing = _estimate_to_save_over(db, current_user, request)
     calc = EstimateCalculator(
         db, company_id=request.company_id
     )
@@ -99,7 +100,7 @@ def quick_estimate(
     # Save to DB
     pack_calc = _save_calculation(
         db, request, result,
-        current_user.id, PackEstimateMode.QUICK,
+        current_user.id, PackEstimateMode.QUICK, existing,
     )
     result.id = str(pack_calc.id)
 
@@ -120,6 +121,7 @@ def content_estimate(
     from .packing_service import EstimateCalculator
     if request.claim_id:
         require_claim(db, current_user, request.claim_id)
+    existing = _estimate_to_save_over(db, current_user, request)
     calc = EstimateCalculator(
         db, company_id=request.company_id
     )
@@ -127,7 +129,7 @@ def content_estimate(
 
     pack_calc = _save_calculation(
         db, request, result,
-        current_user.id, PackEstimateMode.PHOTO_AI,
+        current_user.id, PackEstimateMode.PHOTO_AI, existing,
     )
     result.id = str(pack_calc.id)
 
@@ -888,18 +890,42 @@ _CONTAMINATION_DB = {
 _FLOOR_FROM_DB = {db: floor for floor, db in _FLOOR_DB.items()}
 
 
+def _estimate_to_save_over(db: Session, staff, request) -> Optional[PackCalculation]:
+    """The estimate a calculation saves over, so recalculating doesn't make another
+    one: the one it names, else the claim's own (its latest, should it have more).
+    None when it's a new estimate."""
+    if request.estimate_id:
+        _require_estimate(db, staff, request.estimate_id)
+        return db.query(PackCalculation).filter(
+            PackCalculation.id == request.estimate_id
+        ).first()
+    if request.claim_id:
+        return db.query(PackCalculation).filter(
+            PackCalculation.claim_id == request.claim_id
+        ).order_by(PackCalculation.created_at.desc()).first()
+    return None
+
+
 def _save_calculation(
     db: Session,
     request,
     result: EstimateResponse,
     user_id,
     mode: PackEstimateMode,
+    existing: Optional[PackCalculation] = None,
 ) -> PackCalculation:
-    """Save calculation result to DB."""
-    calc = PackCalculation(
+    """Save calculation result to DB: a new estimate, or over `existing` in place
+    (its rooms and items replaced, its name kept unless a new one is given)."""
+    old_photo_ids = []
+    if existing is not None:
+        old_photo_ids = packing_photos.estimate_photo_ids(db, existing.id)
+        existing.rooms.clear()
+        db.flush()
+
+    values = dict(
         calculation_name=getattr(
             request, 'calculation_name', None
-        ),
+        ) or (existing.calculation_name if existing is not None else None),
         project_address=getattr(
             request, 'project_address', None
         ),
@@ -961,9 +987,17 @@ def _save_calculation(
                 request, 'custom_special_items', []
             )]
         ),
-        created_by_id=user_id,
     )
-    db.add(calc)
+    if existing is None:
+        calc = PackCalculation(created_by_id=user_id, **values)
+        db.add(calc)
+    else:
+        calc = existing
+        for field, value in values.items():
+            setattr(calc, field, value)
+        # The amounts changed, so whatever was approved has to be looked at again
+        calc.status = PackEstimateStatus.DRAFT
+        calc.updated_by_id = user_id
     db.commit()
     db.refresh(calc)
 
@@ -1028,6 +1062,14 @@ def _save_calculation(
                 db.rollback()
             except Exception:
                 pass
+
+    # Photos the estimate no longer has, unless another one uses them
+    if old_photo_ids:
+        try:
+            packing_photos.delete_unused_room_photos(db, old_photo_ids)
+        except Exception as e:
+            logger.warning(f"Failed to remove the old photos of estimate {calc.id}: {e}")
+            db.rollback()
 
     return calc
 
