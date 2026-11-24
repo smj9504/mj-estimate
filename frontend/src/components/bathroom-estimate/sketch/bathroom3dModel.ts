@@ -94,6 +94,8 @@ export interface WallOpeningSolid {
   swingsIn: boolean;
   /** An opening with no door in it */
   noSlab?: boolean;
+  /** A pair of doors, hinged at either side, meeting in the middle */
+  double?: boolean;
   /** A shower room's entry, its front tiled inside: tiled round its jambs and head, not cased */
   tiledRound?: boolean;
 }
@@ -452,6 +454,7 @@ function wallSolid(
       hingeAtStart: Math.abs(hingeAlong - r.x0) <= Math.abs(hingeAlong - r.x1),
       swingsIn: side >= 0,
       ...(fixture.properties?.noSlab ? { noSlab: true } : {}),
+      ...(fixture.properties?.doubleDoor && !fixture.properties?.noSlab ? { double: true } : {}),
       ...(tiledEntries.has(fixture.id) ? { tiledRound: true } : {}),
     };
   });

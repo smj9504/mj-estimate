@@ -253,20 +253,28 @@ function buildOpening(
   // An opening with no door: its jambs and casing only
   if (o.noSlab) return;
 
-  // The door, open into the side its plan symbol swings to
+  // The door, open into the side its plan symbol swings to; a pair, a leaf
+  // hinged at each jamb, both open the same way
   const hingeAtStart = flip ? !o.hingeAtStart : o.hingeAtStart;
-  const leafW = w - 1.75;
   const leafH = h - 1;
   const side = o.swingsIn ? 1 : -1;
-  const pivot = new THREE.Group();
-  pivot.position.set(hingeAtStart ? x0 + 0.875 : x1 - 0.875, y0, o.swingsIn ? 0 : -thick);
-  const dir = hingeAtStart ? 1 : -1;
-  const leaf = boxAt(leafW, leafH, 1.375, m.door, (dir * leafW) / 2, leafH / 2, side * 0.7);
-  pivot.add(leaf);
-  pivot.add(post(0.45, 0.4, m.metal, dir * (leafW - 2.5), 36, side * 2.4));
-  pivot.add(boxAt(4, 0.6, 0.6, m.metal, dir * (leafW - 4), 36.2, side * 2.6));
-  pivot.rotation.y = -dir * side * OPEN_DOOR_RAD;
-  add(pivot);
+  const hangLeaf = (atStart: boolean, leafW: number) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(atStart ? x0 + 0.875 : x1 - 0.875, y0, o.swingsIn ? 0 : -thick);
+    const dir = atStart ? 1 : -1;
+    pivot.add(boxAt(leafW, leafH, 1.375, m.door, (dir * leafW) / 2, leafH / 2, side * 0.7));
+    pivot.add(post(0.45, 0.4, m.metal, dir * (leafW - 2.5), 36, side * 2.4));
+    pivot.add(boxAt(4, 0.6, 0.6, m.metal, dir * (leafW - 4), 36.2, side * 2.6));
+    pivot.rotation.y = -dir * side * OPEN_DOOR_RAD;
+    add(pivot);
+  };
+  if (o.double) {
+    const leafW = (w - 1.75) / 2 - 0.125;
+    hangLeaf(true, leafW);
+    hangLeaf(false, leafW);
+  } else {
+    hangLeaf(hingeAtStart, w - 1.75);
+  }
 }
 
 function buildWall(

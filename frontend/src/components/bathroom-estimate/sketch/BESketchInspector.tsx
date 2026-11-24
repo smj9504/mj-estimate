@@ -1094,12 +1094,25 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     // Slab or no slab, its side on the wall stays put: the box grows or shrinks away from the wall
     const setSlab = (slab: boolean) => {
       const oldDepth = fixture.dimensions.height;
-      const newDepth = slab ? fixture.dimensions.width : OPENING_DEPTH_IN;
+      const newDepth = slab ? (p.doubleDoor ? fixture.dimensions.width / 2 : fixture.dimensions.width) : OPENING_DEPTH_IN;
       const shift = (((oldDepth - newDepth) / 2) / 12) * ppf;
       updateFixture(fixture.id, {
         dimensions: { ...fixture.dimensions, height: newDepth },
         position: { x: fixture.position.x - Math.sin(rad) * shift, y: fixture.position.y + Math.cos(rad) * shift },
         properties: { ...p, noSlab: !slab },
+      });
+    };
+    // A pair of doors, or one: its box as deep as a leaf's swing, its wall side
+    // put; a pair at least 48" wide (60" when it was narrower)
+    const setDouble = (pair: boolean) => {
+      const width = pair && fixture.dimensions.width < 48 ? 60 : fixture.dimensions.width;
+      const oldDepth = fixture.dimensions.height;
+      const newDepth = pair ? width / 2 : width;
+      const shift = (((oldDepth - newDepth) / 2) / 12) * ppf;
+      updateFixture(fixture.id, {
+        dimensions: { width, height: newDepth },
+        position: { x: fixture.position.x - Math.sin(rad) * shift, y: fixture.position.y + Math.cos(rad) * shift },
+        properties: { ...p, doubleDoor: pair },
       });
     };
     // Along its wall from its left end (its top end, for a wall up and down the
@@ -1127,7 +1140,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             max={Math.max(12, wallLen || 120)}
             unit="in"
             onChange={(v) => v && updateFixture(fixture.id, {
-              dimensions: { width: v, height: p.noSlab ? fixture.dimensions.height : v },
+              dimensions: { width: v, height: p.noSlab ? fixture.dimensions.height : p.doubleDoor ? v / 2 : v },
             })}
           />
         </Field>
@@ -1165,6 +1178,14 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         >
           <Switch aria-label="Door slab" checked={!p.noSlab} onChange={setSlab} />
         </Field>
+        {!p.noSlab && (
+          <Field
+            label="Double door"
+            hint={p.doubleDoor ? 'A pair meeting in the middle, each half the width. Its trim is painted as a double door.' : undefined}
+          >
+            <Switch aria-label="Double door" checked={!!p.doubleDoor} onChange={setDouble} />
+          </Field>
+        )}
       </>
     );
   }

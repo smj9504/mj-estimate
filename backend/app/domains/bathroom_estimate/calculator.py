@@ -43,6 +43,7 @@ from .pricing import (
     TUB_FAUCET_PRICES,
     MOISTURE_RESISTANT_PAINT_MULT,
     DOOR_CASING_LF_DEFAULT,
+    DOOR_CASING_LF_DOUBLE_DEFAULT,
     DOOR_TRIM,
     PAINT_GRADE_MULTIPLIER,
     PAINT_PREP,
@@ -2735,24 +2736,39 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
     # (walls_spec door_trim_action: replace = new casing and paint, the
     # default; paint; none). The sketch gives the doors and their casing's LF.
     _door_trim = int(_count(walls.get("door_trim_count")))
+    # Of them, pairs of doors: their trim and jamb painted at the large rate
+    _door_double = min(int(_count(walls.get("door_trim_double_count"))), _door_trim)
+    _door_single = _door_trim - _door_double
     _win_trim = int(_count(walls.get("window_trim_count")))
     _door_action = walls.get("door_trim_action") or "replace"
     _trim_paint_rate = DOOR_TRIM["paint_per_side"] * pg_mult * MOISTURE_RESISTANT_PAINT_MULT * labor_mult
+    _trim_paint_rate_large = DOOR_TRIM["paint_per_side_large"] * pg_mult * MOISTURE_RESISTANT_PAINT_MULT * labor_mult
     if _door_trim > 0 and _door_action == "replace":
-        _casing_lf = round(_count(walls.get("door_trim_lf")) or _door_trim * DOOR_CASING_LF_DEFAULT, 1)
+        _casing_lf = round(_count(walls.get("door_trim_lf"))
+                           or _door_single * DOOR_CASING_LF_DEFAULT + _door_double * DOOR_CASING_LF_DOUBLE_DEFAULT, 1)
+        _doors_label = f"{_door_trim} door{'s' if _door_trim != 1 else ''}"
+        if _door_double:
+            _doors_label += f", {_door_double} double"
         _add(line_items, 6,
-             f"Door casing - remove & install new ({_door_trim} door{'s' if _door_trim != 1 else ''})",
+             f"Door casing - remove & install new ({_doors_label})",
              _casing_lf, "LF",
              DOOR_TRIM["casing_per_lf"] * labor_mult,
              "finish",
              notes="2 1/4\" casing, one side each: old casing off, new casing nailed and caulked; painted below")
-    if _door_trim > 0 and _door_action in ("replace", "paint"):
+    if _door_single > 0 and _door_action in ("replace", "paint"):
         _add(line_items, 6,
              f"Door trim & jamb painting ({wc_paint_grade})",
-             _door_trim, "EA",
+             _door_single, "EA",
              _trim_paint_rate,
              "finish",
              notes="Per side: prep, prime and 2 coats on the casing and jamb")
+    if _door_double > 0 and _door_action in ("replace", "paint"):
+        _add(line_items, 6,
+             f"Double door trim & jamb painting ({wc_paint_grade})",
+             _door_double, "EA",
+             _trim_paint_rate_large,
+             "finish",
+             notes="Per side, a pair of doors: prep, prime and 2 coats on the casing and the wide jamb")
     if _win_trim > 0:
         _add(line_items, 6,
              f"Window trim & jamb painting ({wc_paint_grade})",

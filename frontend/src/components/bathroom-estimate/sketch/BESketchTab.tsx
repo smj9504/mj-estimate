@@ -359,7 +359,12 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       // room's entry tiled round), so trim the plan no longer has comes off;
       // a plan with no doors leaves the count typed on the estimate alone
       ...(fixtures.some((f) => f.type === 'door')
-        ? { door_trim_count: trimDoors.length, door_trim_lf: Math.round(casingLF * 10) / 10 }
+        ? {
+          door_trim_count: trimDoors.length,
+          // Of them, pairs of doors: their trim painted as a double door's
+          door_trim_double_count: trimDoors.filter((d) => d.properties.doubleDoor && !d.properties.noSlab).length,
+          door_trim_lf: Math.round(casingLF * 10) / 10,
+        }
         : {}),
       ...(trimWindows.length ? { window_trim_count: trimWindows.length } : {}),
       ...(existingTileWallSF > 0 ? { existing_tile_wall_sf: existingTileWallSF } : {}),

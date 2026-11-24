@@ -357,6 +357,12 @@ export interface BEFixtureProperties {
    * hung in the opening: utils/wallFinish showerFrontOpening).
    */
   noSlab?: boolean;
+  /**
+   * A pair of doors in the opening, each half its width, hinged at either
+   * side and meeting in the middle (a slab door only). Its plan box is as
+   * deep as one leaf's swing, half its width.
+   */
+  doubleDoor?: boolean;
   swingDirection?: 'in' | 'out';
   handleSide?: 'left' | 'right';
 

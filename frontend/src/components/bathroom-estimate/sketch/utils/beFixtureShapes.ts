@@ -618,6 +618,28 @@ const door: FixtureShape = {
   ],
 };
 
+/**
+ * A pair of doors: a leaf hinged at each end of the opening, meeting in the
+ * middle, each swinging its own quarter circle. The box is as deep as one
+ * leaf is wide (half the opening), so its arcs are round on the plan.
+ */
+const doubleDoor: FixtureShape = {
+  label: 'Double door',
+  paths: [
+    // Both leaves shut, across the opening
+    { d: 'M0,1 L1,1', fill: N, stroke: S, strokeWidth: 2.5 },
+    // The left leaf's swing, from the middle round to open against the left jamb
+    { d: 'M0.5,1 A0.5,1 0 0,0 0,0', fill: N, stroke: SL, strokeWidth: 0.8 },
+    { d: 'M0,1 L0,0', fill: N, stroke: S, strokeWidth: 1.5 },
+    // The right leaf's
+    { d: 'M0.5,1 A0.5,1 0 0,1 1,0', fill: N, stroke: SL, strokeWidth: 0.8 },
+    { d: 'M1,1 L1,0', fill: N, stroke: S, strokeWidth: 1.5 },
+    // Hinge dots
+    { d: 'M0,1 m-0.02,0 a0.02,0.04 0 1,0 0.04,0 a0.02,0.04 0 1,0 -0.04,0', fill: S, stroke: S, strokeWidth: 0.5 },
+    { d: 'M1,1 m-0.02,0 a0.02,0.04 0 1,0 0.04,0 a0.02,0.04 0 1,0 -0.04,0', fill: S, stroke: S, strokeWidth: 0.5 },
+  ],
+};
+
 /** An opening with no door in it: the wall broken between two jambs */
 const doorOpening: FixtureShape = {
   label: 'Opening',
@@ -779,6 +801,8 @@ function buildSoffit(bottomIn: number): FixtureShape {
 export interface FixtureShapeExtras {
   /** A door with no slab: just its opening */
   noSlab?: boolean;
+  /** A pair of doors meeting in the middle */
+  doubleDoor?: boolean;
   /** A shower in its own room: its door's stretch of the front is the opening's, with no glass panels */
   showerOpeningSpan?: [number, number] | null;
   /** That room's door side is one of its tiled walls (its 4th) */
@@ -846,7 +870,7 @@ export function getFixtureShape(
     case 'toilet':
       return toilet;
     case 'door':
-      return extras.noSlab ? doorOpening : door;
+      return extras.noSlab ? doorOpening : extras.doubleDoor ? doubleDoor : door;
     case 'window':
       return windowShape;
     case 'mirror':

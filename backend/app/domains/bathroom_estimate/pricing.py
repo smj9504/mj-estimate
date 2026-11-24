@@ -821,9 +821,12 @@ MOISTURE_RESISTANT_PAINT_MULT = 1.20
 DOOR_TRIM = {
     "casing_per_lf": xact(3.50),       # FNC C: casing 2 1/4", remove old and install new ("&")
     "paint_per_side": xact(46.13),     # PNT DORT: paint door/window trim & jamb, 2 coats, per side
+    "paint_per_side_large": xact(54.27),  # PNT DORT>: the same for a double door or a large window
 }
-# A door's casing, one side, when the sketch doesn't give it: a 30" x 80" door
+# A door's casing, one side, when the sketch doesn't give it: a 30" x 80" door,
+# or a 60" x 80" pair
 DOOR_CASING_LF_DEFAULT = 17
+DOOR_CASING_LF_DOUBLE_DEFAULT = 19
 DOOR_TRIM_ACTIONS = ["replace", "paint", "none"]
 
 # 2026-08-26: +6% (Tier B)

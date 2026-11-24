@@ -2270,6 +2270,12 @@ const BathroomEstimateDetail: React.FC = () => {
                           <InputNumber style={{ width: '100%' }} min={0} max={10} placeholder="0" />
                         </Form.Item>
                       </Col>
+                      <Col xs={12} sm={6} md={3}>
+                        <Form.Item label="Of them double" name={['walls_spec', 'door_trim_double_count']}
+                          tooltip="Pairs of doors among them: a double door's trim and jamb are painted at Xactimate's large rate. The sketch counts them.">
+                          <InputNumber aria-label="Double doors" style={{ width: '100%' }} min={0} max={10} placeholder="0" />
+                        </Form.Item>
+                      </Col>
                       <Col xs={12} sm={8} md={5}>
                         <Form.Item label="Door Trim" name={['walls_spec', 'door_trim_action']}
                           tooltip="New casing put up and painted, or the trim painted only. Bath paint is always moisture-resistant."

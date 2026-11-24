@@ -175,9 +175,10 @@ PRICE_TABLES = [
     TableSpec("PAINT_PREP", "Paint & Trim", kind=MIXED, share=_FINISH),
     TableSpec(
         "DOOR_TRIM", "Paint & Trim", kind=MIXED, share=_FINISH, title="Door trim",
-        units={"paint_per_side": "EA"},
+        units={"paint_per_side": "EA", "paint_per_side_large": "EA"},
         labels={"casing_per_lf": "Casing, remove & install new, per LF",
-                "paint_per_side": "Trim & jamb paint, per side"},
+                "paint_per_side": "Trim & jamb paint, per side",
+                "paint_per_side_large": "Trim & jamb paint, double door, per side"},
         note="One side of a door or window; the paint grade and bath-paint premium multiply the paint.",
     ),
     TableSpec("BASEBOARD_PRICES", "Paint & Trim", kind=MIXED, share=_FINISH, unit="LF"),

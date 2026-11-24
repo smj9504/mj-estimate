@@ -2695,6 +2695,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       soffitBottom: fix.properties.soffitBottom,
       nicheType: fix.properties.nicheType,
       noSlab: !!fix.properties.noSlab,
+      doubleDoor: !!fix.properties.doubleDoor,
       showerOpeningSpan: showerOpening ?? null,
       showerFrontTiled: !!frontTiled,
     },
