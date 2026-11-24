@@ -1267,9 +1267,25 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
         deck_sides = tub_spec.get("deck_tile_sides", 2)
         deck_w_in = tub_spec.get("deck_width_in", 0) or 0
         if deck_sf > 0:
+            _dk_first = (f"Deck top surface — {deck_sides} exposed"
+                         f" side(s), {deck_w_in}\" wide")
+            # A drop-in's platform with its decks side by side (wide ledges at the ends)
+            _dk_by_side = tub_spec.get("deck_side_widths_in")
+            if isinstance(_dk_by_side, dict):
+                _dk_parts = []
+                for _side in ("back", "front", "left", "right"):
+                    try:
+                        _dk_w = float(_dk_by_side.get(_side) or 0)
+                    except (TypeError, ValueError):
+                        _dk_w = 0
+                    if _dk_w > 0:
+                        _dk_parts.append(f"{_side} {fmt_inches(_dk_w)}\"")
+                _dk_first = "Deck top surface — " + ", ".join(_dk_parts)
+                _dk_tub = tub_spec.get("deck_tub_in")
+                if isinstance(_dk_tub, (list, tuple)) and len(_dk_tub) == 2:
+                    _dk_first += f" round a {fmt_inches(float(_dk_tub[0]))}\" × {fmt_inches(float(_dk_tub[1]))}\" tub"
             _dk_notes = [
-                f"Deck top surface — {deck_sides} exposed"
-                f" side(s), {deck_w_in}\" wide",
+                _dk_first,
                 "Includes bullnose edge trim",
             ]
             _add(line_items, 4,

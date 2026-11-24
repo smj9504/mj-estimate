@@ -29,6 +29,7 @@ import { mirrorsFromSketch, type MirrorRow } from '../mirrorRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { roomWallAreaSF, showerDoorPosition, turningCorners } from './utils/beGeometry';
 import { kneeSpaceIn } from './utils/vanityLayout';
+import { tubDeckBySide } from './utils/tubDeck';
 import {
   DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening, showerFrontTiled, showerGlassFrontSpans,
   showerNicheCount,
@@ -448,6 +449,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     }
     const cornerCount = Math.max(0, deckSides - 1);
     const deckSF = Math.round((deckLen * deckW + cornerCount * deckW * deckW) / 144 * 100) / 100;
+    const deckBySide = tubDeckBySide(bathtub);
 
     // Calculate front panel SF
     const deckH = p.deckHeight ?? 0;
@@ -466,10 +468,20 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       surround_height_in: surrHeight,
       surround_wall_count: surrWallCount,
       tiled_with_wall_sf: surroundInTile[bathtub.id] ?? 0,
-      deck_tile: deckW > 0 && deckSides > 0,
-      deck_tile_sf: deckSF,
-      deck_width_in: deckW,
-      deck_tile_sides: deckSides,
+      // A drop-in's decks side by side: the platform less the tub, each side its own width
+      ...(deckBySide ? {
+        deck_tile: deckBySide.deckSF > 0,
+        deck_tile_sf: deckBySide.deckSF,
+        deck_width_in: Math.max(...Object.values(deckBySide.sides)),
+        deck_tile_sides: Object.values(deckBySide.sides).filter((v) => v > 0).length,
+        deck_side_widths_in: deckBySide.sides,
+        deck_tub_in: [deckBySide.tubLengthIn, deckBySide.tubDepthIn],
+      } : {
+        deck_tile: deckW > 0 && deckSides > 0,
+        deck_tile_sf: deckSF,
+        deck_width_in: deckW,
+        deck_tile_sides: deckSides,
+      }),
       front_panel_tile: !!p.hasFrontPanel,
       front_panel_sf: frontPanelSF,
       deck_height_in: deckH,

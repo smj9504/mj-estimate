@@ -214,6 +214,13 @@ export interface BEFixtureProperties {
   bathtubSubType?: BathtubSubType;
   /** Deck width in inches (for drop_in, corner_garden) */
   deckWidth?: number;
+  /**
+   * A drop-in tub's deck side by side, inches, as you face it: a narrow lip
+   * at the front, wide ledges at the ends (a big tiled platform). Set, it
+   * takes the place of deckWidth and the tiled sides; the tub is what's left
+   * inside the platform. See components/bathroom-estimate/sketch/utils/tubDeck.
+   */
+  deckSideWidths?: { back: number; front: number; left: number; right: number };
   /** Deck height from floor in inches */
   deckHeight?: number;
   /** Number of exposed sides with deck tile (1-3, default 2 for corner, 3 for drop-in) */

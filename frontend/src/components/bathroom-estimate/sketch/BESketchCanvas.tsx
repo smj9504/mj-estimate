@@ -30,6 +30,7 @@ import { isWallLight } from '../fixtureRows';
 import BEPlumbingMarks from './BEPlumbingMarks';
 import { hasPlumbing, takesTubGlassPanel, tubGlassPanelSide } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
+import { tubDeckBySide } from './utils/tubDeck';
 import { clipPolygon, getShowerUnitPolygon, moveOutlineCorner, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
 import { showerFrontOpening, showerFrontTiled, showerGlassFrontSpans, showerNicheCount, wallLengthIn, wallTileRegions } from './utils/wallFinish';
 import { MIN_PIECE_IN, outwardSign, wallAt, wallBreaks, wallNormal } from './utils/wallSplit';
@@ -2669,6 +2670,18 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     showerDoorPosition(fix.properties),
     {
       aspect: hPx > 0 ? wPx / hPx : 1,
+      ...(fix.type === 'bathtub' ? (() => {
+        const deck = tubDeckBySide(fix);
+        if (!deck) return {};
+        const W = fix.dimensions.width;
+        const D = fix.dimensions.height;
+        return {
+          tubInDeck: {
+            x0: deck.tub.x0 / W, x1: deck.tub.x1 / W, y0: deck.tub.y0 / D, y1: deck.tub.y1 / D,
+            rx: Math.min(4, deck.tubLengthIn / 4) / W, ry: Math.min(4, deck.tubDepthIn / 4) / D,
+          },
+        };
+      })() : {}),
       ...(fix.type === 'vanity' ? {
         vanity: {
           widthIn: fix.dimensions.width,

@@ -114,7 +114,17 @@ const bathtubAlcove: FixtureShape = {
   ],
 };
 
-function buildBathtubDropIn(wallSides: WallSides | null): FixtureShape {
+function buildBathtubDropIn(wallSides: WallSides | null, tub?: FixtureShapeExtras['tubInDeck']): FixtureShape {
+  // The tub inside the platform: where its decks side by side leave it, else a fixed inset
+  let basin = 'M0.15,0.12 Q0.15,0.08 0.2,0.08 L0.8,0.08 Q0.85,0.08 0.85,0.12 L0.85,0.88 Q0.85,0.92 0.8,0.92 L0.2,0.92 Q0.15,0.92 0.15,0.88 Z';
+  if (tub) {
+    const r4 = (v: number) => Math.round(v * 10000) / 10000;
+    const { x0, x1, y0, y1, rx, ry } = tub;
+    basin = `M${r4(x0 + rx)},${r4(y0)} L${r4(x1 - rx)},${r4(y0)} Q${r4(x1)},${r4(y0)} ${r4(x1)},${r4(y0 + ry)} `
+      + `L${r4(x1)},${r4(y1 - ry)} Q${r4(x1)},${r4(y1)} ${r4(x1 - rx)},${r4(y1)} `
+      + `L${r4(x0 + rx)},${r4(y1)} Q${r4(x0)},${r4(y1)} ${r4(x0)},${r4(y1 - ry)} `
+      + `L${r4(x0)},${r4(y0 + ry)} Q${r4(x0)},${r4(y0)} ${r4(x0 + rx)},${r4(y0)} Z`;
+  }
   return {
     label: 'Drop-in',
     paths: [
@@ -123,7 +133,7 @@ function buildBathtubDropIn(wallSides: WallSides | null): FixtureShape {
       // Inner deck edge — same exposure pattern
       { d: buildExposedRimPath(wallSides, 0.05, 0.08), fill: FL, stroke: SL, strokeWidth: 0.6 },
       // Tub basin (rounded rectangle)
-      { d: 'M0.15,0.12 Q0.15,0.08 0.2,0.08 L0.8,0.08 Q0.85,0.08 0.85,0.12 L0.85,0.88 Q0.85,0.92 0.8,0.92 L0.2,0.92 Q0.15,0.92 0.15,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
+      { d: basin, fill: FL, stroke: S, strokeWidth: 1.5 },
     ],
   };
 }
@@ -775,6 +785,8 @@ export interface FixtureShapeExtras {
   showerFrontTiled?: boolean;
   /** Width over depth on the plan, to keep a vanity bar's lights round */
   aspect?: number;
+  /** A drop-in tub's basin inside its platform, its decks set side by side: 0-1 across and down, and its corners' rounding */
+  tubInDeck?: { x0: number; x1: number; y0: number; y1: number; rx: number; ry: number } | null;
   /** A cabinet vanity's real size and knee space, so its basins keep theirs (buildCabinetVanity) */
   vanity?: { widthIn: number; depthIn: number; kneeIn?: number | null; kneeSide?: KneeSpaceSide };
   lightBulbs?: number;
@@ -811,7 +823,7 @@ export function getFixtureShape(
       // drop_in's deck can be against 0-4 walls depending on placement, so its rim is
       // built dynamically from wallSides; other subtypes have a fixed wall arrangement
       // (or no deck at all) baked into their static shape.
-      if ((subType ?? 'standard_alcove') === 'drop_in') return buildBathtubDropIn(wallSides ?? null);
+      if ((subType ?? 'standard_alcove') === 'drop_in') return buildBathtubDropIn(wallSides ?? null, extras.tubInDeck);
       return BATHTUB_SHAPES[subType ?? 'standard_alcove']!;
     case 'shower':
       return buildShowerShape(

@@ -17,6 +17,7 @@ import type {
 import { DEFAULT_TILE_SPEC, SHOWER_DOOR_HEIGHT_IN, TILE_ZONE_COLORS } from '../../../../types/bathroomSketch';
 import { clipPolygon, getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './beGeometry';
 import { showerFrontTileSF, showerNicheCount } from './wallFinish';
+import { tubDeckBySide } from './tubDeck';
 
 let _zoneCounter = 0;
 function zoneId(): string {
@@ -168,8 +169,8 @@ export function generateTileZones(
         if (surroundZone) zones.push(surroundZone);
       }
 
-      // Deck tile (for drop_in and corner_garden)
-      if (fix.properties.deckWidth && fix.properties.deckWidth > 0) {
+      // Deck tile (for drop_in and corner_garden; a drop-in's decks side by side whatever its width)
+      if ((fix.properties.deckWidth && fix.properties.deckWidth > 0) || tubDeckBySide(fix)) {
         const deckZone = generateBathtubDeckZone(fix, ppf, fixRoom);
         if (deckZone) zones.push(deckZone);
       }
@@ -331,7 +332,11 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BE
 
   // ── Area calculation ──
   let areaSF: number;
-  if (chamfered && deckTileSides <= 2) {
+  const bySide = tubDeckBySide(fix);
+  if (bySide) {
+    // Its decks side by side: the platform less the tub
+    areaSF = bySide.deckSF;
+  } else if (chamfered && deckTileSides <= 2) {
     // Chamfered corner: exposed edges are front(shorter) + diagonal + right(shorter)
     const frontLen = tubWidth * (1 - CHAMFER_RATIO);   // 60% of width
     const rightLen = tubDepth * (1 - CHAMFER_RATIO);   // 60% of depth
@@ -373,7 +378,20 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BE
   const bottom = cy + hPx / 2;
   let rawBoundary: BEPoint[];
   let rawSubBoundaries: BEPoint[][] | undefined;
-  if (chamfered && deckTileSides <= 2) {
+  if (bySide) {
+    // Each side's deck at its own width: the strips round the tub
+    const px = (inches: number) => (inches / 12) * ppf;
+    const { back, front, left: dl, right: dr } = bySide.sides;
+    const innerTop = top + px(back);
+    const innerBottom = bottom - px(front);
+    const strips: BEPoint[][] = [];
+    if (back > 0) strips.push([{ x: left, y: top }, { x: right, y: top }, { x: right, y: innerTop }, { x: left, y: innerTop }]);
+    if (front > 0) strips.push([{ x: left, y: innerBottom }, { x: right, y: innerBottom }, { x: right, y: bottom }, { x: left, y: bottom }]);
+    if (dl > 0) strips.push([{ x: left, y: innerTop }, { x: left + px(dl), y: innerTop }, { x: left + px(dl), y: innerBottom }, { x: left, y: innerBottom }]);
+    if (dr > 0) strips.push([{ x: right - px(dr), y: innerTop }, { x: right, y: innerTop }, { x: right, y: innerBottom }, { x: right - px(dr), y: innerBottom }]);
+    rawSubBoundaries = strips.length > 0 ? strips : undefined;
+    rawBoundary = [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }];
+  } else if (chamfered && deckTileSides <= 2) {
     // Chamfered: down the right side, along the chamfer, across the bottom,
     // and back along the same edges moved in by the strip's thickness
     const cutW = wPx * CHAMFER_RATIO;
@@ -419,7 +437,7 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BE
   return {
     id: zoneId(),
     type: 'tub_deck',
-    label: `Tub Deck${chamfered ? ' (chamfer)' : ` (${deckTileSides} sides)`}`,
+    label: `Tub Deck${chamfered && !bySide ? ' (chamfer)' : ` (${bySide ? Object.values(bySide.sides).filter((v) => v > 0).length : deckTileSides} sides)`}`,
     boundary,
     subBoundaries,
     areaSF: Math.round(areaSF * 100) / 100,

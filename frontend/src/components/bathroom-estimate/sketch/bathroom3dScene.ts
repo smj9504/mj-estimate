@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import type { BathroomLooks, BathroomModel, FixtureSolid, Pt, TileLook, WallOpeningSolid, WallSolid } from './bathroom3dModel';
 import { vanityLayout } from './utils/vanityLayout';
+import { tubDeckBySide } from './utils/tubDeck';
 import type { TileTextureCache } from './bathroom3dTextures';
 import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN, SOFFIT_BOTTOM_IN } from '../../../types/bathroomSketch';
 import { DEFAULT_BAR_BULBS, cabinetKind, lightKindOf } from '../fixtureRows';
@@ -600,7 +601,12 @@ function buildBathtub(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     basin = ellipse(0.34 * W, 0.34 * D, ...local(0.46, 0.46));
   } else if (deck) {
     outline = [local(0, 0), local(1, 0), local(1, 1), local(0, 1)];
-    basin = roundedRect(0.7 * W, 0.8 * D, 6, ...local(0.5, 0.5));
+    // Its decks side by side leave the tub where they do; else a fixed inset
+    const bySide = tubDeckBySide(f.fixture);
+    basin = bySide
+      ? roundedRect(bySide.tubLengthIn, bySide.tubDepthIn, Math.min(6, bySide.tubDepthIn / 4),
+        ...local((bySide.tub.x0 + bySide.tub.x1) / 2 / W, (bySide.tub.y0 + bySide.tub.y1) / 2 / D))
+      : roundedRect(0.7 * W, 0.8 * D, 6, ...local(0.5, 0.5));
   } else {
     outline = [local(0, 0), local(1, 0), local(1, 1), local(0, 1)];
     basin = roundedRect(W - 7, D - 6.5, 5, 0, 0.5);

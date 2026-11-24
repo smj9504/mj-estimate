@@ -52,6 +52,7 @@ import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, roomWallAreaSF, showerDoorPosition } from './utils/beGeometry';
 import { MIN_VANITY_CABINET_IN, kneeSpaceIn } from './utils/vanityLayout';
+import { tubDeckBySide } from './utils/tubDeck';
 import {
   DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, nichesIn, showerFrontOpening, wallNichesOf, wallOpeningsOf, wallStartOnLeft,
 } from './utils/wallFinish';
@@ -427,6 +428,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     const hasDeck = subType === 'drop_in' || subType === 'corner_garden' || subType === 'corner_drop_in' || subType === 'standard_alcove';
     const isAlcove = subType === 'standard_alcove';
     const deckOn = !isAlcove || (p.deckWidth ?? 0) > 0;
+    const deckBySide = tubDeckBySide(fixture);
     // Sides of the deck that aren't against a wall, unless set by hand
     const wPx = (fixture.dimensions.width / 12) * data.settings.pixelsPerFoot;
     const hPx = (fixture.dimensions.height / 12) * data.settings.pixelsPerFoot;
@@ -509,18 +511,53 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             )}
             {deckOn && (
               <>
-                <Field label="Width">
-                  <Num label="Deck width, inches" value={p.deckWidth ?? 10} min={4} max={24} unit="in" onChange={(v) => v && setProps({ deckWidth: v })} />
-                </Field>
+                {/* A drop-in's platform: a deck of its own width each side (wide ledges at the ends) */}
+                {subType === 'drop_in' && (
+                  <Field
+                    label="By side"
+                    hint={deckBySide
+                      ? `The tub inside: ${deckBySide.tubLengthIn}" × ${deckBySide.tubDepthIn}".`
+                      : 'A width for each side: wide ledges at the ends, a lip at the front.'}
+                  >
+                    <Switch
+                      aria-label="Deck width by side"
+                      checked={!!deckBySide}
+                      onChange={(v) => {
+                        const w = p.deckWidth ?? 10;
+                        setProps({ deckSideWidths: v ? { back: w, front: w, left: w, right: w } : undefined });
+                      }}
+                    />
+                  </Field>
+                )}
+                {deckBySide ? (
+                  (['back', 'front', 'left', 'right'] as const).map((side) => (
+                    <Field key={side} label={side[0].toUpperCase() + side.slice(1)}>
+                      <Num
+                        label={`${side[0].toUpperCase() + side.slice(1)} deck, inches`}
+                        value={deckBySide.sides[side]}
+                        min={0}
+                        max={72}
+                        unit="in"
+                        onChange={(v) => v != null && setProps({ deckSideWidths: { ...deckBySide.sides, [side]: v } })}
+                      />
+                    </Field>
+                  ))
+                ) : (
+                  <Field label="Width">
+                    <Num label="Deck width, inches" value={p.deckWidth ?? 10} min={4} max={24} unit="in" onChange={(v) => v && setProps({ deckWidth: v })} />
+                  </Field>
+                )}
                 <Field label="Height">
                   <Num label="Deck height, inches" value={p.deckHeight ?? 20} min={12} max={36} unit="in" onChange={(v) => v && setProps({ deckHeight: v })} />
                 </Field>
-                <Field
-                  label="Tiled sides"
-                  hint={p.deckTileSides == null ? 'Found from the walls around the tub. Change it to set your own.' : undefined}
-                >
-                  <Num label="Deck tiled sides" value={p.deckTileSides ?? autoSides} min={1} max={4} onChange={(v) => v && setProps({ deckTileSides: v })} />
-                </Field>
+                {!deckBySide && (
+                  <Field
+                    label="Tiled sides"
+                    hint={p.deckTileSides == null ? 'Found from the walls around the tub. Change it to set your own.' : undefined}
+                  >
+                    <Num label="Deck tiled sides" value={p.deckTileSides ?? autoSides} min={1} max={4} onChange={(v) => v && setProps({ deckTileSides: v })} />
+                  </Field>
+                )}
               </>
             )}
             <Field label="Front panel">
