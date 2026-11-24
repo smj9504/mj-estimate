@@ -324,7 +324,9 @@ DECORATIVE_TILE = {
     "insert_each": xact(128.61 * 0.1 + 12.00),  # TIL LAB 0.1 hr + insert allowance
 }
 
-# A niche in a wall (niches.py), each, by kind, from Xactimate's lines:
+# A niche in a wall (niches.py), each, by kind, from Xactimate's lines. Each
+# price is for a 12" x 12" niche (TIL NICHE's: 4 LF of bullnose round its
+# edge); a bigger one is priced at its edge length over 4 LF (niches.size_factor).
 #   tile           TIL NICHE: the tile, trim and labor to tile a niche (framed
 #                  in the stud bay; its backer and waterproofing go with the wall's)
 #   foam_insert    TIL NICHEFC: a pre-formed foam niche set and sealed, on top

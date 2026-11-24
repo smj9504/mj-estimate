@@ -85,7 +85,8 @@ PRICE_TABLES = [
               shares={"drywall_build": _FINISH, "paint": _FINISH},
               labels={"tile": "Tile a niche (tile, trim & labor)", "foam_insert": "Foam niche insert, set & sealed",
                       "drywall_build": "Drywall niche, framed & finished", "paint": "Paint a niche"},
-              note="Each niche: a tiled one is the tile (plus the foam insert if it's one); a drywall one is built and painted."),
+              note="Each 12″ × 12″ niche (Xactimate's: 4 LF of edge); a bigger one is priced at its edge over 4 LF. "
+                   "A tiled one is the tile (plus the foam insert if it's one); a drywall one is built and painted."),
     # ── Bathtub ──
     TableSpec("BATHTUB_PRICES", "Bathtub", kind=MATERIAL),
     TableSpec("BATHTUB_INSTALL", "Bathtub", kind=LABOR),

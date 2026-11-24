@@ -2,7 +2,8 @@ import { test, expect as baseExpect, Page } from '@playwright/test';
 
 // A niche added on the bathroom sketch: it goes in the wall behind the tub,
 // its kind and opening set in its panel, and it's a row of its own on the
-// estimate (Wall niches), priced each. The 3D view shows it set in the wall.
+// estimate (Wall niches) with its opening, priced by its edge. The 3D view
+// shows it set in the wall.
 // Runs against the dev server with /api answered here.
 
 const expect = baseExpect.configure({ timeout: 20_000 });
@@ -71,6 +72,8 @@ test('a niche added behind the tub: its kind and opening set, a row of its own o
   const type = panel(page).getByRole('combobox', { name: 'Niche type' });
   await expect(type).toBeVisible();
   await expect(panel(page).getByText('its top is 5′ 6″ up', { exact: false })).toBeVisible();
+  // 12" x 24": 6 LF of edge, half again Xactimate's 12" x 12" niche
+  await expect(panel(page).getByText('6 LF of edge: priced as 1.5 × a 12″ × 12″ niche', { exact: false })).toBeVisible();
 
   // A foam insert, 30" high
   await type.click({ force: true });
@@ -79,13 +82,14 @@ test('a niche added behind the tub: its kind and opening set, a row of its own o
   await height.fill('30');
   await height.press('Tab');
   await expect(panel(page).getByText(/its top is 6′/)).toBeVisible();
+  await expect(panel(page).getByText('7 LF of edge: priced as 1.75 ×', { exact: false })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('niche-plan.png') });
 
-  // On the estimate: one foam-insert niche, from the sketch
+  // On the estimate: one foam-insert niche 12" x 30", from the sketch
   await page.getByRole('button', { name: /Calculate/ }).first().click();
   await expect.poll(() => calculated.length).toBe(1);
   expect(calculated[0].accessories_spec.niches).toEqual([
-    { type: 'tile_foam', count: 1, from_sketch: true, action: 'replace' },
+    { type: 'tile_foam', count: 1, width: 12, height: 30, from_sketch: true, action: 'replace' },
   ]);
 
   // In 3D: set in the wall behind the tub
@@ -102,6 +106,11 @@ test('a niche added behind the tub: its kind and opening set, a row of its own o
   const row = page.locator('.ant-select').filter({ has: kind }).locator('..');
   await expect(row).toContainText('Tiled niche, foam insert');
   await expect(row.getByText('Sketch', { exact: true })).toBeVisible();
+  // Its opening, from the sketch too
+  await expect(row.getByLabel('niche opening width, inches')).toHaveValue('12');
+  await expect(row.getByLabel('niche opening height, inches')).toHaveValue('30');
+  await expect(row.getByLabel('niche opening height, inches')).toBeDisabled();
   // Built, never detached and reset: no New / D&R
   await expect(row.getByText('D&R')).toHaveCount(0);
+  await row.locator('..').screenshot({ path: test.info().outputPath('niche-rows.png') });
 });

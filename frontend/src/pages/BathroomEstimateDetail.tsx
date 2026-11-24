@@ -73,7 +73,7 @@ import BEFixtureRows from '../components/bathroom-estimate/BEFixtureRows';
 import BEMirrorRows from '../components/bathroom-estimate/BEMirrorRows';
 import BEDecorativeTileFields from '../components/bathroom-estimate/BEDecorativeTileFields';
 import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRows';
-import { CABINET_KINDS, LIGHT_KINDS, NICHE_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
+import { CABINET_KINDS, LIGHT_KINDS, NICHE_DEFAULT_SIZE, NICHE_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
 import { exportBathroomsPdfWith3D, exportEstimatePdfWithPictures, exportProposalWith3D } from '../components/bathroom-estimate/bathroomPdf';
 import BEPdfBathroomsModal, { sharingBathrooms } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { showerRoomFrontSF } from '../components/bathroom-estimate/showerRoom';
@@ -1432,7 +1432,7 @@ const BathroomEstimateDetail: React.FC = () => {
                   <Col xs={24} lg={12}>
                     <Text strong style={{ display: 'block', marginBottom: 4 }}>Wall niches</Text>
                     <Form.Item name={['accessories_spec', 'niches']} noStyle>
-                      <BEFixtureRows kinds={NICHE_KINDS} noun="niche" typeWidth={200} actions={false} />
+                      <BEFixtureRows kinds={NICHE_KINDS} noun="niche" typeWidth={200} actions={false} sized={NICHE_DEFAULT_SIZE} />
                     </Form.Item>
                   </Col>
                 </Row>

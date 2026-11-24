@@ -13,6 +13,9 @@ from .lights import LIGHT_TYPES, light_groups
 from .job_share import bathroom_type_label, elsewhere_line
 from .mirrors import mirror_count, mirror_groups, price_by_width
 from .niches import NICHE_TYPES, niche_groups
+from .niches import edge_lf as niche_edge_lf
+from .niches import size_factor as niche_size_factor
+from .niches import size_label as niche_size_label
 from .selections import Picks
 from app.domains.unit_prices.tables import in_active_book
 
@@ -2597,24 +2600,31 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                  notes=wt_note)
             _add_decorative_tile(line_items, "walls", walls, labor_mult)
 
-    # ── Niches in the walls: one line per kind, each ──
+    # ── Niches in the walls: one line per kind and size, each priced by its edge ──
     for _ng in niche_groups(estimate):
         _nt, _nn = _ng["type"], _ng["count"]
-        _nlbl = NICHE_TYPES[_nt]["label"]
-        _n_tile = round(WALL_NICHE_PRICES["tile"] * labor_mult, 2)
+        _nw, _nh = _ng["width"], _ng["height"]
+        _nf = niche_size_factor(_nw, _nh)
+        _nsz = niche_size_label(_nw, _nh)
+        _nlbl = NICHE_TYPES[_nt]["label"] + (f" {_nsz}" if _nsz else "")
+        _nsize = ""
+        if _nsz:
+            _nsize = (f" | {niche_edge_lf(_nw, _nh):g} LF of edge: x {_nf:g} a 12″ × 12″ niche"
+                      if _nf > 1 else " | Up to 4 LF of edge: one 12″ × 12″ niche")
+        _n_tile = round(WALL_NICHE_PRICES["tile"] * labor_mult * _nf, 2)
         if _nt == "tile":
             _add(line_items, 4, _nlbl, _nn, "EA", _n_tile, "tile",
-                 notes="Tile, trim and labor to tile the niche: back, sides, sill and head")
+                 notes=f"Tile, trim and labor to tile the niche: sides, sill and head{_nsize}")
         elif _nt == "tile_foam":
-            _n_foam = round(WALL_NICHE_PRICES["foam_insert"] * labor_mult, 2)
+            _n_foam = round(WALL_NICHE_PRICES["foam_insert"] * labor_mult * _nf, 2)
             _add(line_items, 4, _nlbl, _nn, "EA", round(_n_foam + _n_tile, 2), "tile",
-                 notes=f"Foam niche set and sealed: ${_n_foam:,.2f} | Tile, trim and labor: ${_n_tile:,.2f}")
+                 notes=f"Foam niche set and sealed: ${_n_foam:,.2f} | Tile, trim and labor: ${_n_tile:,.2f}{_nsize}")
         else:
-            _n_build = round(WALL_NICHE_PRICES["drywall_build"] * labor_mult, 2)
-            _n_paint = round(WALL_NICHE_PRICES["paint"] * wc_paint_rate_mult, 2)
+            _n_build = round(WALL_NICHE_PRICES["drywall_build"] * labor_mult * _nf, 2)
+            _n_paint = round(WALL_NICHE_PRICES["paint"] * wc_paint_rate_mult * _nf, 2)
             _add(line_items, 6, _nlbl, _nn, "EA", round(_n_build + _n_paint, 2), "finish",
                  notes=f"Framed, drywall returns beaded and finished: ${_n_build:,.2f} | "
-                       f"Painted ({wc_paint_grade}): ${_n_paint:,.2f}")
+                       f"Painted ({wc_paint_grade}): ${_n_paint:,.2f}{_nsize}")
 
     # ── Seal & prime (repaired drywall areas only) ──
     seal_prime_wall_sf = walls.get("seal_prime_wall_sf", 0) or 0

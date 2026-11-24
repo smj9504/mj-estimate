@@ -73,11 +73,16 @@ describe('a niche in a wall', () => {
     expect(showerNicheCount(shower, [shower, across], PPF)).toBe(2);
   });
 
-  it('is a row by kind on the estimate', () => {
-    expect(nichesFromSketch([niche('a'), niche('b'), niche('c', { nicheType: 'drywall' }), tub])).toEqual([
-      { type: 'tile', count: 2, from_sketch: true },
-      { type: 'drywall', count: 1, from_sketch: true },
+  it('is a row by kind and opening on the estimate, as each size is priced by its edge', () => {
+    const long = { ...niche('d'), dimensions: { width: 48, height: 4 }, properties: { ...niche('d').properties, nicheHeight: 12 } };
+    expect(nichesFromSketch([niche('a'), long, niche('b'), niche('c', { nicheType: 'drywall' }), tub])).toEqual([
+      { type: 'tile', count: 2, width: 12, height: 24, from_sketch: true },
+      { type: 'tile', count: 1, width: 48, height: 12, from_sketch: true },
+      { type: 'drywall', count: 1, width: 12, height: 24, from_sketch: true },
     ]);
+    // To the quarter inch, as the backend prices it
+    const odd = { ...niche('e'), dimensions: { width: 13.1, height: 4 }, properties: { ...niche('e').properties, nicheHeight: 23.9 } };
+    expect(nichesFromSketch([odd])).toEqual([{ type: 'tile', count: 1, width: 13, height: 24, from_sketch: true }]);
   });
 });
 

@@ -1,8 +1,9 @@
 /**
  * Lights, cabinets or niches on the estimate, one row per kind: what it is,
- * how many, and New or D&R (none for a niche, which is built). Rows counted
- * from the plan say so and change there; typed rows change here. A form
- * control (value / onChange).
+ * how many, and New or D&R (none for a niche, which is built); a niche also
+ * its opening, width x height, as it's priced by its size. Rows counted from
+ * the plan say so and change there; typed rows change here. A form control
+ * (value / onChange).
  */
 
 import React from 'react';
@@ -22,14 +23,16 @@ interface BEFixtureRowsProps {
   typeWidth?: number;
   /** New or D&R per row; false for what's only ever built new (a niche) */
   actions?: boolean;
+  /** Each row's opening, inches (a niche), new rows starting at this size */
+  sized?: { width: number; height: number };
 }
 
-const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, noun, typeWidth = 180, actions = true }) => {
+const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, noun, typeWidth = 180, actions = true, sized }) => {
   const rows = value ?? [];
   const set = (i: number, patch: Partial<FixtureRow>) =>
     onChange?.(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const remove = (i: number) => onChange?.(rows.filter((_, j) => j !== i));
-  const add = () => onChange?.([...rows, { type: kinds[0].value, count: 1, action: 'replace' }]);
+  const add = () => onChange?.([...rows, { type: kinds[0].value, count: 1, action: 'replace', ...(sized ?? {}) }]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -59,6 +62,35 @@ const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, n
                 suffix="-light"
                 onChange={(v) => typeof v === 'number' && set(i, { bulbs: v })}
               />
+            )}
+            {sized && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <InputNumber
+                  aria-label={`${noun} opening width, inches`}
+                  size="small"
+                  style={{ width: 68 }}
+                  min={4}
+                  max={120}
+                  value={row.width ?? undefined}
+                  placeholder="W"
+                  disabled={onPlan}
+                  suffix={'"'}
+                  onChange={(v) => typeof v === 'number' && set(i, { width: v })}
+                />
+                <Text type="secondary">×</Text>
+                <InputNumber
+                  aria-label={`${noun} opening height, inches`}
+                  size="small"
+                  style={{ width: 68 }}
+                  min={4}
+                  max={96}
+                  value={row.height ?? undefined}
+                  placeholder="H"
+                  disabled={onPlan}
+                  suffix={'"'}
+                  onChange={(v) => typeof v === 'number' && set(i, { height: v })}
+                />
+              </span>
             )}
             <InputNumber
               aria-label="How many"

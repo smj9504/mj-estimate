@@ -37,7 +37,7 @@ import {
 } from '../../../types/bathroomSketch';
 import type { BECabinetType, BELightType, BENicheType } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
-import { CABINET_KINDS, DEFAULT_BAR_BULBS, NICHE_KINDS, cabinetKind, isWallLight, lightKindOf, lightPlanSize, nicheKind } from '../fixtureRows';
+import { CABINET_KINDS, DEFAULT_BAR_BULBS, NICHE_KINDS, cabinetKind, isWallLight, lightKindOf, lightPlanSize, nicheKind, nichePricing } from '../fixtureRows';
 import { placeFor } from './utils/hangOnWall';
 import {
   drainOf,
@@ -59,6 +59,15 @@ import { FLOOR_BORDER_INSET_IN, floorBorderLF } from './utils/decoTile';
 import BEWallFinishEditor from './BEWallFinishEditor';
 
 // ── Names ──
+
+/** "Width along the wall × height up it. 6 LF of edge: priced as 1.5 × a 12″ × 12″ niche." */
+function nicheSizeHint(width: number, height: number): string {
+  const { edgeLF, factor } = nichePricing(width, height);
+  const price = factor > 1
+    ? `${edgeLF} LF of edge: priced as ${factor} × a 12″ × 12″ niche.`
+    : 'Up to 4 LF of edge: priced as one 12″ × 12″ niche.';
+  return `Width along the wall × height up it. ${price}`;
+}
 
 export const FIXTURE_LABELS: Record<BEFixture['type'], string> = {
   bathtub: 'Bathtub',
@@ -918,7 +927,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             options={NICHE_KINDS.map(({ value, label }) => ({ value, label }))}
           />
         </Field>
-        <Field label="Opening" hint="Width along the wall × height up it">
+        <Field label="Opening" hint={nicheSizeHint(fixture.dimensions.width, height)}>
           <Num
             pair
             label="Niche width, inches"
