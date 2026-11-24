@@ -15,13 +15,17 @@
 
 import type { BathroomSelection } from '../../../types/bathroomEstimate';
 import type { BEFixture, BEPoint, BERoom, BESketchData, BEWall } from '../../../types/bathroomSketch';
+import { NICHE_DEPTH_IN } from '../../../types/bathroomSketch';
+import { nicheKind } from '../fixtureRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import {
   regionRect,
+  showerNicheCount,
   subtractRects,
   surroundsAfterWork,
   wallFixtureCovers,
   wallLengthIn,
+  wallNichesOf,
   wallOpeningsOf,
   showerFrontOpening,
   showerFrontTiled,
@@ -91,6 +95,15 @@ export interface WallOpeningSolid {
   tiledRound?: boolean;
 }
 
+/** A niche: a recess in the wall's room face, lined with tile (the look of what's round it) or painted */
+export interface WallNicheSolid {
+  rect: FaceRect;
+  fixtureId: string;
+  /** How far it goes into the wall, inches */
+  depthIn: number;
+  lining: 'shower' | 'tub' | 'wall' | 'paint';
+}
+
 export interface WallSolid {
   id: string;
   a: Pt;
@@ -109,6 +122,8 @@ export interface WallSolid {
   /** Shower tile on the wall's other face: a shower room's front, tiled inside, where the wall's room is the bathroom */
   backTile: FaceRect[];
   openings: WallOpeningSolid[];
+  /** Niches in its room face, cut out of its pieces, tile and surrounds */
+  niches: WallNicheSolid[];
   /** Decorative border rows across its tile after the work, as bands on its face (utils/decoTile) */
   borders: FaceRect[];
 }
@@ -125,6 +140,8 @@ export interface FixtureSolid {
   ceilingIn: number;
   /** A shower in its own room: the stretch of its front its door hangs in (the wall is the rest) */
   showerOpening?: [number, number] | null;
+  /** A shower's own niches, drawn on its back wall (none when niches are drawn in its walls: those are in the walls) */
+  nicheCount?: number;
 }
 
 export interface BathroomModel {
@@ -429,11 +446,23 @@ function wallSolid(
       ...(tiledEntries.has(fixture.id) ? { tiledRound: true } : {}),
     };
   });
-  const holes = openings.map((o) => o.rect);
-
   // A prefab surround stays itself, whatever tile is around it
   const covers = wallFixtureCovers(wall, sketch.fixtures, ppf)
     .map((c) => (surroundFinish(c.fixture, estimate) === 'prefab' ? { ...c, tiled: null } : c));
+
+  // Niches in its room face: a tiled one lined with the tile of the tub or
+  // shower it's behind, else the wall's; a drywall one painted
+  const thicknessIn = Math.max(WALL_THICKNESS_IN, (wall.thickness / ppf) * 12);
+  const niches: WallNicheSolid[] = wallNichesOf(wall, sketch.fixtures, ppf).map(({ rect, fixture }) => {
+    const r = clip(rect);
+    const mx = (r.x0 + r.x1) / 2;
+    const my = (r.y0 + r.y1) / 2;
+    const behind = covers.find((c) => mx > c.rect.x0 && mx < c.rect.x1 && my > c.rect.y0 && my < c.rect.y1);
+    const lining: WallNicheSolid['lining'] = !nicheKind(fixture.properties.nicheType).tiled ? 'paint'
+      : behind ? (behind.fixture.type === 'shower' ? 'shower' : 'tub') : 'wall';
+    return { rect: r, fixtureId: fixture.id, depthIn: Math.min(NICHE_DEPTH_IN, thicknessIn - 0.75), lining };
+  });
+  const holes = openings.map((o) => o.rect).concat(niches.map((n) => n.rect));
   const regions = wallTileRegions(wall, view === 'today' ? 'existing' : 'new', ppf).map(regionRect);
   // After the work, tile over a whole surround makes the wall one tile there,
   // down behind the tub too (out of sight, and not counted as tile)
@@ -452,8 +481,10 @@ function wallSolid(
   const backTile: FaceRect[] = [];
   for (const { rect, fixture } of showerFrontTiles(wall, sketch.fixtures, ppf, sketch.walls)) {
     const c = toIn(fixture.position, ppf);
-    const pieces = subtractRects([clip(rect)], holes);
-    if ((c[0] - a[0]) * normal[0] + (c[1] - a[1]) * normal[1] >= 0) {
+    const roomFace = (c[0] - a[0]) * normal[0] + (c[1] - a[1]) * normal[1] >= 0;
+    // A niche is in the room face only: the far face stays whole behind it
+    const pieces = subtractRects([clip(rect)], roomFace ? holes : openings.map((o) => o.rect));
+    if (roomFace) {
       surrounds.push(...pieces.map((piece) => ({ rect: piece, finish: 'tile' as const, fixtureId: fixture.id })));
     } else {
       backTile.push(...pieces);
@@ -466,13 +497,14 @@ function wallSolid(
     b,
     lengthIn,
     heightIn,
-    thicknessIn: Math.max(WALL_THICKNESS_IN, (wall.thickness / ppf) * 12),
+    thicknessIn,
     inward,
     pieces: subtractRects([{ x0: 0, x1: lengthIn, y0: 0, y1: heightIn }], holes),
     tile: subtractRects(regions, holes.concat(kept.map((c) => clip(c.rect)))),
     surrounds,
     backTile,
     openings,
+    niches,
     borders: view === 'after'
       ? wallBorderRuns(wall, sketch.fixtures, ppf).map((r) => clip({
         x0: r.x0, x1: r.x1, y0: r.y - BORDER_BAND_IN / 2, y1: r.y + BORDER_BAND_IN / 2,
@@ -543,6 +575,7 @@ function fixtureSolid(fix: BEFixture, sketch: BESketchData): FixtureSolid {
     against,
     ceilingIn: room?.heightInches || 96,
     showerOpening: fix.type === 'shower' ? showerFrontOpening(fix, sketch.walls, sketch.fixtures, ppf)?.span ?? null : null,
+    ...(fix.type === 'shower' ? { nicheCount: showerNicheCount(fix, sketch.fixtures, ppf) } : {}),
   };
 }
 
@@ -556,9 +589,9 @@ export function bathroomModel(
   const floors = sketch.rooms
     .filter((r) => !r.parentRoomId && r.boundary.length >= 3)
     .map((r) => r.boundary.map((p) => toIn(p, ppf)));
-  // Doors and windows are drawn in their walls' openings
+  // Doors and windows are drawn in their walls' openings, niches in their walls
   const fixtures = sketch.fixtures
-    .filter((f) => f.type !== 'door' && f.type !== 'window')
+    .filter((f) => f.type !== 'door' && f.type !== 'window' && f.type !== 'niche')
     .map((f) => fixtureSolid(f, sketch));
 
   const xs: number[] = [];

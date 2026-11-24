@@ -90,6 +90,14 @@ export const FIXTURE_GLYPHS: Record<BEFixtureType, React.ReactNode> = {
       <path d="M1.5 3.5l13 9M14.5 3.5l-13 9" opacity="0.45" />
     </Svg>
   ),
+  // A recess in a wall, seen face on: its opening and the shelf of its back
+  niche: (
+    <Svg>
+      <rect x="4" y="2" width="8" height="12" rx="0.5" />
+      <path d="M5.5 3.5h5v9h-5z" opacity="0.5" />
+      <path d="M4 8h8" opacity="0.55" />
+    </Svg>
+  ),
 };
 
 /** A wall seen from above: a solid bar */

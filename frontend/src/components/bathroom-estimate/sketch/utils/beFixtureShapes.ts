@@ -682,6 +682,21 @@ function buildCabinet(cabinetType?: string): FixtureShape {
   return { label, paths };
 }
 
+// ── Niche: a recess in its wall, open to the room (the plan's bottom edge) ──
+
+function buildNiche(nicheType?: string): FixtureShape {
+  const tiled = nicheType !== 'drywall';
+  return {
+    label: 'Niche',
+    paths: [
+      { d: 'M0,0 L1,0', fill: N, stroke: S, strokeWidth: 2 },
+      { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: tiled ? '#eef3f6' : '#f6f3ee', stroke: S, strokeWidth: 1.2 },
+      // Its sides and back, set into the wall
+      { d: 'M0.08,1 L0.08,0.28 L0.92,0.28 L0.92,1', fill: N, stroke: SL, strokeWidth: 0.8 },
+    ],
+  };
+}
+
 // ── Soffit: a lowered ceiling, overhead, so light and crossed ──
 
 const feetInches = (inches: number) => `${Math.floor(inches / 12)}'${Math.round(inches % 12)}"`;
@@ -709,6 +724,7 @@ export interface FixtureShapeExtras {
   lightBulbs?: number;
   cabinetType?: string;
   soffitBottom?: number;
+  nicheType?: string;
 }
 
 // ── Lookup ──
@@ -776,6 +792,8 @@ export function getFixtureShape(
       return buildCabinet(extras.cabinetType);
     case 'soffit':
       return buildSoffit(extras.soffitBottom ?? 84);
+    case 'niche':
+      return buildNiche(extras.nicheType);
     default:
       return { label: type, paths: [{ d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 1.5 }] };
   }

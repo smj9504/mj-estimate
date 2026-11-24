@@ -1,7 +1,8 @@
 /**
- * Lights or cabinets on the estimate, one row per kind: what it is, how
- * many, and New or D&R. Rows counted from the plan say so and change there;
- * typed rows change here. A form control (value / onChange).
+ * Lights, cabinets or niches on the estimate, one row per kind: what it is,
+ * how many, and New or D&R (none for a niche, which is built). Rows counted
+ * from the plan say so and change there; typed rows change here. A form
+ * control (value / onChange).
  */
 
 import React from 'react';
@@ -19,9 +20,11 @@ interface BEFixtureRowsProps {
   noun: string;
   /** Room for the longest kind's name */
   typeWidth?: number;
+  /** New or D&R per row; false for what's only ever built new (a niche) */
+  actions?: boolean;
 }
 
-const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, noun, typeWidth = 180 }) => {
+const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, noun, typeWidth = 180, actions = true }) => {
   const rows = value ?? [];
   const set = (i: number, patch: Partial<FixtureRow>) =>
     onChange?.(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -68,14 +71,16 @@ const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, n
               prefix="×"
               onChange={(v) => typeof v === 'number' && set(i, { count: v })}
             />
-            <Radio.Group
-              size="small"
-              value={row.action ?? 'replace'}
-              onChange={(e) => set(i, { action: e.target.value as ItemAction })}
-            >
-              <Radio.Button value="replace">New</Radio.Button>
-              <Radio.Button value="detach_reset">D&R</Radio.Button>
-            </Radio.Group>
+            {actions && (
+              <Radio.Group
+                size="small"
+                value={row.action ?? 'replace'}
+                onChange={(e) => set(i, { action: e.target.value as ItemAction })}
+              >
+                <Radio.Button value="replace">New</Radio.Button>
+                <Radio.Button value="detach_reset">D&R</Radio.Button>
+              </Radio.Group>
+            )}
             {onPlan ? (
               <Tooltip title="Counted from the sketch. Add, remove or change it there.">
                 <Tag style={{ marginInlineEnd: 0 }}>Sketch</Tag>

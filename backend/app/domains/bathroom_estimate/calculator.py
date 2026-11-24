@@ -12,6 +12,7 @@ from .layout_changes import layout_change_line_items
 from .lights import LIGHT_TYPES, light_groups
 from .job_share import bathroom_type_label, elsewhere_line
 from .mirrors import mirror_count, mirror_groups, price_by_width
+from .niches import NICHE_TYPES, niche_groups
 from .selections import Picks
 from app.domains.unit_prices.tables import in_active_book
 
@@ -55,6 +56,7 @@ from .pricing import (
     TILE_EXTRAS,
     TILE_LABOR_RATES,
     TILE_MATERIAL_RATES,
+    WALL_NICHE_PRICES,
     get_tile_complexity_multiplier,
     get_tile_waste,
     CUSTOM_TILE_SHOWER_TYPES,
@@ -2594,6 +2596,25 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                  round(tile_wall_sf, 1), "SF", tile_cost, "tile",
                  notes=wt_note)
             _add_decorative_tile(line_items, "walls", walls, labor_mult)
+
+    # ── Niches in the walls: one line per kind, each ──
+    for _ng in niche_groups(estimate):
+        _nt, _nn = _ng["type"], _ng["count"]
+        _nlbl = NICHE_TYPES[_nt]["label"]
+        _n_tile = round(WALL_NICHE_PRICES["tile"] * labor_mult, 2)
+        if _nt == "tile":
+            _add(line_items, 4, _nlbl, _nn, "EA", _n_tile, "tile",
+                 notes="Tile, trim and labor to tile the niche: back, sides, sill and head")
+        elif _nt == "tile_foam":
+            _n_foam = round(WALL_NICHE_PRICES["foam_insert"] * labor_mult, 2)
+            _add(line_items, 4, _nlbl, _nn, "EA", round(_n_foam + _n_tile, 2), "tile",
+                 notes=f"Foam niche set and sealed: ${_n_foam:,.2f} | Tile, trim and labor: ${_n_tile:,.2f}")
+        else:
+            _n_build = round(WALL_NICHE_PRICES["drywall_build"] * labor_mult, 2)
+            _n_paint = round(WALL_NICHE_PRICES["paint"] * wc_paint_rate_mult, 2)
+            _add(line_items, 6, _nlbl, _nn, "EA", round(_n_build + _n_paint, 2), "finish",
+                 notes=f"Framed, drywall returns beaded and finished: ${_n_build:,.2f} | "
+                       f"Painted ({wc_paint_grade}): ${_n_paint:,.2f}")
 
     # ── Seal & prime (repaired drywall areas only) ──
     seal_prime_wall_sf = walls.get("seal_prime_wall_sf", 0) or 0

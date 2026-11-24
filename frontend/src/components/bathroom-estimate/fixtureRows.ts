@@ -1,18 +1,18 @@
 /**
- * Lights and wall cabinets, kind by kind.
+ * Lights, wall cabinets and wall niches, kind by kind.
  *
  * A bathroom can have a 3-light bar over the vanity, recessed cans and a
  * sconce or two; a mirrored medicine cabinet and a wall cabinet over the
- * toilet. Each kind is a row on the estimate (electrical_spec.lights,
- * accessories_spec.cabinets) and a line of its own when priced
- * (backend lights.py / cabinets.py).
+ * toilet; a tiled niche in the tub wall. Each kind is a row on the estimate
+ * (electrical_spec.lights, accessories_spec.cabinets / niches) and a line of
+ * its own when priced (backend lights.py / cabinets.py / niches.py).
  *
  * Rows come from the plan — every light or cabinet drawn on it — or are typed
  * on the estimate page. A kind drawn on the plan takes over the typed rows of
  * that kind; a typed row of a kind the plan doesn't have stays.
  */
 
-import type { BECabinetType, BEDimensions, BEFixture, BELightType } from '../../types/bathroomSketch';
+import type { BECabinetType, BEDimensions, BEFixture, BELightType, BENicheType } from '../../types/bathroomSketch';
 
 export type ItemAction = 'replace' | 'detach_reset';
 
@@ -86,6 +86,19 @@ export function cabinetKind(type?: string | null) {
   return CABINET_KINDS.find((k) => k.value === type) ?? CABINET_KINDS[0];
 }
 
+// ── Niches ──
+
+/** A niche is built, never detached and reset: its rows have no New / D&R */
+export const NICHE_KINDS: (KindInfo<BENicheType> & { tiled: boolean })[] = [
+  { value: 'tile', label: 'Tiled niche', tiled: true },
+  { value: 'tile_foam', label: 'Tiled niche, foam insert', tiled: true },
+  { value: 'drywall', label: 'Drywall niche, painted', tiled: false },
+];
+
+export function nicheKind(type?: string | null) {
+  return NICHE_KINDS.find((k) => k.value === type) ?? NICHE_KINDS[0];
+}
+
 // ── From the plan ──
 
 const order = (kinds: { value: string }[], t: string) => {
@@ -121,6 +134,14 @@ export function cabinetsFromSketch(fixtures: BEFixture[]): FixtureRow[] {
   return group(
     fixtures.filter((f) => f.type === 'cabinet').map((f) => ({ type: cabinetKind(f.properties.cabinetType).value })),
     CABINET_KINDS,
+  );
+}
+
+/** Each niche on the plan, by kind */
+export function nichesFromSketch(fixtures: BEFixture[]): FixtureRow[] {
+  return group(
+    fixtures.filter((f) => f.type === 'niche').map((f) => ({ type: nicheKind(f.properties.nicheType).value })),
+    NICHE_KINDS,
   );
 }
 

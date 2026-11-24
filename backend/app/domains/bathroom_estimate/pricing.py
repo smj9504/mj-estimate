@@ -324,6 +324,23 @@ DECORATIVE_TILE = {
     "insert_each": xact(128.61 * 0.1 + 12.00),  # TIL LAB 0.1 hr + insert allowance
 }
 
+# A niche in a wall (niches.py), each, by kind, from Xactimate's lines:
+#   tile           TIL NICHE: the tile, trim and labor to tile a niche (framed
+#                  in the stud bay; its backer and waterproofing go with the wall's)
+#   foam_insert    TIL NICHEFC: a pre-formed foam niche set and sealed, on top
+#                  of tiling it
+#   drywall_build  no Xactimate line: 2 hours of drywall installer (DRY
+#                  $116.43/hr) framing it in, hanging, beading and finishing its
+#                  returns, plus $20 of blocking, bead and mud. My default,
+#                  awaiting the owner's OK.
+#   paint          PNT NICHE: paint a wall niche (a drywall one)
+WALL_NICHE_PRICES = {
+    "tile": xact(293.55),                       # TIL NICHE
+    "foam_insert": xact(138.59),                # TIL NICHEFC
+    "drywall_build": xact(116.43 * 2 + 20.00),  # DRY 2 hr + material allowance
+    "paint": xact(30.90),                       # PNT NICHE
+}
+
 # ──────────────────────────────────────────────
 # Phase 6: Fixtures
 # ──────────────────────────────────────────────

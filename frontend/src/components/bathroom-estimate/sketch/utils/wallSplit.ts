@@ -378,7 +378,7 @@ function fixturePoint(fix: BEFixture, lx: number, ly: number): BEPoint {
 
 /**
  * What moves with a wall: a door or window in it (tied to it, or its edge in
- * the wall within the wall's ends), a mirror, cabinet or wall light hung on
+ * the wall within the wall's ends), a mirror, cabinet, niche or wall light on
  * it. A tub, shower, vanity or toilet stands on the floor and stays.
  */
 export function movesWithWall(fix: BEFixture, wall: BEWall, pixelsPerFoot: number): boolean {
@@ -388,7 +388,8 @@ export function movesWithWall(fix: BEFixture, wall: BEWall, pixelsPerFoot: numbe
   let pts: BEPoint[];
   if (fix.type === 'door') pts = [fixturePoint(fix, -hw, hh), fixturePoint(fix, hw, hh)];
   else if (fix.type === 'window') pts = [fixturePoint(fix, -hw, 0), fixturePoint(fix, hw, 0)];
-  else if (fix.type === 'mirror' || fix.type === 'cabinet' || (fix.type === 'light' && isWallLight(fix.properties.lightType))) {
+  else if (fix.type === 'mirror' || fix.type === 'cabinet' || fix.type === 'niche'
+    || (fix.type === 'light' && isWallLight(fix.properties.lightType))) {
     pts = [fixturePoint(fix, 0, -hh)];
   } else return false;
   const ats = pts.map((p) => along(wall, p));

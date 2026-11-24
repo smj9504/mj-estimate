@@ -10,7 +10,7 @@ import React, { useCallback, useState } from 'react';
 import { Button } from 'antd';
 import { AppstoreAddOutlined, RightOutlined } from '@ant-design/icons';
 import type { BEFixtureType, BEPoint, BESketchTool } from '../../../types/bathroomSketch';
-import { BE_FIXTURE_DEFAULTS, SOFFIT_BOTTOM_IN } from '../../../types/bathroomSketch';
+import { BE_FIXTURE_DEFAULTS, NICHE_BOTTOM_IN, NICHE_HEIGHT_IN, SOFFIT_BOTTOM_IN } from '../../../types/bathroomSketch';
 import { cabinetKind } from '../fixtureRows';
 import { placeFor } from './utils/hangOnWall';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
@@ -26,7 +26,7 @@ interface BESketchSidebarProps {
   sheet?: boolean;
 }
 
-const ADDABLE: BEFixtureType[] = ['bathtub', 'shower', 'vanity', 'toilet', 'door', 'window', 'mirror', 'light', 'cabinet', 'soffit'];
+const ADDABLE: BEFixtureType[] = ['bathtub', 'shower', 'vanity', 'toilet', 'door', 'window', 'mirror', 'light', 'cabinet', 'niche', 'soffit'];
 
 // The canvas's own colours, so a list row and its zone on the plan match
 const DRYWALL_SWATCH = { wall: '#ff9800', ceiling: '#42a5f5' };
@@ -116,11 +116,17 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 300, she
       cabinetType: type === 'cabinet' ? cabinet.value : undefined,
       cabinetHeight: type === 'cabinet' ? cabinet.heightIn : undefined,
       soffitBottom: type === 'soffit' ? SOFFIT_BOTTOM_IN : undefined,
+      nicheType: type === 'niche' ? 'tile' : undefined,
+      nicheHeight: type === 'niche' ? NICHE_HEIGHT_IN : undefined,
+      nicheBottom: type === 'niche' ? NICHE_BOTTOM_IN : undefined,
     }, type === 'cabinet' ? cabinet.size : undefined);
-    // A medicine cabinet on the wall behind the vanity, a soffit over the tub or shower
-    if (type === 'cabinet' || type === 'soffit') {
-      const draft = { id, type, position: pos, rotation: 0, dimensions: type === 'cabinet' ? cabinet.size : BE_FIXTURE_DEFAULTS.soffit, properties: {} };
-      const spot = placeFor(data.fixtures, draft, type === 'cabinet' ? 'medicine_cabinet' : 'soffit', draft.dimensions, ppf);
+    // A medicine cabinet on the wall behind the vanity, a niche in the wall
+    // behind the shower or tub, a soffit over the tub or shower
+    if (type === 'cabinet' || type === 'soffit' || type === 'niche') {
+      const dimensions = type === 'cabinet' ? cabinet.size : BE_FIXTURE_DEFAULTS[type];
+      const draft = { id, type, position: pos, rotation: 0, dimensions, properties: {} };
+      const kind = type === 'cabinet' ? 'medicine_cabinet' : type;
+      const spot = placeFor(data.fixtures, draft, kind, draft.dimensions, ppf);
       if (spot) updateFixture(id, spot);
     }
     setSelectedId(id);

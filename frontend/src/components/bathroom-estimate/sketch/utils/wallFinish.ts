@@ -12,6 +12,7 @@
  */
 
 import type { BEFixture, BEPoint, BERoom, BEWall, BEWallTileRegion } from '../../../../types/bathroomSketch';
+import { NICHE_BOTTOM_IN, NICHE_HEIGHT_IN } from '../../../../types/bathroomSketch';
 import { showerRoomFrontSF } from '../../showerRoom';
 
 export type WallFinishLayer = 'existing' | 'new';
@@ -201,6 +202,59 @@ export function wallOpeningsOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoo
   }
   return openings;
 }
+
+/**
+ * Niches in this wall: each niche whose back (its top edge on the plan, north
+ * in its own frame) lies along the wall's line, its opening from its bottom up
+ * its height, as far along as this wall reaches.
+ */
+export function wallNichesOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): WallOpening[] {
+  const niches: WallOpening[] = [];
+  for (const fix of fixtures) {
+    if (fix.type !== 'niche') continue;
+    const hw = ((fix.dimensions.width / 12) * pixelsPerFoot) / 2;
+    const hh = ((fix.dimensions.height / 12) * pixelsPerFoot) / 2;
+    const ends = [fixturePoint(fix, -hw, -hh), fixturePoint(fix, hw, -hh)].map((p) => alongWall(wall, p, pixelsPerFoot));
+    if (!ends.every((a) => a.offPx <= AGAINST_WALL_PX)) continue;
+    const lenIn = (ends[0].lenPx / pixelsPerFoot) * 12;
+    const xs = ends.map((a) => a.alongIn);
+    const x0 = Math.max(0, Math.min(...xs));
+    const x1 = Math.min(lenIn, Math.max(...xs));
+    if (x1 - x0 <= 1) continue;
+    const y0 = Math.min(fix.properties.nicheBottom ?? NICHE_BOTTOM_IN, wall.heightInches);
+    const y1 = Math.min(y0 + (fix.properties.nicheHeight ?? NICHE_HEIGHT_IN), wall.heightInches);
+    if (y1 - y0 <= 0.01) continue;
+    niches.push({ rect: { x0, x1, y0, y1 }, fixture: fix });
+  }
+  return niches;
+}
+
+/**
+ * The niches set in a tub's or a shower's walls: each one whose middle is in
+ * its footprint on the plan, give or take 2" (a niche is drawn on its wall's
+ * face, just where the tub or shower stands against it).
+ */
+export function nichesIn(host: BEFixture, fixtures: BEFixture[], pixelsPerFoot: number): BEFixture[] {
+  const rad = ((host.rotation || 0) * Math.PI) / 180;
+  const margin = pixelsPerFoot / 6;
+  const hw = ((host.dimensions.width / 12) * pixelsPerFoot) / 2 + margin;
+  const hh = ((host.dimensions.height / 12) * pixelsPerFoot) / 2 + margin;
+  return fixtures.filter((f) => {
+    if (f.type !== 'niche') return false;
+    const dx = f.position.x - host.position.x;
+    const dy = f.position.y - host.position.y;
+    const lx = dx * Math.cos(rad) + dy * Math.sin(rad);
+    const ly = -dx * Math.sin(rad) + dy * Math.cos(rad);
+    return Math.abs(lx) <= hw && Math.abs(ly) <= hh;
+  });
+}
+
+/**
+ * A shower's own niche count, priced with the shower: none once niches are
+ * drawn in its walls, each of those then a niche of its own on the estimate.
+ */
+export const showerNicheCount = (shower: BEFixture, fixtures: BEFixture[], pixelsPerFoot: number): number =>
+  (nichesIn(shower, fixtures, pixelsPerFoot).length ? 0 : (shower.properties.nicheCount ?? 0));
 
 /**
  * A strip of wall drawn along a wall (drywall repair, insulation): its area up

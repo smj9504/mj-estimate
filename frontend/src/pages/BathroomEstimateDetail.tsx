@@ -73,7 +73,7 @@ import BEFixtureRows from '../components/bathroom-estimate/BEFixtureRows';
 import BEMirrorRows from '../components/bathroom-estimate/BEMirrorRows';
 import BEDecorativeTileFields from '../components/bathroom-estimate/BEDecorativeTileFields';
 import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRows';
-import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
+import { CABINET_KINDS, LIGHT_KINDS, NICHE_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
 import { exportBathroomsPdfWith3D, exportEstimatePdfWithPictures, exportProposalWith3D } from '../components/bathroom-estimate/bathroomPdf';
 import BEPdfBathroomsModal, { sharingBathrooms } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { showerRoomFrontSF } from '../components/bathroom-estimate/showerRoom';
@@ -677,6 +677,12 @@ const BathroomEstimateDetail: React.FC = () => {
       updates.accessories_spec = {
         ...(updates.accessories_spec ?? current.accessories_spec ?? {}),
         mirrors: mergeMirrorsFromSketch(current.accessories_spec?.mirrors, sync.sketch_mirrors),
+      };
+    }
+    if (sync.sketch_niches) {
+      updates.accessories_spec = {
+        ...(updates.accessories_spec ?? current.accessories_spec ?? {}),
+        niches: mergeFromSketch(current.accessories_spec?.niches, sync.sketch_niches),
       };
     }
     if (sync.walls_spec) {
@@ -1421,6 +1427,12 @@ const BathroomEstimateDetail: React.FC = () => {
                     <Text strong style={{ display: 'block', marginBottom: 4 }}>Wall cabinets</Text>
                     <Form.Item name={['accessories_spec', 'cabinets']} noStyle>
                       <BEFixtureRows kinds={CABINET_KINDS} noun="cabinet" typeWidth={250} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Text strong style={{ display: 'block', marginBottom: 4 }}>Wall niches</Text>
+                    <Form.Item name={['accessories_spec', 'niches']} noStyle>
+                      <BEFixtureRows kinds={NICHE_KINDS} noun="niche" typeWidth={200} actions={false} />
                     </Form.Item>
                   </Col>
                 </Row>

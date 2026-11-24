@@ -39,11 +39,16 @@ export type BEFixtureType =
   /** A medicine cabinet or a wall cabinet, hung on a wall */
   | 'cabinet'
   /** A lowered part of the ceiling (a bulkhead over a tub, say): drawn where it is, its underside's height set */
-  | 'soffit';
+  | 'soffit'
+  /** A recess in a wall (a niche in a tub or shower wall, a shelf in a dry wall): drawn on its wall, its opening's height and how high it sits set */
+  | 'niche';
 
 export type BELightType = 'standard' | 'recessed' | 'recessed_multi' | 'pendant' | 'vanity_bar' | 'sconce';
 
 export type BECabinetType = 'medicine_cabinet' | 'medicine_cabinet_recessed' | 'wall_cabinet';
+
+/** A tiled niche (framed in the wall, or a foam insert set in it), or one finished in drywall and painted */
+export type BENicheType = 'tile' | 'tile_foam' | 'drywall';
 
 export type ShowerDoorType = 'none' | 'sliding' | 'swing' | 'frameless_swing' | 'bi_fold' | 'curtain' | 'neo_angle_pivot';
 
@@ -322,6 +327,13 @@ export interface BEFixtureProperties {
   // --- Soffit ---
   /** Floor to the soffit's underside, inches (the ceiling there) */
   soffitBottom?: number;
+
+  // --- Niche ---
+  nicheType?: BENicheType;
+  /** Its opening's height, inches; its plan size is width along the wall × the depth it's drawn */
+  nicheHeight?: number;
+  /** Floor to its bottom (its sill), inches */
+  nicheBottom?: number;
 
   // --- Door/Window ---
   /**
@@ -639,7 +651,13 @@ export const BE_FIXTURE_DEFAULTS: Record<BEFixtureType, BEDimensions> = {
   light: { width: 8, height: 8 },       // plan-view ceiling/wall light (small square)
   cabinet: { width: 24, height: 5 },    // plan-view medicine cabinet (thin strip on the wall)
   soffit: { width: 60, height: 30 },    // plan-view lowered ceiling, as over a 5' tub
+  niche: { width: 12, height: 4 },      // plan-view recess, drawn on its wall's face
 };
+
+/** A niche when first drawn: 12" wide, 24" high, its bottom 42" off the floor, 3 1/2" deep (a stud bay), inches */
+export const NICHE_HEIGHT_IN = 24;
+export const NICHE_BOTTOM_IN = 42;
+export const NICHE_DEPTH_IN = 3.5;
 
 /** A soffit's underside when first drawn (7'), inches */
 export const SOFFIT_BOTTOM_IN = 84;

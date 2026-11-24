@@ -29,13 +29,15 @@ import type {
 import {
   BATHTUB_SURROUND_DEFAULTS,
   MIRROR_HEIGHT_IN,
+  NICHE_BOTTOM_IN,
+  NICHE_HEIGHT_IN,
   SHOWER_DOOR_HEIGHT_IN,
   SOFFIT_BOTTOM_IN,
   VANITY_SUBTYPE_DEFAULTS,
 } from '../../../types/bathroomSketch';
-import type { BECabinetType, BELightType } from '../../../types/bathroomSketch';
+import type { BECabinetType, BELightType, BENicheType } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
-import { CABINET_KINDS, DEFAULT_BAR_BULBS, cabinetKind, isWallLight, lightKindOf, lightPlanSize } from '../fixtureRows';
+import { CABINET_KINDS, DEFAULT_BAR_BULBS, NICHE_KINDS, cabinetKind, isWallLight, lightKindOf, lightPlanSize, nicheKind } from '../fixtureRows';
 import { placeFor } from './utils/hangOnWall';
 import {
   drainOf,
@@ -49,7 +51,9 @@ import {
 import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, roomWallAreaSF, showerDoorPosition } from './utils/beGeometry';
-import { DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, showerFrontOpening, wallOpeningsOf, wallStartOnLeft } from './utils/wallFinish';
+import {
+  DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, nichesIn, showerFrontOpening, wallNichesOf, wallOpeningsOf, wallStartOnLeft,
+} from './utils/wallFinish';
 import { MIN_PIECE_IN, joinableAt, outwardSign, wallRoom } from './utils/wallSplit';
 import { FLOOR_BORDER_INSET_IN, floorBorderLF } from './utils/decoTile';
 import BEWallFinishEditor from './BEWallFinishEditor';
@@ -66,6 +70,7 @@ export const FIXTURE_LABELS: Record<BEFixture['type'], string> = {
   mirror: 'Mirror',
   light: 'Light',
   cabinet: 'Cabinet',
+  niche: 'Niche',
   soffit: 'Soffit',
 };
 
@@ -613,9 +618,15 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               />
             </Field>
           )}
-          <Field label="Niches">
-            <Num label="Niches" value={p.nicheCount ?? 0} min={0} max={4} onChange={(v) => setProps({ nicheCount: v ?? 0 })} />
-          </Field>
+          {nichesIn(fixture, data.fixtures, data.settings.pixelsPerFoot).length > 0 ? (
+            <Fact label="Niches">
+              {nichesIn(fixture, data.fixtures, data.settings.pixelsPerFoot).length} on its walls, each priced on its own
+            </Fact>
+          ) : (
+            <Field label="Niches" hint="Or add a Niche and set it in a wall: drawn, it's priced on its own instead.">
+              <Num label="Niches" value={p.nicheCount ?? 0} min={0} max={4} onChange={(v) => setProps({ nicheCount: v ?? 0 })} />
+            </Field>
+          )}
           <Field label="Border rows" hint="Decorative border rows, each all the way round its tiled walls.">
             <Num label="Shower border rows" value={p.decoBorderRows ?? 0} min={0} max={10} onChange={(v) => v != null && setProps({ decoBorderRows: v })} />
           </Field>
@@ -884,6 +895,62 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             max={60}
             unit="in"
             onChange={(v) => v && setProps({ cabinetHeight: v })}
+          />
+        </Field>
+        {rotation}
+      </>
+    );
+  }
+
+  if (fixture.type === 'niche') {
+    const kind = nicheKind(p.nicheType);
+    const bottom = p.nicheBottom ?? NICHE_BOTTOM_IN;
+    const height = p.nicheHeight ?? NICHE_HEIGHT_IN;
+    const ppf = data.settings.pixelsPerFoot;
+    const onWall = data.walls.some((w) => wallNichesOf(w, [fixture], ppf).length > 0);
+    return (
+      <>
+        <Field label="Type" hint="Each priced on the estimate, under Wall niches.">
+          <Select
+            aria-label="Niche type"
+            value={kind.value}
+            onChange={(v: BENicheType) => setProps({ nicheType: v })}
+            options={NICHE_KINDS.map(({ value, label }) => ({ value, label }))}
+          />
+        </Field>
+        <Field label="Opening" hint="Width along the wall × height up it">
+          <Num
+            pair
+            label="Niche width, inches"
+            value={fixture.dimensions.width}
+            min={6}
+            max={96}
+            onChange={(v) => v && updateFixture(fixture.id, { dimensions: { ...fixture.dimensions, width: v } })}
+          />
+          <span className="bes-times" aria-hidden="true">×</span>
+          <Num
+            pair
+            label="Niche height, inches"
+            value={height}
+            min={6}
+            max={72}
+            unit="in"
+            onChange={(v) => v && setProps({ nicheHeight: v })}
+          />
+        </Field>
+        <Field
+          label="Off the floor"
+          hint={onWall
+            ? `Its bottom; its top is ${feetInches((bottom + height) / 12)} up.`
+            : "Its bottom. It isn't in a wall yet: drag its back (the thick edge) onto one."}
+        >
+          <Num
+            label="Niche bottom off the floor, inches"
+            value={bottom}
+            min={0}
+            max={96}
+            unit="in"
+            onChange={(v) => v != null && setProps({ nicheBottom: v })}
           />
         </Field>
         {rotation}

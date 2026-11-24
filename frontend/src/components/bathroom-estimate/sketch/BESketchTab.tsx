@@ -24,12 +24,13 @@ import {
 import type { BESketchData, BESketchTool } from '../../../types/bathroomSketch';
 import { BATHTUB_SURROUND_DEFAULTS, MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
 import { soffitAreas } from './utils/soffit';
-import { cabinetsFromSketch, lightsFromSketch, type FixtureRow } from '../fixtureRows';
+import { cabinetsFromSketch, lightsFromSketch, nichesFromSketch, type FixtureRow } from '../fixtureRows';
 import { mirrorsFromSketch, type MirrorRow } from '../mirrorRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { roomWallAreaSF, showerDoorPosition, turningCorners } from './utils/beGeometry';
 import {
   DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening, showerFrontTiled,
+  showerNicheCount,
 } from './utils/wallFinish';
 import { floorBorderLF, wallBorderLF, wallDecoInserts, wallHasDeco } from './utils/decoTile';
 import { useBESketchState } from './hooks/useBESketchState';
@@ -153,6 +154,8 @@ export interface SketchFixtureSync {
   sketch_cabinets?: FixtureRow[];
   /** The mirrors drawn on the plan, by width (merged into accessories_spec.mirrors by the page) */
   sketch_mirrors?: MirrorRow[];
+  /** The niches drawn on the plan, by kind (merged into accessories_spec.niches by the page) */
+  sketch_niches?: FixtureRow[];
 
   // Drywall repair (from sketch drywall zones)
   hidden_costs?: Record<string, any>;
@@ -386,6 +389,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
   sync.sketch_lights = lightsFromSketch(fixtures);
   sync.sketch_cabinets = cabinetsFromSketch(fixtures);
   sync.sketch_mirrors = mirrorsFromSketch(fixtures);
+  sync.sketch_niches = nichesFromSketch(fixtures);
   // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);
 
@@ -472,7 +476,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       width_in: shower.dimensions.width,
       depth_in: shower.dimensions.height,
       tile_height_in: p.showerTileHeight ?? 96,
-      niches: p.nicheCount ?? 0,
+      // Its own niches; a niche drawn in its walls is on the estimate as a niche of its own
+      niches: showerNicheCount(shower, fixtures, ppf),
       bench: !!p.hasBench,
       bench_position: p.benchPosition ?? 'left',
       bench_length: p.benchLength ?? 36,

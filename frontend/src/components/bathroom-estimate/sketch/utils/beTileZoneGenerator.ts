@@ -16,7 +16,7 @@ import type {
 } from '../../../../types/bathroomSketch';
 import { DEFAULT_TILE_SPEC, SHOWER_DOOR_HEIGHT_IN, TILE_ZONE_COLORS } from '../../../../types/bathroomSketch';
 import { clipPolygon, getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './beGeometry';
-import { showerFrontTileSF } from './wallFinish';
+import { showerFrontTileSF, showerNicheCount } from './wallFinish';
 
 let _zoneCounter = 0;
 function zoneId(): string {
@@ -192,9 +192,10 @@ export function generateTileZones(
         if (showerFloorZone) zones.push(showerFloorZone);
       }
 
-      // Niche tile
-      if ((fix.properties.nicheCount ?? 0) > 0) {
-        const nicheZone = generateShowerNicheZone(fix, ppf);
+      // Niche tile: its own niches (a niche drawn in its walls is a niche of its own, its tile priced with it)
+      const ownNiches = showerNicheCount(fix, fixtures, ppf);
+      if (ownNiches > 0) {
+        const nicheZone = generateShowerNicheZone(fix, ppf, ownNiches);
         if (nicheZone) zones.push(nicheZone);
       }
 
@@ -717,8 +718,7 @@ function generateShowerFloorZone(fix: BEFixture, ppf: number): BETileZone | null
   };
 }
 
-function generateShowerNicheZone(fix: BEFixture, ppf: number): BETileZone | null {
-  const nicheCount = fix.properties.nicheCount ?? 1;
+function generateShowerNicheZone(fix: BEFixture, ppf: number, nicheCount: number): BETileZone | null {
   // Standard niche: 12"W x 24"H x 4"D → tile all 5 interior faces
   // Simplified: each niche ~3.5 SF of tile
   const areaSF = nicheCount * 3.5;

@@ -31,7 +31,7 @@ import BEPlumbingMarks from './BEPlumbingMarks';
 import { hasPlumbing, takesTubGlassPanel, tubGlassPanelSide } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, moveOutlineCorner, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
-import { showerFrontOpening, showerFrontTiled, wallLengthIn, wallTileRegions } from './utils/wallFinish';
+import { showerFrontOpening, showerFrontTiled, showerNicheCount, wallLengthIn, wallTileRegions } from './utils/wallFinish';
 import { MIN_PIECE_IN, outwardSign, wallAt, wallBreaks, wallNormal } from './utils/wallSplit';
 import { floorBorderOutline } from './utils/decoTile';
 import { snapToWalls } from './utils/wallSnap';
@@ -2342,6 +2342,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               onPropsChange={(props) => api.updateFixtureProperties(fix.id, props)}
               glassPanelIn={takesTubGlassPanel(fix) ? tubGlassPanel?.widthIn : undefined}
               showerOpening={fix.type === 'shower' ? showerFrontOpening(fix, walls, fixtures, ppf)?.span : undefined}
+              showerNiches={fix.type === 'shower' ? showerNicheCount(fix, fixtures, ppf) : undefined}
               showerFrontTiled={fix.type === 'shower' && showerFrontTiled(fix, walls, fixtures, ppf)}
             />
           ))}
@@ -2599,6 +2600,8 @@ interface FixtureNodeProps {
   showerOpening?: [number, number];
   /** That room's door side is one of its tiled walls (its 4th) */
   showerFrontTiled?: boolean;
+  /** A shower's own niches (none when niches are drawn in its walls) */
+  showerNiches?: number;
 }
 
 const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
@@ -2619,6 +2622,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   glassPanelIn,
   showerOpening,
   showerFrontTiled: frontTiled,
+  showerNiches = 0,
 }) => {
   const trTargetRef = useRef<Konva.Rect>(null);
   const trRef = useRef<Konva.Transformer>(null);
@@ -2645,13 +2649,14 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       lightBulbs: fix.properties.lightBulbs,
       cabinetType: fix.properties.cabinetType,
       soffitBottom: fix.properties.soffitBottom,
+      nicheType: fix.properties.nicheType,
       noSlab: !!fix.properties.noSlab,
       showerOpeningSpan: showerOpening ?? null,
       showerFrontTiled: !!frontTiled,
     },
   );
   // Hung on a wall: sized along it only, its depth off the wall fixed
-  const alongWall = fix.type === 'window' || fix.type === 'mirror' || fix.type === 'cabinet'
+  const alongWall = fix.type === 'window' || fix.type === 'mirror' || fix.type === 'cabinet' || fix.type === 'niche'
     || (fix.type === 'light' && isWallLight(fix.properties.lightType));
   const roundLight = fix.type === 'light' && !alongWall;
   const isSoffit = fix.type === 'soffit';
@@ -2761,11 +2766,11 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
         />
       )}
 
-      {/* Label: below it; a cabinet's inside its box, clear of what's under it on the
-          plan; none on a wall light, whose lights say what it is and which shares
-          its wall with a mirror or cabinet */}
+      {/* Label: below it; a cabinet's or niche's inside its box, clear of what's under
+          it on the plan (a niche is in the tub's or shower's wall); none on a wall
+          light, whose lights say what it is and which shares its wall with a mirror or cabinet */}
       {!hideLabel && !(fix.type === 'light' && alongWall) && (
-        fix.type === 'cabinet' ? (
+        fix.type === 'cabinet' || fix.type === 'niche' ? (
           <Text
             x={-wPx / 2}
             y={-hPx / 2}
@@ -2827,11 +2832,11 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       )}
 
       {/* Niche indicators for shower (the label with its tile says it otherwise) */}
-      {!hideLabel && fix.type === 'shower' && (fix.properties.nicheCount ?? 0) > 0 && (
+      {!hideLabel && fix.type === 'shower' && showerNiches > 0 && (
         <Text
           x={-wPx / 2 + 2}
           y={-hPx / 2 - 14}
-          text={`${fix.properties.nicheCount} niche${(fix.properties.nicheCount ?? 0) > 1 ? 's' : ''}`}
+          text={`${showerNiches} niche${showerNiches > 1 ? 's' : ''}`}
           fontSize={8}
           fill="#666"
           listening={false}

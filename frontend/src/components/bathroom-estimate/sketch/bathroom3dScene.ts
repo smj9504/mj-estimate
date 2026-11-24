@@ -292,6 +292,33 @@ function buildWall(
     add(boxAt(p.x1 - p.x0, p.y1 - p.y0, T, paint, (p.x0 + p.x1) / 2, (p.y0 + p.y1) / 2, bodyZ));
   }
 
+  // Niches: the wall left behind each one, its back and sides lined with the
+  // tile round it (the shower's, the tub surround's or the wall's) or painted
+  const roomFace = bodyZ + T / 2;
+  for (const n of w.niches) {
+    const r = mirror(n.rect);
+    const nw = r.x1 - r.x0;
+    const nh = r.y1 - r.y0;
+    const cx = (r.x0 + r.x1) / 2;
+    const cy = (r.y0 + r.y1) / 2;
+    const d = n.depthIn;
+    const rest = T - d;
+    if (rest > 0.01) add(boxAt(nw, nh, rest, paint, cx, cy, bodyZ - T / 2 + rest / 2));
+    const look = n.lining === 'shower' ? looks.showerTile : n.lining === 'tub' ? looks.surroundTile : looks.wallTile;
+    let back: { material: THREE.MeshStandardMaterial; repeat?: [number, number] } = { material: paint };
+    let sides: THREE.MeshStandardMaterial = paint;
+    if (n.lining !== 'paint') {
+      back = tileMaterial(look, textures);
+      own(back.material);
+      sides = own(mat(look.color, { roughness: look.roughness }));
+    }
+    add(facePanel(r, roomFace - d + 0.02, back.material, back.repeat));
+    add(boxAt(0.25, nh, d, sides, r.x0 + 0.125, cy, roomFace - d / 2));
+    add(boxAt(0.25, nh, d, sides, r.x1 - 0.125, cy, roomFace - d / 2));
+    add(boxAt(nw, 0.25, d, sides, cx, r.y0 + 0.125, roomFace - d / 2));
+    add(boxAt(nw, 0.25, d, sides, cx, r.y1 - 0.125, roomFace - d / 2));
+  }
+
   // Tile to install (or there today), on the room side
   if (w.tile.length) {
     const { material, repeat } = tileMaterial(looks.wallTile, textures);
@@ -737,7 +764,7 @@ function buildShower(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
   valve.add(boxAt(0.6, 0.6, 3, kit.metal, 0, 48, 1.8));
   g.add(valve);
   g.add(drainAt(local(dp.x, dp.y), baseTop + 0.05, 2));
-  const niches = p.nicheCount ?? 0;
+  const niches = f.nicheCount ?? p.nicheCount ?? 0;
   const nicheMat = mat(COLORS.niche, { roughness: 0.6 });
   for (let i = 0; i < niches; i++) {
     const x = (i - (niches - 1) / 2) * 16;
