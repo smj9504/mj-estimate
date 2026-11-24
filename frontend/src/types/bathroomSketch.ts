@@ -13,6 +13,8 @@
 export type BESketchTool =
   | 'select'
   | 'wall'
+  /** Break a wall where it's clicked (two breaks, dragged along it), as Xactimate does */
+  | 'split'
   | 'room'
   | 'fixture'
   | 'measure'

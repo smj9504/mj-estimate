@@ -145,6 +145,10 @@ export function resizeRoomEdge(boundary: Pt2[], edgeIdx: number, newLengthPx: nu
     y: Math.round(pt.y + (dy / dirLen) * newLengthPx),
   };
 
+  // A rectangle with a split wall (corners that turn nowhere): the corners
+  // past the end follow it, so it stays a rectangle
+  if (boundary.length > 4 && isRectangle(boundary)) return moveOutlineCorner(boundary, nIdx, newNpt);
+
   const b = [...boundary];
   b[nIdx] = newNpt;
   // Rectangular rooms: the corners that shared X or Y with the old end follow it
@@ -156,4 +160,74 @@ export function resizeRoomEdge(boundary: Pt2[], edgeIdx: number, newLengthPx: nu
     }
   }
   return b;
+}
+
+/** Every edge of the outline level or upright, to within `tolPx` */
+export function isOrthogonal(boundary: Pt2[], tolPx = 2): boolean {
+  return boundary.length >= 4 && boundary.every((p, i) => {
+    const q = boundary[(i + 1) % boundary.length];
+    return Math.abs(p.x - q.x) < tolPx || Math.abs(p.y - q.y) < tolPx;
+  });
+}
+
+/** The outline's corners that turn (a split wall's corner, in line, doesn't) */
+export function turningCorners(boundary: Pt2[]): number {
+  const n = boundary.length;
+  return boundary.filter((p, i) => {
+    const a = boundary[(i - 1 + n) % n];
+    const c = boundary[(i + 1) % n];
+    const cross = (p.x - a.x) * (c.y - p.y) - (p.y - a.y) * (c.x - p.x);
+    return Math.abs(cross) > 1e-6 * Math.max(1, Math.hypot(p.x - a.x, p.y - a.y) * Math.hypot(c.x - p.x, c.y - p.y));
+  }).length;
+}
+
+/** Level and upright edges, four corners that turn: a rectangle, its walls split or not */
+export const isRectangle = (boundary: Pt2[]): boolean => isOrthogonal(boundary) && turningCorners(boundary) === 4;
+
+/**
+ * A room's wall area, SF: its perimeter (feet) by its ceiling height
+ * (inches, 8' when unset). Read from these two rather than the room's saved
+ * wallAreaSF, which sketches saved before 2026-11-24 hold 12 times too small.
+ */
+export const roomWallAreaSF = (perimeterLF: number, heightInches?: number): number =>
+  Math.round((((perimeterLF || 0) * (heightInches || 96)) / 12) * 100) / 100;
+
+/**
+ * The outline with one corner moved to `pos`. A rectangle stays one: the
+ * corner either side follows along its edge (up or down a level one, across
+ * an upright one), and on along the edges in line with it (a split wall's
+ * pieces). Any other four-cornered outline has the corners lined up with the
+ * old spot follow; any other shape, the corner alone moves.
+ */
+export function moveOutlineCorner(boundary: Pt2[], idx: number, pos: Pt2): Pt2[] {
+  const n = boundary.length;
+  const old = boundary[idx];
+  const out = [...boundary];
+  out[idx] = pos;
+  if (isRectangle(boundary)) {
+    for (const step of [-1, 1]) {
+      const first = boundary[(idx + step + n) % n];
+      const level = Math.abs(first.y - old.y) <= Math.abs(first.x - old.x);
+      let prev = idx;
+      for (let c = 0; c < n - 1; c++) {
+        const j = (prev + step + n) % n;
+        if (j === idx) break;
+        const inLine = level
+          ? Math.abs(boundary[j].y - boundary[prev].y) < 2
+          : Math.abs(boundary[j].x - boundary[prev].x) < 2;
+        if (!inLine) break;
+        out[j] = level ? { x: out[j].x, y: pos.y } : { x: pos.x, y: out[j].y };
+        prev = j;
+      }
+    }
+    return out;
+  }
+  if (n === 4) {
+    for (let i = 0; i < 4; i++) {
+      if (i === idx) continue;
+      if (Math.abs(boundary[i].x - old.x) < 2) out[i] = { x: pos.x, y: out[i].y };
+      if (Math.abs(boundary[i].y - old.y) < 2) out[i] = { x: out[i].x, y: pos.y };
+    }
+  }
+  return out;
 }

@@ -99,6 +99,15 @@ export const WallGlyph: React.FC = () => (
   </Svg>
 );
 
+/** A wall broken in two: two bars in line, the break between them */
+export const SplitGlyph: React.FC = () => (
+  <Svg>
+    <rect x="1.5" y="6.25" width="5" height="3.5" rx="0.5" fill="currentColor" stroke="none" />
+    <rect x="9.5" y="6.25" width="5" height="3.5" rx="0.5" fill="currentColor" stroke="none" />
+    <path d="M8 3v10" />
+  </Svg>
+);
+
 /** A room: its outline with the corners marked, as you click them */
 export const RoomGlyph: React.FC = () => (
   <Svg>

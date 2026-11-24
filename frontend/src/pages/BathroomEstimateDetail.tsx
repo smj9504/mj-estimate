@@ -77,6 +77,7 @@ import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../c
 import { exportBathroomsPdfWith3D, exportEstimatePdfWithPictures, exportProposalWith3D } from '../components/bathroom-estimate/bathroomPdf';
 import BEPdfBathroomsModal, { sharingBathrooms } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { showerRoomFrontSF } from '../components/bathroom-estimate/showerRoom';
+import { roomWallAreaSF } from '../components/bathroom-estimate/sketch/utils/beGeometry';
 import type { PdfBathroomsPick } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import PriceBookNotice from '../components/common/PriceBookNotice';
@@ -1239,7 +1240,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         {allRooms.map((r: any) => {
                           const name = (r.name || r.roomType || 'Room').replace(/_/g, ' ');
                           const fl = Math.round((r.netFloorAreaSF || r.floorAreaSF || 0) * 10) / 10;
-                          const wl = Math.round((r.wallAreaSF || 0) * 10) / 10;
+                          const wl = Math.round(roomWallAreaSF(r.perimeterLF, r.heightInches) * 10) / 10;
                           const isPrimary = r.id === primary?.id;
                           return (
                             <div key={r.id} style={{ color: isPrimary ? '#262626' : '#595959' }}>

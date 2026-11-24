@@ -212,9 +212,14 @@ export function wallStripAreaSF(
 ): number {
   const [p, q] = line;
   const gross = ((Math.hypot(q.x - p.x, q.y - p.y) / pixelsPerFoot) * 12 * heightIn) / 144;
-  const wall = walls.find((w) => [p, q]
-    .map((pt) => alongWall(w, pt, pixelsPerFoot))
-    .every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX));
+  const onLine = (w: BEWall) => [p, q].map((pt) => alongWall(w, pt, pixelsPerFoot));
+  const wall = walls.find((w) => onLine(w)
+    .every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX))
+    // Along walls in line, past one's end into the next (a split wall): the
+    // strip's own line, its doors and windows those in it
+    ?? (walls.some((w) => onLine(w).every((a) => a.offPx <= AGAINST_WALL_PX))
+      ? { id: '', start: p, end: q, thickness: 0, heightInches: heightIn }
+      : undefined);
   if (!wall) return Math.round(gross * 100) / 100;
   const [a0, a1] = [p, q].map((pt) => alongWall(wall, pt, pixelsPerFoot).alongIn).sort((x, y) => x - y);
   const holes = wallOpeningsOf(wall, fixtures, pixelsPerFoot).map((o) => o.rect);
@@ -248,11 +253,21 @@ export function showerFrontOpening(
   if (!doors.length) return null;
   for (const wall of walls) {
     const [l, r] = front.map((p) => alongWall(wall, p, pixelsPerFoot));
-    const against = [l, r].every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
-    if (!against || Math.abs(r.alongIn - l.alongIn) < 1) continue;
+    if (!([l, r].every((a) => a.offPx <= AGAINST_WALL_PX)) || Math.abs(r.alongIn - l.alongIn) < 1) continue;
+    // Along this wall for part of its width at least: a wall split under the
+    // front (utils/wallSplit) has the door in one piece or across both
+    const lenIn = wallLengthIn(wall, pixelsPerFoot);
+    const frontLo = Math.min(l.alongIn, r.alongIn);
+    const frontHi = Math.max(l.alongIn, r.alongIn);
+    if (Math.min(frontHi, lenIn) - Math.max(frontLo, 0) < 1) continue;
     for (const o of wallOpeningsOf(wall, doors, pixelsPerFoot)) {
-      const lo = Math.max(Math.min(l.alongIn, r.alongIn), o.rect.x0);
-      const hi = Math.min(Math.max(l.alongIn, r.alongIn), o.rect.x1);
+      // The opening's whole width, past this wall's end too if it runs on into the next piece
+      const dhw = ((o.fixture.dimensions.width / 12) * pixelsPerFoot) / 2;
+      const dhh = ((o.fixture.dimensions.height / 12) * pixelsPerFoot) / 2;
+      const ends = [fixturePoint(o.fixture, -dhw, dhh), fixturePoint(o.fixture, dhw, dhh)]
+        .map((p) => alongWall(wall, p, pixelsPerFoot).alongIn);
+      const lo = Math.max(frontLo, Math.min(...ends));
+      const hi = Math.min(frontHi, Math.max(...ends));
       if (hi - lo < 6) continue;
       const frac = (x: number) => (x - l.alongIn) / (r.alongIn - l.alongIn);
       const [s, e] = [frac(lo), frac(hi)].sort((a, b) => a - b);
@@ -313,14 +328,21 @@ export interface ShowerFrontTile {
  * A shower room's front tiled inside (4 tiled walls): the stretch of this wall
  * its front stands along, on the shower's face of the wall, which needn't be
  * the face toward the wall's room (a shower room cut off the bathroom).
+ * `walls`: all the plan's, so a wall split under the front has its piece
+ * though the door is in the other one; by default this wall alone.
  */
-export function showerFrontTiles(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): ShowerFrontTile[] {
+export function showerFrontTiles(
+  wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number, walls: BEWall[] = [wall],
+): ShowerFrontTile[] {
   const out: ShowerFrontTile[] = [];
   const lengthIn = wallLengthIn(wall, pixelsPerFoot);
   for (const fix of fixtures) {
-    if (fix.type !== 'shower' || !showerFrontTiled(fix, [wall], fixtures, pixelsPerFoot)) continue;
+    if (fix.type !== 'shower' || !showerFrontTiled(fix, walls, fixtures, pixelsPerFoot)) continue;
     const corners = fixtureCorners(fix, pixelsPerFoot);
-    const front = [corners[2], corners[3]].map((c) => alongWall(wall, c, pixelsPerFoot).alongIn);
+    const frontAt = [corners[2], corners[3]].map((c) => alongWall(wall, c, pixelsPerFoot));
+    // Its front along this wall's line
+    if (frontAt.some((a) => a.offPx > AGAINST_WALL_PX)) continue;
+    const front = frontAt.map((a) => a.alongIn);
     const rect = {
       x0: Math.max(0, Math.min(...front)),
       x1: Math.min(lengthIn, Math.max(...front)),
@@ -374,8 +396,10 @@ export function wallFixtureCovers(wall: BEWall, fixtures: BEFixture[], pixelsPer
     } else {
       continue;
     }
+    // Corners on the wall's line, cut to the wall below: a wall split under a
+    // tub (utils/wallSplit) has each piece the part of the surround along it
     const corners = fixtureCorners(fix, pixelsPerFoot).map((c) => alongWall(wall, c, pixelsPerFoot));
-    const onIt = corners.map((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
+    const onIt = corners.map((a) => a.offPx <= AGAINST_WALL_PX);
     const near = corners.filter((_, i) => onIt[i]);
     if (near.length < 2) continue;
     // A shower's front is its door or opening, not tiled with it: a wall there
@@ -401,10 +425,35 @@ export function fixtureSidesAgainstWalls(
   fix: BEFixture, walls: BEWall[], pixelsPerFoot: number,
 ): { north: boolean; south: boolean; east: boolean; west: boolean } {
   const [nw, ne, se, sw] = fixtureCorners(fix, pixelsPerFoot);
-  const along = (pts: BEPoint[]) => walls.some((w) => pts
-    .map((p) => alongWall(w, p, pixelsPerFoot))
-    .every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX));
+  const along = ([p, q]: BEPoint[]) => wallRunCovers(walls, p, q, pixelsPerFoot);
   return { north: along([nw, ne]), east: along([ne, se]), south: along([se, sw]), west: along([sw, nw]) };
+}
+
+/** Walls in line with no more than this gap (px) between them are one run */
+const RUN_GAP_PX = 8;
+
+/**
+ * Whether walls run the whole way from p to q, give or take AGAINST_WALL_PX at
+ * either end: one wall, or several in line end to end (a split wall).
+ */
+function wallRunCovers(walls: BEWall[], p: BEPoint, q: BEPoint, pixelsPerFoot: number): boolean {
+  const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+  const at = (pt: BEPoint) => ((pt.x - p.x) * (q.x - p.x) + (pt.y - p.y) * (q.y - p.y)) / len;
+  const spans = walls
+    .filter((w) => [p, q].every((pt) => alongWall(w, pt, pixelsPerFoot).offPx <= AGAINST_WALL_PX))
+    .map((w) => [at(w.start), at(w.end)].sort((a, b) => a - b))
+    .sort((a, b) => a[0] - b[0]);
+  const covers = ([s, e]: number[]) => s <= AGAINST_WALL_PX && e >= len - AGAINST_WALL_PX;
+  let run: number[] | null = null;
+  for (const [s, e] of spans) {
+    if (run && s <= run[1] + RUN_GAP_PX) {
+      run[1] = Math.max(run[1], e);
+      continue;
+    }
+    if (run && covers(run)) return true;
+    run = [s, e];
+  }
+  return !!run && covers(run);
 }
 
 export const wallFixtureCover = (wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] =>

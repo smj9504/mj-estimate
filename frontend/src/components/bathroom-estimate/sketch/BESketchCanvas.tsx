@@ -30,8 +30,9 @@ import { isWallLight } from '../fixtureRows';
 import BEPlumbingMarks from './BEPlumbingMarks';
 import { hasPlumbing, takesTubGlassPanel, tubGlassPanelSide } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
-import { showerFrontOpening, showerFrontTiled, wallTileRegions } from './utils/wallFinish';
+import { clipPolygon, getShowerUnitPolygon, moveOutlineCorner, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
+import { showerFrontOpening, showerFrontTiled, wallLengthIn, wallTileRegions } from './utils/wallFinish';
+import { MIN_PIECE_IN, outwardSign, wallAt, wallBreaks, wallNormal } from './utils/wallSplit';
 import { floorBorderOutline } from './utils/decoTile';
 import { snapToWalls } from './utils/wallSnap';
 import {
@@ -284,6 +285,13 @@ function dist(a: BEPoint, b: BEPoint): number {
 
 const WALL_SNAP_RADIUS = 12; // px
 
+/** The Split tool takes a wall this close to the pointer, screen px */
+const SPLIT_HIT_PX = 10;
+/** Dragged along a wall this far (inches), the Split tool splits out a piece rather than splitting once */
+const SPLIT_PIECE_MIN_IN = 3;
+/** A split this close (inches) to the middle of a wall goes in the middle */
+const SPLIT_MID_SNAP_IN = 1.5;
+
 /**
  * Snap a point to the nearest existing wall endpoint within WALL_SNAP_RADIUS —
  * or, with alongWalls (drawing a wall, dragging its end), anywhere along a wall,
@@ -413,8 +421,48 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   // ── Marquee (drag) select + bulk move ──
   const [marquee, setMarquee] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
   const [bulkMoving, setBulkMoving] = useState<{ startPos: BEPoint } | null>(null);
+  // ── Split tool (Xactimate's Break): where it would split, and a press dragged along the wall ──
+  const [splitHover, setSplitHover] = useState<{ wallId: string; alongIn: number } | null>(null);
+  const [splitDrag, setSplitDrag] = useState<{ wallId: string; aIn: number; bIn: number } | null>(null);
+  // ── A wall pushed out or in by its handle: where the drag began, and how far it's gone ──
+  const offsetBaseRef = useRef<{ wallId: string; mid: BEPoint; normal: BEPoint } | null>(null);
+  const [offsetDrag, setOffsetDrag] = useState<{ wallId: string; mid: BEPoint; normal: BEPoint; out: 1 | -1; px: number } | null>(null);
+  // Where walls were split, marked on the plan
+  const breaks = useMemo(() => wallBreaks(walls), [walls]);
 
   const CLOSE_THRESHOLD = 15; // px to snap-close polygon
+
+  useEffect(() => {
+    if (activeTool !== 'split') {
+      setSplitHover(null);
+      setSplitDrag(null);
+    }
+  }, [activeTool]);
+
+  /** The pointer on the plan (content px), and the view's scale */
+  const contentPointer = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    const stage = e.target.getStage();
+    const pos = stage?.getPointerPosition();
+    if (!pos || !stage) return null;
+    const scale = stage.scaleX();
+    return { x: (pos.x - stage.x()) / scale, y: (pos.y - stage.y()) / scale, scale };
+  }, []);
+
+  /** A split's place along a wall: the middle when near it, else to the inch (a quarter, grid snap off) */
+  const snapAlong = useCallback((alongIn: number, lenIn: number) => {
+    if (Math.abs(alongIn - lenIn / 2) <= SPLIT_MID_SNAP_IN) return Math.round((lenIn / 2) * 100) / 100;
+    const step = settings.snapToGrid ? 1 : 0.25;
+    return Math.min(lenIn, Math.max(0, Math.round(alongIn / step) * step));
+  }, [settings.snapToGrid]);
+
+  /** The wall under the pointer for the Split tool, and where along it */
+  const splitTargetAt = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    const p = contentPointer(e);
+    if (!p) return null;
+    const hit = wallAt(walls, p, SPLIT_HIT_PX / p.scale, ppf);
+    if (!hit) return null;
+    return { wallId: hit.wall.id, alongIn: snapAlong(hit.alongIn, wallLengthIn(hit.wall, ppf)) };
+  }, [contentPointer, walls, ppf, snapAlong]);
 
   // Track shift key
   useEffect(() => {
@@ -464,6 +512,10 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setDrawingInsulation({ start: insPos, current: insPos });
       } else if (activeTool === 'wall') {
         setDrawingWall({ start: pos, current: pos });
+      } else if (activeTool === 'split') {
+        // Pressed on a wall: a split there on release, or a piece if dragged along it
+        const t = splitTargetAt(e);
+        if (t) setSplitDrag({ wallId: t.wallId, aIn: t.alongIn, bIn: t.alongIn });
       } else if (activeTool === 'room') {
         if (shiftHeld) {
           // Shift+drag → rectangle mode
@@ -494,7 +546,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         }
       }
     },
-    [activeTool, getStagePoint, setSelectedId, shiftHeld, polyRoom, addRoom],
+    [activeTool, getStagePoint, setSelectedId, shiftHeld, polyRoom, addRoom, splitTargetAt],
   );
 
   const handleMouseMove = useCallback(
@@ -510,6 +562,23 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         const snapped = snapToWallEndpoints(contentPos, walls, undefined, true);
         setSnapIndicator(snapped !== contentPos ? snapped : null);
       };
+
+      if (activeTool === 'split') {
+        if (!splitDrag) {
+          setSplitHover(splitTargetAt(e));
+          return;
+        }
+        // Dragged along the pressed wall: the other end of the piece
+        const wall = walls.find((w) => w.id === splitDrag.wallId);
+        const p = contentPointer(e);
+        if (!wall || !p) return;
+        const lenPx = calcWallLengthPx(wall) || 1;
+        const t = ((p.x - wall.start.x) * (wall.end.x - wall.start.x) + (p.y - wall.start.y) * (wall.end.y - wall.start.y)) / lenPx;
+        const lenIn = wallLengthIn(wall, ppf);
+        const bIn = snapAlong(Math.min(lenIn, Math.max(0, (t / ppf) * 12)), lenIn);
+        setSplitDrag((s) => (s ? { ...s, bIn } : s));
+        return;
+      }
 
       if (drawingWall) {
         let pos = getStagePoint(e, true, true);
@@ -553,11 +622,43 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setSnapIndicator(null);
       }
     },
-    [drawingWall, activeTool, drawingRoom, drawingDamageZone, polyRoom, marquee, bulkMoving, getStagePoint, walls, shiftHeld, api],
+    [drawingWall, activeTool, drawingRoom, drawingDamageZone, polyRoom, marquee, bulkMoving, getStagePoint, walls, shiftHeld, api,
+      splitDrag, splitTargetAt, contentPointer, snapAlong, ppf],
   );
 
   const handleMouseUp = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (activeTool === 'split' && splitDrag) {
+        const { wallId, aIn, bIn } = splitDrag;
+        setSplitDrag(null);
+        const wall = walls.find((w) => w.id === wallId);
+        if (wall) {
+          const lenIn = wallLengthIn(wall, ppf);
+          const lo = Math.min(aIn, bIn);
+          const hi = Math.max(aIn, bIn);
+          if (hi - lo < SPLIT_PIECE_MIN_IN) {
+            // A click: one split, and the tool stays on for the next
+            api.splitWallAt(wallId, aIn);
+          } else {
+            // Dragged along it: that piece split out of the wall, picked to be
+            // pushed out or in by its handle (a drag to the wall's end needs one split)
+            const fromStart = lo < MIN_PIECE_IN;
+            const toEnd = hi > lenIn - MIN_PIECE_IN;
+            const piece = fromStart && toEnd
+              ? wallId
+              : fromStart
+                ? (api.splitWallAt(wallId, hi) && wallId)
+                : toEnd
+                  ? api.splitWallAt(wallId, lo)
+                  : api.splitWallBetween(wallId, lo, hi);
+            if (piece) {
+              setSelectedId(piece);
+              api.setActiveTool('select');
+            }
+          }
+        }
+        return;
+      }
       if (activeTool === 'wall' && drawingWall) {
         let pos = getStagePoint(e, true, true);
         // Always snap to axis if close (within 5°), Shift forces strict axis lock
@@ -727,7 +828,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setBulkMoving(null);
       }
     },
-    [activeTool, drawingWall, drawingRoom, drawingDamageZone, drawingDrywallRepair, drywallSurface, drawingInsulation, insulationSurface, marquee, bulkMoving, addWall, addRoom, api, getStagePoint, shiftHeld, rooms],
+    [activeTool, drawingWall, drawingRoom, drawingDamageZone, drawingDrywallRepair, drywallSurface, drawingInsulation, insulationSurface, marquee, bulkMoving, addWall, addRoom, api, getStagePoint, shiftHeld, rooms,
+      splitDrag, walls, ppf],
   );
 
   // ── Double-click to close polygon ──
@@ -794,6 +896,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setPolyRoom(null);
         setMarquee(null);
         setBulkMoving(null);
+        setSplitDrag(null);
         setSelectedId(null);
       }
     };
@@ -806,6 +909,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     if (bulkMoving) return 'move';
     switch (activeTool) {
       case 'wall': return 'crosshair';
+      case 'split': return 'crosshair';
       case 'room': return 'crosshair';
       case 'fixture': return 'copy';
       case 'measure': return 'crosshair';
@@ -917,6 +1021,81 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   }, [editingWallId, editingWallValue, walls, rooms, ppf, api, updateRoom]);
 
   // Use fixed position captured at edit start (prevents input box jumping)
+  /**
+   * A room wall's handle, as Xactimate's Break box: dragged square to the
+   * wall, it moves the wall out or in (utils/wallSplit offsetWall), a short
+   * wall at a step where a wall carries on in line with it. Stays where the
+   * drag began while it goes, so the drag isn't fought.
+   */
+  const renderOffsetHandle = (wall: BEWall) => {
+    const lenPx = calcWallLengthPx(wall);
+    if (lenPx < 14) return null;
+    const drag = offsetDrag?.wallId === wall.id ? offsetDrag : null;
+    const mid = drag ? drag.mid : wallMidpoint(wall);
+    // The same size on screen at any zoom
+    const k = 1 / (zoom || 1);
+    const w = Math.min(16 * k, lenPx * 0.6);
+    const h = 6 * k;
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const resize = Math.abs(dx) >= Math.abs(dy) * 3 ? 'ns-resize' : Math.abs(dy) >= Math.abs(dx) * 3 ? 'ew-resize' : 'move';
+    return (
+      <Rect
+        key={`off-${wall.id}`}
+        x={mid.x}
+        y={mid.y}
+        width={w}
+        height={h}
+        offsetX={w / 2}
+        offsetY={h / 2}
+        rotation={angle}
+        fill="#fff"
+        stroke="#1890ff"
+        strokeWidth={1.5 * k}
+        cornerRadius={2 * k}
+        draggable
+        onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = resize; }}
+        onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+        onMouseDown={(e) => { e.cancelBubble = true; }}
+        onClick={(e) => { e.cancelBubble = true; }}
+        onDragStart={(e) => {
+          e.cancelBubble = true;
+          // Let go over a disabled button (Undo, past the plan's edge), the
+          // browser sends no mouseup, which is all Konva ends a drag on: the
+          // wall would follow the pointer on. The pointerup still comes.
+          const node = e.target;
+          const letGo = () => {
+            window.removeEventListener('pointerup', letGo, true);
+            if (node.isDragging()) node.stopDrag();
+          };
+          window.addEventListener('pointerup', letGo, true);
+          const m = wallMidpoint(wall);
+          const normal = wallNormal(wall);
+          offsetBaseRef.current = { wallId: wall.id, mid: m, normal };
+          api.beginWallOffset(wall.id);
+          setOffsetDrag({ wallId: wall.id, mid: m, normal, out: outwardSign(wall, rooms), px: 0 });
+        }}
+        onDragMove={(e) => {
+          e.cancelBubble = true;
+          const base = offsetBaseRef.current;
+          if (!base || base.wallId !== wall.id) return;
+          const raw = (e.target.x() - base.mid.x) * base.normal.x + (e.target.y() - base.mid.y) * base.normal.y;
+          const px = settings.snapToGrid ? Math.round(raw / snapPx) * snapPx : raw;
+          e.target.position({ x: base.mid.x + base.normal.x * px, y: base.mid.y + base.normal.y * px });
+          api.dragWallOffset(px);
+          setOffsetDrag((s) => (s ? { ...s, px } : s));
+        }}
+        onDragEnd={(e) => {
+          e.cancelBubble = true;
+          api.endWallOffset();
+          offsetBaseRef.current = null;
+          setOffsetDrag(null);
+        }}
+      />
+    );
+  };
+
   const editOverlayPos = editingWallId ? wallEditPosRef.current : null;
 
   // ── Room inline dimension edit ──
@@ -1046,6 +1225,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onMouseLeave={() => setSplitHover(null)}
         onDblClick={handleDblClick}
       >
         {/* ── Grid Layer ── */}
@@ -1114,7 +1294,6 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           {rooms.map((room) => {
             const pts = room.boundary.flatMap((p) => [p.x, p.y]);
             const isRoomSelected = selectedId === room.id;
-            const isRect = room.boundary.length === 4;
             const xs = room.boundary.map((p) => p.x);
             const ys = room.boundary.map((p) => p.y);
             const minX = Math.min(...xs);
@@ -1127,6 +1306,14 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               const w = walls.find(ww => ww.id === wId);
               if (w) roomWallMap.set(wId, w);
             }
+            /** The room's wall along the edge pt → npt (either way round) */
+            const wallOnEdge = (pt: BEPoint, npt: BEPoint) => Array.from(roomWallMap.values()).find(w => {
+              const m1 = Math.abs(w.start.x - pt.x) < 4 && Math.abs(w.start.y - pt.y) < 4
+                      && Math.abs(w.end.x - npt.x) < 4 && Math.abs(w.end.y - npt.y) < 4;
+              const m2 = Math.abs(w.start.x - npt.x) < 4 && Math.abs(w.start.y - npt.y) < 4
+                      && Math.abs(w.end.x - pt.x) < 4 && Math.abs(w.end.y - pt.y) < 4;
+              return m1 || m2;
+            });
             return (
               <Group key={room.id}>
                 {/* Room fill (interior click → select room; transparent to drawing tools) */}
@@ -1158,13 +1345,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                   const nIdx = (idx + 1) % room.boundary.length;
                   const npt = room.boundary[nIdx];
                   // Find wall matching this edge
-                  const matchWall = Array.from(roomWallMap.values()).find(w => {
-                    const m1 = Math.abs(w.start.x - pt.x) < 4 && Math.abs(w.start.y - pt.y) < 4
-                            && Math.abs(w.end.x - npt.x) < 4 && Math.abs(w.end.y - npt.y) < 4;
-                    const m2 = Math.abs(w.start.x - npt.x) < 4 && Math.abs(w.start.y - npt.y) < 4
-                            && Math.abs(w.end.x - pt.x) < 4 && Math.abs(w.end.y - pt.y) < 4;
-                    return m1 || m2;
-                  });
+                  const matchWall = wallOnEdge(pt, npt);
                   const isTile = !!matchWall && wallTileRegions(matchWall, 'new', ppf).length > 0;
                   const hasExistingTile = !!matchWall && wallTileRegions(matchWall, 'existing', ppf).length > 0;
                   const isThisWallSelected = matchWall && selectedId === matchWall.id;
@@ -1243,27 +1424,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         ? snapToGrid(raw, snapPx)
                         : raw;
                       e.target.position(pos);
-
-                      const b = [...room.boundary];
-                      if (isRect) {
-                        // Rectangular: find which vertices share X or Y with dragged vertex
-                        const old = b[idx];
-                        b[idx] = pos;
-                        for (let i = 0; i < 4; i++) {
-                          if (i === idx) continue;
-                          // Vertex that shared X with old position → update its X
-                          if (Math.abs(b[i].x - old.x) < 2) {
-                            b[i] = { x: pos.x, y: b[i].y };
-                          }
-                          // Vertex that shared Y with old position → update its Y
-                          if (Math.abs(b[i].y - old.y) < 2) {
-                            b[i] = { x: b[i].x, y: pos.y };
-                          }
-                        }
-                      } else {
-                        b[idx] = pos;
-                      }
-                      updateRoom(room.id, b);
+                      // A rectangle stays one (its walls split or not); four corners
+                      // lined up with this one follow; any other shape, this corner alone
+                      updateRoom(room.id, moveOutlineCorner(room.boundary, idx, pos));
                     }}
                   />
                 ))}
@@ -1277,6 +1440,10 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                   const edgeDy = npt.y - pt.y;
                   const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
                   if (edgeLen < 15) return null; // skip tiny edges
+                  // An edge with its wall moves the wall (out or in, a step where a wall
+                  // carries on in line, as Xactimate's Break), what's on it with it
+                  const edgeWall = wallOnEdge(pt, npt);
+                  if (edgeWall) return renderOffsetHandle(edgeWall);
                   // Edge is horizontal if |dy| < |dx|
                   const isH = Math.abs(edgeDy) < Math.abs(edgeDx);
                   return (
@@ -1919,8 +2086,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             const wallColor = isWallSelected ? '#1890ff' : '#555';
             return (
               // Drawing walls, a press on this one starts the new wall on it (joined) instead of picking it,
-              // as room walls already do
-              <Group key={wall.id} listening={activeTool !== 'wall'}>
+              // as room walls already do; splitting, the press is the Split tool's
+              <Group key={wall.id} listening={activeTool !== 'wall' && activeTool !== 'split'}>
                 <Line
                   points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
                   stroke={wallColor}
@@ -2153,8 +2320,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           )}
         </Layer>
 
-        {/* ── Fixtures Layer ── (soffits last: overhead, and only their edge takes a click) */}
-        <Layer>
+        {/* ── Fixtures Layer ── (soffits last: overhead, and only their edge takes a click;
+            none while splitting, so a wall behind a tub can be split) */}
+        <Layer listening={activeTool !== 'split'}>
           {[...fixtures.filter((f) => f.type !== 'soffit'), ...fixtures.filter((f) => f.type === 'soffit')].map((fix) => (
             <FixtureNode
               key={fix.id}
@@ -2271,6 +2439,88 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               );
             });
           })}
+        </Layer>
+
+        {/* ── Editing aids, over everything (so no fixture covers a handle), left out of
+            the PDF's picture of the plan: breaks, the Split tool's preview, a wall's handle ── */}
+        <Layer name="editing">
+          {/* Where walls were split: a tick across the wall at each break */}
+          {breaks.map((b) => {
+            const half = 6 / (zoom || 1);
+            return (
+              <Line
+                key={`brk-${b.at.x}-${b.at.y}`}
+                points={[b.at.x - b.dir.y * half, b.at.y + b.dir.x * half, b.at.x + b.dir.y * half, b.at.y - b.dir.x * half]}
+                stroke="#555"
+                strokeWidth={1.5 / (zoom || 1)}
+                listening={false}
+              />
+            );
+          })}
+
+          {/* Split tool: where a click splits the wall (both lengths), or the piece a drag splits out */}
+          {activeTool === 'split' && (() => {
+            const target = splitDrag ?? (splitHover && { wallId: splitHover.wallId, aIn: splitHover.alongIn, bIn: splitHover.alongIn });
+            const wall = target && walls.find((w) => w.id === target.wallId);
+            if (!target || !wall) return null;
+            const lenIn = wallLengthIn(wall, ppf);
+            const at = (inches: number): BEPoint => ({
+              x: wall.start.x + ((wall.end.x - wall.start.x) * inches) / lenIn,
+              y: wall.start.y + ((wall.end.y - wall.start.y) * inches) / lenIn,
+            });
+            const k = 1 / (zoom || 1);
+            const n = wallNormal(wall);
+            const out = outwardSign(wall, rooms);
+            const tick = (p: BEPoint) => [p.x - n.x * 9 * k, p.y - n.y * 9 * k, p.x + n.x * 9 * k, p.y + n.y * 9 * k];
+            const lo = Math.min(target.aIn, target.bIn);
+            const hi = Math.max(target.aIn, target.bIn);
+            const piece = hi - lo >= SPLIT_PIECE_MIN_IN;
+            const a = at(lo);
+            const b = at(hi);
+            // On a wall's end (a break already there) there's nothing to split
+            if (!piece && (lo < MIN_PIECE_IN || lo > lenIn - MIN_PIECE_IN)) return null;
+            const text = piece ? fmtInches(hi - lo) : `${fmtInches(lo)}  |  ${fmtInches(lenIn - lo)}`;
+            const fontSize = 11 * k;
+            const tw = measureText(text, fontSize, true) + 12 * k;
+            const th = 18 * k;
+            const c = piece ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : a;
+            const tag = { x: c.x + n.x * out * 22 * k, y: c.y + n.y * out * 22 * k };
+            const ink = '#1890ff';
+            return (
+              <Group listening={false}>
+                {piece && <Line points={[a.x, a.y, b.x, b.y]} stroke="#1890ff" strokeWidth={7 * k} opacity={0.3} />}
+                <Line points={tick(a)} stroke={ink} strokeWidth={2 * k} />
+                {piece && <Line points={tick(b)} stroke={ink} strokeWidth={2 * k} />}
+                <Rect x={tag.x - tw / 2} y={tag.y - th / 2} width={tw} height={th} fill="#fff" stroke={ink} strokeWidth={k} cornerRadius={3 * k} />
+                <Text x={tag.x - tw / 2} y={tag.y - th / 2} width={tw} height={th} text={text} fontSize={fontSize} fontStyle="bold" fill={ink} align="center" verticalAlign="middle" />
+              </Group>
+            );
+          })()}
+
+          {/* A selected room wall's handle: drag it square to the wall to move the wall out or in */}
+          {activeTool === 'select' && (() => {
+            const wall = walls.find((w) => w.id === selectedId);
+            return wall && roomForWall(wall) ? renderOffsetHandle(wall) : null;
+          })()}
+
+          {/* How far a wall has gone out or in while its handle is dragged */}
+          {offsetDrag && Math.abs(offsetDrag.px) > 0.01 && (() => {
+            const k = 1 / (zoom || 1);
+            const { mid, normal, px, out } = offsetDrag;
+            const text = `${Math.sign(px) === out ? 'Out' : 'In'} ${fmtInches((Math.abs(px) / ppf) * 12)}`;
+            const fontSize = 11 * k;
+            const tw = measureText(text, fontSize, true) + 12 * k;
+            const th = 18 * k;
+            const side = Math.sign(px) || 1;
+            const x = mid.x + normal.x * (px + side * 22 * k);
+            const y = mid.y + normal.y * (px + side * 22 * k);
+            return (
+              <Group listening={false}>
+                <Rect x={x - tw / 2} y={y - th / 2} width={tw} height={th} fill="#1890ff" cornerRadius={3 * k} />
+                <Text x={x - tw / 2} y={y - th / 2} width={tw} height={th} text={text} fontSize={fontSize} fontStyle="bold" fill="#fff" align="center" verticalAlign="middle" />
+              </Group>
+            );
+          })()}
         </Layer>
       </Stage>
     </div>

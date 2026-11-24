@@ -450,7 +450,7 @@ function wallSolid(
   // wall in no room), else the other one
   const normal: Pt = inward ?? [-(b[1] - a[1]) / (lengthIn || 1), (b[0] - a[0]) / (lengthIn || 1)];
   const backTile: FaceRect[] = [];
-  for (const { rect, fixture } of showerFrontTiles(wall, sketch.fixtures, ppf)) {
+  for (const { rect, fixture } of showerFrontTiles(wall, sketch.fixtures, ppf, sketch.walls)) {
     const c = toIn(fixture.position, ppf);
     const pieces = subtractRects([clip(rect)], holes);
     if ((c[0] - a[0]) * normal[0] + (c[1] - a[1]) * normal[1] >= 0) {

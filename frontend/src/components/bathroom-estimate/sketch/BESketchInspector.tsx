@@ -6,7 +6,7 @@
  * the work is (surround, deck, walls, bench, glass).
  */
 
-import React, { useCallback, useContext } from 'react';
+import React, { useCallback, useContext, useState } from 'react';
 import { Button, Input, InputNumber, Segmented, Select, Switch, Tooltip, message } from 'antd';
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, RotateRightOutlined } from '@ant-design/icons';
 import type {
@@ -48,8 +48,9 @@ import {
 } from './utils/plumbingPoints';
 import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
-import { DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, showerFrontOpening, wallOpeningsOf } from './utils/wallFinish';
+import { resizeRoomEdge, roomWallAreaSF, showerDoorPosition } from './utils/beGeometry';
+import { DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, showerFrontOpening, wallOpeningsOf, wallStartOnLeft } from './utils/wallFinish';
+import { MIN_PIECE_IN, joinableAt, outwardSign, wallRoom } from './utils/wallSplit';
 import { FLOOR_BORDER_INSET_IN, floorBorderLF } from './utils/decoTile';
 import BEWallFinishEditor from './BEWallFinishEditor';
 
@@ -1084,6 +1085,34 @@ const WallInspector: React.FC<{ wall: BEWall; api: BESketchStateAPI }> = ({ wall
     });
   };
 
+  // ── Split, join, move out or in (Xactimate's Break: utils/wallSplit) ──
+  const rooms = api.data.rooms;
+  const exactIn = (lengthPx / ppf) * 12;
+  // Its left facing it from inside its room; a wall in no room, from its start
+  const startOnLeft = wallStartOnLeft(wall, rooms);
+  const inRoom = !!wallRoom(wall, rooms);
+  const [splitAt, setSplitAt] = useState<number | null>(null);
+  const [moveBy, setMoveBy] = useState<number | null>(12);
+  const splitFromLeft = splitAt ?? Math.round(exactIn / 2);
+  const canSplit = exactIn >= 2 * MIN_PIECE_IN;
+  const split = (fromLeftIn: number) => {
+    const atIn = startOnLeft ? fromLeftIn : exactIn - fromLeftIn;
+    const id = api.splitWallAt(wall.id, atIn);
+    if (!id) {
+      message.warning(`Split at least ${MIN_PIECE_IN}" in from either end`);
+      return;
+    }
+    // The left piece stays picked: the wall itself when its start is on the left
+    api.setSelectedId(startOnLeft ? wall.id : id);
+  };
+  const joinable = joinableAt(api.data.walls, wall);
+  const joinLeft = startOnLeft ? joinable.start : joinable.end;
+  const joinRight = startOnLeft ? joinable.end : joinable.start;
+  const move = (dir: 1 | -1) => {
+    if (!moveBy || moveBy <= 0) return;
+    api.offsetWallBy(wall.id, outwardSign(wall, rooms) * dir * (moveBy / 12) * ppf);
+  };
+
   return (
     <>
       <Field label="Length" hint={feetInches(lengthIn / 12)}>
@@ -1108,6 +1137,54 @@ const WallInspector: React.FC<{ wall: BEWall; api: BESketchStateAPI }> = ({ wall
         />
       </Field>
       <Fact label="Area">{round1((lengthIn / 12) * (wall.heightInches / 12))} SF</Fact>
+
+      <Group title="Split">
+        <Field
+          label="From left"
+          hint={inRoom ? 'Facing the wall from inside the room. Or use the Split tool on the plan.' : 'From the wall\'s start. Or use the Split tool on the plan.'}
+        >
+          <InputNumber
+            aria-label="Split the wall this far from its left, inches"
+            value={splitFromLeft}
+            min={MIN_PIECE_IN}
+            max={Math.max(MIN_PIECE_IN, Math.floor(exactIn - MIN_PIECE_IN))}
+            step={1}
+            disabled={!canSplit}
+            onChange={(v) => setSplitAt(typeof v === 'number' ? v : null)}
+            onPressEnter={() => canSplit && split(splitFromLeft)}
+          />
+          <span className="bes-unit">in</span>
+          <Button size="small" disabled={!canSplit} onClick={() => split(splitFromLeft)}>Split</Button>
+          <Button size="small" type="text" disabled={!canSplit} onClick={() => split(exactIn / 2)}>In half</Button>
+        </Field>
+        {(joinLeft || joinRight) && (
+          <Field label="Join" hint="Back into one wall with the one in line beside it">
+            {joinLeft && <Button size="small" onClick={() => api.joinWallWith(wall.id, joinLeft.id)}>With left</Button>}
+            {joinRight && <Button size="small" onClick={() => api.joinWallWith(wall.id, joinRight.id)}>With right</Button>}
+          </Field>
+        )}
+      </Group>
+
+      {inRoom && (
+        <Group title="Move">
+          <Field
+            label="By"
+            hint="A wall in line with it gets a short wall at the step; a corner stretches. Or drag its handle on the plan."
+          >
+            <InputNumber
+              aria-label="Move the wall by, inches"
+              value={moveBy}
+              min={0.25}
+              max={240}
+              step={1}
+              onChange={(v) => setMoveBy(typeof v === 'number' ? v : null)}
+            />
+            <span className="bes-unit">in</span>
+            <Button size="small" disabled={!moveBy} onClick={() => move(1)}>Out</Button>
+            <Button size="small" disabled={!moveBy} onClick={() => move(-1)}>In</Button>
+          </Field>
+        </Group>
+      )}
 
       <Group title="Openings">
         {wallOpeningsOf(wall, api.data.fixtures.filter((f) => f.type === 'door'), ppf).map(({ rect, fixture: f }) => (
@@ -1168,7 +1245,7 @@ const RoomInspector: React.FC<{ room: BERoom; api: BESketchStateAPI }> = ({ room
         {room.floorAreaSF} SF
         {room.netFloorAreaSF !== room.floorAreaSF && <span className="bes-unit"> · {room.netFloorAreaSF} SF net</span>}
       </Fact>
-      <Fact label="Walls">{room.wallAreaSF} SF</Fact>
+      <Fact label="Walls">{roomWallAreaSF(room.perimeterLF, room.heightInches)} SF</Fact>
       <Fact label="Perimeter">{room.perimeterLF} LF</Fact>
       <Field label="Ceiling" hint={`${feetInches((room.heightInches || 96) / 12)}. Sets its walls' height; a lower part (over a tub) is a soffit.`}>
         <Num
@@ -1385,7 +1462,7 @@ const BESketchInspector: React.FC<BESketchInspectorProps> = ({ api, selection })
       </div>
       <div className="bes-inspector-body">
         {selection.kind === 'fixture' && <FixtureInspector fixture={selection.item} api={api} />}
-        {selection.kind === 'wall' && <WallInspector wall={selection.item} api={api} />}
+        {selection.kind === 'wall' && <WallInspector key={selection.item.id} wall={selection.item} api={api} />}
         {selection.kind === 'room' && <RoomInspector room={selection.item} api={api} />}
         {selection.kind === 'drywall' && <DrywallInspector zone={selection.item} api={api} />}
         {selection.kind === 'insulation' && <InsulationInspector zone={selection.item} api={api} />}
