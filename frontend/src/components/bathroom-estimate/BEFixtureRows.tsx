@@ -7,7 +7,7 @@
  */
 
 import React from 'react';
-import { Button, InputNumber, Radio, Select, Tag, Tooltip, Typography } from 'antd';
+import { AutoComplete, Button, InputNumber, Radio, Select, Tag, Tooltip, Typography } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { DEFAULT_BAR_BULBS, type FixtureRow, type ItemAction, type KindInfo } from './fixtureRows';
 
@@ -25,9 +25,11 @@ interface BEFixtureRowsProps {
   actions?: boolean;
   /** Each row's opening, inches (a niche), new rows starting at this size */
   sized?: { width: number; height: number };
+  /** Each row's place (a light: "Over the tub"), these offered as it's typed */
+  locations?: string[];
 }
 
-const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, noun, typeWidth = 180, actions = true, sized }) => {
+const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, noun, typeWidth = 180, actions = true, sized, locations }) => {
   const rows = value ?? [];
   const set = (i: number, patch: Partial<FixtureRow>) =>
     onChange?.(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -91,6 +93,19 @@ const BEFixtureRows: React.FC<BEFixtureRowsProps> = ({ value, onChange, kinds, n
                   onChange={(v) => typeof v === 'number' && set(i, { height: v })}
                 />
               </span>
+            )}
+            {locations && (
+              <AutoComplete
+                aria-label={`${noun} location`}
+                size="small"
+                style={{ width: 150 }}
+                value={row.location ?? ''}
+                disabled={onPlan}
+                placeholder={onPlan ? 'Anywhere' : 'Where (optional)'}
+                options={locations.map((v) => ({ value: v }))}
+                filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+                onChange={(v: string) => set(i, { location: v.trim() ? v : null })}
+              />
             )}
             <InputNumber
               aria-label="How many"

@@ -333,6 +333,12 @@ export interface BEFixtureProperties {
   lightCount?: number;
   /** A vanity bar's lights: 3 for a "3-light" bar */
   lightBulbs?: number;
+  /**
+   * Where it is, typed ("Over the tub"): its own line on the estimate apart
+   * from lights of its kind elsewhere. Unset: found from what it's over on
+   * the plan (sketch/utils/lightLocation).
+   */
+  lightLocation?: string;
 
   // --- Cabinet ---
   cabinetType?: BECabinetType;

@@ -3,9 +3,11 @@ A bathroom's light fixtures, kind by kind.
 
 A bathroom often has more than one kind of light: a 3-light bar over the
 vanity, a few recessed cans, a sconce either side of the mirror. Each kind
-is its own line on the estimate. They're kept in electrical_spec.lights as
-[{type, count, bulbs, action}], filled from the sketch (each light drawn on
-the plan) or typed in on the estimate page.
+is its own line on the estimate, and so is each place it's in (the cans in
+the shower apart from the cans over the vanity). They're kept in
+electrical_spec.lights as [{type, count, bulbs, action, location}], filled
+from the sketch (each light drawn on the plan, its place found from what it's
+over or typed on it) or typed in on the estimate page.
 
 Estimates saved before that list existed had one vanity light (the
 replace/D&R flags and vanity_lights) and one ceiling light
@@ -74,11 +76,20 @@ def _legacy_groups(estimate) -> List[Dict[str, Any]]:
     return groups
 
 
-def light_groups(estimate) -> List[Dict[str, Any]]:
-    """The estimate's lights as [{type, count, bulbs, action}], one per kind.
+def _location(v: Any) -> Optional[str]:
+    """A light's place as a line names it, or None for nowhere in particular"""
+    if not isinstance(v, str):
+        return None
+    v = " ".join(v.split())[:60]
+    return v or None
 
-    Rows of the same kind (type, bulbs and action alike) are added together,
-    in the order they first appear; rows with no count are dropped.
+
+def light_groups(estimate) -> List[Dict[str, Any]]:
+    """The estimate's lights as [{type, count, bulbs, action, location}], one per kind and place.
+
+    Rows of the same kind and place (type, bulbs, action and location alike)
+    are added together, in the order they first appear; rows with no count
+    are dropped.
     """
     elec = getattr(estimate, "electrical_spec", None) or {}
     raw = elec.get("lights")
@@ -98,11 +109,13 @@ def light_groups(estimate) -> List[Dict[str, Any]]:
         bulbs = _int(row.get("bulbs")) if t == "vanity_bar" else 0
         bulbs = bulbs if bulbs > 0 else None
         action = row.get("action") if row.get("action") in ACTIONS else "replace"
-        key = (t, bulbs, action)
+        location = _location(row.get("location"))
+        key = (t, bulbs, action, (location or "").lower())
         if key in merged:
             merged[key]["count"] += count
         else:
-            merged[key] = {"type": t, "count": count, "bulbs": bulbs, "action": action}
+            merged[key] = {"type": t, "count": count, "bulbs": bulbs, "action": action,
+                           **({"location": location} if location else {})}
     return list(merged.values())
 
 
@@ -111,4 +124,6 @@ def light_name(group: Dict[str, Any]) -> str:
     name = LIGHT_TYPES[group["type"]]["label"]
     if group.get("bulbs"):
         name += f" ({group['bulbs']}-light)"
+    if group.get("location"):
+        name += f" - {group['location']}"
     return name

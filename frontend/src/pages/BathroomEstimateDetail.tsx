@@ -74,6 +74,7 @@ import BEMirrorRows from '../components/bathroom-estimate/BEMirrorRows';
 import BEDecorativeTileFields from '../components/bathroom-estimate/BEDecorativeTileFields';
 import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRows';
 import { CABINET_KINDS, LIGHT_KINDS, NICHE_DEFAULT_SIZE, NICHE_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
+import { LIGHT_LOCATIONS } from '../components/bathroom-estimate/sketch/utils/lightLocation';
 import { exportBathroomsPdfWith3D, exportEstimatePdfWithPictures, exportProposalWith3D } from '../components/bathroom-estimate/bathroomPdf';
 import BEPdfBathroomsModal, { sharingBathrooms } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { showerRoomFrontSF } from '../components/bathroom-estimate/showerRoom';
@@ -1420,7 +1421,7 @@ const BathroomEstimateDetail: React.FC = () => {
                   <Col xs={24} lg={12}>
                     <Text strong style={{ display: 'block', marginBottom: 4 }}>Lights</Text>
                     <Form.Item name={['electrical_spec', 'lights']} noStyle>
-                      <BEFixtureRows kinds={LIGHT_KINDS} noun="light" />
+                      <BEFixtureRows kinds={LIGHT_KINDS} noun="light" locations={LIGHT_LOCATIONS} />
                     </Form.Item>
                   </Col>
                   <Col xs={24} lg={12}>
@@ -1677,6 +1678,23 @@ const BathroomEstimateDetail: React.FC = () => {
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Type" name={['shower_spec', 'type']}>
                           <Select options={selectOpts(pricingInfo?.shower_types)} allowClear />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={12} md={4}>
+                        <Form.Item
+                          label="Floor"
+                          name={['shower_spec', 'floor_type']}
+                          tooltip="A pan (a fiberglass or acrylic base) takes the place of the floor tile, mud bed, liner and tiled curb. The sketch sets it."
+                          getValueProps={(v?: string) => ({ value: v || 'tile' })}
+                        >
+                          <Select
+                            aria-label="Shower floor type"
+                            options={[
+                              { value: 'tile', label: 'Tile' },
+                              { value: 'fiberglass_pan', label: 'Fiberglass pan' },
+                              { value: 'acrylic_pan', label: 'Acrylic pan' },
+                            ]}
+                          />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={12} md={6}>

@@ -206,8 +206,8 @@ export function generateTileZones(
         if (benchZone) zones.push(benchZone);
       }
 
-      // Curb tile
-      if ((fix.properties.curbHeight ?? 4) > 0) {
+      // Curb tile: none on a pan (its threshold is the pan's)
+      if ((fix.properties.curbHeight ?? 4) > 0 && (fix.properties.showerFloorType ?? 'tile') === 'tile') {
         const curbZone = generateShowerCurbZone(fix, ppf);
         if (curbZone) zones.push(curbZone);
       }

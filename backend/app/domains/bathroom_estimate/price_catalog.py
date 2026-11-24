@@ -69,6 +69,13 @@ PRICE_TABLES = [
     TableSpec(
         "SHOWER_PAN_COSTS", "Custom Tile Shower", kind=MIXED, share=_SUBSTRATE,
     ),
+    TableSpec(
+        "SHOWER_BASE", "Custom Tile Shower", kind=MIXED, title="Shower base (pan)",
+        kinds={"material": MATERIAL, "install": LABOR},
+        units={"material": "EA", "install": "EA"},
+        labels={"material": "Fiberglass / acrylic base + drain, 36\" x 36\"", "install": "Base install"},
+        note="A pan floor under a tiled shower: a bigger base's material by its area over 9 SF.",
+    ),
     # ── Tile ──
     TableSpec("TILE_MATERIAL_RATES", "Tile", kind=MATERIAL, unit="SF",
               labels={"lvt_spc": "LVT / SPC"}, note="Tile material per SF, before waste."),

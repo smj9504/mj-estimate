@@ -13,6 +13,8 @@ from .lights import LIGHT_TYPES, light_groups
 from .job_share import bathroom_type_label, elsewhere_line
 from .mirrors import mirror_count, mirror_groups, price_by_width
 from .niches import NICHE_TYPES, niche_groups
+from .shower_base import base_line as shower_base_line
+from .shower_base import floor_pan as shower_floor_pan
 from .vanities import cabinet_price as vanity_cabinet_price
 from .vanities import cabinet_width_in as vanity_cabinet_width_in
 from .vanities import inches as fmt_inches
@@ -742,10 +744,10 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                 s_sf += _shower_room_front_sf(shower_spec, sw, sh)
         auto_wet_sf += s_sf or 0
 
-        # Shower floor SF (also needs waterproofing)
+        # Shower floor SF (also needs waterproofing), unless its floor is a prefab base
         s_floor_w = shower_spec.get("width_in", 0) or 0
         s_floor_d = shower_spec.get("depth_in", 0) or 0
-        if s_floor_w and s_floor_d:
+        if s_floor_w and s_floor_d and not shower_floor_pan(shower_spec):
             auto_wet_sf += s_floor_w * s_floor_d / 144
 
     # Tub surround tile SF
@@ -1099,7 +1101,13 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
     # wall surround on a custom_tile/curbless shower silently dropped floor
     # tile, mortar pre-slope, and pan liner costs even though a real floor
     # still needs them)
-    if _s_is_tile_shower:
+    # A prefab base (a fiberglass or acrylic pan) for its floor: no floor tile, no mud pan
+    _s_floor_pan = shower_floor_pan(shower_spec)
+    if _s_is_tile_shower and _s_floor_pan:
+        _base = shower_base_line(shower_spec, labor_mult)
+        _add(line_items, 3, _base["description"], 1, "EA", _base["unit_price"], "fixture",
+             notes=_base["notes"])
+    if _s_is_tile_shower and not _s_floor_pan:
         shower_floor_sf = 0
         sf_w = shower_spec.get("width_in", 0) or 0
         sf_d = shower_spec.get("depth_in", 0) or 0
@@ -1713,7 +1721,7 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                 shower_total += drain_cost
                 shower_parts.append(
                     f"Linear drain ({_drain_grade}): ${drain_cost:,.2f}")
-            else:
+            elif not shower_floor_pan(shower_spec):
                 curb_cost = round(
                     SHOWER_CUSTOM_EXTRAS["curb"]
                     * labor_mult, 2)
@@ -1960,8 +1968,9 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                  panel_count, "EA", panel_cost, "fixture",
                  notes=f"{panel_sf} SF tempered glass, installed")
 
-    # --- Shower curb tile ---
-    if estimate.replace_shower and shower_spec.get("type") in CUSTOM_TILE_SHOWER_TYPES:
+    # --- Shower curb tile (none on a prefab base: its threshold is the base's) ---
+    if (estimate.replace_shower and shower_spec.get("type") in CUSTOM_TILE_SHOWER_TYPES
+            and not shower_floor_pan(shower_spec)):
         curb_h = shower_spec.get("curb_height", 4) or 0
         if curb_h > 0:
             s_w = shower_spec.get("width_in", 36) or 36
@@ -2425,33 +2434,40 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
         _add(line_items, 2, "GFCI outlet installation", gfci_count, "EA",
              ELECTRICAL_RATES["gfci_outlet_each"] * labor_mult, "electrical")
 
-    # Lights: one line per kind (a 3-light vanity bar, recessed cans, sconces…)
-    for _lg in light_groups(estimate):
+    # Lights: one line per kind and place (a 3-light vanity bar, the cans over
+    # the vanity, the can in the shower, sconces…)
+    _light_groups = light_groups(estimate)
+    # Cans priced at the several-cans rate when the job has several, wherever each is
+    _cans_installed = sum(g["count"] for g in _light_groups
+                          if g["type"] == "recessed" and g["action"] != "detach_reset")
+    for _lg in _light_groups:
         _lt, _ln = _lg["type"], _lg["count"]
         _lbl = LIGHT_TYPES[_lt]["label"]
         _bulbs = f" ({_lg['bulbs']}-light)" if _lg.get("bulbs") else ""
+        _where = f" - {_lg['location']}" if _lg.get("location") else ""
         if _lg["action"] == "detach_reset":
-            _add(line_items, 2, f"Detach & Reset - {_lbl}{_bulbs}", _ln, "EA",
+            _add(line_items, 2, f"Detach & Reset - {_lbl}{_bulbs}{_where}", _ln, "EA",
                  DETACH_RESET_COSTS["vanity_light"] * labor_mult, "electrical",
                  notes="Labor only: careful removal, store, reinstall")
         elif _lt == "recessed":
-            if _ln > 1:
-                _add(line_items, 2, f"Recessed light installation ({_ln} cans)", _ln, "EA",
+            _cans = f"{_ln} can{'s' if _ln != 1 else ''}"
+            if _cans_installed > 1:
+                _add(line_items, 2, f"Recessed light installation ({_cans}){_where}", _ln, "EA",
                      ELECTRICAL_RATES["recessed_light_multi"] * labor_mult, "electrical",
                      notes="Cut ceiling, install housing + trim + wire per can")
             else:
-                _add(line_items, 2, "Recessed light installation (1 can)", 1, "EA",
+                _add(line_items, 2, f"Recessed light installation (1 can){_where}", 1, "EA",
                      ELECTRICAL_RATES["recessed_light_install"] * labor_mult, "electrical")
         else:
             _install = ELECTRICAL_RATES[LIGHT_TYPES[_lt]["rate"]] * labor_mult
             _vl_pick = picks.each("vanity_light") if _lt == "vanity_bar" else None
             if _vl_pick is None:
-                _add(line_items, 2, f"{_lbl} installation{_bulbs}", _ln, "EA",
+                _add(line_items, 2, f"{_lbl} installation{_bulbs}{_where}", _ln, "EA",
                      _install, "electrical")
             else:
                 _vl_price = apply_material_handling(_vl_pick)
                 _vl_install = round(_install, 2)
-                _add(line_items, 2, f"Vanity light - {picks.name('vanity_light')} (supply + install)",
+                _add(line_items, 2, f"Vanity light - {picks.name('vanity_light')} (supply + install){_where}",
                      _ln, "EA", _vl_price + _vl_install, "fixture",
                      notes=f"Fixture: ${_vl_price:,.2f} | Install: ${_vl_install:,.2f}")
 

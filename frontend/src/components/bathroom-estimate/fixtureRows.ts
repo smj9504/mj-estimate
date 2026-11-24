@@ -22,6 +22,8 @@ export interface FixtureRow {
   count: number;
   /** A vanity bar's lights ("3-light") */
   bulbs?: number | null;
+  /** A light's place ("Over the tub"): lights of a kind in different places are lines of their own */
+  location?: string | null;
   /** A niche's opening, inches: priced by its edge (backend niches.py) */
   width?: number | null;
   height?: number | null;
@@ -124,12 +126,12 @@ const order = (kinds: { value: string }[], t: string) => {
   return i < 0 ? kinds.length : i;
 };
 
-type RowKey = { type: string; bulbs?: number | null; width?: number; height?: number };
+type RowKey = { type: string; bulbs?: number | null; location?: string | null; width?: number; height?: number };
 
 function group(keys: RowKey[], kinds: { value: string }[]): FixtureRow[] {
   const rows = new Map<string, FixtureRow>();
   for (const k of keys) {
-    const id = `${k.type}|${k.bulbs ?? ''}|${k.width ?? ''}|${k.height ?? ''}`;
+    const id = `${k.type}|${k.bulbs ?? ''}|${k.location ?? ''}|${k.width ?? ''}|${k.height ?? ''}`;
     const row = rows.get(id);
     if (row) row.count += 1;
     else {
@@ -137,6 +139,7 @@ function group(keys: RowKey[], kinds: { value: string }[]): FixtureRow[] {
         type: k.type,
         count: 1,
         ...(k.bulbs ? { bulbs: k.bulbs } : {}),
+        ...(k.location ? { location: k.location } : {}),
         ...(k.width && k.height ? { width: k.width, height: k.height } : {}),
         from_sketch: true,
       });
@@ -145,18 +148,27 @@ function group(keys: RowKey[], kinds: { value: string }[]): FixtureRow[] {
   return [...rows.values()].sort((a, b) =>
     order(kinds, a.type) - order(kinds, b.type)
     || (a.bulbs ?? 0) - (b.bulbs ?? 0)
+    || (a.location ?? '').localeCompare(b.location ?? '')
     || (a.width ?? 0) - (b.width ?? 0)
     || (a.height ?? 0) - (b.height ?? 0));
 }
 
-/** Each light on the plan, by kind; a vanity bar by its number of lights */
-export function lightsFromSketch(fixtures: BEFixture[]): FixtureRow[] {
+/**
+ * Each light on the plan, by kind and place; a vanity bar by its number of
+ * lights. `locate` gives a light's place (sketch/utils/lightLocation), none
+ * when it's nowhere in particular.
+ */
+export function lightsFromSketch(fixtures: BEFixture[], locate?: (light: BEFixture) => string | null): FixtureRow[] {
   return group(
     fixtures
       .filter((f) => f.type === 'light')
       .map((f) => {
         const type = lightKindOf(f.properties.lightType);
-        return { type, bulbs: type === 'vanity_bar' ? (f.properties.lightBulbs || DEFAULT_BAR_BULBS) : null };
+        return {
+          type,
+          bulbs: type === 'vanity_bar' ? (f.properties.lightBulbs || DEFAULT_BAR_BULBS) : null,
+          location: locate?.(f) ?? null,
+        };
       }),
     LIGHT_KINDS,
   );
@@ -190,7 +202,9 @@ export function mergeFromSketch(current: FixtureRow[] | null | undefined, fromSk
   const rows = current ?? [];
   const drawn = new Set(fromSketch.map((r) => r.type));
   const actionFor = (r: FixtureRow): ItemAction =>
-    rows.find((c) => c.from_sketch && c.type === r.type && (c.bulbs ?? null) === (r.bulbs ?? null))?.action
+    rows.find((c) => c.from_sketch && c.type === r.type && (c.bulbs ?? null) === (r.bulbs ?? null)
+      && (c.location ?? null) === (r.location ?? null))?.action
+    ?? rows.find((c) => c.from_sketch && c.type === r.type && (c.bulbs ?? null) === (r.bulbs ?? null))?.action
     ?? rows.find((c) => c.type === r.type)?.action
     ?? 'replace';
   return [

@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useContext, useState } from 'react';
-import { Button, Input, InputNumber, Segmented, Select, Switch, Tooltip, message } from 'antd';
+import { AutoComplete, Button, Input, InputNumber, Segmented, Select, Switch, Tooltip, message } from 'antd';
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, RotateRightOutlined } from '@ant-design/icons';
 import type {
   BathtubSubType,
@@ -53,6 +53,7 @@ import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, roomWallAreaSF, showerDoorPosition } from './utils/beGeometry';
 import { MIN_VANITY_CABINET_IN, kneeSpaceIn } from './utils/vanityLayout';
 import { tubDeckBySide } from './utils/tubDeck';
+import { LIGHT_LOCATIONS, foundLightLocation } from './utils/lightLocation';
 import {
   DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, nichesIn, showerFrontOpening, wallNichesOf, wallOpeningsOf, wallStartOnLeft,
 } from './utils/wallFinish';
@@ -626,7 +627,12 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               ]}
             />
           </Field>
-          <Field label="Curb" hint={curb === 0 ? 'Curbless' : undefined}>
+          <Field
+            label="Curb"
+            hint={(p.showerFloorType ?? 'tile') !== 'tile'
+              ? "The pan's own threshold: no floor tile, mud bed or tiled curb on the estimate."
+              : curb === 0 ? 'Curbless' : undefined}
+          >
             <Num label="Curb height, inches" value={curb} min={0} max={8} unit="in" onChange={(v) => setProps({ curbHeight: v ?? 0 })} />
           </Field>
         </Group>
@@ -848,6 +854,40 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     );
   }
 
+  // Where a light is: as typed, else found from what it's over on the plan
+  const lightWhere = fixture.type === 'light' && (() => {
+    const found = foundLightLocation(fixture, data.fixtures, data.rooms, data.settings.pixelsPerFoot);
+    return (
+      <Field
+        label="Location"
+        hint={p.lightLocation
+          ? 'Its own line on the estimate. Clear it to go by where it is on the plan.'
+          : found
+            ? `${found}, from the plan. Type a place to name it yourself.`
+            : 'Nowhere in particular. Type a place to give it a line of its own.'}
+      >
+        <AutoComplete
+          aria-label="Light location"
+          value={p.lightLocation ?? ''}
+          placeholder={found ?? 'Anywhere'}
+          options={LIGHT_LOCATIONS.map((v) => ({ value: v }))}
+          filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+          onChange={(v: string) => setProps({ lightLocation: v.trim() ? v : undefined })}
+          allowClear
+        />
+      </Field>
+    );
+  })();
+
+  if (fixture.type === 'light' && isRecessedCan) {
+    return (
+      <>
+        {lightWhere}
+        {size}
+      </>
+    );
+  }
+
   if (fixture.type === 'light' && !isRecessedCan) {
     const ppf = data.settings.pixelsPerFoot;
     const kind = lightKindOf(p.lightType);
@@ -887,6 +927,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             />
           </Field>
         )}
+        {lightWhere}
         {p.lightType === 'recessed_multi' && (
           <Field label="Cans" hint="Spread across the room. Drag any of them to move it.">
             <Num

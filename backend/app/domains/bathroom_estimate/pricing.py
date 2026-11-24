@@ -1034,6 +1034,15 @@ SHOWER_PAN_COSTS = {
     "curb_waterproof": 83.25,         # curb membrane wrap
 }
 
+# A prefab shower base (a fiberglass or acrylic pan) for a shower's floor
+# (shower_base.py): Xactimate PLM SWRB, a 36" x 36" base, its drain and its
+# install, new (the removal is in the demo). A bigger base's material goes by
+# its area over that one's 9 SF; the install stays the same.
+SHOWER_BASE = {
+    "material": xact(330.48),         # PLM SWRB material: base + shower drain
+    "install": xact(368.97),          # PLM SWRB install labor (plumber)
+}
+
 # ──────────────────────────────────────────────
 # Regional: Zip-based labor multipliers
 # ──────────────────────────────────────────────

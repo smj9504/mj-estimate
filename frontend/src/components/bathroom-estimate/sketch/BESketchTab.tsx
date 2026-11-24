@@ -30,6 +30,7 @@ import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { roomWallAreaSF, showerDoorPosition, turningCorners } from './utils/beGeometry';
 import { kneeSpaceIn } from './utils/vanityLayout';
 import { tubDeckBySide } from './utils/tubDeck';
+import { lightLocation } from './utils/lightLocation';
 import {
   DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening, showerFrontTiled, showerGlassFrontSpans,
   showerNicheCount,
@@ -401,7 +402,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     exhaust_fan_cfm: 80,
     exhaust_fan_switch: 'standard',
   };
-  sync.sketch_lights = lightsFromSketch(fixtures);
+  // Each light by kind and place: lights of a kind in different places are lines of their own
+  sync.sketch_lights = lightsFromSketch(fixtures, (f) => lightLocation(f, fixtures, rooms, ppf));
   sync.sketch_cabinets = cabinetsFromSketch(fixtures);
   sync.sketch_mirrors = mirrorsFromSketch(fixtures);
   sync.sketch_niches = nichesFromSketch(fixtures);
@@ -519,6 +521,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       front_opening_height_in: opening ? Math.round(opening.heightIn) : 0,
       front_tiled: showerFrontTiled(shower, walls, fixtures, ppf),
       layout: p.showerLayout ?? 'alcove',
+      // Its floor: tiled, or a prefab base (a pan) in place of the tile, mud bed and curb
+      floor_type: p.showerFloorType ?? 'tile',
       wall_material: p.showerWallMaterial ?? 'tile',
       tiled_with_wall_sf: surroundInTile[shower.id] ?? 0,
     };
