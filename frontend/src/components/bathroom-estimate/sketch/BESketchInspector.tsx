@@ -51,6 +51,7 @@ import {
 import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge, roomWallAreaSF, showerDoorPosition } from './utils/beGeometry';
+import { MIN_VANITY_CABINET_IN, kneeSpaceIn } from './utils/vanityLayout';
 import {
   DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, nichesIn, showerFrontOpening, wallNichesOf, wallOpeningsOf, wallStartOnLeft,
 } from './utils/wallFinish';
@@ -382,7 +383,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         label="Width, inches"
         value={fixture.dimensions.width}
         min={6}
-        max={120}
+        max={fixture.type === 'vanity' ? 192 : 120}
         onChange={(v) => v && updateFixture(fixture.id, { dimensions: { ...fixture.dimensions, width: v } })}
       />
       <span className="bes-times" aria-hidden="true">×</span>
@@ -771,8 +772,32 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         {rotation}
         {subType === 'cabinet' && (
           <>
-            <Field label="Sinks">
+            <Field label="Sinks" hint="One or two, however long the vanity">
               <Num label="Sinks" value={p.sinkCount ?? 1} min={1} max={2} onChange={(v) => v && setProps({ sinkCount: v })} />
+            </Field>
+            <Field
+              label="Knee space"
+              hint={kneeSpaceIn(fixture.dimensions.width, p.kneeSpaceWidth) > 0
+                ? `Open under the top, no cabinet: the cabinet is ${Math.round((fixture.dimensions.width - kneeSpaceIn(fixture.dimensions.width, p.kneeSpaceWidth)) * 100) / 100}" under the sink.`
+                : 'An open stretch under a long top (a makeup area), no cabinet below.'}
+            >
+              <Num
+                label="Knee space, inches"
+                value={p.kneeSpaceWidth ?? 0}
+                min={0}
+                max={Math.max(0, fixture.dimensions.width - MIN_VANITY_CABINET_IN)}
+                unit="in"
+                onChange={(v) => v != null && setProps({ kneeSpaceWidth: v })}
+              />
+              {(p.kneeSpaceWidth ?? 0) > 0 && (
+                <Segmented
+                  aria-label="Knee space side"
+                  size="small"
+                  value={p.kneeSpaceSide ?? 'left'}
+                  onChange={(v) => setProps({ kneeSpaceSide: v as 'left' | 'right' })}
+                  options={[{ label: 'Left', value: 'left' }, { label: 'Right', value: 'right' }]}
+                />
+              )}
             </Field>
             <Field label="Backsplash">
               <Switch aria-label="Backsplash" checked={p.hasBacksplash ?? false} onChange={(v) => setProps({ hasBacksplash: v })} />

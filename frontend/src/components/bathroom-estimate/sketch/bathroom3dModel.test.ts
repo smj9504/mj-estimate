@@ -127,7 +127,7 @@ describe('a shower room in 3D', () => {
       const model = bathroomModel(sketch([north(), front], [shower, opening]));
       const f = model.walls.find((w) => w.id === 'front')!;
       expect(f.surrounds).toEqual(besideAndOver.map((rect) => ({ rect, finish: 'tile', fixtureId: 'shower' })));
-      expect(f.backTile).toEqual([]);
+      expect(f.backSurrounds).toEqual([]);
       expect(f.openings[0].tiledRound).toBe(true);
     });
 
@@ -136,14 +136,14 @@ describe('a shower room in 3D', () => {
       s.rooms = [{ ...s.rooms[0], boundary: [{ x: 0, y: 120 }, { x: 320, y: 120 }, { x: 320, y: 300 }, { x: 0, y: 300 }] }];
       const f = bathroomModel(s).walls.find((w) => w.id === 'front')!;
       expect(f.surrounds).toEqual([]);
-      expect(f.backTile).toEqual(besideAndOver);
+      expect(f.backSurrounds).toEqual(besideAndOver.map((rect) => ({ rect, finish: 'tile', fixtureId: 'shower' })));
     });
 
     it('leaves the front and its opening alone with 3', () => {
       const three = { ...shower, properties: { ...shower.properties, showerWallCount: 3 } };
       const f = bathroomModel(sketch([north(), front], [three, opening])).walls.find((w) => w.id === 'front')!;
       expect(f.surrounds).toEqual([]);
-      expect(f.backTile).toEqual([]);
+      expect(f.backSurrounds).toEqual([]);
       expect(f.openings[0].tiledRound).toBeUndefined();
     });
   });

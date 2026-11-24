@@ -90,7 +90,7 @@ describe('a niche in 3D', () => {
   it("is cut out of its wall and the tub's surround, lined with the surround's tile", () => {
     const model = bathroomModel(sketch([north, west, south], [tub, niche('n')]));
     const n = model.walls.find((w) => w.id === 'north')!;
-    expect(n.niches).toEqual([{ rect: { x0: 39, x1: 51, y0: 42, y1: 66 }, fixtureId: 'n', depthIn: 3.5, lining: 'tub' }]);
+    expect(n.niches).toEqual([{ rect: { x0: 39, x1: 51, y0: 42, y1: 66 }, fixtureId: 'n', depthIn: 3.5, lining: 'tub', face: 'room' }]);
     const inIt = (r: { x0: number; x1: number; y0: number; y1: number }) => r.x0 < 45 && r.x1 > 45 && r.y0 < 54 && r.y1 > 54;
     expect(n.pieces.some(inIt)).toBe(false);
     expect(n.surrounds.some((s) => inIt(s.rect))).toBe(false);

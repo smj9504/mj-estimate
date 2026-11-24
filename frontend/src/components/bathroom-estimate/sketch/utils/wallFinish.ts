@@ -9,11 +9,16 @@
  * priced with the fixture), are neither tile nor paint here — unless the
  * tile to install runs over the whole of a surround (a wall tiled floor to
  * ceiling): then the wall is one tile, and that surround is its tile.
+ *
+ * A wall drawn along a shower's glass front (a shower room closed off with a
+ * wall, its door and glass on that line) is no wall there: that stretch is
+ * open floor to ceiling, like an opening with nothing in it.
  */
 
 import type { BEFixture, BEPoint, BERoom, BEWall, BEWallTileRegion } from '../../../../types/bathroomSketch';
 import { NICHE_BOTTOM_IN, NICHE_HEIGHT_IN } from '../../../../types/bathroomSketch';
 import { showerRoomFrontSF } from '../../showerRoom';
+import { pointInPolygon } from './beRoomDetect';
 
 export type WallFinishLayer = 'existing' | 'new';
 
@@ -200,7 +205,82 @@ export function wallOpeningsOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoo
     if (x1 - x0 <= 0.01) continue;
     openings.push({ rect: { x0, x1, y0, y1 }, fixture: fix });
   }
+  // A shower's glass front along it: open floor to ceiling
+  for (const { x0, x1, fixture } of showerGlassFrontSpans(wall, fixtures, pixelsPerFoot)) {
+    openings.push({ rect: { x0, x1, y0: 0, y1: wall.heightInches }, fixture });
+  }
   return openings;
+}
+
+/** An opening that's a shower's glass front: no jambs, no casing, no wall above */
+export const isShowerGlassFront = (o: { fixture: BEFixture }): boolean => o.fixture.type === 'shower';
+
+/** A shower whose front is glass across (a door and its panels): any but a neo-angle one */
+const hasGlassFront = (fix: BEFixture): boolean => {
+  if (fix.type !== 'shower') return false;
+  const layout = fix.properties.showerLayout ?? 'alcove';
+  return layout !== 'neo_angle' && layout !== 'neo_angle_right';
+};
+
+/**
+ * Whether a door or an opening stands on the shower's front line, 6" of it
+ * along the front at least: a shower room, its front a wall with its door in
+ * that (showerFrontOpening), not glass across.
+ */
+function doorAlongFront(shower: BEFixture, fixtures: BEFixture[], pixelsPerFoot: number): boolean {
+  const [, , se, sw] = fixtureCorners(shower, pixelsPerFoot);
+  const front = { start: sw, end: se };
+  const lenPx = Math.hypot(se.x - sw.x, se.y - sw.y);
+  return fixtures.some((d) => {
+    if (d.type !== 'door') return false;
+    const hw = ((d.dimensions.width / 12) * pixelsPerFoot) / 2;
+    const hh = ((d.dimensions.height / 12) * pixelsPerFoot) / 2;
+    const ends = [fixturePoint(d, -hw, hh), fixturePoint(d, hw, hh)].map((pt) => alongLine(front, pt));
+    if (ends.some((e) => e.offPx > AGAINST_WALL_PX * 1.5)) return false;
+    const lo = Math.max(0, Math.min(ends[0].tPx, ends[1].tPx));
+    const hi = Math.min(lenPx, Math.max(ends[0].tPx, ends[1].tPx));
+    return ((hi - lo) / pixelsPerFoot) * 12 >= 6;
+  });
+}
+
+/** Where a point falls along a line (px from its start) and how far off it it is */
+function alongLine(line: { start: BEPoint; end: BEPoint }, p: BEPoint) {
+  const dx = line.end.x - line.start.x;
+  const dy = line.end.y - line.start.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return {
+    tPx: ((p.x - line.start.x) * dx + (p.y - line.start.y) * dy) / len,
+    offPx: Math.abs((p.x - line.start.x) * dy - (p.y - line.start.y) * dx) / len,
+  };
+}
+
+/**
+ * The stretches of a line (a wall, or a room's edge) that are a shower's glass
+ * front: a shower whose front stands along it (both its front corners within
+ * a few inches of it), and no door in that line (that'd be a shower room's
+ * entry, the rest of the front a wall). Inches along the line from its start,
+ * as far as it reaches.
+ */
+export function showerGlassFrontSpans(
+  line: { start: BEPoint; end: BEPoint }, fixtures: BEFixture[], pixelsPerFoot: number,
+): { x0: number; x1: number; fixture: BEFixture }[] {
+  const lenPx = Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y);
+  if (lenPx < 1) return [];
+  const spans: { x0: number; x1: number; fixture: BEFixture }[] = [];
+  for (const fix of fixtures) {
+    if (!hasGlassFront(fix)) continue;
+    const [, , se, sw] = fixtureCorners(fix, pixelsPerFoot);
+    const ends = [sw, se].map((pt) => alongLine(line, pt));
+    if (ends.some((e) => e.offPx > AGAINST_WALL_PX)) continue;
+    const lo = Math.max(0, Math.min(ends[0].tPx, ends[1].tPx));
+    const hi = Math.min(lenPx, Math.max(ends[0].tPx, ends[1].tPx));
+    const x0 = Math.round((lo / pixelsPerFoot) * 1200) / 100;
+    const x1 = Math.round((hi / pixelsPerFoot) * 1200) / 100;
+    if (x1 - x0 <= 1) continue;
+    if (doorAlongFront(fix, fixtures, pixelsPerFoot)) continue;
+    spans.push({ x0, x1, fixture: fix });
+  }
+  return spans;
 }
 
 /**
@@ -639,20 +719,41 @@ export function roomWallFinishTotals(walls: BEWall[], fixtures: BEFixture[], pix
 }
 
 /**
+ * The unit normal from a wall into its room (plan px), or null for a wall in
+ * no room: the side of its middle the room's outline is on. The room's
+ * centre can be on the other side (an L-shaped room's), so it only decides
+ * when the outline can't (a wall off it).
+ */
+export function wallRoomNormal(wall: BEWall, rooms: BERoom[]): BEPoint | null {
+  const room = rooms.find((r) => r.wallIds.includes(wall.id) && r.boundary.length >= 3);
+  if (!room) return null;
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const n = { x: -dy / len, y: dx / len };
+  const flipped = { x: -n.x, y: -n.y };
+  const mx = (wall.start.x + wall.end.x) / 2;
+  const my = (wall.start.y + wall.end.y) / 2;
+  const off = 2;
+  const onLeft = pointInPolygon({ x: mx + n.x * off, y: my + n.y * off }, room.boundary);
+  const onRight = pointInPolygon({ x: mx - n.x * off, y: my - n.y * off }, room.boundary);
+  if (onLeft !== onRight) return onLeft ? n : flipped;
+  const cx = room.boundary.reduce((sum, p) => sum + p.x, 0) / room.boundary.length;
+  const cy = room.boundary.reduce((sum, p) => sum + p.y, 0) / room.boundary.length;
+  return n.x * (cx - mx) + n.y * (cy - my) < 0 ? flipped : n;
+}
+
+/**
  * Whether the wall's start is on your left when you stand in its room facing
  * it, so its face can be drawn as you'd see it. A wall in no room is drawn
  * start-left.
  */
 export function wallStartOnLeft(wall: BEWall, rooms: BERoom[]): boolean {
-  const room = rooms.find((r) => r.wallIds.includes(wall.id) && r.boundary.length >= 3);
-  if (!room) return true;
-  const cx = room.boundary.reduce((s, p) => s + p.x, 0) / room.boundary.length;
-  const cy = room.boundary.reduce((s, p) => s + p.y, 0) / room.boundary.length;
-  const mx = (wall.start.x + wall.end.x) / 2;
-  const my = (wall.start.y + wall.end.y) / 2;
-  // Facing the wall from inside: from the room's middle toward the wall
-  const fx = mx - cx;
-  const fy = my - cy;
+  const n = wallRoomNormal(wall, rooms);
+  if (!n) return true;
+  // Facing the wall from inside: against its normal into the room
+  const fx = -n.x;
+  const fy = -n.y;
   // Your right hand, on a plan whose y runs down the screen
   const rx = -fy;
   const ry = fx;

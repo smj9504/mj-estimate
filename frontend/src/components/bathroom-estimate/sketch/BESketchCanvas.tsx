@@ -31,7 +31,7 @@ import BEPlumbingMarks from './BEPlumbingMarks';
 import { hasPlumbing, takesTubGlassPanel, tubGlassPanelSide } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, moveOutlineCorner, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
-import { showerFrontOpening, showerFrontTiled, showerNicheCount, wallLengthIn, wallTileRegions } from './utils/wallFinish';
+import { showerFrontOpening, showerFrontTiled, showerGlassFrontSpans, showerNicheCount, wallLengthIn, wallTileRegions } from './utils/wallFinish';
 import { MIN_PIECE_IN, outwardSign, wallAt, wallBreaks, wallNormal } from './utils/wallSplit';
 import { floorBorderOutline } from './utils/decoTile';
 import { snapToWalls } from './utils/wallSnap';
@@ -429,6 +429,22 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const [offsetDrag, setOffsetDrag] = useState<{ wallId: string; mid: BEPoint; normal: BEPoint; out: 1 | -1; px: number } | null>(null);
   // Where walls were split, marked on the plan
   const breaks = useMemo(() => wallBreaks(walls), [walls]);
+  // A shower's glass front along a wall or a room's edge: no wall there, drawn
+  // as the room's edge only (utils/wallFinish showerGlassFrontSpans)
+  const glassFronts = useMemo(() => {
+    const lines = [
+      ...walls.map((w) => ({ start: w.start, end: w.end })),
+      ...rooms.flatMap((r) => r.boundary.map((p, i) => ({ start: p, end: r.boundary[(i + 1) % r.boundary.length] }))),
+    ];
+    return lines.flatMap((line) => {
+      const len = Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y) || 1;
+      const at = (inches: number) => {
+        const t = ((inches / 12) * ppf) / len;
+        return [line.start.x + (line.end.x - line.start.x) * t, line.start.y + (line.end.y - line.start.y) * t];
+      };
+      return showerGlassFrontSpans(line, fixtures, ppf).map((s) => [...at(s.x0), ...at(s.x1)]);
+    });
+  }, [walls, rooms, fixtures, ppf]);
 
   const CLOSE_THRESHOLD = 15; // px to snap-close polygon
 
@@ -2318,6 +2334,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               listening={false}
             />
           )}
+          {/* A shower's glass front: the wall or edge under it whited out, the room's edge dashed */}
+          {glassFronts.map((points, i) => (
+            <Group key={`glass-front-${i}`} listening={false}>
+              <Line points={points} stroke="#ffffff" strokeWidth={6} />
+              <Line points={points} stroke="#8c8c8c" strokeWidth={1} dash={[5, 4]} />
+            </Group>
+          ))}
         </Layer>
 
         {/* ── Fixtures Layer ── (soffits last: overhead, and only their edge takes a click;
@@ -2646,6 +2669,14 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     showerDoorPosition(fix.properties),
     {
       aspect: hPx > 0 ? wPx / hPx : 1,
+      ...(fix.type === 'vanity' ? {
+        vanity: {
+          widthIn: fix.dimensions.width,
+          depthIn: fix.dimensions.height,
+          kneeIn: fix.properties.kneeSpaceWidth,
+          kneeSide: fix.properties.kneeSpaceSide,
+        },
+      } : {}),
       lightBulbs: fix.properties.lightBulbs,
       cabinetType: fix.properties.cabinetType,
       soffitBottom: fix.properties.soffitBottom,
@@ -2716,6 +2747,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
           fill={p.fill === 'none' ? undefined : p.fill}
           stroke={p.stroke}
           strokeWidth={p.strokeWidth}
+          dash={p.dash}
           scaleX={wPx}
           scaleY={hPx}
           strokeScaleEnabled={false}

@@ -21,15 +21,16 @@ import {
   MinusOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import type { BESketchData, BESketchTool } from '../../../types/bathroomSketch';
+import type { BERoom, BESketchData, BESketchTool } from '../../../types/bathroomSketch';
 import { BATHTUB_SURROUND_DEFAULTS, MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
 import { soffitAreas } from './utils/soffit';
 import { cabinetsFromSketch, lightsFromSketch, nichesFromSketch, type FixtureRow } from '../fixtureRows';
 import { mirrorsFromSketch, type MirrorRow } from '../mirrorRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { roomWallAreaSF, showerDoorPosition, turningCorners } from './utils/beGeometry';
+import { kneeSpaceIn } from './utils/vanityLayout';
 import {
-  DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening, showerFrontTiled,
+  DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening, showerFrontTiled, showerGlassFrontSpans,
   showerNicheCount,
 } from './utils/wallFinish';
 import { floorBorderLF, wallBorderLF, wallDecoInserts, wallHasDeco } from './utils/decoTile';
@@ -248,13 +249,21 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       const fH = (fix.properties.openingHeightIn ?? (fix.type === 'door' ? DOOR_HEIGHT_IN : WINDOW_HEIGHT_IN)) / 12;
       doorWindowDeductSF += fW * fH;
     }
-    let totalWallSF = Math.max(0, grossWallSF - doorWindowDeductSF);
+    // A shower's glass front along a room's edge is no wall (a shower room
+    // closed off with a wall where its door and glass stand)
+    const glassFrontSF = (rm: BERoom) => {
+      const frontIn = rm.boundary.reduce((sum, p, i) => sum + showerGlassFrontSpans(
+        { start: p, end: rm.boundary[(i + 1) % rm.boundary.length] }, fixtures, ppf,
+      ).reduce((s, g) => s + (g.x1 - g.x0), 0), 0);
+      return (frontIn / 12) * ((rm.heightInches || 96) / 12);
+    };
+    let totalWallSF = Math.max(0, grossWallSF - doorWindowDeductSF - glassFrontSF(bathroom));
 
     // Add additional rooms (non-sub-rooms)
     for (const rm of rooms) {
       if (rm.id === bathroom.id || rm.parentRoomId) continue;
       totalFloorSF += rm.netFloorAreaSF || rm.floorAreaSF || 0;
-      totalWallSF += roomWallAreaSF(rm.perimeterLF, rm.heightInches);
+      totalWallSF += Math.max(0, roomWallAreaSF(rm.perimeterLF, rm.heightInches) - glassFrontSF(rm));
     }
 
     sync.floor_sf = Math.round(totalFloorSF * 10) / 10;
@@ -507,6 +516,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
           sink_type: sinkType,
           width: v.dimensions.width,
           sinks: v.properties.sinkCount ?? 1,
+          // An open knee space under the top: the cabinet is the rest (backend vanities.py)
+          knee_space_in: sinkType === 'cabinet' ? kneeSpaceIn(v.dimensions.width, v.properties.kneeSpaceWidth) : 0,
           mirror_width: mirrorForVanity ? mirrorForVanity.dimensions.width : undefined,
           mirror_height: mirrorForVanity ? (mirrorForVanity.properties.mirrorHeight ?? MIRROR_HEIGHT_IN) : undefined,
           has_mirror: !!mirrorForVanity,

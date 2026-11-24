@@ -6,12 +6,13 @@
  */
 
 import type { BEFixtureType, BathtubSubType, VanitySubType, ShowerDoorPosition, ShowerDoorType } from '../../../../types/bathroomSketch';
+import { vanityLayout, type KneeSpaceSide } from './vanityLayout';
 import { showerDoorSpan, showerFrontPanels } from './beGeometry';
 
 const GLASS = '#d4eaf7'; // light blue for glass panels
 
 export interface FixtureShape {
-  paths: { d: string; fill: string; stroke: string; strokeWidth: number }[];
+  paths: { d: string; fill: string; stroke: string; strokeWidth: number; dash?: number[] }[];
   label: string;
 }
 
@@ -472,6 +473,59 @@ const vanityDouble: FixtureShape = {
   ],
 };
 
+/**
+ * A cabinet vanity at its real size: its sinks (one or two, whatever its
+ * width) a real basin's size over the cabinet, doors along the cabinet, and
+ * an open knee space beside it drawn open (a dashed front, no doors). The
+ * plain 1- and 2-sink pictures above stretch with the box; a long vanity
+ * with one sink would draw a basin as long as the vanity.
+ */
+export function buildCabinetVanity(
+  widthIn: number, depthIn: number, sinkCount = 1, kneeIn?: number | null, kneeSide: KneeSpaceSide = 'left',
+): FixtureShape {
+  const W = Math.max(1, widthIn);
+  const D = Math.max(1, depthIn);
+  const lay = vanityLayout(W, sinkCount, kneeIn, kneeSide);
+  const r4 = (v: number) => Math.round(v * 10000) / 10000;
+  const fx = (inches: number) => r4(inches / W);
+  const fy = (inches: number) => r4(inches / D);
+  const [c0, c1] = lay.cabinet;
+  const cw = c1 - c0;
+  const paths: FixtureShape['paths'] = [
+    { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 2 },
+    // Countertop edge
+    { d: 'M0,0.12 L1,0.12', fill: N, stroke: S, strokeWidth: 0.8 },
+  ];
+  // Basins: as wide as the 3D's (8" a side at most), 13" back to front at most
+  const rx = Math.max(3, Math.min(8, cw / (2 * lay.sinks.length) - 2.5));
+  const y0 = 0.14;
+  const y1 = Math.min(0.62, y0 + fy(Math.min(13, D * 0.5)));
+  for (const cx of lay.sinks) {
+    const a = fx(cx - rx);
+    const b = fx(cx + rx);
+    const m = fx(cx);
+    paths.push({ d: `M${a},${y0 + 0.04} Q${a},${y0} ${m},${y0} Q${b},${y0} ${b},${y0 + 0.04} L${b},${r4(y1 - 0.06)} Q${b},${y1} ${m},${y1} Q${a},${y1} ${a},${r4(y1 - 0.06)} Z`, fill: FL, stroke: S, strokeWidth: 1 });
+    paths.push({ d: `M${fx(cx - 1)},0.04 L${fx(cx + 1)},0.04 L${fx(cx + 1)},0.1 L${fx(cx - 1)},0.1 Z`, fill: SL, stroke: S, strokeWidth: 0.5 });
+  }
+  // Doors along the cabinet, a pull on each (as many as the 3D's)
+  const doors = cw <= 24 ? 1 : cw <= 48 ? 2 : cw <= 60 ? 3 : 4;
+  for (let i = 0; i < doors; i++) {
+    const d0 = c0 + (cw * i) / doors;
+    const d1 = c0 + (cw * (i + 1)) / doors;
+    if (i > 0) paths.push({ d: `M${fx(d0)},0.66 L${fx(d0)},0.95`, fill: N, stroke: SL, strokeWidth: 0.8 });
+    const mid = (d0 + d1) / 2;
+    paths.push({ d: `M${fx(mid - 1.5)},0.78 L${fx(mid + 1.5)},0.78`, fill: N, stroke: S, strokeWidth: 1.2 });
+  }
+  // The knee space: open under the top, the cabinet's end beside it, its front dashed
+  if (lay.knee) {
+    const [k0, k1] = lay.knee;
+    const edge = kneeSide === 'left' ? k1 : k0;
+    paths.push({ d: `M${fx(edge)},0.12 L${fx(edge)},1`, fill: N, stroke: S, strokeWidth: 1.2 });
+    paths.push({ d: `M${fx(k0)},0.97 L${fx(k1)},0.97`, fill: N, stroke: SL, strokeWidth: 0.8, dash: [4, 3] });
+  }
+  return { label: lay.sinks.length === 2 ? 'Dbl Vanity' : 'Vanity', paths };
+}
+
 // ── Pedestal Sink (plan view: semicircular basin on narrow column) ──
 // Standard: ~20"W x 17"D. Round basin at front, thin pedestal column below.
 
@@ -721,6 +775,8 @@ export interface FixtureShapeExtras {
   showerFrontTiled?: boolean;
   /** Width over depth on the plan, to keep a vanity bar's lights round */
   aspect?: number;
+  /** A cabinet vanity's real size and knee space, so its basins keep theirs (buildCabinetVanity) */
+  vanity?: { widthIn: number; depthIn: number; kneeIn?: number | null; kneeSide?: KneeSpaceSide };
   lightBulbs?: number;
   cabinetType?: string;
   soffitBottom?: number;
@@ -770,6 +826,10 @@ export function getFixtureShape(
     case 'vanity':
       if (vanitySubType === 'pedestal_sink') return pedestalSink;
       if (vanitySubType === 'wall_mount_sink') return wallMountSink;
+      if (extras.vanity) {
+        const v = extras.vanity;
+        return buildCabinetVanity(v.widthIn, v.depthIn, sinkCount ?? 1, v.kneeIn, v.kneeSide ?? 'left');
+      }
       return (sinkCount ?? 1) >= 2 ? vanityDouble : vanitySingle;
     case 'toilet':
       return toilet;

@@ -299,6 +299,14 @@ export interface BEFixtureProperties {
   vanitySubType?: VanitySubType;
   vanityWidth?: number;
   sinkCount?: number;
+  /**
+   * An open knee space under a cabinet vanity's top, inches (a makeup area
+   * beside the sink: no cabinet below); the cabinet is the rest of its width.
+   * See components/bathroom-estimate/sketch/utils/vanityLayout.
+   */
+  kneeSpaceWidth?: number;
+  /** Which end it's at, facing the vanity (default left) */
+  kneeSpaceSide?: 'left' | 'right';
   /** Has backsplash tile */
   hasBacksplash?: boolean;
   backsplashHeight?: number;

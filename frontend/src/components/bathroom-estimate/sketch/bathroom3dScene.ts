@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import type { BathroomLooks, BathroomModel, FixtureSolid, Pt, TileLook, WallOpeningSolid, WallSolid } from './bathroom3dModel';
+import { vanityLayout } from './utils/vanityLayout';
 import type { TileTextureCache } from './bathroom3dTextures';
 import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN, SOFFIT_BOTTOM_IN } from '../../../types/bathroomSketch';
 import { DEFAULT_BAR_BULBS, cabinetKind, lightKindOf } from '../fixtureRows';
@@ -224,6 +225,8 @@ function buildOpening(
     metal: THREE.MeshStandardMaterial; showerTile: THREE.MeshStandardMaterial;
   },
 ) {
+  // A shower's glass front: no wall there, nothing to line or case
+  if (o.kind === 'open') return;
   const { x0, x1, y0, y1 } = o.rect;
   const w = x1 - x0;
   const h = y1 - y0;
@@ -293,8 +296,10 @@ function buildWall(
   }
 
   // Niches: the wall left behind each one, its back and sides lined with the
-  // tile round it (the shower's, the tub surround's or the wall's) or painted
+  // tile round it (the shower's, the tub surround's or the wall's) or painted.
+  // One in the far face (a shower room off the bathroom) is the same turned round.
   const roomFace = bodyZ + T / 2;
+  const backFace = bodyZ - T / 2;
   for (const n of w.niches) {
     const r = mirror(n.rect);
     const nw = r.x1 - r.x0;
@@ -303,7 +308,11 @@ function buildWall(
     const cy = (r.y0 + r.y1) / 2;
     const d = n.depthIn;
     const rest = T - d;
-    if (rest > 0.01) add(boxAt(nw, nh, rest, paint, cx, cy, bodyZ - T / 2 + rest / 2));
+    const inRoomFace = n.face !== 'back';
+    // From the face it's in, into the wall
+    const face = inRoomFace ? roomFace : backFace;
+    const into = inRoomFace ? -1 : 1;
+    if (rest > 0.01) add(boxAt(nw, nh, rest, paint, cx, cy, face + into * (d + rest / 2)));
     const look = n.lining === 'shower' ? looks.showerTile : n.lining === 'tub' ? looks.surroundTile : looks.wallTile;
     let back: { material: THREE.MeshStandardMaterial; repeat?: [number, number] } = { material: paint };
     let sides: THREE.MeshStandardMaterial = paint;
@@ -312,11 +321,13 @@ function buildWall(
       own(back.material);
       sides = own(mat(look.color, { roughness: look.roughness }));
     }
-    add(facePanel(r, roomFace - d + 0.02, back.material, back.repeat));
-    add(boxAt(0.25, nh, d, sides, r.x0 + 0.125, cy, roomFace - d / 2));
-    add(boxAt(0.25, nh, d, sides, r.x1 - 0.125, cy, roomFace - d / 2));
-    add(boxAt(nw, 0.25, d, sides, cx, r.y0 + 0.125, roomFace - d / 2));
-    add(boxAt(nw, 0.25, d, sides, cx, r.y1 - 0.125, roomFace - d / 2));
+    const backZ = face + into * (d - 0.02);
+    add(inRoomFace ? facePanel(r, backZ, back.material, back.repeat) : backFacePanel(r, backZ, back.material, back.repeat));
+    const midZ = face + (into * d) / 2;
+    add(boxAt(0.25, nh, d, sides, r.x0 + 0.125, cy, midZ));
+    add(boxAt(0.25, nh, d, sides, r.x1 - 0.125, cy, midZ));
+    add(boxAt(nw, 0.25, d, sides, cx, r.y0 + 0.125, midZ));
+    add(boxAt(nw, 0.25, d, sides, cx, r.y1 - 0.125, midZ));
   }
 
   // Tile to install (or there today), on the room side
@@ -346,18 +357,27 @@ function buildWall(
     }
     add(facePanel(mirror(s.rect), faceZ + (key === 'prefab' ? 0.25 : 0.08), entry.material, entry.repeat));
   }
-  // A shower room's front tiled inside, where that's the wall's other face.
-  // Not ghosted with the wall: from the shower room (the wall's far side) it's
-  // the face looked at; from the bathroom the wall stands in front of it.
-  if (w.backTile.length) {
-    const { material, repeat } = tileMaterial(looks.showerTile, textures);
-    for (const r of w.backTile.map(mirror)) add(backFacePanel(r, bodyZ - T / 2 - 0.08, material, repeat));
+  // The far face's: a tub or shower on the other side of the wall from its
+  // room (a shower room off the bathroom, its front tiled inside too). Not
+  // ghosted with the wall: from that side it's the face looked at; from the
+  // room the wall stands in front of it.
+  const backMaterials = new Map<string, { material: THREE.MeshStandardMaterial; repeat?: [number, number] }>();
+  for (const s of w.backSurrounds) {
+    const key = s.finish === 'prefab' ? 'prefab' : typeOf.get(s.fixtureId) === 'bathtub' ? 'tub' : 'shower';
+    let entry = backMaterials.get(key);
+    if (!entry) {
+      entry = key === 'prefab'
+        ? { material: mat(looks.prefab, { roughness: 0.22 }) }
+        : tileMaterial(key === 'shower' ? looks.showerTile : looks.surroundTile, textures);
+      backMaterials.set(key, entry);
+    }
+    add(backFacePanel(mirror(s.rect), backFace - (key === 'prefab' ? 0.25 : 0.08), entry.material, entry.repeat));
   }
 
   // Baseboard wherever the wall is painted down to the floor
   const trim = own(mat(COLORS.trim, { roughness: 0.5 }));
   if (w.inward) {
-    const covered = w.tile.concat(w.surrounds.map((s) => s.rect), w.openings.filter((o) => o.kind === 'door').map((o) => o.rect));
+    const covered = w.tile.concat(w.surrounds.map((s) => s.rect), w.openings.filter((o) => o.kind !== 'window').map((o) => o.rect));
     for (const r of subtractRects([{ x0: 0, x1: w.lengthIn, y0: 0, y1: BASEBOARD_IN }], covered).map(mirror)) {
       add(boxAt(r.x1 - r.x0, r.y1 - r.y0, 0.6, trim, (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, 0.3));
     }
@@ -463,13 +483,27 @@ function buildVanity(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
   const boxTop = top - topT;
   const front = D / 2 - 1.25;
   const body = mat(looks.vanityBox, { roughness: 0.55 });
-  g.add(boxAt(W, boxTop - bottom, front + D / 2, body, 0, (bottom + boxTop) / 2, (front - D / 2) / 2));
-  if (!floating) g.add(boxAt(W - 1, bottom, front + D / 2 - 3, mat('#cfc8bc'), 0, bottom / 2, (front - 3 - D / 2) / 2));
+  // The cabinet under its part of the top; an open knee space beside it (utils/vanityLayout)
+  const lay = vanityLayout(W, sinks, f.fixture.properties.kneeSpaceWidth, f.fixture.properties.kneeSpaceSide ?? 'left');
+  const cabX0 = lay.cabinet[0] - W / 2;
+  const cabX1 = lay.cabinet[1] - W / 2;
+  const CW = cabX1 - cabX0;
+  const cabX = (cabX0 + cabX1) / 2;
+  g.add(boxAt(CW, boxTop - bottom, front + D / 2, body, cabX, (bottom + boxTop) / 2, (front - D / 2) / 2));
+  if (!floating) g.add(boxAt(CW - 1, bottom, front + D / 2 - 3, mat('#cfc8bc'), cabX, bottom / 2, (front - 3 - D / 2) / 2));
+  if (lay.knee) {
+    // Open under the top: an apron along its front, an end panel at its far end
+    const k0 = lay.knee[0] - W / 2;
+    const k1 = lay.knee[1] - W / 2;
+    const outer = lay.knee[0] === 0 ? k0 + 0.375 : k1 - 0.375;
+    g.add(boxAt(k1 - k0, 3, 0.75, body, (k0 + k1) / 2, boxTop - 1.5, front - 0.375));
+    if (!floating) g.add(boxAt(0.75, boxTop, front + D / 2, body, outer, boxTop / 2, (front - D / 2) / 2));
+  }
 
   // Doors under a false drawer front, with pulls
   const faceMat = mat(looks.vanityBox, { roughness: 0.5 });
   const insetMat = mat(`#${new THREE.Color(looks.vanityBox).offsetHSL(0, 0, -0.04).getHexString()}`, { roughness: 0.55 });
-  const doors = W <= 24 ? 1 : W <= 48 ? 2 : W <= 60 ? 3 : 4;
+  const doors = CW <= 24 ? 1 : CW <= 48 ? 2 : CW <= 60 ? 3 : 4;
   const drawerH = 6;
   const panel = (x0: number, x1: number, y0: number, y1: number, pullAt: 'center' | 'left' | 'right') => {
     const pw = x1 - x0 - 0.25;
@@ -482,17 +516,17 @@ function buildVanity(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     const vertical = pullAt !== 'center';
     g.add(boxAt(vertical ? 0.5 : 4, vertical ? 4 : 0.5, 0.6, kit.metal, px, vertical ? y1 - 4 : cy, front + 1.1));
   };
-  panel(-W / 2, W / 2, boxTop - drawerH - 0.5, boxTop - 0.5, 'center');
+  panel(cabX0, cabX1, boxTop - drawerH - 0.5, boxTop - 0.5, 'center');
   for (let i = 0; i < doors; i++) {
-    const x0 = -W / 2 + (W * i) / doors;
-    const x1 = -W / 2 + (W * (i + 1)) / doors;
+    const x0 = cabX0 + (CW * i) / doors;
+    const x1 = cabX0 + (CW * (i + 1)) / doors;
     panel(x0, x1, bottom + 0.5, boxTop - drawerH - 0.75, i % 2 === 0 ? 'right' : 'left');
   }
 
   // The top with its sinks cut in, the bowls under it, a faucet behind each
-  const sinkX = sinks === 2 ? [-W / 4, W / 4] : [0];
+  const sinkX = lay.sinks.map((x) => x - W / 2);
   const sinkZ = -D / 2 + 0.36 * D + 0.5;
-  const rx = Math.min(8, W / (2 * sinks) - 2.5);
+  const rx = Math.max(3, Math.min(8, CW / (2 * sinkX.length) - 2.5));
   const rz = Math.min(6, D * 0.25);
   g.add(new THREE.Mesh(
     prism(roundedRect(W + 1, D + 0.75, 0.4, 0, 0.375), boxTop, top, sinkX.map((x) => ellipse(rx, rz, x, sinkZ))),

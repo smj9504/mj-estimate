@@ -31,6 +31,8 @@ import {
   showerFrontTiled,
   showerFrontTiles,
   fixtureSidesAgainstWalls,
+  isShowerGlassFront,
+  wallRoomNormal,
   wallTileRegions,
   type FaceRect,
 } from './utils/wallFinish';
@@ -84,7 +86,8 @@ export interface BathroomLooks {
 
 export interface WallOpeningSolid {
   rect: FaceRect;
-  kind: 'door' | 'window';
+  /** 'open': a shower's glass front along the wall, no wall there floor to ceiling (no jambs, no casing) */
+  kind: 'door' | 'window' | 'open';
   fixtureId: string;
   /** A door: which end of the opening its hinge is at, and whether it swings into the room. */
   hingeAtStart: boolean;
@@ -95,13 +98,22 @@ export interface WallOpeningSolid {
   tiledRound?: boolean;
 }
 
-/** A niche: a recess in the wall's room face, lined with tile (the look of what's round it) or painted */
+/** A niche: a recess in one of the wall's faces, lined with tile (the look of what's round it) or painted */
 export interface WallNicheSolid {
   rect: FaceRect;
   fixtureId: string;
   /** How far it goes into the wall, inches */
   depthIn: number;
   lining: 'shower' | 'tub' | 'wall' | 'paint';
+  /** The face it's set in: the room's (+z), or the other one (a shower room off the bathroom, the wall the bathroom's) */
+  face: 'room' | 'back';
+}
+
+/** Behind a tub or shower: its tile, or its prefab surround */
+export interface WallSurroundSolid {
+  rect: FaceRect;
+  finish: 'tile' | 'prefab';
+  fixtureId: string;
 }
 
 export interface WallSolid {
@@ -117,12 +129,16 @@ export interface WallSolid {
   pieces: FaceRect[];
   /** Tile on its room side, less openings and surrounds — save those the tile runs over whole. */
   tile: FaceRect[];
-  /** The part behind a tub or shower: tiled with the fixture, or its prefab surround. */
-  surrounds: { rect: FaceRect; finish: 'tile' | 'prefab'; fixtureId: string }[];
-  /** Shower tile on the wall's other face: a shower room's front, tiled inside, where the wall's room is the bathroom */
-  backTile: FaceRect[];
+  /** The part behind a tub or shower on its room face: tiled with the fixture, or its prefab surround. */
+  surrounds: WallSurroundSolid[];
+  /**
+   * The same on its other face: a tub or shower on the far side of the wall
+   * from its room (a shower room off the bathroom, the wall the bathroom's),
+   * a shower room's front tiled inside there too
+   */
+  backSurrounds: WallSurroundSolid[];
   openings: WallOpeningSolid[];
-  /** Niches in its room face, cut out of its pieces, tile and surrounds */
+  /** Niches in either face, cut out of its pieces and that face's tile and surrounds */
   niches: WallNicheSolid[];
   /** Decorative border rows across its tile after the work, as bands on its face (utils/decoTile) */
   borders: FaceRect[];
@@ -373,24 +389,13 @@ export function bathroomLooks(sketch: BESketchData, estimate?: Record<string, an
 
 const toIn = (p: BEPoint, ppf: number): Pt => [(p.x / ppf) * 12, (p.y / ppf) * 12];
 
-function polygonCentroid(points: BEPoint[]): BEPoint {
-  const n = points.length || 1;
-  return { x: points.reduce((s, p) => s + p.x, 0) / n, y: points.reduce((s, p) => s + p.y, 0) / n };
-}
-
-/** The unit normal from a wall into its room, or null if it's in none. */
+/**
+ * The unit normal from a wall into its room, or null if it's in none: the
+ * side the room's outline is on (utils/wallFinish wallRoomNormal).
+ */
 export function wallInward(wall: BEWall, rooms: BERoom[]): Pt | null {
-  const room = rooms.find((r) => r.wallIds.includes(wall.id) && r.boundary.length >= 3);
-  if (!room) return null;
-  const c = polygonCentroid(room.boundary);
-  const dx = wall.end.x - wall.start.x;
-  const dy = wall.end.y - wall.start.y;
-  const len = Math.hypot(dx, dy) || 1;
-  let n: Pt = [-dy / len, dx / len];
-  const mx = (wall.start.x + wall.end.x) / 2;
-  const my = (wall.start.y + wall.end.y) / 2;
-  if (n[0] * (c.x - mx) + n[1] * (c.y - my) < 0) n = [-n[0], -n[1]];
-  return n;
+  const n = wallRoomNormal(wall, rooms);
+  return n ? [n.x, n.y] : null;
 }
 
 const PREFAB_SHOWER_TYPES = new Set(['one_piece', 'multi_piece_kit', 'neo_angle_kit']);
@@ -426,8 +431,12 @@ function wallSolid(
     .map((f) => showerFrontOpening(f, sketch.walls, sketch.fixtures, ppf)?.openingId)
     .filter(Boolean));
 
-  const openings: WallOpeningSolid[] = wallOpeningsOf(wall, sketch.fixtures, ppf).map(({ rect, fixture }) => {
+  const openings: WallOpeningSolid[] = wallOpeningsOf(wall, sketch.fixtures, ppf).map((o) => {
+    const { rect, fixture } = o;
     const r = clip(rect);
+    if (isShowerGlassFront(o)) {
+      return { rect: r, kind: 'open' as const, fixtureId: fixture.id, hingeAtStart: true, swingsIn: true };
+    }
     // The plan's door hinges at the left end of its closed panel and swings to the side its symbol is on
     const rad = ((fixture.rotation || 0) * Math.PI) / 180;
     const hwIn = fixture.dimensions.width / 2;
@@ -446,49 +455,59 @@ function wallSolid(
       ...(tiledEntries.has(fixture.id) ? { tiledRound: true } : {}),
     };
   });
+  // Each face: the room's (+z in the scene: the inward side, or the left
+  // normal of a wall in no room), or the other. A tub or shower, or a niche,
+  // is on the face it stands on: a shower room cut off the bathroom stands on
+  // the far face of the bathroom's walls, its tile inside, not on the bathroom side.
+  const normal: Pt = inward ?? [-(b[1] - a[1]) / (lengthIn || 1), (b[0] - a[0]) / (lengthIn || 1)];
+  const onRoomFace = (fix: BEFixture) => {
+    const c = toIn(fix.position, ppf);
+    return (c[0] - a[0]) * normal[0] + (c[1] - a[1]) * normal[1] >= 0;
+  };
+
   // A prefab surround stays itself, whatever tile is around it
   const covers = wallFixtureCovers(wall, sketch.fixtures, ppf)
     .map((c) => (surroundFinish(c.fixture, estimate) === 'prefab' ? { ...c, tiled: null } : c));
+  const roomCovers = covers.filter((c) => onRoomFace(c.fixture));
+  const backCovers = covers.filter((c) => !onRoomFace(c.fixture));
 
-  // Niches in its room face: a tiled one lined with the tile of the tub or
-  // shower it's behind, else the wall's; a drywall one painted
+  // Niches: a tiled one lined with the tile of the tub or shower it's behind
+  // (on its face), else the wall's; a drywall one painted
   const thicknessIn = Math.max(WALL_THICKNESS_IN, (wall.thickness / ppf) * 12);
   const niches: WallNicheSolid[] = wallNichesOf(wall, sketch.fixtures, ppf).map(({ rect, fixture }) => {
     const r = clip(rect);
     const mx = (r.x0 + r.x1) / 2;
     const my = (r.y0 + r.y1) / 2;
-    const behind = covers.find((c) => mx > c.rect.x0 && mx < c.rect.x1 && my > c.rect.y0 && my < c.rect.y1);
+    const face: WallNicheSolid['face'] = onRoomFace(fixture) ? 'room' : 'back';
+    const behind = (face === 'room' ? roomCovers : backCovers)
+      .find((c) => mx > c.rect.x0 && mx < c.rect.x1 && my > c.rect.y0 && my < c.rect.y1);
     const lining: WallNicheSolid['lining'] = !nicheKind(fixture.properties.nicheType).tiled ? 'paint'
       : behind ? (behind.fixture.type === 'shower' ? 'shower' : 'tub') : 'wall';
-    return { rect: r, fixtureId: fixture.id, depthIn: Math.min(NICHE_DEPTH_IN, thicknessIn - 0.75), lining };
+    return { rect: r, fixtureId: fixture.id, depthIn: Math.min(NICHE_DEPTH_IN, thicknessIn - 0.75), lining, face };
   });
-  const holes = openings.map((o) => o.rect).concat(niches.map((n) => n.rect));
+  const openingHoles = openings.map((o) => o.rect);
+  // Each face's holes: the openings through the wall, and the niches in that face
+  const roomHoles = openingHoles.concat(niches.filter((n) => n.face === 'room').map((n) => n.rect));
+  const backHoles = openingHoles.concat(niches.filter((n) => n.face === 'back').map((n) => n.rect));
   const regions = wallTileRegions(wall, view === 'today' ? 'existing' : 'new', ppf).map(regionRect);
   // After the work, tile over a whole surround makes the wall one tile there,
-  // down behind the tub too (out of sight, and not counted as tile)
-  let kept = covers;
+  // down behind the tub too (out of sight, and not counted as tile): the
+  // wall's tile is on its room face, so only there
+  let kept = roomCovers;
   if (view === 'after') {
-    const after = surroundsAfterWork(covers, regions);
+    const after = surroundsAfterWork(roomCovers, regions);
     kept = after.kept.filter((c) => !after.inTile.some((t) => t.fixture.id === c.fixture.id));
   }
-  const surrounds = kept.flatMap(({ rect, fixture }) =>
-    subtractRects([clip(rect)], holes).map((piece) => ({ rect: piece, finish: surroundFinish(fixture, estimate), fixtureId: fixture.id })));
+  const surroundsOf = (list: typeof covers, faceHoles: FaceRect[]): WallSurroundSolid[] => list.flatMap(({ rect, fixture }) =>
+    subtractRects([clip(rect)], faceHoles).map((piece) => ({ rect: piece, finish: surroundFinish(fixture, estimate), fixtureId: fixture.id })));
+  const surrounds = surroundsOf(kept, roomHoles);
+  const backSurrounds = surroundsOf(backCovers, backHoles);
 
-  // A shower room's front tiled inside, on the face the shower is on: the
-  // room's face (+z in the scene: the inward side, or the left normal of a
-  // wall in no room), else the other one
-  const normal: Pt = inward ?? [-(b[1] - a[1]) / (lengthIn || 1), (b[0] - a[0]) / (lengthIn || 1)];
-  const backTile: FaceRect[] = [];
+  // A shower room's front tiled inside, on the face the shower is on
   for (const { rect, fixture } of showerFrontTiles(wall, sketch.fixtures, ppf, sketch.walls)) {
-    const c = toIn(fixture.position, ppf);
-    const roomFace = (c[0] - a[0]) * normal[0] + (c[1] - a[1]) * normal[1] >= 0;
-    // A niche is in the room face only: the far face stays whole behind it
-    const pieces = subtractRects([clip(rect)], roomFace ? holes : openings.map((o) => o.rect));
-    if (roomFace) {
-      surrounds.push(...pieces.map((piece) => ({ rect: piece, finish: 'tile' as const, fixtureId: fixture.id })));
-    } else {
-      backTile.push(...pieces);
-    }
+    const roomFace = onRoomFace(fixture);
+    const pieces = subtractRects([clip(rect)], roomFace ? roomHoles : backHoles);
+    (roomFace ? surrounds : backSurrounds).push(...pieces.map((piece) => ({ rect: piece, finish: 'tile' as const, fixtureId: fixture.id })));
   }
 
   return {
@@ -499,10 +518,10 @@ function wallSolid(
     heightIn,
     thicknessIn,
     inward,
-    pieces: subtractRects([{ x0: 0, x1: lengthIn, y0: 0, y1: heightIn }], holes),
-    tile: subtractRects(regions, holes.concat(kept.map((c) => clip(c.rect)))),
+    pieces: subtractRects([{ x0: 0, x1: lengthIn, y0: 0, y1: heightIn }], openingHoles.concat(niches.map((n) => n.rect))),
+    tile: subtractRects(regions, roomHoles.concat(kept.map((c) => clip(c.rect)))),
     surrounds,
-    backTile,
+    backSurrounds,
     openings,
     niches,
     borders: view === 'after'

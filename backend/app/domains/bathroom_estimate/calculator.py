@@ -13,6 +13,11 @@ from .lights import LIGHT_TYPES, light_groups
 from .job_share import bathroom_type_label, elsewhere_line
 from .mirrors import mirror_count, mirror_groups, price_by_width
 from .niches import NICHE_TYPES, niche_groups
+from .vanities import cabinet_price as vanity_cabinet_price
+from .vanities import cabinet_width_in as vanity_cabinet_width_in
+from .vanities import inches as fmt_inches
+from .vanities import knee_space_in as vanity_knee_space_in
+from .vanities import width_in as vanity_width_in
 from .niches import edge_lf as niche_edge_lf
 from .niches import size_factor as niche_size_factor
 from .niches import size_label as niche_size_label
@@ -149,6 +154,16 @@ _LEGACY_ENCLOSURE_MAP = {
 }
 
 
+def _sketch_vanity_cabinet_in(fixture: Dict[str, Any], default_width: float) -> float:
+    """A vanity drawn on the sketch: its cabinet's width, its open knee space left out"""
+    props = fixture.get("properties") or {}
+    return vanity_cabinet_width_in({
+        "width": (fixture.get("dimensions") or {}).get("width", default_width),
+        "sink_type": props.get("vanitySubType") or "cabinet",
+        "knee_space_in": props.get("kneeSpaceWidth"),
+    }, default_width)
+
+
 def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any]:
     """Calculate all line items for a bathroom estimate.
 
@@ -233,11 +248,12 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
             if _vi.get("mounting", _v_mount_default) != "wall_mount":
                 _sk_vans = [f for f in _sk_fix
                             if f.get("type") == "vanity"]
-                _vw = _vi.get("width") or 36
+                # The cabinet only: the floor runs on under a knee space
+                _vw = vanity_cabinet_width_in(_vi)
                 _vd = 22  # standard vanity depth (inches)
                 if _sk_vans:
                     _sv = _sk_vans[0]
-                    _vw = _sv.get("dimensions", {}).get("width", _vw)
+                    _vw = _sketch_vanity_cabinet_in(_sv, _vw)
                     _vd = _sv.get("dimensions", {}).get("height", _vd)
                 tile_floor_sf -= (_vw * _vd) / 144
 
@@ -2030,13 +2046,17 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                 continue
 
             # ── Cabinet Vanity path (existing logic) ──
-            v_width = van.get("width", 36)
+            # Any width, one sink or two; an open knee space under a long top
+            # has no cabinet, the cabinet priced by its own width
+            v_width = vanity_width_in(van)
+            v_knee = vanity_knee_space_in(van)
+            v_cab_width = v_width - v_knee
             v_source = van.get("source", "stock_rta")
             v_prices = VANITY_PRICES.get(
                 v_source, VANITY_PRICES["stock_rta"])
             _v_pick = picks.each("vanity")
             v_price = apply_material_handling(
-                v_prices.get(v_width, v_prices.get(36, 500)) if _v_pick is None else _v_pick)
+                vanity_cabinet_price(v_prices, v_cab_width) if _v_pick is None else _v_pick)
             src_label = v_source.replace('_', ' ') if _v_pick is None else picks.name("vanity")
 
             # --- Countertop: by the inch, a picked top, or none when the picked vanity comes with its top ---
@@ -2103,7 +2123,7 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
             toe_kick_price = 0
             _v_mounting = van.get("mounting", "freestanding")
             if _v_mounting == "freestanding":
-                toe_kick_lf = round(v_width / 12, 1)  # width in inches → LF
+                toe_kick_lf = round(v_cab_width / 12, 1)  # the cabinet's, inches → LF
                 toe_kick_price = round(
                     toe_kick_lf * VANITY_EXTRAS["toe_kick_per_lf"] * labor_mult, 2)
 
@@ -2119,8 +2139,12 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
             if sink_count > 1:
                 parts.append(f"Sinks: {sink_count} (double-sink vanity)")
             parts += [
-                f"Cabinet: {src_label} ({v_width}\") "
+                f"Cabinet: {src_label} ({fmt_inches(v_cab_width)}\") "
                 f"${v_price:,.2f}{' allowance' if _v_pick is None else ''}",
+            ]
+            if v_knee:
+                parts.append(f"Knee space: {fmt_inches(v_knee)}\" open under the top, no cabinet")
+            parts += [
                 top_note,
                 f"Install: ${install_price:,.2f}",
             ]
@@ -2170,9 +2194,12 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                 parts.append("Mirror: not included")
 
             _van_title_sinks = f" ({sink_count} sinks)" if sink_count > 1 else ""
+            if v_knee:
+                _van_title_sinks = (f" ({sink_count} sink{'s' if sink_count > 1 else ''}, "
+                                    f"{fmt_inches(v_knee)}\" knee space)")
             _add(line_items, 5,
                  f"Vanity{label} complete"
-                 f" - {src_label} ({v_width}\"){_van_title_sinks}",
+                 f" - {src_label} ({fmt_inches(v_width)}\"){_van_title_sinks}",
                  1, "EA", combined, "fixture",
                  notes=" | ".join(parts))
 
@@ -2269,9 +2296,12 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
             if not _dv or not isinstance(_dv, dict):
                 continue
             _dr_sink_t = _dv.get("sink_type", "cabinet")
-            _dr_v_width = _dv.get("width", 36)
-            # Find the smallest defined tier >= width (round up to next size)
-            _dr_v_cost = _dr_van_costs.get(_dr_v_width)
+            # The cabinet's width: a knee space has none to take out
+            _dr_v_width = vanity_cabinet_width_in(_dv)
+            # Find the smallest defined tier >= width (round up to next size);
+            # a price book's keys are whole inches
+            _dr_v_cost = (_dr_van_costs.get(int(_dr_v_width))
+                          if float(_dr_v_width).is_integer() else None)
             if _dr_v_cost is None:
                 _sorted_keys = sorted(_dr_van_costs.keys())
                 _dr_v_cost = None
@@ -2289,7 +2319,7 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
             _dr_label = {
                 "pedestal_sink": "Detach & Reset - Pedestal sink",
                 "wall_mount_sink": "Detach & Reset - Wall-mount sink",
-            }.get(_dr_sink_t, f"Detach & Reset - Vanity & sink ({_dr_v_width}\")")
+            }.get(_dr_sink_t, f"Detach & Reset - Vanity & sink ({fmt_inches(vanity_width_in(_dv))}\")")
             # Toe kick for freestanding cabinet vanity D&R
             _dr_mounting = _dv.get("mounting", "freestanding")
             _dr_toe_kick = 0
@@ -2805,18 +2835,16 @@ def calculate_estimate(estimate, layout_changes=None, job=None) -> Dict[str, Any
                            'detach_reset_vanity', False)):
             sk_vanities = [f for f in sketch_fixtures
                            if f.get("type") == "vanity"]
+            # The cabinet's: the baseboard runs on under a knee space
             if sk_vanities:
                 for sv in sk_vanities:
-                    v_w = round(
-                        sv.get("dimensions", {})
-                        .get("width", 36) / 12, 1)
+                    v_w = round(_sketch_vanity_cabinet_in(sv, 36) / 12, 1)
                     deductions.append(("vanity", v_w))
             else:
                 van_items = ((estimate.vanity_spec or {})
                              .get("items", []))
                 for vi in (van_items or [{}]):
-                    v_w = round(
-                        (vi.get("width") or 36) / 12, 1)
+                    v_w = round(vanity_cabinet_width_in(vi) / 12, 1)
                     deductions.append(("vanity", v_w))
 
         total_deduct = sum(d[1] for d in deductions)

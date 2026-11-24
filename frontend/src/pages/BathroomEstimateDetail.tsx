@@ -2093,8 +2093,18 @@ const BathroomEstimateDetail: React.FC = () => {
                                   {isCabinet && (
                                     <>
                                       <Col xs={12} sm={8} md={4}>
-                                        <Form.Item label="Width" {...restField} name={[name, 'width']}>
-                                          <Select options={numOpts(pricingInfo?.vanity_widths)} allowClear />
+                                        <Form.Item label="Width" {...restField} name={[name, 'width']} tooltip="Any width, one sink or two: a long vanity is priced past 72&quot; by the inch">
+                                          <InputNumber aria-label="Vanity width, inches" min={12} max={192} suffix={'"'} style={{ width: '100%' }} />
+                                        </Form.Item>
+                                      </Col>
+                                      <Col xs={12} sm={8} md={4}>
+                                        <Form.Item
+                                          label="Knee space"
+                                          {...restField}
+                                          name={[name, 'knee_space_in']}
+                                          tooltip="Open under the top, no cabinet (a makeup area): the cabinet is priced for the rest of the width, the top for all of it"
+                                        >
+                                          <InputNumber aria-label="Vanity knee space, inches" min={0} max={180} suffix={'"'} placeholder="None" style={{ width: '100%' }} />
                                         </Form.Item>
                                       </Col>
                                       <Col xs={12} sm={8} md={4}>
