@@ -44,7 +44,8 @@ TRADES: List[Tuple[str, re.Pattern]] = [(name, re.compile(rx, re.IGNORECASE)) fo
     ("Flooring", r"^(?!.*\b(?:windows?|siding|soffit|fascia|shutters?)\b).*?"
                  r"(?:floor(?![- ]mount)|carpet|\bpad\b|laminate|hardwood|\bvinyl\b|\blvp\b|\blvt\b|\bplank\b"
                  r"|underlayment|transition strip|\bthreshold\b|\bstair tread|\bstair riser)"),
-    ("Tile", r"\btile\b|\bgrout\b|mortar bed"),
+    ("Tile", r"\btile\b|\bgrout|mortar bed|cement board|backer\s*board|durock|hardibacker|"
+             r"waterproof(?:ing)? membrane|uncoupling membrane|schluter|bullnose"),
     ("Trim", r"baseboard|\bbase shoe\b|quarter round|\bcasing\b|\bcrown\b|\bmolding\b|\bmoulding\b|\btrim\b|chair rail"
              r"|window stool|\bstool\b|\bapron\b"),
     ("Doors", r"\bdoors?\b|\bjamb\b|\bbifold\b|\bhinge|\blockset|\bdoor knob"),
@@ -228,7 +229,7 @@ def _paint_surface(description: str) -> str:
 # Trades read as one phrase per action, and two or more items detached &
 # reset by the trade's name: "Detach & reset appliances" (owner, 2026-11-25)
 COLLECTIVE = {
-    "Trim": "trim", "Doors": "doors", "Windows & coverings": "window coverings",
+    "Tile": "tile", "Trim": "trim", "Doors": "doors", "Windows & coverings": "window coverings",
     "Appliances": "appliances", "Plumbing": "plumbing fixtures",
     "Electrical": "electrical fixtures",
 }
@@ -244,20 +245,32 @@ def _and_list(items: List[str]) -> str:
     return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} & {items[-1]}"
 
 
+# An item named by the work done to it, not a thing to put in
+_WORK_NAME = re.compile(
+    r"^(?:regrout|reglaze|refinish|resurface|reseal|recaulk|reattach|resecure|retexture|"
+    r"seal|caulk|clean|repair|patch|apply|grind|level|prep)\b", re.IGNORECASE)
+
+
 def _collective_phrases(trade: str, order: List[str], actions: Dict[str, set], names: Dict[str, str]) -> List[str]:
     """'Replace sink & angle stop valve', 'Detach & reset plumbing fixtures'"""
     groups: Dict[str, List[str]] = {}
     for key in order:
+        if _WORK_NAME.match(names[key]):
+            # Named by the work it is ("Regrout tile"): it reads as itself
+            groups.setdefault("work", []).append(_lower_first(names[key]))
+            continue
         verb = _verb_of(actions[key])
         # A new sink or range in a rebuild takes the old one's place
         groups.setdefault("replace" if verb == "install" else verb, []).append(_lower_first(names[key]))
     words = {"replace": "Replace", "install": "Install", "remove": "Remove", "detach": "Detach & reset"}
     out = []
-    for verb in ("replace", "install", "remove", "detach"):
+    for verb in ("replace", "install", "remove", "work", "detach"):
         items = groups.get(verb)
         if not items:
             continue
-        if verb == "detach" and len(items) > 1:
+        if verb == "work":
+            out.append(_cap_first(_and_list(items)))
+        elif verb == "detach" and len(items) > 1:
             out.append(f"Detach & reset {COLLECTIVE[trade]}")
         else:
             out.append(f"{words[verb]} {_and_list(items)}")

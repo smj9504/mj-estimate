@@ -272,3 +272,19 @@ def test_windows_read_as_one_line():
         "Detach & Reset Window drapery - hardware",
     )
     assert room == {"Windows & coverings": ["Replace vinyl window & window screen", "Detach & reset window coverings"]}
+
+
+def test_tile_reads_as_one_line():
+    room = _room(
+        "R&R Ceramic tile - wall",
+        "R&R Cement board - 1/2\"",
+        "Tile edge trim - bullnose",
+        "Regrout tile - wall",
+        "Detach & Reset Tile soap dish",
+        "Detach & Reset Tile towel bar",
+    )
+    assert room == {"Tile": [
+        "Replace ceramic tile, cement board & tile edge trim",
+        "Regrout tile",
+        "Detach & reset tile",
+    ]}
