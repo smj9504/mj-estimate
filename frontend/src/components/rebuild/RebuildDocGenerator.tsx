@@ -62,14 +62,17 @@ const DOC_TYPE_OPTIONS = [
 ];
 
 /**
- * A box that holds a work date: mapped to the project's, or a custom field
- * labelled as one ("Work Start Date"), which takes the project's date. The
- * server reads it the same way (RebuildService.work_date_key).
+ * A box that holds a work date: mapped to the project's, or a one-line custom
+ * box labelled as a date ("Work Start Date"), which takes the project's date -
+ * not what isn't done ("Work not completed"), nor a mitigation, loss, signing
+ * or contract date. The server reads it the same way (RebuildService.work_date_key).
  */
-const workDateKey = (fieldKey: string, label?: string): 'start_date' | 'completion_date' | null => {
+const NOT_WORK_LABEL = /mitigation|loss|sign|contract|\bnot\b|\bno\b|incomplete|uncomplete|remain|outstanding|pending|punch|\bitems?\b|\bdescri|\bnotes?\b|\breason/i;
+const workDateKey = (fieldKey: string, label?: string, multiline = false): 'start_date' | 'completion_date' | null => {
   if (fieldKey === 'project.start_date') return 'start_date';
   if (fieldKey === 'project.completion_date') return 'completion_date';
-  if (!fieldKey.startsWith('custom.') || !label || /mitigation|loss|sign|contract/i.test(label)) return null;
+  if (!fieldKey.startsWith('custom.') || !label || multiline
+    || !/\bdate\b|\bday\b/i.test(label) || NOT_WORK_LABEL.test(label)) return null;
   if (/\bstart/i.test(label)) return 'start_date';
   if (/complet|finish|\bend(?:ed)?\b/i.test(label)) return 'completion_date';
   return null;
@@ -181,12 +184,12 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
     onClose();
   };
 
-  const valueOf = (fieldKey: string, label?: string): string => {
+  const valueOf = (fieldKey: string, label?: string, multiline = false): string => {
     if (overrides[fieldKey] !== undefined) return overrides[fieldKey];
     const [cat, key] = fieldKey.split('.');
     const value = prefillData?.[cat]?.[key];
     if (value) return value;
-    const work = workDateKey(fieldKey, label);
+    const work = workDateKey(fieldKey, label, multiline);
     return (work && prefillData?.project?.[work]) || '';
   };
 
@@ -302,7 +305,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
                   <span className="rbg-value-label">{f.label}</span>
                   {f.multiline ? (
                     <Input.TextArea
-                      value={valueOf(f.key, f.label)}
+                      value={valueOf(f.key, f.label, f.multiline)}
                       onChange={e => setOverrides(prev => ({ ...prev, [f.key]: e.target.value }))}
                       placeholder="Empty"
                       aria-label={f.label}
@@ -311,10 +314,10 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
                   ) : (
                     <Input
                       size={size}
-                      value={valueOf(f.key, f.label)}
+                      value={valueOf(f.key, f.label, f.multiline)}
                       onChange={e => setOverrides(prev => ({ ...prev, [f.key]: e.target.value }))}
                       // A work date typed here is saved on the project too
-                      placeholder={workDateKey(f.key, f.label) ? 'MM/DD/YYYY, saved on the project' : 'Empty'}
+                      placeholder={workDateKey(f.key, f.label, f.multiline) ? 'MM/DD/YYYY, saved on the project' : 'Empty'}
                       aria-label={f.label}
                     />
                   )}

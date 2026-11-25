@@ -1095,18 +1095,26 @@ class RebuildService:
 
     # A template box named for a work date, though mapped to a custom field
     # ("Work Start Date" on custom.field_1): it takes the project's date
-    # (owner, 2026-11-25). Mitigation dates are the WM job's, not these.
+    # (owner, 2026-11-25). Only a one-line box that says it's a date, and not
+    # what isn't done ("Work not completed", a text box), nor a mitigation,
+    # loss, signing or contract date.
     _START_LABEL = re.compile(r"\bstart", re.IGNORECASE)
     _COMPLETION_LABEL = re.compile(r"complet|finish|\bend(?:ed)?\b", re.IGNORECASE)
-    _NOT_WORK_LABEL = re.compile(r"mitigation|loss|sign|contract", re.IGNORECASE)
+    _DATE_LABEL = re.compile(r"\bdate\b|\bday\b", re.IGNORECASE)
+    _NOT_WORK_LABEL = re.compile(
+        r"mitigation|loss|sign|contract|\bnot\b|\bno\b|incomplete|uncomplete|remain|outstanding|pending"
+        r"|punch|\bitems?\b|\bdescri|\bnotes?\b|\breason",
+        re.IGNORECASE,
+    )
 
     @classmethod
-    def work_date_key(cls, field_key: str, label: Optional[str]) -> Optional[str]:
+    def work_date_key(cls, field_key: str, label: Optional[str], multiline: bool = False) -> Optional[str]:
         """'project.start_date' / 'project.completion_date' for a box that holds
-        a work date: mapped to one, or a custom field labelled as one"""
+        a work date: mapped to one, or a one-line custom box labelled as one"""
         if field_key in ('project.start_date', 'project.completion_date'):
             return field_key
-        if not field_key.startswith('custom.') or not label or cls._NOT_WORK_LABEL.search(label):
+        if (not field_key.startswith('custom.') or not label or multiline
+                or not cls._DATE_LABEL.search(label) or cls._NOT_WORK_LABEL.search(label)):
             return None
         if cls._START_LABEL.search(label):
             return 'project.start_date'
@@ -1130,9 +1138,10 @@ class RebuildService:
         (the invoice made from the estimate is dated by its completion)"""
         from datetime import time as _time
 
-        labels = {m.get('fieldKey'): m.get('label') for m in mappings if m.get('fieldKey')}
+        boxes = {m.get('fieldKey'): m for m in mappings if m.get('fieldKey')}
         for field_key, value in overrides.items():
-            work = self.work_date_key(field_key, labels.get(field_key))
+            box = boxes.get(field_key) or {}
+            work = self.work_date_key(field_key, box.get('label'), bool(box.get('multiline')))
             day = self._typed_day(value) if work else None
             if not day:
                 continue
@@ -1142,7 +1151,8 @@ class RebuildService:
             else:
                 project.actual_completion = when
 
-    def _resolve_field_value(self, prefill: Dict[str, Any], field_key: str, label: Optional[str] = None) -> str:
+    def _resolve_field_value(self, prefill: Dict[str, Any], field_key: str, label: Optional[str] = None,
+                             multiline: bool = False) -> str:
         """Resolve a field key like 'client.display_name' from prefill data;
         an empty custom box labelled as a work date takes the project's"""
         parts = field_key.split('.', 1)
@@ -1151,7 +1161,7 @@ class RebuildService:
         category, key = parts
         value = (prefill.get(category) or {}).get(key)
         if value in (None, '') and field_key.startswith('custom.'):
-            work = self.work_date_key(field_key, label)
+            work = self.work_date_key(field_key, label, multiline)
             if work:
                 value = (prefill.get('project') or {}).get(work.split('.', 1)[1])
         return str(value) if value is not None else ''
@@ -1246,7 +1256,8 @@ class RebuildService:
             c = rl_canvas.Canvas(overlay_buffer, pagesize=(pw, ph))
 
             for m in page_texts:
-                value = self._resolve_field_value(prefill, m.get('fieldKey', ''), m.get('label'))
+                value = self._resolve_field_value(
+                    prefill, m.get('fieldKey', ''), m.get('label'), bool(m.get('multiline')))
                 if not value:
                     continue
                 fx, fy, fw, fh = _box(m, pw, ph)

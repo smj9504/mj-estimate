@@ -134,6 +134,21 @@ def test_a_custom_box_keeps_what_was_typed_in_it(service):
     assert service._resolve_field_value(WORK_PREFILL, 'custom.field_1', 'Notes') == ''
 
 
+def test_only_a_box_that_says_its_a_work_date_takes_one(service):
+    work = service.work_date_key
+    assert work('custom.field_1', 'Work Start Date') == 'project.start_date'
+    assert work('custom.field_2', 'Date Completed') == 'project.completion_date'
+    assert work('custom.field_2', 'Completion Date') == 'project.completion_date'
+    # What isn't done, a text box, a label that isn't a date: none of them
+    assert work('custom.field_3', 'Work not completed') is None
+    assert work('custom.field_3', 'Work not completed date') is None
+    assert work('custom.field_3', 'Incomplete items') is None
+    assert work('custom.field_3', 'Completion Date', multiline=True) is None
+    assert work('custom.field_3', 'Completed by') is None
+    assert work('custom.field_3', 'Mitigation End Date') is None
+    assert service._resolve_field_value(WORK_PREFILL, 'custom.field_3', 'Work not completed', True) == ''
+
+
 def test_work_dates_typed_on_the_document_are_kept_on_the_project(service):
     from datetime import date
 
