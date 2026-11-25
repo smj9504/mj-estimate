@@ -46,8 +46,8 @@ bid로 처리하지 않는 방에만 적용한다. 각 규칙의 형식은 다�
 |---|---|---|---|---|
 | W1 | Nail-down hardwood(pre-finished solid 포함) 설치 | `FCW BARR` 15# felt(+) 추가 | F | 높음 (사용자 확인 2026-11-24) |
 | W2 | Floating(LVP, engineered, laminate) 설치 | Underlayment `FCW UC1/8`(1/8" cork, &) 추가. concrete slab 위면 vapor barrier `FCW BARRV`도 추가 | F | 높음 (사용자 확인 2026-11-24) |
-| W3 | hardwood 바닥 R&R | Baseboard `FNC B3` **R&R(&)** + quarter round `FNC QR` **R&R(&)**. 보험사 줄이 설치(+)만이면 &로 바꾸고 수량은 PF로 올린다(REVISED + 메모). seal & paint는 따로 확인 | PF | 높음 (사용자 2026-11-24) |
-| W3b | LVP 바닥 R&R | **quarter round만** `FNC QR` R&R(&). baseboard는 넣지 않는다. 보험사 QR 줄이 +만이면 &로 바꾸고 수량은 PF(더 크면)로 | PF | 높음 (사용자 2026-11-24) |
+| W3 | hardwood 바닥 R&R | Baseboard `FNC B3` + quarter round `FNC QR`를 전체 교체한다. 줄 나누는 법(Remove/Replace)과 수량은 아래 3-1 T1. seal & paint는 C3 | PF | 높음 (사용자 2026-11-24, 11-25) |
+| W3b | LVP 바닥 R&R | **quarter round**는 T1처럼 Remove/Replace로 전체 교체한다. **baseboard**는 R&R하지 않고 T2처럼 demo된 구간만 Replace + 전체 paint | PF | 높음 (사용자 2026-11-24. baseboard demo 구간 처리는 11-25 T2를 LVP에도 적용) |
 | W4 | wood 바닥 R&R인데 **바닥 높이가 바뀌거나 casing 아래가 상함** | 같은 높이로 교체하면(예: 3/4" nail-down → 3/4" nail-down) casing은 그대로 두고 아무것도 넣지 않는다. 새 바닥이 **얇아져** casing 아래에 틈이 생기면 casing D&R, **두꺼워지면** undercut, casing 아래가 **물에 상했으면** casing R&R. 바닥 교체만으로 casing D&R을 넣지 않는다(사용자 2026-11-22, Cardinal에서 뺌). 코드: `FNC DORCRS`는 Xactimate에 없고, `FNC DOPRS`는 Door opening trim D&R(EA), `FNC CRS` casing은 LF | 해당 문 | 확인 |
 | W5 | 다른 바닥과 이어지는 곳이 있음 | T-molding(같은 높이) 또는 reducer(높이 다름) | 이어진 곳 LF | 확인 |
 | W6 | 캐비닛이 있는 바닥 교체 | Toe kick D&R 또는 R&R | 캐비닛 LF | 확인 |
@@ -56,6 +56,17 @@ bid로 처리하지 않는 방에만 적용한다. 각 규칙의 형식은 다�
 | W9 | 보험사가 실제와 다른 바닥재로 값을 매김(예: 실제 LVP·hardwood인데 laminate) | 사용자에게 층별 실제 바닥재를 확인하고, 보험사 줄(Remove/Replace)의 코드를 실제 재질로 바꾼다(REVISED + 메모). 철거 수량이 F보다 작으면 F로 올리고, 설치 수량이 F보다 크면 보험사 수량을 그대로 둔다. WM scope의 재질 표시(Wood/Engineered 등)는 참고만 한다. 코드: LVP `FCV PLK`(Vinyl plank flooring), solid hardwood `FCW AV`(Oak #1 common, 무마감) + `FCW FIN`(Sand & finish, natural) / `FCW AVPF`(pre-finished), engineered floating `FCW LAMTF` | 그 방 F | 확인 (Birkdale 2026-11-23: kitchen 층 LVP, 그 위층 hardwood) |
 | W10 | 한 층의 바닥재가 이어져 있다(같은 LVP나 hardwood가 방마다 끊기지 않음) | 피해 방만이 아니라 **그 층의 모든 방**에 바닥 R&R을 넣는다. 보험사 줄이 있는 방은 W9처럼 코드를 바꾸고, 줄이 없는 방은 R&R(&) 한 줄을 F로 새로 넣는다. 무마감 hardwood(`FCW AV`)면 방마다 `FCW FIN`도 F로 넣는다. 타일 욕실처럼 바닥재가 다른 방은 뺀다. 스케치에서 closet을 bedroom에 합쳐 두었으면(subroom) bedroom의 F에 closet이 들어 있으니 closet 줄을 따로 넣지 않는다 | 방마다 F | 확인 (사용자 2026-11-24, Birkdale: Main Level 전체 LVP R&R, Level 2 전체 hardwood R&R, Master Bath 제외) |
 
+## 3-1. Trim (Baseboard, Quarter round)
+mitigation 때 baseboard·QR 일부를 이미 뜯은 경우가 많다. 뜯은 LF는 SKILL.md 1단계 3번(WM scope·sketch)에서 방별로 확인한다(사용자 2026-11-25).
+
+| # | 조건 | 조치 | 수량 | 확신도 |
+|---|---|---|---|---|
+| T1 | **wood 바닥**(hardwood, engineered 등) R&R → baseboard·QR 전체 교체 | R&R(&) 한 줄 대신 **Remove(-) 줄과 Replace(+) 줄을 따로** 넣는다(baseboard `FNC B3`, QR `FNC QR` 각각). Remove는 이미 demo된 LF를 뺀 값, Replace는 전체. 예: PF 100인 방에서 baseboard·QR 30 LF가 이미 demo됐으면 Remove 70, Replace 100. demo가 없으면 Remove = Replace = PF. seal & paint는 C3(전체 PF) | Remove = PF − demo LF, Replace = PF | 높음 (demo LF를 모르면 중간) |
+| T2 | **wood가 아닌 바닥**(tile, carpet, laminate) 교체 | Baseboard·QR R&R은 넣지 않는다. **demo된 LF만 Replace(+)** 하고, **전체 PF를 paint** 한다. paint 코드는 C3와 같다(baseboard+QR이면 `PNT BCS1SP`, baseboard만이면 `PNT B1SP`) | Replace = demo LF, paint = PF | 높음 (demo LF를 모르면 중간) |
+
+- **보험사가 이미 준 줄:** 보험사가 R&R을 PF 전체로 줬으면 줄이지 않고 그대로 둔다(위 "보험사가 충분히 준 것은 고치지 않는다"). Remove/Replace로 나누는 것은 우리가 새로 넣거나 REVISED로 바꾸는 줄에만 한다. 보험사 줄이 모자라면(+만 있음, 수량이 PF보다 작음) REVISED + 새 줄로 T1·T2 형식에 맞춘다.
+- **검토 표:** 방마다 demo LF와 그 출처(WM scope 항목 또는 sketch demolition zone)를 같이 적는다. demo LF를 찾지 못했으면 '중간'으로 두고 0으로 계산했다고 적는다.
+
 ## 4. Drywall
 | # | 조건 | 조치 | 수량 | 확신도 |
 |---|---|---|---|---|
@@ -63,6 +74,7 @@ bid로 처리하지 않는 방에만 적용한다. 각 규칙의 형식은 다�
 | D2 | 기존 벽에 텍스처가 있음 | 텍스처를 맞추는 줄 추가 | 교체 SF | 확인 |
 
 ## 5. 견적 전체
+- **Final cleaning:** 모든 방에 `CLN FCR` Final cleaning - construction - Residential(SF, 수량 F)을 **꼭** 넣는다(사용자 2026-11-25). 보험사 견적에 이미 있으면 그대로 두고, 없는 방에만 추가한다. 코드가 검색되지 않으면 description으로 찾는다. bid로 바꾼 방은 bid 견적에 cleaning이 들어 있는지 보고, 모르면 검토 표에 '확인'으로 올린다.
 - O&P를 15% / 10%(전체 적용)로 바꾼다. 보험사 PDF가 다른 비율이어도 바꾼다.
 - Contents 사이즈는 SF로 정한다(≤200 Small, ≤400 Medium, ≤750 Large). 보험사가 더 큰 사이즈를 줬으면 그대로 둔다.
 - 보험사 PDF의 mitigation 인보이스 줄(예: USR MISC "... Mitigation Invoice")은 supplement 견적에 넣지 않는다(사용자 2026-11-22, Cardinal Hill). 이미 빠져 있으면 다시 넣지 않는다. 아직 있으면 검토 표에 "삭제"로 올려 승인받고 뺀다.
