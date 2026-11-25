@@ -77,7 +77,7 @@ _SKIP_SECTIONS = re.compile(r"^(labor minimums applied|water mitigation)$", re.I
 # What is done, at the front ("R&R Baseboard") or the end ("Mirror - Detach & reset")
 _ACTIONS = [
     ("replace", r"r\s*&\s*r|remove\s*(?:&|and)\s*replace|replace"),
-    ("detach", r"detach\s*(?:&|and)\s*reset"),
+    ("detach", r"(?:detach|remove)\s*(?:&|and)\s*reset"),
     ("remove", r"remove|tear\s*out"),
     ("install", r"install|material only|labor only"),
 ]
@@ -142,6 +142,38 @@ def is_rebuild_line(description: str) -> bool:
     return bool(desc.strip()) and not _MITIGATION.search(desc) and not _LABOR_MIN.search(desc)
 
 
+# The surfaces a paint line is read as, in the order they are listed: the
+# estimate's wording ("Seal/prime (1 coat) then paint (1 coat) the surface
+# area", "part of the walls") says no more than that (owner, 2026-11-25)
+PAINT_SURFACES = [
+    ("walls", re.compile(r"\bwalls?\b", re.IGNORECASE)),
+    ("ceiling", re.compile(r"\bceilings?\b", re.IGNORECASE)),
+    ("baseboard", re.compile(r"baseboard|\bbase\b(?! shoe)", re.IGNORECASE)),
+    ("trim", re.compile(r"\btrim\b|casing|crown|quarter round|base shoe|shoe mo(?:u)?ld|chair rail|"
+                        r"door opening|\bjambs?\b|molding|moulding", re.IGNORECASE)),
+    ("doors", re.compile(r"\bdoors?\b(?! opening)|door slab", re.IGNORECASE)),
+    ("windows", re.compile(r"\bwindows?\b", re.IGNORECASE)),
+    ("cabinets", re.compile(r"cabinet", re.IGNORECASE)),
+    ("railing", re.compile(r"railing|handrail|balust", re.IGNORECASE)),
+    ("floor", re.compile(r"\bfloors?\b", re.IGNORECASE)),
+]
+# A surface named only this way says nothing: it is left out
+_VAGUE_SURFACE = re.compile(r"surface|\barea\b|paint|\bseal|prime|\brest\b|repair", re.IGNORECASE)
+
+
+def paint_surfaces(description: str) -> List[str]:
+    """The standard surfaces a paint line covers: 'Seal/prime then paint the
+    walls and ceiling' -> ['walls', 'ceiling']. A line that names none reads
+    as its own words when they are short and say something, else as nothing."""
+    found = [name for name, rx in PAINT_SURFACES if rx.search(description or "")]
+    if found:
+        return found
+    other = _paint_surface(description)
+    if other and len(other.split()) <= 3 and not _VAGUE_SURFACE.search(other):
+        return [other]
+    return []
+
+
 def _paint_surface(description: str) -> str:
     """'Seal/prime then paint the walls twice (3 coats)' -> 'walls'"""
     desc = re.split(r"\s+-\s+", re.sub(r"\s+", " ", description or "").strip(), maxsplit=1)[0]
@@ -157,16 +189,52 @@ def _paint_surface(description: str) -> str:
     return _lower_first(obj) if obj else ""
 
 
+# Trades read as one phrase per action, and two or more items detached &
+# reset by the trade's name: "Detach & reset appliances" (owner, 2026-11-25)
+COLLECTIVE = {"Appliances": "appliances", "Plumbing": "plumbing fixtures"}
+
+
+def _verb_of(acts: set) -> str:
+    if "replace" in acts or ("remove" in acts and "install" in acts):
+        return "replace"
+    return next(a for a in ("detach", "remove", "install") if a in acts)
+
+
+def _and_list(items: List[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} & {items[-1]}"
+
+
+def _collective_phrases(trade: str, order: List[str], actions: Dict[str, set], names: Dict[str, str]) -> List[str]:
+    """'Replace sink & angle stop valve', 'Detach & reset plumbing fixtures'"""
+    groups: Dict[str, List[str]] = {}
+    for key in order:
+        verb = _verb_of(actions[key])
+        # A new sink or range in a rebuild takes the old one's place
+        groups.setdefault("replace" if verb == "install" else verb, []).append(_lower_first(names[key]))
+    words = {"replace": "Replace", "install": "Install", "remove": "Remove", "detach": "Detach & reset"}
+    out = []
+    for verb in ("replace", "install", "remove", "detach"):
+        items = groups.get(verb)
+        if not items:
+            continue
+        if verb == "detach" and len(items) > 1:
+            out.append(f"Detach & reset {COLLECTIVE[trade]}")
+        else:
+            out.append(f"{words[verb]} {_and_list(items)}")
+    return out
+
+
 def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
     """What is done in a trade, each item once, in the estimate's order.
     An item both removed and put in new reads as replaced."""
     if trade == "Paint":
-        out: List[str] = []
+        found: List[str] = []
         for d in descriptions:
-            surface = _paint_surface(d)
-            if surface and surface.lower() not in {s.lower() for s in out}:
-                out.append(surface)
-        return out
+            for surface in paint_surfaces(d):
+                if surface.lower() not in {s.lower() for s in found}:
+                    found.append(surface)
+        rank = {name: i for i, (name, _) in enumerate(PAINT_SURFACES)}
+        return sorted(found, key=lambda x: rank.get(x, len(rank)))
 
     order: List[str] = []
     actions: Dict[str, set] = {}
@@ -181,6 +249,9 @@ def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
             actions[key] = set()
             names[key] = obj
         actions[key].add(action)
+
+    if trade in COLLECTIVE:
+        return _collective_phrases(trade, order, actions, names)
 
     out = []
     for key in order:
@@ -206,8 +277,7 @@ _FLOOR_PART = re.compile(
     re.IGNORECASE,
 )
 # Paint that only touches trim goes with the floor too; walls or ceilings make it a paint job
-_TRIM_SURFACE = re.compile(r"^(?:baseboard|base|quarter round|base shoe|shoe mo(?:u)?ld|trim|casing)s?$",
-                           re.IGNORECASE)
+_TRIM_SURFACES = {"baseboard", "trim"}
 # Words a flooring line can do without: "pre-finished solid wood flooring" -> "solid wood flooring"
 _FLOOR_WORDS = [
     (re.compile(r"\bpre-?finished\s+", re.IGNORECASE), ""),
@@ -227,8 +297,8 @@ def _floor_part(trade: str, description: str, trim_paint_only: bool) -> bool:
 
 def _floor_part_phrase(trade: str, description: str) -> str:
     if trade == "Paint":
-        surface = _paint_surface(description)
-        return f"paint {surface}" if surface else ""
+        surfaces = paint_surfaces(description)
+        return f"paint {_and_list(surfaces)}" if surfaces else ""
     action, obj = split_action(description)
     obj = _lower_first(obj)
     return f"detach & reset {obj}" if action == "detach" else obj
@@ -246,8 +316,8 @@ def _fold_into_flooring(by_trade: Dict[str, List[str]]) -> Optional[str]:
     for the rest. None when there's no floor to fold into."""
     if "Flooring" not in by_trade:
         return None
-    surfaces = [_paint_surface(d) for d in by_trade.get("Paint", [])]
-    trim_paint_only = bool(surfaces) and all(s and _TRIM_SURFACE.match(s) for s in surfaces)
+    surfaces = [s for d in by_trade.get("Paint", []) for s in paint_surfaces(d)]
+    trim_paint_only = bool(surfaces) and set(surfaces) <= _TRIM_SURFACES
 
     floor = [d for d in by_trade["Flooring"] if not _floor_part("Flooring", d, False)]
     if not floor:
@@ -280,6 +350,23 @@ def _fold_into_flooring(by_trade: Dict[str, List[str]]) -> Optional[str]:
     return f"{line} (incl. {', '.join(parts)})" if parts else line
 
 
+def _drop_painted_trim(by_trade: Dict[str, List[str]]) -> None:
+    """A baseboard (or other trim) the Paint line lists is not listed again
+    under Trim: "Paint: walls, ceiling, baseboard" says it (owner, 2026-11-25)"""
+    painted = {s for d in by_trade.get("Paint", []) for s in paint_surfaces(d)}
+    if not painted or "Trim" not in by_trade:
+        return
+    keep = []
+    for d in by_trade["Trim"]:
+        surfaces = [name for name, rx in PAINT_SURFACES if rx.search(split_action(d)[1])]
+        if not (surfaces and set(surfaces) <= painted):
+            keep.append(d)
+    if keep:
+        by_trade["Trim"] = keep
+    else:
+        by_trade.pop("Trim")
+
+
 def summarize_room(descriptions: Iterable[str]) -> List[Dict[str, Any]]:
     """[{trade, items: [phrase]}] for one room's line descriptions, trades in
     the order the work is done. A new floor takes what goes in with it into
@@ -289,6 +376,7 @@ def summarize_room(descriptions: Iterable[str]) -> List[Dict[str, Any]]:
         if is_rebuild_line(d):
             by_trade.setdefault(trade_of(d), []).append(d)
     flooring = _fold_into_flooring(by_trade)
+    _drop_painted_trim(by_trade)
     rank = {name: i for i, name in enumerate(DISPLAY_ORDER)}
     result = []
     for trade in sorted(by_trade, key=lambda t: rank.get(t, len(rank))):

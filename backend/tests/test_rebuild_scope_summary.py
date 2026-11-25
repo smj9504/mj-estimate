@@ -61,7 +61,8 @@ def test_summarize_estimate():
     kitchen = {t["trade"]: t["items"] for t in result["areas"][0]["trades"]}
     assert kitchen["Drywall"] == ['Replace 1/2" drywall', "Texture drywall"]
     assert kitchen["Paint"] == ["walls", "ceiling", "baseboard"]
-    assert kitchen["Trim"] == ["Replace baseboard"]
+    # The baseboard is painted: Paint lists it, Trim doesn't again
+    assert "Trim" not in kitchen
     assert kitchen["Flooring"] == ["Replace vinyl flooring"]
     assert kitchen["Appliances"] == ["Detach & reset range"]
     assert list(kitchen)[0] == "Protection"
@@ -101,7 +102,7 @@ def test_what_goes_in_with_a_new_floor_reads_on_its_flooring_line():
     }
 
 
-def test_wall_paint_and_a_new_baseboard_stay_lines_of_their_own():
+def test_wall_paint_stays_a_line_of_its_own():
     room = _room(
         "Remove Carpet", "Carpet", "Remove Carpet pad", "Carpet pad", "Transition strip",
         "Seal/prime then paint the walls (2 coats)", "Paint baseboard - two coats",
@@ -109,9 +110,46 @@ def test_wall_paint_and_a_new_baseboard_stay_lines_of_their_own():
     )
     assert room["Flooring"] == ["Replace carpet (incl. carpet pad, transition strip)"]
     assert room["Paint"] == ["walls", "baseboard"]
-    assert room["Trim"] == ["Replace baseboard"]
+    assert "Trim" not in room  # painted, so the Paint line says it
 
 
 def test_without_a_new_floor_nothing_is_folded():
     room = _room('R&R Quarter round - 3/4"', "Paint quarter round", "R&R Vapor barrier - 6 mil poly")
-    assert room == {"Insulation": ["Replace vapor barrier"], "Paint": ["quarter round"], "Trim": ["Replace quarter round"]}
+    assert room == {"Insulation": ["Replace vapor barrier"], "Paint": ["trim"]}
+
+
+def test_paint_reads_as_its_surfaces_and_painted_baseboard_is_not_listed_again():
+    room = _room(
+        "Seal/prime (1 coat) then paint (1 coat) the surface area",
+        "Paint part of the ceiling - two coats",
+        "Paint part of the walls - two coats",
+        "Seal & paint baseboard - two coats",
+        "Paint baseboard - two coats",
+        'R&R Baseboard - 3 1/4"',
+    )
+    assert room == {"Paint": ["walls", "ceiling", "baseboard"]}
+
+
+def test_appliances_detached_and_reset_read_as_one():
+    room = _room(
+        "Detach & Reset Microwave oven - over range",
+        "Refrigerator - Remove & reset",
+        "Detach & Reset Range - electric",
+        "Detach & Reset Dishwasher",
+    )
+    assert room == {"Appliances": ["Detach & reset appliances"]}
+
+
+def test_plumbing_reads_as_one_line():
+    room = _room(
+        "Sink - double basin",
+        "Detach & Reset Sink faucet - Kitchen",
+        "Detach & Reset Garbage disposal / disposer",
+        "Detach & Reset P-trap assembly - ABS (plastic)",
+        "R&R Angle stop valve",
+    )
+    assert room == {"Plumbing": ["Replace sink & angle stop valve", "Detach & reset plumbing fixtures"]}
+
+
+def test_a_single_fixture_keeps_its_name():
+    assert _room("Detach & Reset Toilet") == {"Plumbing": ["Detach & reset toilet"]}
