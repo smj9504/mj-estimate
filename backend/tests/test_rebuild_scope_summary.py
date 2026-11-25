@@ -79,7 +79,7 @@ def test_summarize_estimate():
     # and the haul
     assert result["skipped_count"] == 6
     assert result["line_count"] == 19
-    assert result["text"].startswith("[Main Level]\nKitchen\nReplace drywall, Paint(walls, ceiling, baseboard)")
+    assert result["text"].startswith("[Main Level]\nKitchen\nReplace drywall, Paint walls & ceiling")
     assert "[Basement]\nFamily Room\nReplace carpet" in result["text"]
 
 
@@ -354,5 +354,17 @@ def test_a_room_reads_as_its_name_and_one_line_of_work():
     assert result["text"] == (
         "Basement Living Space\n"
         "Replace insulation, Replace drywall, "
-        "Paint(walls, ceiling, baseboard), Replace carpet"
+        "Paint walls & ceiling, Replace carpet"
     )
+
+
+def test_paint_reads_as_plain_words():
+    from app.domains.rebuild.scope_summary import paint_phrase
+
+    # Baseboard and trim go unsaid when the walls are painted
+    assert paint_phrase(["walls", "ceiling", "baseboard"]) == "Paint walls & ceiling"
+    assert paint_phrase(["walls", "ceiling", "baseboard", "doors"]) == "Paint walls, ceiling & doors"
+    assert paint_phrase(["walls"]) == "Paint walls"
+    # Painted alone, they're named
+    assert paint_phrase(["baseboard"]) == "Paint baseboard"
+    assert paint_phrase(["baseboard", "trim"]) == "Paint baseboard & trim"

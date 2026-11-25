@@ -5,11 +5,11 @@ completion paperwork (COC, the completion package for the carrier).
 The estimate PDF is read into rooms and their lines
 (insurance_extraction/parsers/xactimate_reference_parser.parse_estimate).
 Each room's lines are sorted into trades and each line is cut down to what
-is done to what ("Replace baseboard", "Paint(walls, ceiling)"), so a room
+is done to what ("Replace baseboard", "Paint walls & ceiling"), so a room
 reads as its name and one line of work:
 
     Kitchen
-    Replace drywall, Paint(walls, ceiling), Replace vinyl flooring
+    Replace drywall, Paint walls & ceiling, Replace vinyl flooring
 
 It is a draft: the office reads it against the PDF and edits it before it
 is saved on the project. Water mitigation lines (drying equipment, wet
@@ -602,13 +602,20 @@ def summarize_estimate(parsed: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def paint_phrase(surfaces: List[str]) -> str:
+    """'Paint walls & ceiling' (owner, 2026-11-25): the baseboard and trim
+    painted with the walls go unsaid; painted alone, they're named"""
+    shown = [s for s in surfaces if s not in _TRIM_SURFACES] or list(surfaces)
+    return f"Paint {_and_list(shown)}" if shown else "Paint"
+
+
 def _area_line(trades: List[Dict[str, Any]]) -> str:
     """A room's work in one line (owner, 2026-11-25): "Replace insulation,
-    Replace drywall, Paint(walls, ceiling), Replace carpet" """
+    Replace drywall, Paint walls & ceiling, Replace carpet" """
     parts: List[str] = []
     for t in trades:
         if t["trade"] == "Paint":
-            parts.append(f"Paint({', '.join(t['items'])})")
+            parts.append(paint_phrase(t["items"]))
         else:
             parts.extend(t["items"])
     return ", ".join(parts)
