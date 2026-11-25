@@ -62,7 +62,7 @@ def test_a_line_is_priced_at_its_rcv_else_quantity_times_price():
 def test_one_line_per_room_with_its_scope_and_rcv():
     lines = billed_areas(estimate())
     assert lines == [
-        {"name": "Kitchen", "description": "Replace cabinets, Detach & reset countertop", "amount": 1500.00},
+        {"name": "Kitchen", "description": "Replace cabinets, D&R countertop", "amount": 1500.00},
         # The closet (a subroom) with its room; drying equipment left out
         {"name": "Family Room", "description": "Replace carpet", "amount": 600.00},
         # Debris is billed though the scope doesn't list it; labor minimums
@@ -296,7 +296,7 @@ def test_the_invoice_is_made_dated_the_completion_day_and_kept_as_its_pdf(env):
     assert float(invoice.balance_due) == 350.00
     items = env.db.query(InvoiceItem).filter(InvoiceItem.invoice_id == invoice.id).order_by(InvoiceItem.order_index).all()
     assert [(i.name, i.description, float(i.amount)) for i in items] == [
-        ("Kitchen", "Kitchen: Replace cabinets, Detach & reset countertop", 1500.00),
+        ("Kitchen", "Kitchen: Replace cabinets, D&R countertop", 1500.00),
         ("Family Room", "Family Room: Replace carpet", 600.00),
         (ADJUSTMENT_LINE, ADJUSTMENT_LINE, 250.00),
     ]

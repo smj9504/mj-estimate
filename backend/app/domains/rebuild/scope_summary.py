@@ -9,7 +9,7 @@ is done to what ("Replace baseboard", "Paint(walls, ceiling)"), so a room
 reads as its name and one line of work:
 
     Kitchen
-    Replace drywall (incl. texture), Paint(walls, ceiling), Replace vinyl flooring
+    Replace drywall, Paint(walls, ceiling), Replace vinyl flooring
 
 It is a draft: the office reads it against the PDF and edits it before it
 is saved on the project. Water mitigation lines (drying equipment, wet
@@ -101,7 +101,9 @@ _ACTIONS = [
 ]
 _PREFIX = [(key, re.compile(rf"^(?:{rx})\b[\s\-:]*", re.IGNORECASE)) for key, rx in _ACTIONS]
 _SUFFIX = [(key, re.compile(rf"\s*-\s*(?:{rx})\s*$", re.IGNORECASE)) for key, rx in _ACTIONS]
-_VERB = {"replace": "Replace", "detach": "Detach & reset", "remove": "Remove", "install": ""}
+# Detach & reset reads as D&R, as on the estimate's own shorthand (owner, 2026-11-25)
+DETACH_RESET = "D&R"
+_VERB = {"replace": "Replace", "detach": DETACH_RESET, "remove": "Remove", "install": ""}
 
 _PAINT_VERB = re.compile(
     r"^\s*(?:(?:seal|primer|prime|paint|stain|finish|then|and|the)\b|[&/\-])\s*", re.IGNORECASE)
@@ -229,7 +231,7 @@ def _paint_surface(description: str) -> str:
 
 
 # Trades read as one phrase per action, and two or more items detached &
-# reset by the trade's name: "Detach & reset appliances" (owner, 2026-11-25)
+# reset by the trade's name: "D&R appliances" (owner, 2026-11-25)
 COLLECTIVE = {
     "Tile": "tile", "Trim": "trim", "Doors": "doors", "Windows & coverings": "window coverings",
     "Appliances": "appliances", "Plumbing": "plumbing fixtures",
@@ -254,7 +256,7 @@ _WORK_NAME = re.compile(
 
 
 def _collective_phrases(trade: str, order: List[str], actions: Dict[str, set], names: Dict[str, str]) -> List[str]:
-    """'Replace sink & angle stop valve', 'Detach & reset plumbing fixtures'"""
+    """'Replace sink & angle stop valve', 'D&R plumbing fixtures'"""
     groups: Dict[str, List[str]] = {}
     for key in order:
         if _WORK_NAME.match(names[key]):
@@ -264,7 +266,7 @@ def _collective_phrases(trade: str, order: List[str], actions: Dict[str, set], n
         verb = _verb_of(actions[key])
         # A new sink or range in a rebuild takes the old one's place
         groups.setdefault("replace" if verb == "install" else verb, []).append(_lower_first(names[key]))
-    words = {"replace": "Replace", "install": "Install", "remove": "Remove", "detach": "Detach & reset"}
+    words = {"replace": "Replace", "install": "Install", "remove": "Remove", "detach": DETACH_RESET}
     out = []
     for verb in ("replace", "install", "remove", "work", "detach"):
         items = groups.get(verb)
@@ -273,7 +275,7 @@ def _collective_phrases(trade: str, order: List[str], actions: Dict[str, set], n
         if verb == "work":
             out.append(_cap_first(_and_list(items)))
         elif verb == "detach" and len(items) > 1:
-            out.append(f"Detach & reset {COLLECTIVE[trade]}")
+            out.append(f"{DETACH_RESET} {COLLECTIVE[trade]}")
         else:
             out.append(f"{words[verb]} {_and_list(items)}")
     return out
@@ -313,7 +315,7 @@ def _part_phrases(groups: List[Tuple[str, re.Pattern]], order: List[str], action
         if "replace" in a or ("remove" in a and "install" in a):
             verb = "Replace"
         elif "detach" in a:
-            verb = "Detach & reset"
+            verb = DETACH_RESET
         elif "remove" in a:
             verb = "Remove"
         else:
@@ -326,7 +328,9 @@ _DRYWALL_FINISH = re.compile(r"texture|popcorn|acoustic|\btape\b|\bfloat|skim|co
 
 
 def _drywall_phrases(order: List[str], actions: Dict[str, set], names: Dict[str, str]) -> List[str]:
-    """'Replace drywall (incl. acoustic ceiling texture)': the board once,
+    """'Replace drywall': the board once, whatever its thickness; its finish
+    (texture, tape) goes with it unsaid (owner, 2026-11-25), and only finish
+    work alone reads as itself. The board once,
     whatever its thickness, with its finish (owner, 2026-11-25)"""
     board: set = set()
     finish: List[str] = []
@@ -344,11 +348,11 @@ def _drywall_phrases(order: List[str], actions: Dict[str, set], names: Dict[str,
     if "replace" in board or "install" in board:
         verb = "Replace"
     elif "detach" in board:
-        verb = "Detach & reset"
+        verb = DETACH_RESET
     else:
         verb = "Remove"
     line = f"{verb} drywall"
-    return [f"{line} (incl. {', '.join(finish)})" if finish else line]
+    return [line]
 
 
 def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
@@ -403,7 +407,7 @@ def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
 
 
 # What goes in with a new floor: read as part of the Flooring line
-# ("Replace solid wood flooring (incl. vapor barrier, quarter round)") rather
+# ("Replace solid wood flooring" says the vapor barrier and quarter round) rather
 # than lines of their own (owner, 2026-11-25)
 _FLOOR_PART = re.compile(
     r"quarter round|base shoe|shoe mo(?:u)?ld|transition|threshold|reducer|t-mo(?:u)?ld|stair nose|"
@@ -447,8 +451,8 @@ def _simplify_floor(phrase: str) -> str:
 
 def _fold_into_flooring(by_trade: Dict[str, List[str]]) -> Optional[str]:
     """When a room gets a new floor, take what goes in with it out of the
-    other trades and return the Flooring line: the floor, then "(incl. ...)"
-    for the rest. None when there's no floor to fold into."""
+    other trades and return the Flooring line: the floor alone, what goes in
+    with it understood. None when there's no floor to fold into."""
     if "Flooring" not in by_trade:
         return None
     surfaces = [s for d in by_trade.get("Paint", []) for s in paint_surfaces(d)]
@@ -481,8 +485,8 @@ def _fold_into_flooring(by_trade: Dict[str, List[str]]) -> Optional[str]:
         phrase = _simplify_floor(phrase)
         if phrase.lower() not in {m.lower() for m in main}:
             main.append(phrase)
-    line = ", ".join(main)
-    return f"{line} (incl. {', '.join(parts)})" if parts else line
+    # What goes in with it is understood, not listed (owner, 2026-11-25)
+    return ", ".join(main)
 
 
 def _drop_painted_trim(by_trade: Dict[str, List[str]]) -> None:
@@ -600,8 +604,7 @@ def summarize_estimate(parsed: Dict[str, Any]) -> Dict[str, Any]:
 
 def _area_line(trades: List[Dict[str, Any]]) -> str:
     """A room's work in one line (owner, 2026-11-25): "Replace insulation,
-    Replace drywall (incl. acoustic ceiling texture), Paint(walls, ceiling),
-    Replace carpet (incl. carpet pad)" """
+    Replace drywall, Paint(walls, ceiling), Replace carpet" """
     parts: List[str] = []
     for t in trades:
         if t["trade"] == "Paint":

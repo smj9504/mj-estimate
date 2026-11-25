@@ -155,7 +155,7 @@ def test_drafts_from_the_revision_asked_for(db):
 
     result = draft(project, negotiation_id=first.id, s=db)
 
-    assert result['text'] == 'Bathroom\nDetach & reset toilet'
+    assert result['text'] == 'Bathroom\nD&R toilet'
     assert result['source']['label'] == 'Rev #1 · Initial · Reconstruction'
 
 

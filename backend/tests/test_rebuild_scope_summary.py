@@ -60,18 +60,18 @@ def test_summarize_estimate():
     result = summarize_estimate(parsed)
     kitchen = {t["trade"]: t["items"] for t in result["areas"][0]["trades"]}
     # The board once, whatever its thickness, with its finish
-    assert kitchen["Drywall"] == ["Replace drywall (incl. texture)"]
+    assert kitchen["Drywall"] == ["Replace drywall"]
     assert kitchen["Paint"] == ["walls", "ceiling", "baseboard"]
     # The baseboard is painted: Paint lists it, Trim doesn't again
     assert "Trim" not in kitchen
     assert kitchen["Flooring"] == ["Replace vinyl flooring"]
-    assert kitchen["Appliances"] == ["Detach & reset range"]
+    assert kitchen["Appliances"] == ["D&R range"]
     # Floor protection: every rebuild has it
     assert "Protection" not in kitchen
     assert list(kitchen)[0] == "Drywall"
 
     family = {t["trade"]: t["items"] for t in result["areas"][1]["trades"]}
-    assert family == {"Flooring": ["Replace carpet (incl. carpet pad)"]}
+    assert family == {"Flooring": ["Replace carpet"]}
 
     # Debris Removal: hauling is what every job has, so the area has nothing to list
     assert [a["name"] for a in result["areas"]] == ["Kitchen", "Family Room"]
@@ -79,15 +79,15 @@ def test_summarize_estimate():
     # and the haul
     assert result["skipped_count"] == 6
     assert result["line_count"] == 19
-    assert result["text"].startswith("[Main Level]\nKitchen\nReplace drywall (incl. texture), Paint(walls, ceiling, baseboard)")
-    assert "[Basement]\nFamily Room\nReplace carpet (incl. carpet pad)" in result["text"]
+    assert result["text"].startswith("[Main Level]\nKitchen\nReplace drywall, Paint(walls, ceiling, baseboard)")
+    assert "[Basement]\nFamily Room\nReplace carpet" in result["text"]
 
 
 def test_single_level_has_no_level_heading():
     parsed = {"levels": [{"name": "Main Level", "rooms": [
         {"name": "Bathroom", "line_items": _items("Detach & Reset Toilet")},
     ]}]}
-    assert summarize_estimate(parsed)["text"] == "Bathroom\nDetach & reset toilet"
+    assert summarize_estimate(parsed)["text"] == "Bathroom\nD&R toilet"
 
 
 def _room(*descs):
@@ -103,7 +103,7 @@ def test_what_goes_in_with_a_new_floor_reads_on_its_flooring_line():
         'R&R Quarter round - 3/4" - hardwood',
     )
     assert room == {
-        "Flooring": ["Replace solid wood flooring (incl. vapor barrier, quarter round, paint baseboard)"],
+        "Flooring": ["Replace solid wood flooring"],
     }
 
 
@@ -113,7 +113,7 @@ def test_wall_paint_stays_a_line_of_its_own():
         "Seal/prime then paint the walls (2 coats)", "Paint baseboard - two coats",
         'R&R Baseboard - 3 1/4"',
     )
-    assert room["Flooring"] == ["Replace carpet (incl. carpet pad, transition strip)"]
+    assert room["Flooring"] == ["Replace carpet"]
     assert room["Paint"] == ["walls", "baseboard"]
     assert "Trim" not in room  # painted, so the Paint line says it
 
@@ -142,7 +142,7 @@ def test_appliances_detached_and_reset_read_as_one():
         "Detach & Reset Range - electric",
         "Detach & Reset Dishwasher",
     )
-    assert room == {"Appliances": ["Detach & reset appliances"]}
+    assert room == {"Appliances": ["D&R appliances"]}
 
 
 def test_plumbing_reads_as_one_line():
@@ -153,11 +153,11 @@ def test_plumbing_reads_as_one_line():
         "Detach & Reset P-trap assembly - ABS (plastic)",
         "R&R Angle stop valve",
     )
-    assert room == {"Plumbing": ["Replace sink & angle stop valve", "Detach & reset plumbing fixtures"]}
+    assert room == {"Plumbing": ["Replace sink & angle stop valve", "D&R plumbing fixtures"]}
 
 
 def test_a_single_fixture_keeps_its_name():
-    assert _room("Detach & Reset Toilet") == {"Plumbing": ["Detach & reset toilet"]}
+    assert _room("Detach & Reset Toilet") == {"Plumbing": ["D&R toilet"]}
 
 
 def test_electrical_reads_as_one_line():
@@ -168,7 +168,7 @@ def test_electrical_reads_as_one_line():
         "R&R Outlet",
         "R&R Smoke detector",
     )
-    assert room == {"Electrical": ["Replace outlet & smoke detector", "Detach & reset electrical fixtures"]}
+    assert room == {"Electrical": ["Replace outlet & smoke detector", "D&R electrical fixtures"]}
 
 
 def test_cabinet_parts_read_as_cabinets_and_the_countertop_once():
@@ -179,7 +179,7 @@ def test_cabinet_parts_read_as_cabinets_and_the_countertop_once():
         "Detach & Reset Countertop - flat laid plastic laminate",
         "Countertop - flat laid plastic laminate - end cap",
     )
-    assert room == {"Cabinets & countertops": ["Replace cabinets", "Detach & reset countertop"]}
+    assert room == {"Cabinets & countertops": ["Replace cabinets", "D&R countertop"]}
 
 
 def test_a_vanity_and_its_top_read_as_two():
@@ -251,7 +251,7 @@ def test_trim_reads_as_one_line():
         "Detach & Reset Window stool & apron",
         "Detach & Reset Baseboard - 3 1/4\"",
     )
-    assert room == {"Trim": ["Replace casing, crown molding & chair rail", "Detach & reset trim"]}
+    assert room == {"Trim": ["Replace casing, crown molding & chair rail", "D&R trim"]}
 
 
 def test_doors_read_as_one_line():
@@ -261,7 +261,7 @@ def test_doors_read_as_one_line():
         "Detach & Reset Bifold door set - Double",
         "Detach & Reset Door stop - wall or floor mounted",
     )
-    assert room == {"Doors": ["Replace interior door unit & door lockset", "Detach & reset doors"]}
+    assert room == {"Doors": ["Replace interior door unit & door lockset", "D&R doors"]}
 
 
 def test_windows_read_as_one_line():
@@ -272,7 +272,7 @@ def test_windows_read_as_one_line():
         "Detach & Reset Curtain rod",
         "Detach & Reset Window drapery - hardware",
     )
-    assert room == {"Windows & coverings": ["Replace vinyl window & window screen", "Detach & reset window coverings"]}
+    assert room == {"Windows & coverings": ["Replace vinyl window & window screen", "D&R window coverings"]}
 
 
 def test_tile_reads_as_one_line():
@@ -287,7 +287,7 @@ def test_tile_reads_as_one_line():
     assert room == {"Tile": [
         "Replace ceramic tile, cement board & tile edge trim",
         "Regrout tile",
-        "Detach & reset tile",
+        "D&R tile",
     ]}
 
 
@@ -315,9 +315,9 @@ def test_rooms_with_the_same_scope_read_once_and_a_subroom_joins_its_room():
     ))
     assert result["text"] == (
         "Family Room, Hallway/Living Room, Room\n"
-        "Replace solid wood flooring (incl. vapor barrier, quarter round, paint baseboard)\n\n"
+        "Replace solid wood flooring\n\n"
         "Bathroom\n"
-        "Detach & reset toilet"
+        "D&R toilet"
     )
 
 
@@ -332,7 +332,7 @@ def test_drywall_reads_once_with_its_finish():
         "Acoustic ceiling (popcorn) texture",
         'R&R 1/2" drywall - hung, taped, floated, ready for paint',
     )
-    assert room == {"Drywall": ["Replace drywall (incl. acoustic ceiling texture)"]}
+    assert room == {"Drywall": ["Replace drywall"]}
 
 
 def test_a_price_added_to_another_item_is_left_out():
@@ -353,6 +353,6 @@ def test_a_room_reads_as_its_name_and_one_line_of_work():
     ))))
     assert result["text"] == (
         "Basement Living Space\n"
-        "Replace insulation, Replace drywall (incl. acoustic ceiling texture), "
-        "Paint(walls, ceiling, baseboard), Replace carpet (incl. carpet pad)"
+        "Replace insulation, Replace drywall, "
+        "Paint(walls, ceiling, baseboard), Replace carpet"
     )
