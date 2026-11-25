@@ -745,7 +745,7 @@ class ScopeInvoiceService:
         Uses the same format as regular invoices: INV-{CompanyCode}-{Year}-{sequence}
         """
         from app.domains.company.repository import get_company_repository
-        from app.common.services.document_number_service import DocumentNumberService
+        from app.domains.invoice.numbering import next_company_invoice_number
 
         now = datetime.utcnow()
         year = str(now.year)
@@ -764,23 +764,7 @@ class ScopeInvoiceService:
 
         if company_code:
             # Company-specific numbering: INV-{CompanyCode}-{Year}-{sequence}
-            doc_service = DocumentNumberService(self.db)
-            count = doc_service.get_document_count_for_company('invoice', company_code)
-
-            sequence = count + 1
-            invoice_number = f"INV-{company_code}-{year}-{sequence}"
-
-            # Verify uniqueness
-            existing = self.db.query(Invoice).filter(
-                Invoice.invoice_number == invoice_number
-            ).first()
-            while existing:
-                sequence += 1
-                invoice_number = f"INV-{company_code}-{year}-{sequence}"
-                existing = self.db.query(Invoice).filter(
-                    Invoice.invoice_number == invoice_number
-                ).first()
-
+            invoice_number, _sequence = next_company_invoice_number(self.db, company_code, year)
             return invoice_number
         else:
             # Fallback to timestamp-based numbering

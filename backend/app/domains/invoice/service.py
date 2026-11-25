@@ -885,30 +885,13 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                     logger.error(f"Error fetching company for invoice number generation: {e}")
 
             if company_code:
-                # Company-specific numbering: INV-[CompanyCode]-[Year]-[Count+1]
-                prefix = f"INV-{company_code}-{year}-"
+                # Company-specific numbering: INV-[CompanyCode]-[Year]-[Sequence]
+                from app.domains.invoice.numbering import next_company_invoice_number
 
-                # Count existing invoices for this company in current year
-                with self.database.get_session() as session:
-                    repository = self._get_repository_instance(session)
-
-                    # Use document number service to get count
-                    from app.common.services.document_number_service import (
-                        DocumentNumberService,
+                with self.database.get_readonly_session() as session:
+                    invoice_number, sequence = next_company_invoice_number(
+                        session, company_code, year
                     )
-                    doc_service = DocumentNumberService(session)
-                    count = doc_service.get_document_count_for_company('invoice', company_code)
-
-                    sequence = count + 1
-                    invoice_number = f"INV-{company_code}-{year}-{sequence}"
-
-                    # Verify uniqueness
-                    existing = repository.get_by_invoice_number(invoice_number)
-                    while existing:
-                        sequence += 1
-                        invoice_number = f"INV-{company_code}-{year}-{sequence}"
-                        existing = repository.get_by_invoice_number(invoice_number)
-
                     return {
                         'invoice_number': invoice_number,
                         'sequence': sequence,
