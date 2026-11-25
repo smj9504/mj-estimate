@@ -153,3 +153,14 @@ def test_plumbing_reads_as_one_line():
 
 def test_a_single_fixture_keeps_its_name():
     assert _room("Detach & Reset Toilet") == {"Plumbing": ["Detach & reset toilet"]}
+
+
+def test_electrical_reads_as_one_line():
+    room = _room(
+        "Detach & Reset Outlet or switch cover",
+        "Detach & Reset Light fixture",
+        "Detach & Reset Ceiling fan & light",
+        "R&R Outlet",
+        "R&R Smoke detector",
+    )
+    assert room == {"Electrical": ["Replace outlet & smoke detector", "Detach & reset electrical fixtures"]}

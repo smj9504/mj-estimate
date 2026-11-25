@@ -191,7 +191,7 @@ def _paint_surface(description: str) -> str:
 
 # Trades read as one phrase per action, and two or more items detached &
 # reset by the trade's name: "Detach & reset appliances" (owner, 2026-11-25)
-COLLECTIVE = {"Appliances": "appliances", "Plumbing": "plumbing fixtures"}
+COLLECTIVE = {"Appliances": "appliances", "Plumbing": "plumbing fixtures", "Electrical": "electrical fixtures"}
 
 
 def _verb_of(acts: set) -> str:
