@@ -208,6 +208,12 @@ class RebuildCompletionDoc(Base, BaseModel):
     file_name = Column(String(500))
     file_url = Column(Text)
     mime_type = Column(String(100), default='application/pdf')
+    # The invoice this is the PDF of, when it was made from the estimate
+    # (rebuild/estimate_invoice.py); it can be printed again after edits
+    invoice_id = Column(
+        UUIDType(), ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True,
+        comment="The invoice this document is the PDF of",
+    )
 
     # Status
     status = Column(

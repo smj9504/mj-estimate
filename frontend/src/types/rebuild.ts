@@ -126,7 +126,21 @@ export interface RebuildCompletionDoc {
   file_url?: string;
   mime_type?: string;
   status: string;
+  /** The invoice this is the PDF of, when it was made from the estimate */
+  invoice_id?: string | null;
   created_at?: string;
+}
+
+/** What an invoice made from the insurance estimate will say (nothing saved) */
+export interface RebuildInvoicePreview {
+  source: { negotiation_id: string; label: string; document_name?: string | null };
+  /** One per room (its scope in one line), then the estimate's other areas */
+  lines: { name: string; description: string; amount: number }[];
+  total: number;
+  /** Already received: the deductible, prior payments, the ACV payment */
+  payments: { label: string; amount: number }[];
+  balance_due: number;
+  warnings: string[];
 }
 
 export interface RebuildDashboardStats {

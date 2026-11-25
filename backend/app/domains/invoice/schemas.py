@@ -80,6 +80,9 @@ class PaymentRecord(BaseModel):
     date: Optional[str] = Field(None, description="Payment date (YYYY-MM-DD, optional)")
     method: Optional[str] = Field(None, max_length=2, description="Payment method code (2 chars)")
     reference: Optional[str] = Field(None, description="Payment reference/memo")
+    # What the invoice calls the payment in place of "Payment" (an invoice
+    # made from an insurance estimate: "Deductible", "ACV payment")
+    label: Optional[str] = Field(None, max_length=60, description="Shown on the invoice in place of 'Payment'")
     top_note: Optional[str] = Field(None, description="Top note for receipt")
     bottom_note: Optional[str] = Field(None, description="Bottom note for receipt")
     receipt_number: Optional[str] = Field(None, description="Generated receipt number")

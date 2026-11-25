@@ -527,7 +527,7 @@
     {% if payments and payments|length > 0 %}
       {% for payment in payments %}
       <div class="total-row">
-        <span class="total-label">Payment{% if payment.date %} ({{ payment.date|format_date }}){% endif %}</span>
+        <span class="total-label">{{ payment.label or 'Payment' }}{% if payment.date %} ({{ payment.date|format_date }}){% endif %}</span>
         <span class="total-value">-${{ payment.amount|format_amount }}</span>
       </div>
       {% endfor %}

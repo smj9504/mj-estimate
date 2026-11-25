@@ -264,14 +264,12 @@ class RebuildService:
             .first()
         )
 
-    def draft_scope_from_estimate(self, project_id: str, negotiation_id: Optional[str] = None) -> Dict[str, Any]:
-        """A rough scope of work read from one of the claim's insurance
-        estimate PDFs: the one named, else the newest rebuild estimate (the
-        one the project page opens on). Nothing is saved; the office edits
-        the draft and saves it on the project with its source.
+    def _read_estimate(self, session, project_id: str, negotiation_id: Optional[str] = None):
+        """(project, revision, its PDF's file record, the parsed PDF) for one
+        of the project's claim's insurance estimates: the one named, else the
+        newest rebuild estimate (the one the project page opens on).
 
-        Raises LookupError when there is no estimate to read, ValueError
-        when its PDF has no lines that could be read."""
+        Raises LookupError when there is no estimate to read."""
         from app.domains.client.models import ClaimNegotiation
         from app.domains.insurance_extraction.parsers.xactimate_reference_parser import (
             count_line_items,
@@ -280,64 +278,76 @@ class RebuildService:
         )
         from app.domains.insurance_extraction.service import InsuranceExtractionService
         from app.domains.rebuild.models import RebuildProject
+
+        project = session.query(RebuildProject).filter(RebuildProject.id == str(project_id)).first()
+        if not project:
+            raise LookupError("Project not found")
+        claim_id = str(project.claim_id)
+        negotiations = session.query(ClaimNegotiation).filter(
+            ClaimNegotiation.claim_id == claim_id
+        ).all()
+
+        if negotiation_id:
+            neg = next((n for n in negotiations if str(n.id) == str(negotiation_id)), None)
+            if not neg:
+                raise LookupError("That estimate is not on this project's claim")
+            file_rec = self._estimate_file(session, neg, claim_id)
+        else:
+            def received(n):
+                when = n.date_received or n.created_at
+                return when.timestamp() if when else 0
+            # Newest first; a rebuild (non-WM) estimate before a WM-only one
+            ordered = sorted(negotiations, key=received, reverse=True)
+            ordered = (
+                [n for n in ordered if n.estimate_category != 'water_mitigation']
+                + [n for n in ordered if n.estimate_category == 'water_mitigation']
+            )
+            neg, file_rec = None, None
+            for n in ordered:
+                file_rec = self._estimate_file(session, n, claim_id)
+                if file_rec:
+                    neg = n
+                    break
+            if not neg:
+                raise LookupError("No insurance estimate PDF on this claim yet")
+        if not file_rec:
+            raise LookupError("This estimate has no PDF attached")
+
+        pdf_path, tmp_path = InsuranceExtractionService(session)._resolve_pdf_path(
+            file_rec.url, file_rec.storage_provider
+        )
+        try:
+            parsed = parse_estimate(pdf_path)
+            if not count_line_items(parsed):
+                # Some estimates print in a font pdfplumber reads as symbols
+                # (each character at 288 minus its code); the revised
+                # estimate reader gets their text back
+                from app.domains.client.negotiation_pdf_service import _extract_all_text
+
+                pages, legible = _extract_all_text(pdf_path)
+                if legible:
+                    parsed = parse_estimate_pages(pages)
+        finally:
+            if tmp_path:
+                try:
+                    Path(tmp_path).unlink()
+                except OSError:
+                    pass
+        return project, neg, file_rec, parsed
+
+    def draft_scope_from_estimate(self, project_id: str, negotiation_id: Optional[str] = None) -> Dict[str, Any]:
+        """A rough scope of work read from one of the claim's insurance
+        estimate PDFs: the one named, else the newest rebuild estimate (the
+        one the project page opens on). Nothing is saved; the office edits
+        the draft and saves it on the project with its source.
+
+        Raises LookupError when there is no estimate to read, ValueError
+        when its PDF has no lines that could be read."""
         from app.domains.rebuild.scope_summary import summarize_estimate
 
         session = self._rs()
         try:
-            project = session.query(RebuildProject).filter(RebuildProject.id == str(project_id)).first()
-            if not project:
-                raise LookupError("Project not found")
-            claim_id = str(project.claim_id)
-            negotiations = session.query(ClaimNegotiation).filter(
-                ClaimNegotiation.claim_id == claim_id
-            ).all()
-
-            if negotiation_id:
-                neg = next((n for n in negotiations if str(n.id) == str(negotiation_id)), None)
-                if not neg:
-                    raise LookupError("That estimate is not on this project's claim")
-                file_rec = self._estimate_file(session, neg, claim_id)
-            else:
-                def received(n):
-                    when = n.date_received or n.created_at
-                    return when.timestamp() if when else 0
-                # Newest first; a rebuild (non-WM) estimate before a WM-only one
-                ordered = sorted(negotiations, key=received, reverse=True)
-                ordered = (
-                    [n for n in ordered if n.estimate_category != 'water_mitigation']
-                    + [n for n in ordered if n.estimate_category == 'water_mitigation']
-                )
-                neg, file_rec = None, None
-                for n in ordered:
-                    file_rec = self._estimate_file(session, n, claim_id)
-                    if file_rec:
-                        neg = n
-                        break
-                if not neg:
-                    raise LookupError("No insurance estimate PDF on this claim yet")
-            if not file_rec:
-                raise LookupError("This estimate has no PDF attached")
-
-            pdf_path, tmp_path = InsuranceExtractionService(session)._resolve_pdf_path(
-                file_rec.url, file_rec.storage_provider
-            )
-            try:
-                parsed = parse_estimate(pdf_path)
-                if not count_line_items(parsed):
-                    # Some estimates print in a font pdfplumber reads as symbols
-                    # (each character at 288 minus its code); the revised
-                    # estimate reader gets their text back
-                    from app.domains.client.negotiation_pdf_service import _extract_all_text
-
-                    pages, legible = _extract_all_text(pdf_path)
-                    if legible:
-                        parsed = parse_estimate_pages(pages)
-            finally:
-                if tmp_path:
-                    try:
-                        Path(tmp_path).unlink()
-                    except OSError:
-                        pass
+            _, neg, file_rec, parsed = self._read_estimate(session, project_id, negotiation_id)
 
             summary = summarize_estimate(parsed)
             if not summary['areas']:

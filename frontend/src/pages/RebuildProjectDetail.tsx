@@ -13,7 +13,7 @@ import {
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
-  FilePdfOutlined, CameraOutlined, UploadOutlined, PlusOutlined, MoreOutlined,
+  FilePdfOutlined, CameraOutlined, UploadOutlined, PlusOutlined, MoreOutlined, FileTextOutlined,
   CheckCircleFilled, ExportOutlined, ArrowLeftOutlined, SwapOutlined, InboxOutlined, EditOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -28,6 +28,7 @@ import RebuildDocGenerator from '../components/rebuild/RebuildDocGenerator';
 import RebuildPhotoToPdf from '../components/rebuild/RebuildPhotoToPdf';
 import RebuildProjectEditModal from '../components/rebuild/RebuildProjectEditModal';
 import RebuildScopeSection from '../components/rebuild/RebuildScopeSection';
+import RebuildInvoiceFromEstimate from '../components/rebuild/RebuildInvoiceFromEstimate';
 import {
   REBUILD_STATUSES, REQUIRED_DOCS, DOC_TYPE_LABELS, RebuildStatusPill, rebuildStatusLabel,
   formatCurrency, completionDocPdfUrl, fileInlineUrl,
@@ -81,6 +82,7 @@ const RebuildProjectDetail: React.FC = () => {
   const [viewing, setViewing] = useState<Viewing | null>(null);
   const [docGeneratorOpen, setDocGeneratorOpen] = useState(false);
   const [photoToPdfOpen, setPhotoToPdfOpen] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [editing, setEditing] = useState<RebuildProject | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -227,9 +229,29 @@ const RebuildProjectDetail: React.FC = () => {
   // Completion documents
   // ------------------------------------------------------------------
 
+  // An invoice made from the estimate: print it again as edited on the Invoices page
+  const refreshInvoice = async (doc: RebuildCompletionDoc) => {
+    if (!project) return;
+    try {
+      await rebuildService.refreshInvoicePdf(project.id, doc.id);
+      message.success('Invoice PDF printed again');
+      refresh();
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Could not print the invoice again');
+    }
+  };
+
   const docMenu = (doc: RebuildCompletionDoc): MenuProps['items'] => {
     const url = completionDocPdfUrl(doc);
+    const invoiceItems: MenuProps['items'] = doc.invoice_id ? [
+      ...(canAccessPath('/invoices') ? [{
+        key: 'invoice', label: 'Open invoice',
+        onClick: () => navigate(`/invoices/${doc.invoice_id}/edit`),
+      }] : []),
+      { key: 'reprint', label: 'Print again from invoice', onClick: () => refreshInvoice(doc) },
+    ] : [];
     return [
+      ...invoiceItems,
       doc.status === 'sent'
         ? { key: 'unsent', label: 'Mark as not sent', onClick: () => setDocSent(doc, false) }
         : { key: 'sent', label: 'Mark as sent', onClick: () => setDocSent(doc, true) },
@@ -278,6 +300,22 @@ const RebuildProjectDetail: React.FC = () => {
           icon={<FilePdfOutlined />} onClick={() => setDocGeneratorOpen(true)}>
           {hasDocs ? 'Regenerate' : 'Generate'}
         </Button>
+      );
+    }
+    if (type === 'invoice') {
+      // Made from the insurance estimate; one from elsewhere can still be uploaded
+      return (
+        <span className="rb-check-actions">
+          <Button size={ctlSize} type={hasDocs ? 'text' : 'default'} className={hasDocs ? 'ui-icon-btn' : undefined}
+            icon={<FileTextOutlined />} onClick={() => setInvoiceOpen(true)} disabled={!latestEstimate}
+            title={latestEstimate ? undefined : 'No insurance estimate PDF on this claim yet'}>
+            {hasDocs ? 'Again from estimate' : 'From estimate'}
+          </Button>
+          <Button size={ctlSize} type="text" className="ui-icon-btn" icon={<UploadOutlined />}
+            onClick={() => openUpload(type)} aria-label="Upload an invoice">
+            {isPhone ? null : 'Upload'}
+          </Button>
+        </span>
       );
     }
     if (type === 'completion_photo') {
@@ -489,6 +527,8 @@ const RebuildProjectDetail: React.FC = () => {
           { key: 'final', label: 'Final invoice $', hideEmpty: true, value: amount(p.final_invoice_amount) },
           { key: 'start', label: 'Start', value: fmtDate(p.start_date) },
           { key: 'eta', label: 'Est. completion', value: fmtDate(p.estimated_completion) },
+          // The invoice made from the estimate is dated this day
+          { key: 'done', label: 'Completed', hideEmpty: true, value: fmtDate(p.actual_completion) || null },
           { key: 'priority', label: 'Priority', hideEmpty: true, value: p.priority && p.priority !== 'normal' ? humanize(p.priority) : null },
           { key: 'notes', label: 'Notes', hideEmpty: true, value: p.notes ? <span className="rb-prewrap">{p.notes}</span> : null },
         ]}
@@ -588,6 +628,14 @@ const RebuildProjectDetail: React.FC = () => {
         open={docGeneratorOpen}
         project={project}
         onClose={() => setDocGeneratorOpen(false)}
+        onSuccess={onDocCreated}
+      />
+      <RebuildInvoiceFromEstimate
+        open={invoiceOpen}
+        project={project}
+        versions={versions}
+        latestEstimate={latestEstimate}
+        onClose={() => setInvoiceOpen(false)}
         onSuccess={onDocCreated}
       />
       <RebuildPhotoToPdf

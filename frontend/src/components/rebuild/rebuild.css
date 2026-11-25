@@ -991,3 +991,80 @@ button.rb-photo-source:focus-visible {
   font-size: 14px;
   line-height: 1.6;
 }
+
+/* Invoice from the insurance estimate: the estimate and the completion day,
+   then one line per room and what is already paid */
+.rb-check-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.rb-inv {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rb-inv-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 12px;
+}
+.rb-inv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rb-inv-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-neutral-700);
+}
+.rb-inv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.rb-inv-table td {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+  vertical-align: top;
+}
+.rb-inv-table td.rb-num {
+  padding-left: 16px;
+  text-align: right;
+  white-space: nowrap;
+}
+.rb-inv-room {
+  display: block;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.rb-inv-scope {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rb-inv-total td {
+  font-weight: 600;
+  border-bottom-color: var(--color-neutral-400);
+}
+.rb-inv-paid td {
+  color: var(--color-neutral-600);
+}
+.rb-inv-balance td {
+  font-weight: 600;
+  font-size: 15px;
+  border-bottom: none;
+}
+.rb-inv-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+@media (max-width: 575.98px) {
+  .rb-inv-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

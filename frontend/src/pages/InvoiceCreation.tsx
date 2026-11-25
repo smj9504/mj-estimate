@@ -144,6 +144,8 @@ interface PaymentRecord {
   top_note?: string;
   bottom_note?: string;
   receipt_number?: string;  // Track if receipt was generated for this payment
+  /** Shown on the invoice in place of "Payment" (an invoice made from an insurance estimate) */
+  label?: string;
 }
 
 interface Adjustment {
@@ -1442,7 +1444,9 @@ const InvoiceCreation: React.FC = () => {
         reference: payment.reference || '',
         top_note: payment.top_note || '',
         bottom_note: payment.bottom_note || '',
-        receipt_number: payment.receipt_number || undefined
+        receipt_number: payment.receipt_number || undefined,
+        // What an invoice made from an insurance estimate calls it ("Deductible")
+        label: payment.label || undefined
       }));
       setPayments(processedPayments);
     }
@@ -2285,7 +2289,8 @@ const InvoiceCreation: React.FC = () => {
         reference: payment.reference,
         top_note: payment.top_note,
         bottom_note: payment.bottom_note,
-        receipt_number: payment.receipt_number
+        receipt_number: payment.receipt_number,
+        label: payment.label
       }));
       invoiceData.show_payment_dates = showPaymentDates;
       invoiceData.balance_due = totals.balanceDue;
@@ -2422,7 +2427,8 @@ const InvoiceCreation: React.FC = () => {
           reference: payment.reference,
           top_note: payment.top_note,
           bottom_note: payment.bottom_note,
-          receipt_number: payment.receipt_number
+          receipt_number: payment.receipt_number,
+          label: payment.label
         })),
         show_payment_dates: showPaymentDates,
         balance_due: totals.balanceDue,
@@ -2646,6 +2652,7 @@ const InvoiceCreation: React.FC = () => {
         method: p.method,
         reference: p.reference,
         receipt_number: p.receipt_number,
+        label: p.label,
         top_note: p.top_note,
         bottom_note: p.bottom_note
       }));
@@ -2760,6 +2767,7 @@ const InvoiceCreation: React.FC = () => {
         method: p.method,
         reference: p.reference,
         receipt_number: p.receipt_number,
+        label: p.label,
         top_note: p.top_note,
         bottom_note: p.bottom_note
       }));

@@ -2,7 +2,7 @@
 Rebuild domain Pydantic schemas.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -196,6 +196,8 @@ class RebuildCompletionDocResponse(BaseModel):
     file_url: Optional[str] = None
     mime_type: Optional[str] = None
     status: str = "draft"
+    # The invoice this is the PDF of (made from the estimate)
+    invoice_id: Optional[UUID] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -227,6 +229,36 @@ class RebuildScopeDraftResponse(BaseModel):
     skipped_count: int = 0
     # {negotiation_id, label, drafted_at}: save it with the text as scope_source
     source: Dict[str, Any]
+
+
+class RebuildInvoiceRequest(BaseModel):
+    """Which estimate revision to bill from (else the latest rebuild
+    estimate); completion_date is the invoice's date and the project's
+    actual completion"""
+    negotiation_id: Optional[UUID] = None
+    completion_date: Optional[date] = None
+
+
+class RebuildInvoiceLine(BaseModel):
+    name: str
+    description: str = ""
+    amount: float
+
+
+class RebuildInvoicePayment(BaseModel):
+    label: str
+    amount: float
+
+
+class RebuildInvoicePreview(BaseModel):
+    """What an invoice made from the estimate will say; nothing is saved"""
+    source: Dict[str, Any]
+    lines: List[RebuildInvoiceLine] = []
+    total: float = 0
+    payments: List[RebuildInvoicePayment] = []
+    balance_due: float = 0
+    # Where the estimate's own figures couldn't be read or don't add up
+    warnings: List[str] = []
 
 
 class RebuildProjectListResponse(BaseModel):

@@ -30,6 +30,8 @@ from app.domains.rebuild.schemas import (
     RebuildProjectListResponse,
     RebuildProjectResponse,
     RebuildProjectUpdate,
+    RebuildInvoicePreview,
+    RebuildInvoiceRequest,
     RebuildScopeDraftRequest,
     RebuildScopeDraftResponse,
 )
@@ -205,6 +207,104 @@ def draft_scope(
     except Exception:
         logger.exception(f"Scope draft failed for rebuild project {project_id}")
         raise HTTPException(status_code=500, detail="Could not read the estimate PDF")
+
+
+@router.post("/rebuild/projects/{project_id}/invoice-preview", response_model=RebuildInvoicePreview)
+def preview_invoice_from_estimate(
+    project_id: str,
+    data: RebuildInvoiceRequest,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    """What an invoice made from the claim's insurance estimate will say (one
+    line per room, the payments already received, the balance due). Nothing
+    is saved."""
+    from app.domains.rebuild.estimate_invoice import invoice_plan
+
+    _require_project(db, current_staff, project_id)
+    service = _get_service()
+    try:
+        _, neg, file_rec, parsed = service._read_estimate(
+            db, project_id, str(data.negotiation_id) if data.negotiation_id else None
+        )
+        plan = invoice_plan(parsed, neg)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        logger.exception(f"Invoice preview failed for rebuild project {project_id}")
+        raise HTTPException(status_code=500, detail="Could not read the estimate PDF")
+    if not plan["lines"]:
+        raise HTTPException(
+            status_code=422,
+            detail="No amounts could be read from this estimate's PDF. Make the invoice on the Invoices page instead.",
+        )
+    plan["source"] = {
+        "negotiation_id": str(neg.id),
+        "label": service._estimate_label(neg),
+        "document_name": neg.document_name or file_rec.original_name,
+    }
+    return plan
+
+
+@router.post("/rebuild/projects/{project_id}/invoice-from-estimate", response_model=RebuildCompletionDocResponse)
+def create_invoice_from_estimate(
+    project_id: str,
+    data: RebuildInvoiceRequest,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    """Make the invoice from the claim's insurance estimate (Invoices),
+    dated the day the work was completed, and keep its PDF as the project's
+    Invoice completion document. The completion date is saved on the project."""
+    from app.domains.rebuild.estimate_invoice import create_invoice_from_estimate as create
+
+    _require_project(db, current_staff, project_id)
+    if not data.completion_date:
+        raise HTTPException(status_code=400, detail="Give the date the work was completed")
+    try:
+        doc = create(
+            db, _get_service(), project_id,
+            str(data.negotiation_id) if data.negotiation_id else None,
+            data.completion_date, current_staff,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(f"Invoice from estimate failed for rebuild project {project_id}")
+        raise HTTPException(status_code=500, detail="Could not make the invoice")
+    return RebuildCompletionDocResponse.model_validate(doc)
+
+
+@router.post("/rebuild/projects/{project_id}/docs/{doc_id}/refresh-invoice",
+             response_model=RebuildCompletionDocResponse)
+def refresh_invoice_pdf(
+    project_id: str,
+    doc_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    """Print the document's invoice again as it is now (after edits on the
+    Invoices page)"""
+    from app.domains.rebuild.estimate_invoice import refresh_invoice_pdf as refresh
+
+    _require_doc(db, current_staff, doc_id)
+    doc = db.query(RebuildCompletionDoc).filter(RebuildCompletionDoc.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    try:
+        refresh(db, _get_service(), doc)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logger.exception(f"Invoice PDF refresh failed for rebuild doc {doc_id}")
+        raise HTTPException(status_code=500, detail="Could not print the invoice again")
+    return RebuildCompletionDocResponse.model_validate(doc)
 
 
 @router.delete("/rebuild/projects/{project_id}")

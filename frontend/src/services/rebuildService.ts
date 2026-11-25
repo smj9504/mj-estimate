@@ -11,6 +11,7 @@ import type {
   RebuildCompletionDoc,
   RebuildDashboardStats,
   RebuildScopeDraft,
+  RebuildInvoicePreview,
 } from '../types/rebuild';
 
 const BASE = '/api/rebuild';
@@ -66,6 +67,24 @@ export const rebuildService = {
   /** A rough scope of work from the claim's estimate PDF (the latest rebuild estimate unless one is named); not saved */
   async draftScope(id: string, negotiationId?: string): Promise<RebuildScopeDraft> {
     const { data } = await api.post(`${BASE}/projects/${id}/scope-draft`, { negotiation_id: negotiationId || null });
+    return data;
+  },
+  /** What an invoice made from the claim's estimate will say; nothing is saved */
+  async previewInvoice(id: string, negotiationId?: string): Promise<RebuildInvoicePreview> {
+    const { data } = await api.post(`${BASE}/projects/${id}/invoice-preview`, { negotiation_id: negotiationId || null });
+    return data;
+  },
+  /** Make the invoice (dated the completion day) and keep its PDF as the Invoice document */
+  async createInvoice(id: string, completionDate: string, negotiationId?: string): Promise<RebuildCompletionDoc> {
+    const { data } = await api.post(`${BASE}/projects/${id}/invoice-from-estimate`, {
+      negotiation_id: negotiationId || null,
+      completion_date: completionDate,
+    });
+    return data;
+  },
+  /** Print the document's invoice again, as edited on the Invoices page */
+  async refreshInvoicePdf(id: string, docId: string): Promise<RebuildCompletionDoc> {
+    const { data } = await api.post(`${BASE}/projects/${id}/docs/${docId}/refresh-invoice`);
     return data;
   },
   async deleteProject(id: string): Promise<void> {

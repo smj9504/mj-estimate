@@ -136,6 +136,8 @@ export interface PaymentRecord {
   top_note?: string;
   bottom_note?: string;
   receipt_number?: string;
+  /** Shown on the invoice in place of "Payment" ("Deductible", "ACV payment") */
+  label?: string;
 }
 
 export interface InvoiceResponse {
