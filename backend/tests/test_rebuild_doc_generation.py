@@ -164,3 +164,22 @@ def test_work_dates_typed_on_the_document_are_kept_on_the_project(service):
     # What isn't a date leaves the project's as it was
     service._keep_work_dates(project, mappings, {'custom.field_2': 'when the floor is in'})
     assert project.actual_completion.date() == date(2026, 11, 20)
+
+
+def test_the_contractors_date_line_is_dated_whoever_signs(service):
+    from datetime import datetime
+
+    today = datetime.utcnow().strftime('%m/%d/%Y')
+    mappings = MAPPINGS + [
+        {'pageIndex': 0, 'x': 0.51, 'y': 0.92, 'width': 0.22, 'height': 0.03, 'fieldKey': 'date_signed.company_rep'},
+        {'pageIndex': 0, 'x': 0.51, 'y': 0.60, 'width': 0.22, 'height': 0.03, 'fieldKey': 'date_signed.witness'},
+    ]
+    # The owner signs here; the contractor's signature is on the template
+    _, pdf = generate(service, mappings=mappings, signature_image=signature_png(),
+                      signature_field_key='signature.homeowner')
+    text = pdf.pages[0].extract_text()
+    assert text.count(today) == 2  # the owner's date and the contractor's; not the witness's
+
+    # Nobody signs here: the contractor's date line is still dated
+    _, pdf = generate(service, mappings=mappings)
+    assert pdf.pages[0].extract_text().count(today) == 1

@@ -1185,7 +1185,8 @@ class RebuildService:
 
         The signature goes into the template's mapped signature box (the one
         named by signature_field_key, else the first) and that signer's
-        date_signed box gets today's date. Templates without a signature box
+        date_signed box gets today's date, as does the contractor's
+        (date_signed.company_rep) whoever signs. Templates without a signature box
         get it at the bottom right of the last page. initial_image, when
         given, goes in that signer's initials boxes.
 
@@ -1217,6 +1218,11 @@ class RebuildService:
                 date_boxes = [m for m in mappings if m.get('fieldKey') == f'date_signed.{role}']
                 if initial_image:
                     initial_boxes = [m for m in mappings if m.get('fieldKey') == f'initial.{role}']
+        # The contractor issues the document as it's made: its date line is
+        # dated then, though its signature is on the template already or
+        # someone else signs here (owner, 2026-11-25)
+        company_dates = [m for m in mappings if m.get('fieldKey') == 'date_signed.company_rep']
+        date_boxes = date_boxes + [m for m in company_dates if m not in date_boxes]
         sig_bytes = base64.b64decode(signature_image.split(',', 1)[-1]) if signature_image else None
         initial_bytes = base64.b64decode(initial_image.split(',', 1)[-1]) if initial_boxes else None
 
