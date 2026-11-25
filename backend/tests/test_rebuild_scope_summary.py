@@ -368,3 +368,15 @@ def test_paint_reads_as_plain_words():
     # Painted alone, they're named
     assert paint_phrase(["baseboard"]) == "Paint baseboard"
     assert paint_phrase(["baseboard", "trim"]) == "Paint baseboard & trim"
+
+
+def test_electrical_reads_as_its_name_on_the_rooms_line():
+    result = summarize_estimate(_level(("Kitchen", (
+        "R&R Cabinetry - lower (base) units",
+        "Detach & Reset Outlet or switch cover",
+        "Detach & Reset Light fixture",
+        "R&R Smoke detector",
+        "Sink - double basin",
+    ))))
+    # In the order the work goes: plumbing, then electrical
+    assert result["text"] == "Kitchen\nReplace cabinets, Replace sink, Electrical"

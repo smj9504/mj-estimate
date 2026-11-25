@@ -609,6 +609,10 @@ def paint_phrase(surfaces: List[str]) -> str:
     return f"Paint {_and_list(shown)}" if shown else "Paint"
 
 
+# Trades a room's line names and no more (owner, 2026-11-25)
+BY_NAME_ONLY = {"Electrical": "Electrical"}
+
+
 def _area_line(trades: List[Dict[str, Any]]) -> str:
     """A room's work in one line (owner, 2026-11-25): "Replace insulation,
     Replace drywall, Paint walls & ceiling, Replace carpet" """
@@ -616,6 +620,9 @@ def _area_line(trades: List[Dict[str, Any]]) -> str:
     for t in trades:
         if t["trade"] == "Paint":
             parts.append(paint_phrase(t["items"]))
+        elif t["trade"] in BY_NAME_ONLY:
+            # Whatever was replaced or reset, the trade's name says it
+            parts.append(BY_NAME_ONLY[t["trade"]])
         else:
             parts.extend(t["items"])
     return ", ".join(parts)
