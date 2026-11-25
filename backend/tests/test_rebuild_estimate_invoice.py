@@ -266,6 +266,12 @@ def test_the_invoice_is_made_dated_the_completion_day_and_kept_as_its_pdf(env):
 
     assert doc.doc_type == "invoice"
     assert doc.title == "Invoice MJ-2026-0042"
+    # No note and no section heading: the invoice says no more than its lines
+    import fitz
+    text = "".join(page.get_text() for page in fitz.open(stream=env.stored["pdf"], filetype="pdf"))
+    assert "Kitchen: Replace cabinets" in text
+    assert "insurance estimate" not in text.lower()
+    assert "Rev #3" not in text
     assert doc.status == "final"
     assert env.stored["pdf"].startswith(b"%PDF")
     assert env.stored["filename"] == "12 Oak St, Fairfax, VA 22030 - Invoice MJ-2026-0042.pdf"
@@ -274,6 +280,7 @@ def test_the_invoice_is_made_dated_the_completion_day_and_kept_as_its_pdf(env):
     assert invoice.invoice_date.date() == date(2026, 11, 20)
     assert str(invoice.claim_id) == str(env.claim.id)
     assert str(invoice.company_id) == str(env.company.id)
+    assert invoice.notes is None
     assert invoice.insurance_company == "State Farm"
     assert invoice.insurance_claim_number == "CLM-0042"
     assert float(invoice.total_amount) == 2350.00

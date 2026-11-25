@@ -283,7 +283,9 @@ def create_invoice_from_estimate(db, service, project_id: str, negotiation_id: O
     claim = db.query(Claim).filter(Claim.id == project.claim_id).first()
     label = service._estimate_label(neg)
     number = InvoiceService(service.database).generate_invoice_number(company_id).get("invoice_number")
-    section = f"Reconstruction per insurance estimate ({label})"
+    # The invoice says no more than its lines (owner, 2026-11-25): no note,
+    # and a section the invoice prints without a heading ("Items")
+    section = "Items"
 
     data = InvoiceCreate(
         invoice_number=number,
@@ -318,7 +320,6 @@ def create_invoice_from_estimate(db, service, project_id: str, negotiation_id: O
             for p in plan["payments"]
         ],
         show_payment_dates=False,
-        notes=f"Per the insurance estimate {label}.",
     )
     created = invoice_api.create_invoice(data, db=db, current_staff=staff)
     invoice_id = str(created.id)
