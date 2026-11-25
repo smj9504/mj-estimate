@@ -139,7 +139,7 @@ const RebuildScopeSection: React.FC<Props> = ({ project, versions, latestEstimat
     }
     if (draft) {
       const skipped = draft.skipped_count
-        ? ` ${draft.skipped_count} water mitigation and labor minimum line${draft.skipped_count === 1 ? ' was' : 's were'} left out.`
+        ? ` ${draft.skipped_count} water mitigation, contents and labor minimum line${draft.skipped_count === 1 ? ' was' : 's were'} left out.`
         : '';
       return (
         <div className="rb-scope-status">

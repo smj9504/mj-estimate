@@ -180,3 +180,13 @@ def test_cabinet_parts_read_as_cabinets_and_the_countertop_once():
 def test_a_vanity_and_its_top_read_as_two():
     room = _room("R&R Vanity", "R&R Vanity top - one sink - cultured marble")
     assert room == {"Cabinets & countertops": ["Replace vanity", "Replace countertop"]}
+
+
+def test_contents_moved_out_and_back_are_not_listed():
+    room = _room(
+        "Contents - move out then reset - Large room",
+        "Content Manipulation charge - per hour",
+        "Paint the walls - two coats",
+    )
+    assert room == {"Paint": ["walls"]}
+    assert _room("Contents - move out then reset") == {}
