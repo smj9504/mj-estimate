@@ -7,15 +7,19 @@
 
 /**
  * The rooms of a scope of work as drafted from the estimate
- * (rebuild/scope_summary.py): each area's name is a line of its own; trade
- * lines start with "-" and level headings are in [brackets].
+ * (rebuild/scope_summary.py): blocks apart by a blank line, each the room's
+ * name (after a [Level] heading, if any) and then its work - one line, or
+ * trade lines starting with "-" in scopes drafted before.
  */
 export const roomsFromScope = (scope?: string | null): string[] => {
   const rooms: string[] = [];
-  for (const raw of (scope || '').split('\n')) {
-    const line = raw.trim();
-    if (!line || /^[-•*[]/.test(line) || line.length > 60) continue;
-    if (!rooms.some(r => sameRoom(r, line))) rooms.push(line);
+  for (const block of (scope || '').split(/\n\s*\n/)) {
+    const name = block.split('\n').map(l => l.trim()).find(l => l && !/^[-•*[]/.test(l));
+    if (!name || name.length > 60) continue;
+    // "Family Room, Hallway/Living Room": rooms that share a scope are one block
+    for (const room of name.split(/\s*,\s*/)) {
+      if (room && !rooms.some(r => sameRoom(r, room))) rooms.push(room);
+    }
   }
   return rooms;
 };

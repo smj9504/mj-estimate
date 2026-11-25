@@ -237,7 +237,7 @@ const RebuildScopeSection: React.FC<Props> = ({ project, versions, latestEstimat
             value={text}
             onChange={e => setText(e.target.value)}
             autoSize={{ minRows: 12, maxRows: isPhone ? 18 : 24 }}
-            placeholder={'Kitchen\n- Drywall: Replace 1/2" drywall\n- Paint: walls, ceiling'}
+            placeholder={'Kitchen\nReplace drywall, Paint(walls, ceiling), Replace vinyl flooring'}
             aria-label="Scope of work"
             className="rb-scope-input"
           />

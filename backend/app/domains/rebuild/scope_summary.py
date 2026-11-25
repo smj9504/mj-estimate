@@ -5,14 +5,11 @@ completion paperwork (COC, the completion package for the carrier).
 The estimate PDF is read into rooms and their lines
 (insurance_extraction/parsers/xactimate_reference_parser.parse_estimate).
 Each room's lines are sorted into trades and each line is cut down to what
-is done to what ("Replace baseboard", "Paint: walls, ceiling"), so a room
-reads in a few lines:
+is done to what ("Replace baseboard", "Paint(walls, ceiling)"), so a room
+reads as its name and one line of work:
 
-    Main Level
     Kitchen
-    - Drywall: Replace 1/2" drywall, Texture drywall
-    - Paint: walls, ceiling, baseboard
-    - Flooring: Replace vinyl floor covering
+    Replace drywall (incl. texture), Paint(walls, ceiling), Replace vinyl flooring
 
 It is a draft: the office reads it against the PDF and edits it before it
 is saved on the project. Water mitigation lines (drying equipment, wet
@@ -601,9 +598,22 @@ def summarize_estimate(parsed: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _area_line(trades: List[Dict[str, Any]]) -> str:
+    """A room's work in one line (owner, 2026-11-25): "Replace insulation,
+    Replace drywall (incl. acoustic ceiling texture), Paint(walls, ceiling),
+    Replace carpet (incl. carpet pad)" """
+    parts: List[str] = []
+    for t in trades:
+        if t["trade"] == "Paint":
+            parts.append(f"Paint({', '.join(t['items'])})")
+        else:
+            parts.extend(t["items"])
+    return ", ".join(parts)
+
+
 def format_scope(areas: List[Dict[str, Any]]) -> str:
     """The scope as plain text: a level heading when the estimate has more
-    than one level, each area's name, then a line per trade"""
+    than one level, then each area's name and its work in one line"""
     levels = {a["level"] for a in areas if a.get("level")}
     show_levels = len(levels) > 1
     blocks: List[str] = []
@@ -615,7 +625,6 @@ def format_scope(areas: List[Dict[str, Any]]) -> str:
             lines.append(f"[{level}]")
             current_level = level
         lines.append(area["name"])
-        for t in area["trades"]:
-            lines.append(f"- {t['trade']}: {', '.join(t['items'])}")
+        lines.append(_area_line(area["trades"]))
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)

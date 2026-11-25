@@ -17,6 +17,19 @@ describe('roomsFromScope', () => {
   it('takes the area names, not the trade lines or level headings', () => {
     expect(roomsFromScope(SCOPE)).toEqual(['Kitchen', 'Bathroom', 'Family Room']);
   });
+  it('reads the one-line format, rooms that share a scope each a room', () => {
+    const scope = [
+      'Kitchen',
+      'Replace cabinets, Detach & reset countertop',
+      '',
+      'Family Room, Hallway/Living Room',
+      'Replace solid wood flooring (incl. vapor barrier, quarter round, paint baseboard)',
+      '',
+      'Basement Living Space',
+      'Replace carpet',
+    ].join('\n');
+    expect(roomsFromScope(scope)).toEqual(['Kitchen', 'Family Room', 'Hallway/Living Room', 'Basement Living Space']);
+  });
   it('is empty without a scope', () => {
     expect(roomsFromScope(null)).toEqual([]);
     expect(roomsFromScope('')).toEqual([]);

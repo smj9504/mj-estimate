@@ -79,15 +79,15 @@ def test_summarize_estimate():
     # and the haul
     assert result["skipped_count"] == 6
     assert result["line_count"] == 19
-    assert result["text"].startswith("[Main Level]\nKitchen\n- Drywall:")
-    assert "[Basement]\nFamily Room\n- Flooring: Replace carpet (incl. carpet pad)" in result["text"]
+    assert result["text"].startswith("[Main Level]\nKitchen\nReplace drywall (incl. texture), Paint(walls, ceiling, baseboard)")
+    assert "[Basement]\nFamily Room\nReplace carpet (incl. carpet pad)" in result["text"]
 
 
 def test_single_level_has_no_level_heading():
     parsed = {"levels": [{"name": "Main Level", "rooms": [
         {"name": "Bathroom", "line_items": _items("Detach & Reset Toilet")},
     ]}]}
-    assert summarize_estimate(parsed)["text"] == "Bathroom\n- Plumbing: Detach & reset toilet"
+    assert summarize_estimate(parsed)["text"] == "Bathroom\nDetach & reset toilet"
 
 
 def _room(*descs):
@@ -315,9 +315,9 @@ def test_rooms_with_the_same_scope_read_once_and_a_subroom_joins_its_room():
     ))
     assert result["text"] == (
         "Family Room, Hallway/Living Room, Room\n"
-        "- Flooring: Replace solid wood flooring (incl. vapor barrier, quarter round, paint baseboard)\n\n"
+        "Replace solid wood flooring (incl. vapor barrier, quarter round, paint baseboard)\n\n"
         "Bathroom\n"
-        "- Plumbing: Detach & reset toilet"
+        "Detach & reset toilet"
     )
 
 
@@ -338,3 +338,21 @@ def test_drywall_reads_once_with_its_finish():
 def test_a_price_added_to_another_item_is_left_out():
     room = _room("R&R Cabinetry - lower (base) units", "Add for lazy susan")
     assert room == {"Cabinets & countertops": ["Replace cabinets"]}
+
+
+def test_a_room_reads_as_its_name_and_one_line_of_work():
+    result = summarize_estimate(_level(("Basement Living Space", (
+        "Batt insulation - 6 inch - R19 - unfaced batt",
+        'R&R 5/8" drywall - hung, taped, floated, ready for paint',
+        "Acoustic ceiling (popcorn) texture",
+        'R&R 1/2" drywall - hung, taped, floated, ready for paint',
+        "Seal/prime then paint the walls (2 coats)",
+        "Paint the ceiling - two coats",
+        "Paint baseboard - two coats",
+        "Remove Carpet", "Carpet", "Remove Carpet pad", "Carpet pad",
+    ))))
+    assert result["text"] == (
+        "Basement Living Space\n"
+        "Replace insulation, Replace drywall (incl. acoustic ceiling texture), "
+        "Paint(walls, ceiling, baseboard), Replace carpet (incl. carpet pad)"
+    )
