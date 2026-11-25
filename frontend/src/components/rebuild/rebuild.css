@@ -1068,3 +1068,29 @@ button.rb-photo-source:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Email completion documents: who to, the message, the documents attached */
+.rb-mail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rb-mail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rb-mail-docs.ant-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rb-mail-doc {
+  color: var(--color-neutral-900);
+}
+.rb-mail-doc-type {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}

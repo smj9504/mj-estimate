@@ -307,6 +307,94 @@ def refresh_invoice_pdf(
     return RebuildCompletionDocResponse.model_validate(doc)
 
 
+@router.get("/rebuild/projects/{project_id}/docs/bundle")
+def download_completion_docs(
+    project_id: str,
+    format: str = Query("zip", description="zip: each document a file; pdf: one PDF of them all"),
+    ids: Optional[str] = Query(None, description="Comma-separated document ids; left out, every document with a file"),
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    """The project's completion documents downloaded at once"""
+    from urllib.parse import quote
+
+    from starlette.responses import Response
+
+    from app.domains.rebuild import completion_send
+
+    _require_project(db, current_staff, project_id)
+    project = db.query(RebuildProject).filter(RebuildProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        _, files, failed = completion_send.collect(
+            db, project_id, [i for i in (ids or "").split(",") if i.strip()] or None)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if failed:
+        raise HTTPException(status_code=422, detail=f"Couldn't read {', '.join(failed)}. Open it to check it, or leave it out.")
+    if not files:
+        raise HTTPException(status_code=404, detail="No completion documents with a file yet")
+    address = _get_service()._photo_pdf_address(db, project)
+    try:
+        if format == "pdf":
+            data, mime, name = completion_send.pdf_bundle(files), "application/pdf", completion_send.bundle_name(address, "pdf")
+        else:
+            data, mime, name = completion_send.zip_bundle(files), "application/zip", completion_send.bundle_name(address, "zip")
+    except Exception:
+        logger.exception(f"Bundling completion docs failed for rebuild project {project_id}")
+        raise HTTPException(status_code=500, detail="Could not put the documents together")
+    ascii_name = name.encode("ascii", "ignore").decode("ascii").replace('"', "") or "Completion Documents"
+    return Response(content=data, media_type=mime, headers={
+        "Content-Disposition": f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(name)}',
+        "Cache-Control": "private, no-store",
+    })
+
+
+@router.get("/rebuild/projects/{project_id}/email-info")
+def completion_docs_email_info(project_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
+    """What the email dialog opens with: the mailboxes the person may send
+    from, the public adjuster, the carrier's adjusters and the client, a
+    subject and a body"""
+    from app.domains.rebuild import completion_send
+
+    _require_project(db, current_staff, project_id)
+    project = db.query(RebuildProject).filter(RebuildProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return completion_send.email_info(
+        db, project, staff=current_staff, sender_email=getattr(current_staff, "email", None))
+
+
+@router.post("/rebuild/projects/{project_id}/send-docs")
+def send_completion_docs(
+    project_id: str,
+    data: Dict[str, Any],
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    """Email the chosen completion documents (to the public adjuster, the
+    carrier's adjuster or anyone); with mark_sent (the default) the checklist
+    marks them sent. A plain def, so reading and sending run off the event loop."""
+    from app.domains.rebuild import completion_send
+
+    _require_project(db, current_staff, project_id)
+    project = db.query(RebuildProject).filter(RebuildProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        return completion_send.send(db, _get_service(), project, data, sender=current_staff)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Emailing completion docs failed for rebuild project {project_id}")
+        raise HTTPException(status_code=500, detail=f"Could not send the email: {e}")
+
+
 @router.delete("/rebuild/projects/{project_id}")
 def delete_project(project_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     _require_project(db, current_staff, project_id)

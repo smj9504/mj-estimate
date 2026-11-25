@@ -14,6 +14,7 @@ import {
 import type { MenuProps } from 'antd';
 import {
   FilePdfOutlined, CameraOutlined, UploadOutlined, PlusOutlined, MoreOutlined, FileTextOutlined,
+  DownloadOutlined, MailOutlined,
   CheckCircleFilled, ExportOutlined, ArrowLeftOutlined, SwapOutlined, InboxOutlined, EditOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -29,6 +30,7 @@ import RebuildPhotoToPdf from '../components/rebuild/RebuildPhotoToPdf';
 import RebuildProjectEditModal from '../components/rebuild/RebuildProjectEditModal';
 import RebuildScopeSection from '../components/rebuild/RebuildScopeSection';
 import RebuildInvoiceFromEstimate from '../components/rebuild/RebuildInvoiceFromEstimate';
+import RebuildSendDocsModal from '../components/rebuild/RebuildSendDocsModal';
 import {
   REBUILD_STATUSES, REQUIRED_DOCS, DOC_TYPE_LABELS, RebuildStatusPill, rebuildStatusLabel,
   formatCurrency, completionDocPdfUrl, fileInlineUrl,
@@ -83,6 +85,8 @@ const RebuildProjectDetail: React.FC = () => {
   const [docGeneratorOpen, setDocGeneratorOpen] = useState(false);
   const [photoToPdfOpen, setPhotoToPdfOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [editing, setEditing] = useState<RebuildProject | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -115,7 +119,7 @@ const RebuildProjectDetail: React.FC = () => {
     if (!viewing && latestEstimate) setViewing({ kind: 'estimate', id: latestEstimate.id });
   }, [viewing, latestEstimate]);
 
-  const docs = project?.completion_docs || [];
+  const docs = useMemo(() => project?.completion_docs || [], [project?.completion_docs]);
   const viewedEstimate = viewing?.kind === 'estimate' ? versions.find(v => v.id === viewing.id) || null : null;
   const viewedDoc = viewing?.kind === 'doc' ? docs.find(d => d.id === viewing.id) || null : null;
 
@@ -334,6 +338,30 @@ const RebuildProjectDetail: React.FC = () => {
     );
   };
 
+  // The documents with a file, in the checklist's order: what downloads and emails together
+  const docsWithFile = useMemo(() => {
+    const rank = (t: string) => (REQUIRED_TYPES.includes(t) ? REQUIRED_TYPES.indexOf(t) : REQUIRED_TYPES.length);
+    return docs.filter(d => d.file_url || d.file_id).sort((a, b) => rank(a.doc_type) - rank(b.doc_type));
+  }, [docs]);
+
+  const downloadAll = async (format: 'zip' | 'pdf') => {
+    if (!project) return;
+    setDownloading(true);
+    try {
+      await rebuildService.downloadDocs(project.id, format);
+    } catch (err: any) {
+      let detail = 'Could not download the documents';
+      // The error comes back as a blob, since a file was asked for
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try { detail = JSON.parse(await data.text()).detail || detail; } catch { /* keep the default */ }
+      }
+      message.error(detail);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const renderChecklist = (p: RebuildProject) => {
     const otherDocs = docs.filter(d => !REQUIRED_TYPES.includes(d.doc_type));
     const sentCount = REQUIRED_DOCS.filter(r =>
@@ -346,9 +374,29 @@ const RebuildProjectDetail: React.FC = () => {
             Completion documents
             <span className="sup-section-count">{sentCount} of {REQUIRED_DOCS.length} sent</span>
           </h2>
-          <Button size={ctlSize} type="text" className="ui-icon-btn" icon={<PlusOutlined />} onClick={() => openUpload('other')}>
-            Other document
-          </Button>
+          <span className="rb-check-actions">
+            <Dropdown
+              disabled={!docsWithFile.length || downloading}
+              trigger={['click']}
+              menu={{ items: [
+                { key: 'zip', label: 'Download all (ZIP, a file each)', onClick: () => downloadAll('zip') },
+                { key: 'pdf', label: 'Download all as one PDF', onClick: () => downloadAll('pdf') },
+              ] }}
+            >
+              <Button size={ctlSize} type="text" className="ui-icon-btn" icon={<DownloadOutlined />}
+                loading={downloading} aria-label="Download all completion documents">
+                {isPhone ? null : 'Download'}
+              </Button>
+            </Dropdown>
+            <Button size={ctlSize} type="text" className="ui-icon-btn" icon={<MailOutlined />}
+              disabled={!docsWithFile.length} onClick={() => setEmailOpen(true)} aria-label="Email completion documents">
+              {isPhone ? null : 'Email'}
+            </Button>
+            <Tooltip title="Add another document">
+              <Button size={ctlSize} type="text" className="ui-icon-btn" icon={<PlusOutlined />} onClick={() => openUpload('other')}
+                aria-label="Add another document" />
+            </Tooltip>
+          </span>
         </div>
 
         <div className="rb-checklist">
@@ -629,6 +677,13 @@ const RebuildProjectDetail: React.FC = () => {
         project={project}
         onClose={() => setDocGeneratorOpen(false)}
         onSuccess={onDocCreated}
+      />
+      <RebuildSendDocsModal
+        open={emailOpen}
+        project={project}
+        docs={docsWithFile}
+        onClose={() => setEmailOpen(false)}
+        onSent={refresh}
       />
       <RebuildInvoiceFromEstimate
         open={invoiceOpen}

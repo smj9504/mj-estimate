@@ -12,6 +12,8 @@ import type {
   RebuildDashboardStats,
   RebuildScopeDraft,
   RebuildInvoicePreview,
+  RebuildDocsEmailInfo,
+  RebuildSendDocsPayload,
 } from '../types/rebuild';
 
 const BASE = '/api/rebuild';
@@ -85,6 +87,35 @@ export const rebuildService = {
   /** Print the document's invoice again, as edited on the Invoices page */
   async refreshInvoicePdf(id: string, docId: string): Promise<RebuildCompletionDoc> {
     const { data } = await api.post(`${BASE}/projects/${id}/docs/${docId}/refresh-invoice`);
+    return data;
+  },
+  /** The completion documents at once: a ZIP of the files, or one PDF of them all */
+  async downloadDocs(id: string, format: 'zip' | 'pdf', docIds?: string[]): Promise<void> {
+    const response = await api.get(`${BASE}/projects/${id}/docs/bundle`, {
+      params: { format, ids: docIds?.length ? docIds.join(',') : undefined },
+      responseType: 'blob',
+    });
+    const disposition = (response.headers?.['content-disposition'] as string | undefined) || '';
+    const utf8 = disposition.match(/filename\*=UTF-8''([^;\n]+)/i);
+    const plain = disposition.match(/filename="?([^";\n]+)"?/);
+    const name = utf8 ? decodeURIComponent(utf8[1]) : plain?.[1] || `Completion Documents.${format}`;
+    const url = window.URL.createObjectURL(new Blob([response.data], {
+      type: format === 'pdf' ? 'application/pdf' : 'application/zip',
+    }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', name);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  async docsEmailInfo(id: string): Promise<RebuildDocsEmailInfo> {
+    const { data } = await api.get(`${BASE}/projects/${id}/email-info`);
+    return data;
+  },
+  async sendDocs(id: string, payload: RebuildSendDocsPayload): Promise<{ success: boolean; attachments_count: number }> {
+    const { data } = await api.post(`${BASE}/projects/${id}/send-docs`, payload);
     return data;
   },
   async deleteProject(id: string): Promise<void> {

@@ -176,3 +176,24 @@ export const DOC_TYPE_LABELS: Record<CompletionDocType, string> = {
   lien_waiver: 'Lien Waiver',
   other: 'Other',
 };
+
+/** What the completion documents' email dialog opens with */
+export interface RebuildDocsEmailInfo {
+  email_accounts: { id: string; email_address: string; display_name?: string | null }[];
+  /** The public adjuster, the carrier's adjusters and the client, each once */
+  recipients: { name: string; email: string; role: 'pa' | 'adjuster' | 'client' | string }[];
+  subject: string;
+  body_html: string;
+}
+
+export interface RebuildSendDocsPayload {
+  doc_ids: string[];
+  to_addresses: string[];
+  cc_addresses: string[];
+  bcc_addresses: string[];
+  subject: string;
+  body_html: string;
+  email_account_id?: string;
+  /** Mark the sent documents as sent on the checklist */
+  mark_sent: boolean;
+}
