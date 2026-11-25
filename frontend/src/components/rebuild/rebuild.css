@@ -828,3 +828,85 @@ button.rb-photo-source:focus-visible {
     max-width: none;
   }
 }
+
+/* Scope of work: drafted from the estimate, edited, then read by the COC */
+.rb-scope-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.rb-scope-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-neutral-900);
+  /* A long scope scrolls inside its section instead of pushing the checklist away */
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+.rb-scope-empty {
+  margin: 0;
+}
+.rb-scope-source {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.rb-scope-stale {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--color-warning-light);
+  color: var(--color-neutral-900);
+  font-size: 13px;
+}
+.rb-scope-stale > .anticon {
+  margin-top: 3px;
+  color: var(--color-warning);
+}
+.rb-scope-stale .ant-btn-link {
+  padding: 0;
+  height: auto;
+  font-size: 13px;
+}
+
+.rb-scope-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rb-scope-from {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rb-scope-from-select {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.rb-scope-status {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rb-scope-status-text {
+  display: block;
+  margin-top: -4px;
+}
+.rb-scope-status--error {
+  color: var(--color-error);
+}
+.rb-scope-replace {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.rb-scope-input.ant-input {
+  font-size: 14px;
+  line-height: 1.6;
+}

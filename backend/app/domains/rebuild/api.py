@@ -30,6 +30,8 @@ from app.domains.rebuild.schemas import (
     RebuildProjectListResponse,
     RebuildProjectResponse,
     RebuildProjectUpdate,
+    RebuildScopeDraftRequest,
+    RebuildScopeDraftResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -178,6 +180,31 @@ def update_project(
     if not result:
         raise HTTPException(status_code=404, detail="Project not found")
     return result
+
+
+@router.post("/rebuild/projects/{project_id}/scope-draft", response_model=RebuildScopeDraftResponse)
+def draft_scope(
+    project_id: str,
+    data: RebuildScopeDraftRequest,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    """A rough scope of work read from the claim's insurance estimate PDF
+    (the revision named, else the latest rebuild estimate). Nothing is
+    saved: the draft is edited, then saved with PATCH as scope_of_work and
+    scope_source. A plain def, so reading the PDF runs off the event loop."""
+    _require_project(db, current_staff, project_id)
+    try:
+        return _get_service().draft_scope_from_estimate(
+            project_id, str(data.negotiation_id) if data.negotiation_id else None
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.exception(f"Scope draft failed for rebuild project {project_id}")
+        raise HTTPException(status_code=500, detail="Could not read the estimate PDF")
 
 
 @router.delete("/rebuild/projects/{project_id}")

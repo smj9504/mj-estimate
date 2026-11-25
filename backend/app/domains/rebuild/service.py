@@ -6,7 +6,7 @@ import base64
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -224,6 +224,121 @@ class RebuildService:
         try:
             from app.domains.rebuild.repository import get_project_repository
             return get_project_repository(session).get_dashboard_stats(scope)
+        finally:
+            session.close()
+
+    # ============================================================
+    # Scope of work from the insurance estimate
+    # ============================================================
+
+    @staticmethod
+    def _estimate_label(neg) -> str:
+        def words(v):
+            return (v or '').replace('_', ' ').strip().capitalize()
+        parts = [f"Rev #{neg.revision_number}", words(neg.revision_type or 'initial')]
+        if neg.estimate_category:
+            parts.append(words(neg.estimate_category))
+        return ' · '.join(p for p in parts if p)
+
+    @staticmethod
+    def _estimate_file(session, neg, claim_id: str):
+        """The revision's PDF: its own file, else the claim's newest uploaded
+        estimate (the same fallback the estimate list shows it with)"""
+        from app.domains.file.models import File
+
+        if neg.document_url:
+            rec = session.query(File).filter(
+                File.id == str(neg.document_url), File.is_active == True  # noqa: E712
+            ).first()
+            if rec:
+                return rec
+        return (
+            session.query(File)
+            .filter(
+                File.context == 'negotiation',
+                File.context_id == str(claim_id),
+                File.category == 'insurance_estimate',
+                File.is_active == True,  # noqa: E712
+            )
+            .order_by(File.created_at.desc())
+            .first()
+        )
+
+    def draft_scope_from_estimate(self, project_id: str, negotiation_id: Optional[str] = None) -> Dict[str, Any]:
+        """A rough scope of work read from one of the claim's insurance
+        estimate PDFs: the one named, else the newest rebuild estimate (the
+        one the project page opens on). Nothing is saved; the office edits
+        the draft and saves it on the project with its source.
+
+        Raises LookupError when there is no estimate to read, ValueError
+        when its PDF has no lines that could be read."""
+        from app.domains.client.models import ClaimNegotiation
+        from app.domains.insurance_extraction.parsers.xactimate_reference_parser import parse_estimate
+        from app.domains.insurance_extraction.service import InsuranceExtractionService
+        from app.domains.rebuild.models import RebuildProject
+        from app.domains.rebuild.scope_summary import summarize_estimate
+
+        session = self._rs()
+        try:
+            project = session.query(RebuildProject).filter(RebuildProject.id == str(project_id)).first()
+            if not project:
+                raise LookupError("Project not found")
+            claim_id = str(project.claim_id)
+            negotiations = session.query(ClaimNegotiation).filter(
+                ClaimNegotiation.claim_id == claim_id
+            ).all()
+
+            if negotiation_id:
+                neg = next((n for n in negotiations if str(n.id) == str(negotiation_id)), None)
+                if not neg:
+                    raise LookupError("That estimate is not on this project's claim")
+                file_rec = self._estimate_file(session, neg, claim_id)
+            else:
+                def received(n):
+                    when = n.date_received or n.created_at
+                    return when.timestamp() if when else 0
+                # Newest first; a rebuild (non-WM) estimate before a WM-only one
+                ordered = sorted(negotiations, key=received, reverse=True)
+                ordered = (
+                    [n for n in ordered if n.estimate_category != 'water_mitigation']
+                    + [n for n in ordered if n.estimate_category == 'water_mitigation']
+                )
+                neg, file_rec = None, None
+                for n in ordered:
+                    file_rec = self._estimate_file(session, n, claim_id)
+                    if file_rec:
+                        neg = n
+                        break
+                if not neg:
+                    raise LookupError("No insurance estimate PDF on this claim yet")
+            if not file_rec:
+                raise LookupError("This estimate has no PDF attached")
+
+            pdf_path, tmp_path = InsuranceExtractionService(session)._resolve_pdf_path(
+                file_rec.url, file_rec.storage_provider
+            )
+            try:
+                parsed = parse_estimate(pdf_path)
+            finally:
+                if tmp_path:
+                    try:
+                        Path(tmp_path).unlink()
+                    except OSError:
+                        pass
+
+            summary = summarize_estimate(parsed)
+            if not summary['areas']:
+                raise ValueError(
+                    "No line items could be read from this estimate PDF. "
+                    "Write the scope by hand from the PDF on the right."
+                )
+            summary['source'] = {
+                'negotiation_id': str(neg.id),
+                'label': self._estimate_label(neg),
+                'document_name': neg.document_name or file_rec.original_name,
+                'drafted_at': datetime.now(timezone.utc).isoformat(),
+            }
+            return summary
         finally:
             session.close()
 

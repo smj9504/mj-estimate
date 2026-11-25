@@ -46,6 +46,8 @@ export interface RebuildProject {
   docs_acknowledged_date?: string;
   /** The customer hires their own contractor; we don't build it */
   customer_managed: boolean;
+  /** Which insurance estimate the scope of work was drafted from; empty when typed by hand */
+  scope_source?: RebuildScopeSource | null;
   priority: string;
   notes?: string;
   created_at?: string;
@@ -64,6 +66,24 @@ export interface RebuildProject {
   wm_jobs?: RebuildWMJob[];
   /** Project page only, read-only: the companies that did the claim's water mitigation */
   wm_companies?: { id: string; name: string }[];
+}
+
+/** The estimate revision a project's scope of work was drafted from */
+export interface RebuildScopeSource {
+  negotiation_id: string;
+  label: string;
+  document_name?: string | null;
+  drafted_at: string;
+}
+
+/** A rough scope of work read from an estimate PDF (nothing saved yet) */
+export interface RebuildScopeDraft {
+  text: string;
+  areas: { level?: string | null; name: string; trades: { trade: string; items: string[] }[] }[];
+  line_count: number;
+  /** Lines left out: water mitigation, labor minimums */
+  skipped_count: number;
+  source: RebuildScopeSource;
 }
 
 export interface RebuildWMJob {

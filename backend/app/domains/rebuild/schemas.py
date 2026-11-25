@@ -98,6 +98,8 @@ class RebuildProjectUpdate(BaseModel):
     priority: Optional[str] = None
     notes: Optional[str] = None
     customer_managed: Optional[bool] = None
+    # Set with scope_of_work when the scope was drafted from an estimate; None when typed by hand
+    scope_source: Optional[Dict[str, Any]] = None
 
 
 class RebuildWMJobRef(BaseModel):
@@ -132,6 +134,7 @@ class RebuildProjectResponse(RebuildProjectBase):
     docs_acknowledged: bool = False
     docs_acknowledged_date: Optional[datetime] = None
     customer_managed: bool = False
+    scope_source: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -197,6 +200,33 @@ class RebuildCompletionDocResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RebuildScopeDraftRequest(BaseModel):
+    """Which estimate revision to draft from; left out, the claim's latest rebuild estimate"""
+    negotiation_id: Optional[UUID] = None
+
+
+class RebuildScopeTrade(BaseModel):
+    trade: str
+    items: List[str] = []
+
+
+class RebuildScopeArea(BaseModel):
+    level: Optional[str] = None
+    name: str
+    trades: List[RebuildScopeTrade] = []
+
+
+class RebuildScopeDraftResponse(BaseModel):
+    """A rough scope of work read from an estimate PDF; nothing is saved"""
+    text: str
+    areas: List[RebuildScopeArea] = []
+    line_count: int = 0
+    # Lines left out: water mitigation, labor minimums
+    skipped_count: int = 0
+    # {negotiation_id, label, drafted_at}: save it with the text as scope_source
+    source: Dict[str, Any]
 
 
 class RebuildProjectListResponse(BaseModel):

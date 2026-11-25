@@ -27,6 +27,7 @@ import { fileService } from '../services/fileService';
 import RebuildDocGenerator from '../components/rebuild/RebuildDocGenerator';
 import RebuildPhotoToPdf from '../components/rebuild/RebuildPhotoToPdf';
 import RebuildProjectEditModal from '../components/rebuild/RebuildProjectEditModal';
+import RebuildScopeSection from '../components/rebuild/RebuildScopeSection';
 import {
   REBUILD_STATUSES, REQUIRED_DOCS, DOC_TYPE_LABELS, RebuildStatusPill, rebuildStatusLabel,
   formatCurrency, completionDocPdfUrl, fileInlineUrl,
@@ -489,11 +490,15 @@ const RebuildProjectDetail: React.FC = () => {
           { key: 'start', label: 'Start', value: fmtDate(p.start_date) },
           { key: 'eta', label: 'Est. completion', value: fmtDate(p.estimated_completion) },
           { key: 'priority', label: 'Priority', hideEmpty: true, value: p.priority && p.priority !== 'normal' ? humanize(p.priority) : null },
-          { key: 'scope', label: 'Scope of work', hideEmpty: true, value: p.scope_of_work ? <span className="rb-prewrap">{p.scope_of_work}</span> : null },
           { key: 'notes', label: 'Notes', hideEmpty: true, value: p.notes ? <span className="rb-prewrap">{p.notes}</span> : null },
         ]}
       />
     </section>
+  );
+
+  // Drafted from the estimate on the right, then edited; the COC reads it
+  const renderScope = (p: RebuildProject) => (
+    <RebuildScopeSection project={p} versions={versions} latestEstimate={latestEstimate} onSaved={refresh} />
   );
 
   const back = (
@@ -565,12 +570,14 @@ const RebuildProjectDetail: React.FC = () => {
         <div className="rb-stack">
           {renderEstimateRow()}
           {renderFacts(project)}
+          {renderScope(project)}
           {renderChecklist(project)}
         </div>
       ) : (
         <div className="rb-page-split">
           <div className="rb-page-main">
             {renderFacts(project)}
+            {renderScope(project)}
             {renderChecklist(project)}
           </div>
           <div className="rb-page-viewer">{renderViewer()}</div>

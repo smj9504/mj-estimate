@@ -10,6 +10,7 @@ import type {
   RebuildProjectCreate,
   RebuildCompletionDoc,
   RebuildDashboardStats,
+  RebuildScopeDraft,
 } from '../types/rebuild';
 
 const BASE = '/api/rebuild';
@@ -60,6 +61,11 @@ export const rebuildService = {
   },
   async updateProject(id: string, payload: Partial<RebuildProject>): Promise<RebuildProject> {
     const { data } = await api.patch(`${BASE}/projects/${id}`, payload);
+    return data;
+  },
+  /** A rough scope of work from the claim's estimate PDF (the latest rebuild estimate unless one is named); not saved */
+  async draftScope(id: string, negotiationId?: string): Promise<RebuildScopeDraft> {
+    const { data } = await api.post(`${BASE}/projects/${id}/scope-draft`, { negotiation_id: negotiationId || null });
     return data;
   },
   async deleteProject(id: string): Promise<void> {

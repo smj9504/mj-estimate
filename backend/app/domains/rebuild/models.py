@@ -113,6 +113,9 @@ class RebuildProject(Base, BaseModel):
     title = Column(String(500), nullable=False)
     description = Column(Text)
     scope_of_work = Column(Text, comment="Detailed scope of construction work")
+    # Which insurance estimate the scope was drafted from (rebuild/scope_summary.py):
+    # {negotiation_id, label, drafted_at}; empty when it was typed by hand
+    scope_source = Column(JSONB, nullable=True, comment="Estimate revision the scope of work was drafted from")
 
     # Property (denormalized for easy listing)
     property_address = Column(String(500))
