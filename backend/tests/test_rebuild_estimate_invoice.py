@@ -272,6 +272,9 @@ def test_the_invoice_is_made_dated_the_completion_day_and_kept_as_its_pdf(env):
     assert "Kitchen: Replace cabinets" in text
     assert "insurance estimate" not in text.lower()
     assert "Rev #3" not in text
+    # The insurance details are kept on the invoice, not printed
+    assert "Insurance Information" not in text
+    assert "State Farm" not in text
     assert doc.status == "final"
     assert env.stored["pdf"].startswith(b"%PDF")
     assert env.stored["filename"] == "12 Oak St, Fairfax, VA 22030 - Invoice MJ-2026-0042.pdf"
@@ -283,6 +286,7 @@ def test_the_invoice_is_made_dated_the_completion_day_and_kept_as_its_pdf(env):
     assert str(invoice.claim_id) == str(env.claim.id)
     assert str(invoice.company_id) == str(env.company.id)
     assert invoice.notes is None
+    assert invoice.show_insurance is False
     assert invoice.insurance_company == "State Farm"
     assert invoice.insurance_claim_number == "CLM-0042"
     assert float(invoice.total_amount) == 2350.00

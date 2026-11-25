@@ -297,7 +297,9 @@ def create_invoice_from_estimate(db, service, project_id: str, negotiation_id: O
         company_id=company_id,
         client=ClientInfo(),
         client_id=claim.client_id if claim else None,
-        show_insurance=True,
+        # Kept on the invoice but not printed (owner, 2026-11-25); the
+        # Invoices page can show it on one
+        show_insurance=False,
         insurance=InsuranceInfo(
             company=getattr(claim, "insurance_company", None),
             policy_number=getattr(claim, "insurance_policy_number", None),
