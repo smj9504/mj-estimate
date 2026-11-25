@@ -164,3 +164,19 @@ def test_electrical_reads_as_one_line():
         "R&R Smoke detector",
     )
     assert room == {"Electrical": ["Replace outlet & smoke detector", "Detach & reset electrical fixtures"]}
+
+
+def test_cabinet_parts_read_as_cabinets_and_the_countertop_once():
+    room = _room(
+        "R&R Cabinetry - lower (base) units",
+        "R&R Cabinet panels - side, end, or back",
+        "Cabinet knob or pull",
+        "Detach & Reset Countertop - flat laid plastic laminate",
+        "Countertop - flat laid plastic laminate - end cap",
+    )
+    assert room == {"Cabinets & countertops": ["Replace cabinets", "Detach & reset countertop"]}
+
+
+def test_a_vanity_and_its_top_read_as_two():
+    room = _room("R&R Vanity", "R&R Vanity top - one sink - cultured marble")
+    assert room == {"Cabinets & countertops": ["Replace vanity", "Replace countertop"]}

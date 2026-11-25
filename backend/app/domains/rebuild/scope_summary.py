@@ -224,6 +224,45 @@ def _collective_phrases(trade: str, order: List[str], actions: Dict[str, set], n
     return out
 
 
+# Trades whose lines are parts of a few things: each thing reads once, with
+# one action ("Replace cabinetry", "Replace cabinet panels", "Cabinet knob or
+# pull" -> "Replace cabinets") (owner, 2026-11-25). First match wins.
+PART_GROUPS: Dict[str, List[Tuple[str, re.Pattern]]] = {
+    "Cabinets & countertops": [(name, re.compile(rx, re.IGNORECASE)) for name, rx in [
+        ("countertop", r"counter\s*top|\bcounter\b|vanity top|backsplash|side\s*splash|\btop\b"),
+        ("vanity", r"vanit"),
+        ("cabinets", r"cabinet|knob|\bpull\b|hinge|toe kick|filler|end panel|hardware|\bisland\b"),
+    ]],
+}
+
+
+def _part_phrases(groups: List[Tuple[str, re.Pattern]], order: List[str], actions: Dict[str, set],
+                  names: Dict[str, str]) -> List[str]:
+    """One phrase per thing: replaced when any of it is (a part put in new
+    with it goes with that), else detached & reset, else removed"""
+    seen: List[str] = []
+    acts: Dict[str, set] = {}
+    for key in order:
+        name = next((g for g, rx in groups if rx.search(names[key])), _lower_first(names[key]))
+        if name not in acts:
+            seen.append(name)
+            acts[name] = set()
+        acts[name] |= actions[key]
+    out = []
+    for name in seen:
+        a = acts[name]
+        if "replace" in a or ("remove" in a and "install" in a):
+            verb = "Replace"
+        elif "detach" in a:
+            verb = "Detach & reset"
+        elif "remove" in a:
+            verb = "Remove"
+        else:
+            verb = "Replace"  # put in new in a rebuild: the old one's place
+        out.append(f"{verb} {name}")
+    return out
+
+
 def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
     """What is done in a trade, each item once, in the estimate's order.
     An item both removed and put in new reads as replaced."""
@@ -252,6 +291,8 @@ def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
 
     if trade in COLLECTIVE:
         return _collective_phrases(trade, order, actions, names)
+    if trade in PART_GROUPS:
+        return _part_phrases(PART_GROUPS[trade], order, actions, names)
 
     out = []
     for key in order:
