@@ -3,6 +3,7 @@ Rebuild domain service.
 """
 
 import base64
+import re
 import json
 import logging
 import uuid
@@ -629,6 +630,7 @@ class RebuildService:
                     prefill[cat][field] = value
 
             mappings = self._parse_mappings(template.field_mappings)
+            self._keep_work_dates(project, mappings, overrides)
             signing = {
                 'signature_image': data.get('signature_image'),
                 'signature_name': data.get('signature_name'),
@@ -1076,22 +1078,82 @@ class RebuildService:
         def _money(v):
             return f"${float(v):,.2f}" if v else None
 
+        def _day(v):
+            return v.strftime('%m/%d/%Y') if v else None
+
         prefill['project'] = {
             'title': project.title,
             'property_address': project.property_address,
             'scope_of_work': project.scope_of_work,
             'contract_amount': _money(project.contract_amount),
             'insurance_estimate_amount': _money(project.insurance_estimate_amount),
+            # The work's dates: Start, and Completed (the invoice's date)
+            'start_date': _day(project.start_date),
+            'completion_date': _day(project.actual_completion),
         }
         return prefill
 
-    def _resolve_field_value(self, prefill: Dict[str, Any], field_key: str) -> str:
-        """Resolve a field key like 'client.display_name' from prefill data."""
+    # A template box named for a work date, though mapped to a custom field
+    # ("Work Start Date" on custom.field_1): it takes the project's date
+    # (owner, 2026-11-25). Mitigation dates are the WM job's, not these.
+    _START_LABEL = re.compile(r"\bstart", re.IGNORECASE)
+    _COMPLETION_LABEL = re.compile(r"complet|finish|\bend(?:ed)?\b", re.IGNORECASE)
+    _NOT_WORK_LABEL = re.compile(r"mitigation|loss|sign|contract", re.IGNORECASE)
+
+    @classmethod
+    def work_date_key(cls, field_key: str, label: Optional[str]) -> Optional[str]:
+        """'project.start_date' / 'project.completion_date' for a box that holds
+        a work date: mapped to one, or a custom field labelled as one"""
+        if field_key in ('project.start_date', 'project.completion_date'):
+            return field_key
+        if not field_key.startswith('custom.') or not label or cls._NOT_WORK_LABEL.search(label):
+            return None
+        if cls._START_LABEL.search(label):
+            return 'project.start_date'
+        if cls._COMPLETION_LABEL.search(label):
+            return 'project.completion_date'
+        return None
+
+    @staticmethod
+    def _typed_day(value: Any) -> Optional[datetime]:
+        """A date as typed into a document box: 11/20/2026, 2026-11-20, Nov 20, 2026"""
+        text = str(value or '').strip()
+        for fmt in ('%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d', '%m-%d-%Y', '%b %d, %Y', '%B %d, %Y'):
+            try:
+                return datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+        return None
+
+    def _keep_work_dates(self, project, mappings: list, overrides: Dict[str, Any]) -> None:
+        """A work date typed on the document is the project's from then on
+        (the invoice made from the estimate is dated by its completion)"""
+        from datetime import time as _time
+
+        labels = {m.get('fieldKey'): m.get('label') for m in mappings if m.get('fieldKey')}
+        for field_key, value in overrides.items():
+            work = self.work_date_key(field_key, labels.get(field_key))
+            day = self._typed_day(value) if work else None
+            if not day:
+                continue
+            when = datetime.combine(day.date(), _time(12, 0), tzinfo=timezone.utc)
+            if work == 'project.start_date':
+                project.start_date = when
+            else:
+                project.actual_completion = when
+
+    def _resolve_field_value(self, prefill: Dict[str, Any], field_key: str, label: Optional[str] = None) -> str:
+        """Resolve a field key like 'client.display_name' from prefill data;
+        an empty custom box labelled as a work date takes the project's"""
         parts = field_key.split('.', 1)
         if len(parts) != 2:
             return ''
         category, key = parts
         value = (prefill.get(category) or {}).get(key)
+        if value in (None, '') and field_key.startswith('custom.'):
+            work = self.work_date_key(field_key, label)
+            if work:
+                value = (prefill.get('project') or {}).get(work.split('.', 1)[1])
         return str(value) if value is not None else ''
 
     def _load_template_pdf(self, file_url: str, storage_provider: Optional[str]) -> bytes:
@@ -1184,7 +1246,7 @@ class RebuildService:
             c = rl_canvas.Canvas(overlay_buffer, pagesize=(pw, ph))
 
             for m in page_texts:
-                value = self._resolve_field_value(prefill, m.get('fieldKey', ''))
+                value = self._resolve_field_value(prefill, m.get('fieldKey', ''), m.get('label'))
                 if not value:
                     continue
                 fx, fy, fw, fh = _box(m, pw, ph)

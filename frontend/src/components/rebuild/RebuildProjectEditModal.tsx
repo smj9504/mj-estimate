@@ -51,6 +51,7 @@ const RebuildProjectEditModal: React.FC<Props> = ({ project, onClose }) => {
       final_invoice_amount: project.final_invoice_amount,
       start_date: project.start_date ? dayjs(project.start_date) : undefined,
       estimated_completion: project.estimated_completion ? dayjs(project.estimated_completion) : undefined,
+      actual_completion: project.actual_completion ? dayjs(project.actual_completion) : undefined,
       notes: project.notes,
       customer_managed: !!project.customer_managed,
     });
@@ -77,6 +78,8 @@ const RebuildProjectEditModal: React.FC<Props> = ({ project, onClose }) => {
         ...values,
         start_date: values.start_date?.toISOString() || null,
         estimated_completion: values.estimated_completion?.toISOString() || null,
+        // Noon UTC, so the day reads the same in every time zone
+        actual_completion: values.actual_completion ? `${values.actual_completion.format('YYYY-MM-DD')}T12:00:00Z` : null,
       },
     });
   });
@@ -145,6 +148,14 @@ const RebuildProjectEditModal: React.FC<Props> = ({ project, onClose }) => {
           </Col>
           <Col span={12}>
             <Form.Item name="estimated_completion" label="Est. Completion">
+              <DatePicker inputReadOnly={isPhone} style={{ width: '100%' }} />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={12}>
+          <Col span={12}>
+            {/* The COC's completion date, and the date of the invoice made from the estimate */}
+            <Form.Item name="actual_completion" label="Completed">
               <DatePicker inputReadOnly={isPhone} style={{ width: '100%' }} />
             </Form.Item>
           </Col>

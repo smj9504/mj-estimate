@@ -97,3 +97,55 @@ def test_missing_template_pdf_is_a_clear_error(service, monkeypatch):
     monkeypatch.setattr(contract_api, '_resolve_contract_pdf', lambda url, provider: None)
     with pytest.raises(ValueError, match='could not be found'):
         service._load_template_pdf('contracts/t/templates/missing.pdf', 'gcs')
+
+
+# ---------------------------------------------------------------------------
+# The work's dates: the project's Start and Completed, in boxes mapped to them
+# or in custom boxes labelled as them
+# ---------------------------------------------------------------------------
+
+WORK_PREFILL = {'project': {'start_date': '11/03/2026', 'completion_date': '11/20/2026'}}
+
+
+def box(key, label=None, y=0.3):
+    return {'pageIndex': 0, 'x': 0.2, 'y': y, 'width': 0.4, 'height': 0.03, 'fieldKey': key, 'label': label}
+
+
+def test_work_dates_print_in_their_boxes_mapped_or_custom_labelled(service):
+    service._load_template_pdf = lambda url, provider: template_pdf()
+    template = SimpleNamespace(file_url='contracts/t/templates/coc.pdf', storage_provider='gcs')
+    mappings = [
+        box('custom.field_1', 'Work Start Date', 0.30),
+        box('custom.field_2', 'Completion Date', 0.40),
+        box('project.completion_date', 'Done', 0.50),
+        # Not the work's: left as it is
+        box('custom.field_3', 'Mitigation End Date', 0.60),
+    ]
+    service._generate_filled_pdf('project-1', template, mappings, WORK_PREFILL)
+    text = PdfReader(io.BytesIO(service.uploads['bytes'])).pages[0].extract_text()
+    assert text.count('11/03/2026') == 1
+    assert text.count('11/20/2026') == 2
+
+
+def test_a_custom_box_keeps_what_was_typed_in_it(service):
+    prefill = {**WORK_PREFILL, 'custom': {'field_1': '11/05/2026'}}
+    assert service._resolve_field_value(prefill, 'custom.field_1', 'Work Start Date') == '11/05/2026'
+    assert service._resolve_field_value(WORK_PREFILL, 'custom.field_1', 'Work Start Date') == '11/03/2026'
+    assert service._resolve_field_value(WORK_PREFILL, 'custom.field_1', 'Notes') == ''
+
+
+def test_work_dates_typed_on_the_document_are_kept_on_the_project(service):
+    from datetime import date
+
+    project = SimpleNamespace(start_date=None, actual_completion=None)
+    mappings = [box('custom.field_1', 'Work Start Date'), box('custom.field_2', 'Completion Date'),
+                box('custom.field_3', 'Notes')]
+    service._keep_work_dates(project, mappings, {
+        'custom.field_1': '11/03/2026', 'custom.field_2': 'Nov 20, 2026', 'custom.field_3': '12/01/2026',
+    })
+    assert project.start_date.date() == date(2026, 11, 3)
+    assert project.actual_completion.date() == date(2026, 11, 20)
+
+    # What isn't a date leaves the project's as it was
+    service._keep_work_dates(project, mappings, {'custom.field_2': 'when the floor is in'})
+    assert project.actual_completion.date() == date(2026, 11, 20)

@@ -221,6 +221,11 @@ AVAILABLE_FIELDS = [
     # Meta fields
     {"key": "meta.current_date", "label": "Current Date", "category": "Meta"},
     {"key": "meta.contract_number", "label": "Contract Number", "category": "Meta"},
+    # Filled only on a Rebuild project's completion documents (COC, warranty)
+    {"key": "project.start_date", "label": "Work Start Date", "category": "Rebuild Project"},
+    {"key": "project.completion_date", "label": "Work Completion Date", "category": "Rebuild Project"},
+    {"key": "project.scope_of_work", "label": "Scope of Work", "category": "Rebuild Project"},
+    {"key": "project.contract_amount", "label": "Contract Amount", "category": "Rebuild Project"},
     # Custom fields (user-defined input fields)
     {"key": "custom.field_1", "label": "Custom Field 1", "category": "Custom"},
     {"key": "custom.field_2", "label": "Custom Field 2", "category": "Custom"},
