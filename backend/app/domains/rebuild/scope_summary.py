@@ -40,8 +40,10 @@ TRADES: List[Tuple[str, re.Pattern]] = [(name, re.compile(rx, re.IGNORECASE)) fo
     ("Cabinets & countertops", r"cabinet|vanit|countertop|\bcounter\b|backsplash|\bisland\b"),
     # Before Plumbing and Electrical: "Range - electric", "Dishwasher - supply line"
     ("Appliances", r"appliance|refrigerator|dishwasher|\brange\b|microwave|\boven\b|cooktop|washer|dryer|range hood"),
-    ("Flooring", r"floor(?![- ]mount)|carpet|\bpad\b|laminate|hardwood|\bvinyl\b|\blvp\b|\blvt\b|\bplank\b|underlayment"
-                 r"|transition strip|\bthreshold\b|\bstair tread|\bstair riser"),
+    # Not a vinyl window or siding, whatever it's made of
+    ("Flooring", r"^(?!.*\b(?:windows?|siding|soffit|fascia|shutters?)\b).*?"
+                 r"(?:floor(?![- ]mount)|carpet|\bpad\b|laminate|hardwood|\bvinyl\b|\blvp\b|\blvt\b|\bplank\b"
+                 r"|underlayment|transition strip|\bthreshold\b|\bstair tread|\bstair riser)"),
     ("Tile", r"\btile\b|\bgrout\b|mortar bed"),
     ("Trim", r"baseboard|\bbase shoe\b|quarter round|\bcasing\b|\bcrown\b|\bmolding\b|\bmoulding\b|\btrim\b|chair rail"
              r"|window stool|\bstool\b|\bapron\b"),
@@ -145,6 +147,8 @@ def split_action(description: str) -> Tuple[str, str]:
                 break
     # The item, without its size and grade: 'Baseboard - 3 1/4"' -> 'Baseboard'
     obj = _tidy(re.split(r"\s+-\s+|\s+–\s+", desc, maxsplit=1)[0])
+    # Nor its qualifier: 'Window screen, 1 - 9 SF' -> 'Window screen'
+    obj = _tidy(obj.split(", ", 1)[0])
     return action, obj
 
 
@@ -224,7 +228,8 @@ def _paint_surface(description: str) -> str:
 # Trades read as one phrase per action, and two or more items detached &
 # reset by the trade's name: "Detach & reset appliances" (owner, 2026-11-25)
 COLLECTIVE = {
-    "Trim": "trim", "Doors": "doors", "Appliances": "appliances", "Plumbing": "plumbing fixtures",
+    "Trim": "trim", "Doors": "doors", "Windows & coverings": "window coverings",
+    "Appliances": "appliances", "Plumbing": "plumbing fixtures",
     "Electrical": "electrical fixtures",
 }
 

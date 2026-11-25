@@ -261,3 +261,14 @@ def test_doors_read_as_one_line():
         "Detach & Reset Door stop - wall or floor mounted",
     )
     assert room == {"Doors": ["Replace interior door unit & door lockset", "Detach & reset doors"]}
+
+
+def test_windows_read_as_one_line():
+    room = _room(
+        "R&R Vinyl window - double hung, 9-12 sf",
+        "R&R Window screen, 1 - 9 SF",
+        "Detach & Reset Window blind - horizontal or vertical",
+        "Detach & Reset Curtain rod",
+        "Detach & Reset Window drapery - hardware",
+    )
+    assert room == {"Windows & coverings": ["Replace vinyl window & window screen", "Detach & reset window coverings"]}
