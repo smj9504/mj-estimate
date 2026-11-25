@@ -166,6 +166,10 @@ def trade_of(description: str) -> str:
 UNLISTED_TRADES = {"Contents", "Protection", "Demolition & debris", "Cleaning"}
 
 
+# A price added to another line ("Add for lazy susan"): part of that item
+_ADD_ON = re.compile(r"^\s*(?:add(?:'l|itional)?\s+(?:for|on)\b|additional (?:charge|cost) for\b)", re.IGNORECASE)
+
+
 def is_rebuild_line(description: str) -> bool:
     """A line the scope lists: not water mitigation, a labor minimum, work
     every rebuild has (UNLISTED_TRADES) or the job's overhead"""
@@ -175,6 +179,7 @@ def is_rebuild_line(description: str) -> bool:
         and not _MITIGATION.search(desc)
         and not _LABOR_MIN.search(desc)
         and not _JOB_OVERHEAD.search(desc)
+        and not _ADD_ON.match(desc)
         and trade_of(desc) not in UNLISTED_TRADES
     )
 
@@ -248,7 +253,7 @@ def _and_list(items: List[str]) -> str:
 # An item named by the work done to it, not a thing to put in
 _WORK_NAME = re.compile(
     r"^(?:regrout|reglaze|refinish|resurface|reseal|recaulk|reattach|resecure|retexture|"
-    r"seal|caulk|clean|repair|patch|apply|grind|level|prep)\b", re.IGNORECASE)
+    r"seal|caulk|clean|repair|patch|apply|grind|level|prep|texture|float|skim)\b", re.IGNORECASE)
 
 
 def _collective_phrases(trade: str, order: List[str], actions: Dict[str, set], names: Dict[str, str]) -> List[str]:
@@ -281,6 +286,10 @@ def _collective_phrases(trade: str, order: List[str], actions: Dict[str, set], n
 # one action ("Replace cabinetry", "Replace cabinet panels", "Cabinet knob or
 # pull" -> "Replace cabinets") (owner, 2026-11-25). First match wins.
 PART_GROUPS: Dict[str, List[Tuple[str, re.Pattern]]] = {
+    "Insulation": [(name, re.compile(rx, re.IGNORECASE)) for name, rx in [
+        ("vapor barrier", r"vapor|moisture barrier|\bpoly\b"),
+        ("insulation", r"."),
+    ]],
     "Cabinets & countertops": [(name, re.compile(rx, re.IGNORECASE)) for name, rx in [
         ("countertop", r"counter\s*top|\bcounter\b|vanity top|backsplash|side\s*splash|\btop\b"),
         ("vanity", r"vanit"),
@@ -316,6 +325,35 @@ def _part_phrases(groups: List[Tuple[str, re.Pattern]], order: List[str], action
     return out
 
 
+_DRYWALL_FINISH = re.compile(r"texture|popcorn|acoustic|\btape\b|\bfloat|skim|corner bead", re.IGNORECASE)
+
+
+def _drywall_phrases(order: List[str], actions: Dict[str, set], names: Dict[str, str]) -> List[str]:
+    """'Replace drywall (incl. acoustic ceiling texture)': the board once,
+    whatever its thickness, with its finish (owner, 2026-11-25)"""
+    board: set = set()
+    finish: List[str] = []
+    for key in order:
+        name = names[key]
+        if _DRYWALL_FINISH.search(name):
+            part = "acoustic ceiling texture" if re.search(r"acoustic|popcorn", name, re.IGNORECASE) else (
+                "texture" if re.search(r"texture", name, re.IGNORECASE) else _lower_first(name))
+            if part not in finish:
+                finish.append(part)
+        else:
+            board |= actions[key]
+    if not board:
+        return [_cap_first(_and_list(finish))] if finish else []
+    if "replace" in board or "install" in board:
+        verb = "Replace"
+    elif "detach" in board:
+        verb = "Detach & reset"
+    else:
+        verb = "Remove"
+    line = f"{verb} drywall"
+    return [f"{line} (incl. {', '.join(finish)})" if finish else line]
+
+
 def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
     """What is done in a trade, each item once, in the estimate's order.
     An item both removed and put in new reads as replaced."""
@@ -346,18 +384,24 @@ def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
         return _collective_phrases(trade, order, actions, names)
     if trade in PART_GROUPS:
         return _part_phrases(PART_GROUPS[trade], order, actions, names)
+    if trade == "Drywall":
+        return _drywall_phrases(order, actions, names)
 
     out = []
     for key in order:
         acts = actions[key]
-        if "replace" in acts or ("remove" in acts and "install" in acts):
+        obj = names[key]
+        if _WORK_NAME.match(obj):
+            # Named by the work it is ("Texture drywall"): it reads as itself
+            out.append(_cap_first(obj))
+            continue
+        if "replace" in acts or "install" in acts:
+            # Put in new in a rebuild: in the old one's place
             verbs = ["replace"]
         else:
-            verbs = [a for a in ("detach", "remove", "install") if a in acts]
+            verbs = [a for a in ("detach", "remove") if a in acts]
         for verb in verbs:
-            word = _VERB[verb]
-            obj = names[key]
-            out.append(_cap_first(f"{word} {_lower_first(obj)}" if word else obj))
+            out.append(_cap_first(f"{_VERB[verb]} {_lower_first(obj)}"))
     return out
 
 
@@ -488,6 +532,22 @@ def _count_skipped(descriptions: Iterable[str]) -> int:
     return sum(1 for d in descriptions if d and not is_rebuild_line(d))
 
 
+_SUBROOM = re.compile(r"^subroom:\s*(.+?)(?:\s*\(\d+\))?$", re.IGNORECASE)
+
+
+def _merge_same_scope(areas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Rooms on a level with the same scope read once, under all their names:
+    "Family Room, Hallway/Living Room" (owner, 2026-11-25)"""
+    out: List[Dict[str, Any]] = []
+    for area in areas:
+        same = next((a for a in out if a.get("level") == area.get("level") and a["trades"] == area["trades"]), None)
+        if same:
+            same["name"] = f"{same['name']}, {area['name']}"
+        else:
+            out.append(dict(area))
+    return out
+
+
 def summarize_estimate(parsed: Dict[str, Any]) -> Dict[str, Any]:
     """The rough scope of a parsed estimate (parse_estimate's result).
 
@@ -513,8 +573,17 @@ def summarize_estimate(parsed: Dict[str, Any]) -> Dict[str, Any]:
             skipped += len(_descriptions(sec))
             line_count += len(_descriptions(sec))
     for lv in parsed.get("levels") or []:
+        rooms: List[Tuple[str, List[str]]] = []
         for rm in lv.get("rooms") or []:
-            add(lv.get("name"), rm.get("name") or "Room", _descriptions(rm))
+            name = (rm.get("name") or "Room").strip()
+            m = _SUBROOM.match(name)
+            if m and rooms:
+                # A subroom (a bay, a closet) is part of the room before it
+                rooms[-1][1].extend(_descriptions(rm))
+                continue
+            rooms.append((m.group(1) if m else name, _descriptions(rm)))
+        for name, descs in rooms:
+            add(lv.get("name"), name, descs)
     for sec in parsed.get("appendix_sections") or []:
         descs = _descriptions(sec)
         if _SKIP_SECTIONS.match((sec.get("name") or "").strip()):
@@ -523,6 +592,7 @@ def summarize_estimate(parsed: Dict[str, Any]) -> Dict[str, Any]:
         else:
             add(None, sec.get("name") or GENERAL, descs)
 
+    areas = _merge_same_scope(areas)
     return {
         "areas": areas,
         "text": format_scope(areas),

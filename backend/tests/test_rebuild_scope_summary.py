@@ -1,6 +1,6 @@
 """Rough scope of work from a parsed carrier estimate (rebuild/scope_summary.py)"""
 
-from app.domains.rebuild.scope_summary import split_action, summarize_estimate, trade_of
+from app.domains.rebuild.scope_summary import split_action, summarize_estimate, trade_of  # noqa: F401
 
 
 def _items(*descs):
@@ -59,7 +59,8 @@ def test_summarize_estimate():
     }
     result = summarize_estimate(parsed)
     kitchen = {t["trade"]: t["items"] for t in result["areas"][0]["trades"]}
-    assert kitchen["Drywall"] == ['Replace 1/2" drywall', "Texture drywall"]
+    # The board once, whatever its thickness, with its finish
+    assert kitchen["Drywall"] == ["Replace drywall (incl. texture)"]
     assert kitchen["Paint"] == ["walls", "ceiling", "baseboard"]
     # The baseboard is painted: Paint lists it, Trim doesn't again
     assert "Trim" not in kitchen
@@ -288,3 +289,52 @@ def test_tile_reads_as_one_line():
         "Regrout tile",
         "Detach & reset tile",
     ]}
+
+
+FLOOR = (
+    "R&R Vapor barrier - 6 mil poly",
+    "Paint baseboard - two coats",
+    "Pre-finished solid wood flooring",
+    'R&R Quarter round - 3/4" - hardwood',
+)
+
+
+def _level(*rooms):
+    return {"levels": [{"name": "Main Level", "rooms": [
+        {"name": name, "line_items": _items(*descs)} for name, descs in rooms
+    ]}]}
+
+
+def test_rooms_with_the_same_scope_read_once_and_a_subroom_joins_its_room():
+    result = summarize_estimate(_level(
+        ("Family Room", FLOOR),
+        ("Hallway/Living Room", FLOOR),
+        ("Subroom: Bay (1)", FLOOR),
+        ("Room", FLOOR),
+        ("Bathroom", ("Detach & Reset Toilet",)),
+    ))
+    assert result["text"] == (
+        "Family Room, Hallway/Living Room, Room\n"
+        "- Flooring: Replace solid wood flooring (incl. vapor barrier, quarter round, paint baseboard)\n\n"
+        "Bathroom\n"
+        "- Plumbing: Detach & reset toilet"
+    )
+
+
+def test_an_item_put_in_new_reads_as_replaced():
+    assert _room("Pre-finished solid wood flooring") == {"Flooring": ["Replace solid wood flooring"]}
+    assert _room("Batt insulation - 6 inch - R19 - unfaced batt") == {"Insulation": ["Replace insulation"]}
+
+
+def test_drywall_reads_once_with_its_finish():
+    room = _room(
+        'R&R 5/8" drywall - hung, taped, floated, ready for paint',
+        "Acoustic ceiling (popcorn) texture",
+        'R&R 1/2" drywall - hung, taped, floated, ready for paint',
+    )
+    assert room == {"Drywall": ["Replace drywall (incl. acoustic ceiling texture)"]}
+
+
+def test_a_price_added_to_another_item_is_left_out():
+    room = _room("R&R Cabinetry - lower (base) units", "Add for lazy susan")
+    assert room == {"Cabinets & countertops": ["Replace cabinets"]}

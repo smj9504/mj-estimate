@@ -141,7 +141,7 @@ def test_drafts_from_the_latest_rebuild_estimate(db):
 
     result = draft(project, s=db)
 
-    assert result['text'] == 'Kitchen\n- Drywall: Replace 1/2" drywall\n- Paint: ceiling'
+    assert result['text'] == 'Kitchen\n- Drywall: Replace drywall\n- Paint: ceiling'
     assert result['skipped_count'] == 1  # the air mover
     assert result['source']['negotiation_id'] == str(latest.id)
     assert result['source']['label'] == 'Rev #2 · Supplement · Reconstruction'
@@ -192,7 +192,7 @@ def test_an_estimate_printed_in_a_mirrored_font_is_read_from_its_text(db):
 
     result = draft(project, s=db)
 
-    assert result['text'] == 'Kitchen\n- Drywall: Replace 1/2" drywall\n- Paint: ceiling'
+    assert result['text'] == 'Kitchen\n- Drywall: Replace drywall\n- Paint: ceiling'
     assert result['skipped_count'] == 1
 
 
