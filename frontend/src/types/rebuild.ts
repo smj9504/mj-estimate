@@ -81,7 +81,7 @@ export interface RebuildScopeDraft {
   text: string;
   areas: { level?: string | null; name: string; trades: { trade: string; items: string[] }[] }[];
   line_count: number;
-  /** Lines left out: water mitigation, contents, protection, cleaning, labor minimums */
+  /** Lines left out: water mitigation, what every job has (contents, protection, debris, cleaning, supervision, permits), labor minimums */
   skipped_count: number;
   source: RebuildScopeSource;
 }

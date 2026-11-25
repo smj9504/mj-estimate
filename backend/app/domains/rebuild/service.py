@@ -348,8 +348,9 @@ class RebuildService:
                 )
                 if summary['line_count']:
                     raise ValueError(
-                        f"Every line in {label} is water mitigation, contents, protection, cleaning or a labor minimum, so there is no "
-                        "rebuild scope in it. Pick the reconstruction estimate above."
+                        f"No rebuild work in {label}: every line is water mitigation or what every job has "
+                        "(contents, protection, debris, cleaning, supervision, permits). "
+                        "Pick the reconstruction estimate above."
                     )
                 raise ValueError(
                     f"No line items could be read from {label}'s PDF (a scanned PDF, or a layout the "

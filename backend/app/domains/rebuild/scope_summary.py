@@ -17,8 +17,9 @@ reads in a few lines:
 It is a draft: the office reads it against the PDF and edits it before it
 is saved on the project. Water mitigation lines (drying equipment, wet
 tear-out) and labor minimums are left out; they are not rebuild work.
-Nor are the contents moved out and back, the floors protected or the
-cleaning: every rebuild does that.
+Nor is what every job has: the contents moved out and back, the floors
+protected, debris hauled, the cleaning, supervision, permits and fees,
+temporary facilities and equipment.
 """
 
 import re
@@ -72,6 +73,20 @@ _MITIGATION = re.compile(
     re.IGNORECASE,
 )
 _LABOR_MIN = re.compile(r"labor minimum|minimum charge", re.IGNORECASE)
+
+# What every job has, around the work rather than in it: supervision, permits
+# and fees, plans, a temporary toilet or power, storage, equipment brought in
+# (owner, 2026-11-25: "what you'd expect needn't be listed")
+_JOB_OVERHEAD = re.compile(
+    r"supervision|project manage|\bpermits?\b|\btaxes\b|\bfees?\b|\binsurance\b|"
+    r"\bplans?\b|drawings?\b|blueprint|"
+    r"temporary|temp\.? (?:toilet|power|heat|fence)|portable toilet|porta-?(?:potty|john)|"
+    r"storage (?:container|trailer|unit|pod)|cargo container|job-?site (?:trailer|storage|container)|"
+    r"moving (?:van|truck)|equipment (?:rental|delivery|charge|setup)|scaffold|lift rental|"
+    r"mobiliz|trip charge|travel|per diem|dust control|"
+    r"overhead(?! door)|\bprofit\b|sales tax",
+    re.IGNORECASE,
+)
 
 # Appendix sections that are not rebuild work
 _SKIP_SECTIONS = re.compile(r"^(labor minimums applied|water mitigation)$", re.IGNORECASE)
@@ -141,18 +156,19 @@ def trade_of(description: str) -> str:
 
 # Trades every rebuild has, so the scope doesn't list them (owner, 2026-11-25):
 # the contents moved out and back, the floors and surfaces protected, the
-# cleaning when it's done
-UNLISTED_TRADES = {"Contents", "Protection", "Cleaning"}
+# tear-out hauled away, the cleaning when it's done
+UNLISTED_TRADES = {"Contents", "Protection", "Demolition & debris", "Cleaning"}
 
 
 def is_rebuild_line(description: str) -> bool:
-    """A line the scope lists: not water mitigation, a labor minimum, or
-    work every rebuild has (UNLISTED_TRADES)"""
+    """A line the scope lists: not water mitigation, a labor minimum, work
+    every rebuild has (UNLISTED_TRADES) or the job's overhead"""
     desc = description or ""
     return (
         bool(desc.strip())
         and not _MITIGATION.search(desc)
         and not _LABOR_MIN.search(desc)
+        and not _JOB_OVERHEAD.search(desc)
         and trade_of(desc) not in UNLISTED_TRADES
     )
 

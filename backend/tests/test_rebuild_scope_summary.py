@@ -72,9 +72,11 @@ def test_summarize_estimate():
     family = {t["trade"]: t["items"] for t in result["areas"][1]["trades"]}
     assert family == {"Flooring": ["Replace carpet (incl. carpet pad)"]}
 
-    assert [a["name"] for a in result["areas"]] == ["Kitchen", "Family Room", "Debris Removal"]
-    # 2 drying lines, the wet tear-out, the labor minimum and the floor protection
-    assert result["skipped_count"] == 5
+    # Debris Removal: hauling is what every job has, so the area has nothing to list
+    assert [a["name"] for a in result["areas"]] == ["Kitchen", "Family Room"]
+    # 2 drying lines, the wet tear-out, the labor minimum, the floor protection
+    # and the haul
+    assert result["skipped_count"] == 6
     assert result["line_count"] == 19
     assert result["text"].startswith("[Main Level]\nKitchen\n- Drywall:")
     assert "[Basement]\nFamily Room\n- Flooring: Replace carpet (incl. carpet pad)" in result["text"]
@@ -210,3 +212,30 @@ def test_cleaning_is_not_listed():
         "Paint the walls - two coats",
     )
     assert room == {"Paint": ["walls"]}
+
+
+def test_what_every_job_has_is_not_listed():
+    room = _room(
+        "Haul debris - per pickup truck load - including dump fees",
+        "Dumpster load - Approx. 20 yards, 4 tons of debris",
+        "General Demolition - per hour",
+        "Tear out baseboard and bag for disposal",
+        "Residential Supervision / Project Management - per hour",
+        "Taxes, insurance, permits & fees (Bid Item)",
+        "Temporary toilet (per month)",
+        "Storage container - 20' long (per month)",
+        "Paint the walls - two coats",
+    )
+    assert room == {"Paint": ["walls"]}
+
+
+def test_ordinary_work_is_still_listed():
+    room = _room(
+        'R&R 1/2" drywall - hung, taped, floated, ready for paint',
+        "R&R Interior door unit",
+        "R&R Light fixture",
+        "R&R Toilet",
+        "R&R Overhead door - 16' x 7'",
+    )
+    assert set(room) == {"Drywall", "Doors", "Electrical", "Plumbing"}
+    assert "Replace overhead door" in room["Doors"]

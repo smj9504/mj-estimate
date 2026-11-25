@@ -223,7 +223,7 @@ class RebuildScopeDraftResponse(BaseModel):
     text: str
     areas: List[RebuildScopeArea] = []
     line_count: int = 0
-    # Lines left out: water mitigation, contents, protection, cleaning, labor minimums
+    # Lines left out: water mitigation, what every job has (contents, protection, debris, cleaning, supervision, permits), labor minimums
     skipped_count: int = 0
     # {negotiation_id, label, drafted_at}: save it with the text as scope_source
     source: Dict[str, Any]
