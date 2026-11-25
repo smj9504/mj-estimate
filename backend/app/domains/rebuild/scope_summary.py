@@ -40,7 +40,7 @@ TRADES: List[Tuple[str, re.Pattern]] = [(name, re.compile(rx, re.IGNORECASE)) fo
     ("Cabinets & countertops", r"cabinet|vanit|countertop|\bcounter\b|backsplash|\bisland\b"),
     # Before Plumbing and Electrical: "Range - electric", "Dishwasher - supply line"
     ("Appliances", r"appliance|refrigerator|dishwasher|\brange\b|microwave|\boven\b|cooktop|washer|dryer|range hood"),
-    ("Flooring", r"floor|carpet|\bpad\b|laminate|hardwood|\bvinyl\b|\blvp\b|\blvt\b|\bplank\b|underlayment"
+    ("Flooring", r"floor(?![- ]mount)|carpet|\bpad\b|laminate|hardwood|\bvinyl\b|\blvp\b|\blvt\b|\bplank\b|underlayment"
                  r"|transition strip|\bthreshold\b|\bstair tread|\bstair riser"),
     ("Tile", r"\btile\b|\bgrout\b|mortar bed"),
     ("Trim", r"baseboard|\bbase shoe\b|quarter round|\bcasing\b|\bcrown\b|\bmolding\b|\bmoulding\b|\btrim\b|chair rail"
@@ -224,7 +224,8 @@ def _paint_surface(description: str) -> str:
 # Trades read as one phrase per action, and two or more items detached &
 # reset by the trade's name: "Detach & reset appliances" (owner, 2026-11-25)
 COLLECTIVE = {
-    "Trim": "trim", "Appliances": "appliances", "Plumbing": "plumbing fixtures", "Electrical": "electrical fixtures",
+    "Trim": "trim", "Doors": "doors", "Appliances": "appliances", "Plumbing": "plumbing fixtures",
+    "Electrical": "electrical fixtures",
 }
 
 

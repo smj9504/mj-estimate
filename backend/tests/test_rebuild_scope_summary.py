@@ -238,7 +238,7 @@ def test_ordinary_work_is_still_listed():
         "R&R Overhead door - 16' x 7'",
     )
     assert set(room) == {"Drywall", "Doors", "Electrical", "Plumbing"}
-    assert "Replace overhead door" in room["Doors"]
+    assert room["Doors"] == ["Replace interior door unit & overhead door"]
 
 
 def test_trim_reads_as_one_line():
@@ -251,3 +251,13 @@ def test_trim_reads_as_one_line():
         "Detach & Reset Baseboard - 3 1/4\"",
     )
     assert room == {"Trim": ["Replace casing, crown molding & chair rail", "Detach & reset trim"]}
+
+
+def test_doors_read_as_one_line():
+    room = _room(
+        "R&R Interior door unit",
+        "R&R Door lockset - interior",
+        "Detach & Reset Bifold door set - Double",
+        "Detach & Reset Door stop - wall or floor mounted",
+    )
+    assert room == {"Doors": ["Replace interior door unit & door lockset", "Detach & reset doors"]}
