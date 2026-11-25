@@ -196,17 +196,103 @@ def _trade_phrases(trade: str, descriptions: Iterable[str]) -> List[str]:
     return out
 
 
+# What goes in with a new floor: read as part of the Flooring line
+# ("Replace solid wood flooring (incl. vapor barrier, quarter round)") rather
+# than lines of their own (owner, 2026-11-25)
+_FLOOR_PART = re.compile(
+    r"quarter round|base shoe|shoe mo(?:u)?ld|transition|threshold|reducer|t-mo(?:u)?ld|stair nose|"
+    r"underlayment|vapor barrier|moisture barrier|\bpad\b|floor prep|floor leveling|self-level|"
+    r"\bfelt\b|\bpoly\b|sleepers?\b",
+    re.IGNORECASE,
+)
+# Paint that only touches trim goes with the floor too; walls or ceilings make it a paint job
+_TRIM_SURFACE = re.compile(r"^(?:baseboard|base|quarter round|base shoe|shoe mo(?:u)?ld|trim|casing)s?$",
+                           re.IGNORECASE)
+# Words a flooring line can do without: "pre-finished solid wood flooring" -> "solid wood flooring"
+_FLOOR_WORDS = [
+    (re.compile(r"\bpre-?finished\s+", re.IGNORECASE), ""),
+    (re.compile(r"\bfloor covering\b", re.IGNORECASE), "flooring"),
+    (re.compile(r"\s+-\s+simulated wood flooring\b", re.IGNORECASE), ""),
+]
+
+
+def _floor_part(trade: str, description: str, trim_paint_only: bool) -> bool:
+    if trade == "Paint":
+        return trim_paint_only
+    if trade in ("Flooring", "Trim", "Insulation") and _FLOOR_PART.search(description):
+        return True
+    action, obj = split_action(description)
+    return trade == "Trim" and action == "detach" and bool(re.search(r"baseboard", obj, re.IGNORECASE))
+
+
+def _floor_part_phrase(trade: str, description: str) -> str:
+    if trade == "Paint":
+        surface = _paint_surface(description)
+        return f"paint {surface}" if surface else ""
+    action, obj = split_action(description)
+    obj = _lower_first(obj)
+    return f"detach & reset {obj}" if action == "detach" else obj
+
+
+def _simplify_floor(phrase: str) -> str:
+    for rx, to in _FLOOR_WORDS:
+        phrase = rx.sub(to, phrase)
+    return re.sub(r"\s+", " ", phrase).strip()
+
+
+def _fold_into_flooring(by_trade: Dict[str, List[str]]) -> Optional[str]:
+    """When a room gets a new floor, take what goes in with it out of the
+    other trades and return the Flooring line: the floor, then "(incl. ...)"
+    for the rest. None when there's no floor to fold into."""
+    if "Flooring" not in by_trade:
+        return None
+    surfaces = [_paint_surface(d) for d in by_trade.get("Paint", [])]
+    trim_paint_only = bool(surfaces) and all(s and _TRIM_SURFACE.match(s) for s in surfaces)
+
+    floor = [d for d in by_trade["Flooring"] if not _floor_part("Flooring", d, False)]
+    if not floor:
+        return None
+    parts: List[str] = []
+    # In the order the work goes: what is under the floor, its trim, then paint
+    for trade in ("Insulation", "Flooring", "Trim", "Paint"):
+        keep = []
+        for d in by_trade.get(trade, []):
+            if trade == "Flooring" and d in floor:
+                continue
+            if _floor_part(trade, d, trim_paint_only):
+                phrase = _floor_part_phrase(trade, d)
+                if phrase and phrase.lower() not in {p.lower() for p in parts}:
+                    parts.append(phrase)
+            elif trade != "Flooring":
+                keep.append(d)
+        if trade != "Flooring":
+            if keep:
+                by_trade[trade] = keep
+            else:
+                by_trade.pop(trade, None)
+
+    main: List[str] = []
+    for phrase in _trade_phrases("Flooring", floor):
+        phrase = _simplify_floor(phrase)
+        if phrase.lower() not in {m.lower() for m in main}:
+            main.append(phrase)
+    line = ", ".join(main)
+    return f"{line} (incl. {', '.join(parts)})" if parts else line
+
+
 def summarize_room(descriptions: Iterable[str]) -> List[Dict[str, Any]]:
     """[{trade, items: [phrase]}] for one room's line descriptions, trades in
-    the order the work is done"""
+    the order the work is done. A new floor takes what goes in with it into
+    one line (_fold_into_flooring)."""
     by_trade: Dict[str, List[str]] = {}
     for d in descriptions:
         if is_rebuild_line(d):
             by_trade.setdefault(trade_of(d), []).append(d)
+    flooring = _fold_into_flooring(by_trade)
     rank = {name: i for i, name in enumerate(DISPLAY_ORDER)}
     result = []
     for trade in sorted(by_trade, key=lambda t: rank.get(t, len(rank))):
-        items = _trade_phrases(trade, by_trade[trade])
+        items = [flooring] if trade == "Flooring" and flooring else _trade_phrases(trade, by_trade[trade])
         if items:
             result.append({"trade": trade, "items": items})
     return result

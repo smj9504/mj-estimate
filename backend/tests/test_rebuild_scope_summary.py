@@ -62,19 +62,19 @@ def test_summarize_estimate():
     assert kitchen["Drywall"] == ['Replace 1/2" drywall', "Texture drywall"]
     assert kitchen["Paint"] == ["walls", "ceiling", "baseboard"]
     assert kitchen["Trim"] == ["Replace baseboard"]
-    assert kitchen["Flooring"] == ["Replace vinyl floor covering"]
+    assert kitchen["Flooring"] == ["Replace vinyl flooring"]
     assert kitchen["Appliances"] == ["Detach & reset range"]
     assert list(kitchen)[0] == "Protection"
 
     family = {t["trade"]: t["items"] for t in result["areas"][1]["trades"]}
-    assert family == {"Flooring": ["Replace carpet", "Replace carpet pad"]}
+    assert family == {"Flooring": ["Replace carpet (incl. carpet pad)"]}
 
     assert [a["name"] for a in result["areas"]] == ["Kitchen", "Family Room", "Debris Removal"]
     # 2 drying lines, the wet tear-out and the labor minimum
     assert result["skipped_count"] == 4
     assert result["line_count"] == 19
     assert result["text"].startswith("[Main Level]\nKitchen\n- Protection:")
-    assert "[Basement]\nFamily Room\n- Flooring: Replace carpet, Replace carpet pad" in result["text"]
+    assert "[Basement]\nFamily Room\n- Flooring: Replace carpet (incl. carpet pad)" in result["text"]
 
 
 def test_single_level_has_no_level_heading():
@@ -82,3 +82,36 @@ def test_single_level_has_no_level_heading():
         {"name": "Bathroom", "line_items": _items("Detach & Reset Toilet")},
     ]}]}
     assert summarize_estimate(parsed)["text"] == "Bathroom\n- Plumbing: Detach & reset toilet"
+
+
+def _room(*descs):
+    from app.domains.rebuild.scope_summary import summarize_room
+    return {t["trade"]: t["items"] for t in summarize_room(descs)}
+
+
+def test_what_goes_in_with_a_new_floor_reads_on_its_flooring_line():
+    room = _room(
+        "R&R Vapor barrier - 6 mil poly",
+        "Paint baseboard - two coats",
+        "R&R Pre-finished solid wood flooring",
+        'R&R Quarter round - 3/4" - hardwood',
+    )
+    assert room == {
+        "Flooring": ["Replace solid wood flooring (incl. vapor barrier, quarter round, paint baseboard)"],
+    }
+
+
+def test_wall_paint_and_a_new_baseboard_stay_lines_of_their_own():
+    room = _room(
+        "Remove Carpet", "Carpet", "Remove Carpet pad", "Carpet pad", "Transition strip",
+        "Seal/prime then paint the walls (2 coats)", "Paint baseboard - two coats",
+        'R&R Baseboard - 3 1/4"',
+    )
+    assert room["Flooring"] == ["Replace carpet (incl. carpet pad, transition strip)"]
+    assert room["Paint"] == ["walls", "baseboard"]
+    assert room["Trim"] == ["Replace baseboard"]
+
+
+def test_without_a_new_floor_nothing_is_folded():
+    room = _room('R&R Quarter round - 3/4"', "Paint quarter round", "R&R Vapor barrier - 6 mil poly")
+    assert room == {"Insulation": ["Replace vapor barrier"], "Paint": ["quarter round"], "Trim": ["Replace quarter round"]}
