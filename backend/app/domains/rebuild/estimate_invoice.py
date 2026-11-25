@@ -11,7 +11,7 @@ completion paperwork (owner, 2026-11-25).
     payments, and the ACV payment (the carrier's Net Claim: ACV less the
     deductible and the prior payments). They add up to the ACV, so the
     balance due is what the carrier still owes once the work is done.
-  - The invoice is dated the day the work was completed.
+  - The invoice is dated the day the work was completed, due two weeks later.
 
 The invoice is a real one (Invoices), issued by the claim's reconstruction
 company; its PDF is kept as the project's Invoice completion document.
@@ -19,7 +19,7 @@ company; its PDF is kept as the project's Invoice completion document.
 
 import logging
 import re
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,8 @@ _MITIGATION_SECTION = re.compile(r"mitigation", re.IGNORECASE)
 _LISTING_SECTION = re.compile(r"^labor minimums applied$", re.IGNORECASE)
 
 ADJUSTMENT_LINE = "Overhead & profit, tax and other per estimate"
+# Due two weeks after the invoice date, the day the work was completed (owner, 2026-11-25)
+DUE_DAYS = 14
 NEGATIVE_ADJUSTMENT_LINE = "Adjustment to the estimate's RCV"
 
 
@@ -290,6 +292,7 @@ def create_invoice_from_estimate(db, service, project_id: str, negotiation_id: O
     data = InvoiceCreate(
         invoice_number=number,
         date=completion_date.isoformat(),
+        due_date=(completion_date + timedelta(days=DUE_DAYS)).isoformat(),
         status="pending",
         company_id=company_id,
         client=ClientInfo(),

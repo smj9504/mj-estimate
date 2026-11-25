@@ -169,8 +169,9 @@ const RebuildInvoiceFromEstimate: React.FC<Props> = ({ open, project, versions, 
             </table>
             <p className="rb-inv-note">
               Made on the Invoices page under the claim's reconstruction company, dated{' '}
-              {completion ? completion.format('MMM D, YYYY') : 'the day the work was completed'}; the date is
-              saved on the project too. Edit it there, then print its PDF again from the document's menu.
+              {completion ? completion.format('MMM D, YYYY') : 'the day the work was completed'} and due{' '}
+              {completion ? completion.add(14, 'day').format('MMM D, YYYY') : 'two weeks later'}; the completion
+              date is saved on the project too. Edit it there, then print its PDF again from the document's menu.
             </p>
           </>
         )}

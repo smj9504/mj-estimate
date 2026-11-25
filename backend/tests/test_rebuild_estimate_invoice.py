@@ -278,6 +278,8 @@ def test_the_invoice_is_made_dated_the_completion_day_and_kept_as_its_pdf(env):
 
     invoice = env.db.query(Invoice).filter(Invoice.id == str(doc.invoice_id)).one()
     assert invoice.invoice_date.date() == date(2026, 11, 20)
+    # Due two weeks after the work was completed
+    assert invoice.due_date.date() == date(2026, 12, 4)
     assert str(invoice.claim_id) == str(env.claim.id)
     assert str(invoice.company_id) == str(env.company.id)
     assert invoice.notes is None
