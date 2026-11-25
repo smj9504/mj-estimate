@@ -614,6 +614,69 @@ button.rb-photo-source:focus-visible {
   align-items: center;
   gap: 2px;
 }
+/* Completion photos: the room it prints under and the line under it */
+.rb-photo-labels {
+  grid-area: labels;
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+  gap: 8px;
+}
+.rb-photo:has(.rb-photo-labels) {
+  grid-template-areas:
+    "index thumb text actions"
+    "index thumb labels labels";
+}
+.rb-photo-room-select,
+.rb-photo-caption {
+  min-width: 0;
+}
+/* A room's heading in the list, as it heads its pages in the PDF */
+.rb-photo-room {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 14px 0 4px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.rb-photo-room:first-child {
+  padding-top: 6px;
+}
+.rb-photo-room .rb-num {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.rb-photo-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+/* Which room new photos go under, over the two ways in */
+.rb-photo-addto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rb-photo-addto-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-700);
+}
+.rb-photo-addto-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 360px;
+}
+.rb-room-none {
+  color: var(--color-neutral-600);
+}
+.rb-room-add {
+  color: var(--color-primary);
+}
 @media (max-width: 575.98px) {
   .rb-photo-fields,
   .rb-photo-sources {
@@ -631,6 +694,24 @@ button.rb-photo-source:focus-visible {
   }
   .rb-photo-actions {
     margin-left: -10px;
+  }
+  .rb-photo:has(.rb-photo-labels) {
+    grid-template-areas:
+      "index thumb text"
+      "index thumb actions"
+      "labels labels labels";
+  }
+  .rb-photo-labels {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 6px;
+  }
+  .rb-photo-addto {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .rb-photo-addto-select {
+    max-width: none;
   }
 }
 

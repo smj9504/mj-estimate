@@ -35,6 +35,7 @@ export default defineConfig({
       'src/components/cabinet-estimate/**/*.test.ts',
       'src/components/flooring-estimate/**/*.test.ts',
       'src/components/rebuild-estimate/**/*.test.ts',
+      'src/components/rebuild/**/*.test.ts',
       'src/components/claim-followup/**/*.test.ts',
       'src/components/todo/**/*.test.ts',
       'src/components/onsite-signing/**/*.test.ts',

@@ -27,6 +27,8 @@ export interface ClaimPhotoPick {
   name: string;
   thumbUrl: string;
   setLabel: string;
+  /** The room a water mitigation photo was tagged with, if any */
+  room?: string;
 }
 
 interface PhotoSet {
@@ -130,6 +132,7 @@ const RebuildClaimPhotoPicker: React.FC<Props> = ({ open, project, onClose, onAd
         name: file?.originalName || file?.filename || 'Photo',
         thumbUrl: file?.thumbnailUrl || thumbFor(set.source, id),
         setLabel: set.label,
+        room: file?.locationRoom || undefined,
       };
     }));
     onAdd(photos);

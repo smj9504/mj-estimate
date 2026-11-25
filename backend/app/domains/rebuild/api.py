@@ -397,13 +397,19 @@ def _claim_photo_pages(db, claim_id: str, refs: List[Dict[str, str]]) -> Dict[tu
     return found
 
 
+# What a photo's room and caption keep: a room name, a short line under the photo
+ROOM_MAX = 80
+CAPTION_MAX = 160
+
+
 @router.post("/rebuild/projects/{project_id}/photos-to-pdf", response_model=RebuildCompletionDocResponse)
 def photos_to_pdf(
     project_id: str,
     photos: Optional[List[UploadFile]] = File(None),
     pages: str = Form(default="", description=(
         'Page order as JSON: {"upload": n} is the nth uploaded photo, {"source": "wm"|"claim", '
-        '"id": ...} a photo of the claim\'s (a WM job photo, or a claim photo). Left out, the uploads in order.'
+        '"id": ...} a photo of the claim\'s (a WM job photo, or a claim photo). Left out, the uploads in order. '
+        'Either may add "room" (the PDF goes room by room, each under its name) and "caption" (printed under it).'
     )),
     rotations: str = Form(default="{}", description="{page index: degrees clockwise}"),
     doc_type: str = Form(default="completion_photo"),
@@ -446,18 +452,23 @@ def photos_to_pdf(
         claim_id = db.query(RebuildProject.claim_id).filter(RebuildProject.id == project_id).scalar()
         claim_photos = _claim_photo_pages(db, str(claim_id), refs)
 
+    def label(entry, key, limit):
+        value = entry.get(key)
+        return ' '.join(value.split())[:limit] if isinstance(value, str) else ''
+
     page_list = []
     missing = 0
     for entry in order:
+        labels = (label(entry, 'room', ROOM_MAX), label(entry, 'caption', CAPTION_MAX))
         if 'upload' in entry:
             upload = uploads[entry['upload']]
-            page_list.append((upload.filename or 'photo.jpg', _upload_loader(upload)))
+            page_list.append((upload.filename or 'photo.jpg', _upload_loader(upload), *labels))
         else:
             page = claim_photos.get((entry['source'], str(entry['id'])))
             if page is None:
                 missing += 1
             else:
-                page_list.append(page)
+                page_list.append((*page, *labels))
     if missing:
         raise HTTPException(
             status_code=400,

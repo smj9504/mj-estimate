@@ -800,22 +800,68 @@ class RebuildService:
         out.seek(0)
         return out, size
 
+    @staticmethod
+    def photo_pdf_layout(rooms: List[str], per_page: int) -> List[Dict[str, Any]]:
+        """Which photos go on which page: [{room, continued, photos: [index]}].
+
+        rooms: each photo's room, in page order ('' for none). Once any photo
+        has a room, a room starts on a page of its own (its photos are sent
+        together, in the room order picked); without rooms the photos just
+        fill the pages in order, per_page to a page.
+        """
+        grouped = any(rooms)
+        layout: List[Dict[str, Any]] = []
+        for idx, room in enumerate(rooms):
+            last = layout[-1] if layout else None
+            if last and len(last['photos']) < per_page and (not grouped or last['room'] == room):
+                last['photos'].append(idx)
+                continue
+            continued = bool(grouped and last and last['room'] == room)
+            layout.append({'room': room if grouped else '', 'continued': continued, 'photos': [idx]})
+        return layout
+
+    @staticmethod
+    def photo_labels(rooms: List[str], captions: List[str]) -> List[str]:
+        """The line under each photo: "Kitchen · 2 of 4 - new vanity installed".
+        Empty for a photo with neither a room nor a caption."""
+        totals: Dict[str, int] = {}
+        for room in rooms:
+            if room:
+                totals[room] = totals.get(room, 0) + 1
+        seen: Dict[str, int] = {}
+        labels = []
+        for room, caption in zip(rooms, captions):
+            parts = []
+            if room:
+                seen[room] = seen.get(room, 0) + 1
+                parts.append(f"{room} · {seen[room]} of {totals[room]}")
+            if caption:
+                parts.append(caption)
+            labels.append(' - '.join(parts))
+        return labels
+
     def photos_to_pdf(self, project_id: str, pages: list, rotations: Dict[int, int],
                       doc_type: str, title: str) -> Dict[str, Any]:
         """Photos as a letter-size PDF, saved as a completion doc: completion
         photos two to a page, any other kind one. Each page carries the
         property's address at the top, and the file is named by it.
 
-        pages: (name, load) per photo in order; load() returns the photo's bytes.
-            Each is loaded when it is drawn, so one photo is in memory at a time.
+        pages: (name, load) or (name, load, room, caption) per photo in order;
+            load() returns the photo's bytes. Each is loaded when it is drawn,
+            so one photo is in memory at a time. Photos with a room are laid
+            out room by room (photo_pdf_layout): each room starts a page under
+            its name, and every photo is labelled under it (photo_labels).
         rotations: {photo index: degrees clockwise} e.g. {0: 90, 2: 180}
         """
         session = self._s()
         try:
+            from reportlab.lib.colors import HexColor
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfbase.pdfmetrics import stringWidth
+            from reportlab.pdfgen import canvas as rl_canvas
+
             from app.domains.rebuild.models import RebuildProject
             from app.domains.rebuild.repository import get_completion_doc_repository
-            from reportlab.pdfgen import canvas as rl_canvas
-            from reportlab.lib.pagesizes import letter
 
             project = session.query(RebuildProject).filter(RebuildProject.id == project_id).first()
             if not project:
@@ -826,9 +872,18 @@ class RebuildService:
             if len(pages) > self.MAX_PDF_PHOTOS:
                 raise ValueError(f"A PDF takes up to {self.MAX_PDF_PHOTOS} photos; split them into two documents")
 
+            def text_of(entry, i):
+                return ' '.join(str(entry[i] or '').split()) if len(entry) > i else ''
+
+            rooms = [text_of(p, 2) for p in pages]
+            captions = [text_of(p, 3) for p in pages]
+            labels = self.photo_labels(rooms, captions)
+            grouped = any(rooms)
+            labelled = any(labels)
+
             address = self._photo_pdf_address(session, project)
             per_page = self.PHOTOS_PER_PAGE.get(doc_type, 1)
-            page_count = -(-len(pages) // per_page)
+            layout = self.photo_pdf_layout(rooms, per_page)
 
             pdf_buffer = BytesIO()
             c = rl_canvas.Canvas(pdf_buffer, pagesize=letter)
@@ -838,31 +893,52 @@ class RebuildService:
             top = page_h - 66  # under the header's rule
             bottom = 44  # over the page number
             gap = 14
+            heading_h = 26 if grouped else 0  # the room's name over its photos
+            label_h = 16 if labelled else 0  # the line under each photo
             slot_w = page_w - 2 * margin
-            slot_h = (top - bottom - gap * (per_page - 1)) / per_page
+            photos_top = top - heading_h
+            slot_h = (photos_top - bottom - gap * (per_page - 1)) / per_page
 
-            for idx, (name, load) in enumerate(pages):
-                slot = idx % per_page
-                if slot == 0:
-                    if idx:
-                        c.showPage()
-                    self._photo_page_frame(c, address, title, idx // per_page + 1, page_count)
-                try:
-                    jpeg, (img_w, img_h) = self._photo_page_jpeg(load(), rotations.get(idx, 0))
-                except Exception as e:
-                    logger.warning(f"Photo {idx + 1} ({name}) for project {project_id} could not be read: {e}")
-                    raise ValueError(f"Photo {idx + 1} ({name}) could not be read")
+            def fit(text: str, font: str, size: float, width: float) -> str:
+                if stringWidth(text, font, size) <= width:
+                    return text
+                while text and stringWidth(text + '…', font, size) > width:
+                    text = text[:-1]
+                return text.rstrip() + '…'
 
-                # Fit its slot, centred, keeping its shape. A last photo alone
-                # on its page takes the top slot, the size of the others.
-                ratio = min(slot_w / img_w, slot_h / img_h)
-                draw_w = img_w * ratio
-                draw_h = img_h * ratio
-                slot_bottom = top - (slot + 1) * slot_h - slot * gap
-                c.drawImage(
-                    ImageReader(jpeg), (page_w - draw_w) / 2, slot_bottom + (slot_h - draw_h) / 2,
-                    width=draw_w, height=draw_h,
-                )
+            for page_no, page in enumerate(layout, start=1):
+                if page_no > 1:
+                    c.showPage()
+                self._photo_page_frame(c, address, title, page_no, len(layout))
+                if grouped and page['room']:
+                    heading = page['room'] + (' (continued)' if page['continued'] else '')
+                    c.setFillColor(HexColor('#1f2937'))
+                    c.setFont('Helvetica-Bold', 13)
+                    c.drawString(margin, top - 14, fit(heading, 'Helvetica-Bold', 13, slot_w))
+
+                for slot, idx in enumerate(page['photos']):
+                    name = pages[idx][0]
+                    load = pages[idx][1]
+                    try:
+                        jpeg, (img_w, img_h) = self._photo_page_jpeg(load(), rotations.get(idx, 0))
+                    except Exception as e:
+                        logger.warning(f"Photo {idx + 1} ({name}) for project {project_id} could not be read: {e}")
+                        raise ValueError(f"Photo {idx + 1} ({name}) could not be read")
+
+                    # Fit its slot (less the line under it), centred, keeping its
+                    # shape. A last photo alone on its page takes the top slot,
+                    # the size of the others.
+                    image_h = slot_h - label_h
+                    ratio = min(slot_w / img_w, image_h / img_h)
+                    draw_w = img_w * ratio
+                    draw_h = img_h * ratio
+                    slot_bottom = photos_top - (slot + 1) * slot_h - slot * gap
+                    img_y = slot_bottom + label_h + (image_h - draw_h) / 2
+                    c.drawImage(ImageReader(jpeg), (page_w - draw_w) / 2, img_y, width=draw_w, height=draw_h)
+                    if labels[idx]:
+                        c.setFillColor(HexColor('#374151'))
+                        c.setFont('Helvetica', 9)
+                        c.drawCentredString(page_w / 2, img_y - 12, fit(labels[idx], 'Helvetica', 9, slot_w))
 
             c.save()
             pdf_bytes = pdf_buffer.getvalue()

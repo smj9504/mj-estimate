@@ -278,3 +278,69 @@ def test_project_detail_lists_the_claims_wm_jobs_and_client(db):
     detail = rebuild_api._get_service().get_project(str(project.id))
     assert detail['client_id'] == str(claim.client_id)
     assert [j['property_address'] for j in detail['wm_jobs']] == ['12 Oak St']
+
+
+# ---------------------------------------------------------------------------
+# Room by room: each room starts a page under its name, each photo labelled
+# ---------------------------------------------------------------------------
+
+def test_layout_without_rooms_fills_pages_in_order():
+    layout = RebuildService.photo_pdf_layout(['', '', ''], 2)
+    assert [p['photos'] for p in layout] == [[0, 1], [2]]
+    assert all(p['room'] == '' for p in layout)
+
+
+def test_layout_starts_each_room_on_its_own_page():
+    rooms = ['Kitchen', 'Kitchen', 'Kitchen', 'Bathroom', 'Hall']
+    layout = RebuildService.photo_pdf_layout(rooms, 2)
+    assert [(p['room'], p['continued'], p['photos']) for p in layout] == [
+        ('Kitchen', False, [0, 1]),
+        ('Kitchen', True, [2]),
+        ('Bathroom', False, [3]),
+        ('Hall', False, [4]),
+    ]
+
+
+def test_labels_count_each_rooms_photos_and_add_the_caption():
+    labels = RebuildService.photo_labels(
+        ['Kitchen', 'Kitchen', 'Bathroom', ''],
+        ['', 'New cabinets installed', '', 'Front of house'],
+    )
+    assert labels == [
+        'Kitchen · 1 of 2',
+        'Kitchen · 2 of 2 - New cabinets installed',
+        'Bathroom · 1 of 1',
+        'Front of house',
+    ]
+
+
+def test_a_pdf_by_room_heads_each_page_with_its_room_and_labels_the_photos(db):
+    project, claim = make_project(db, property_address='12 Oak St')
+    done = add_claim_file(db, claim.id)
+    # Different colours: the PDF keeps one copy of identical images
+    make_pdf(db, project, photos=[upload(jpeg((400, 300), c)) for c in ('red', 'yellow', 'purple')], pages=[
+        {'upload': 0, 'room': 'Kitchen'},
+        {'upload': 1, 'room': 'Kitchen', 'caption': 'New   cabinets\ninstalled'},
+        {'upload': 2, 'room': 'Kitchen'},
+        {'source': 'claim', 'id': done.id, 'room': 'Bathroom'},
+    ])
+
+    pages = pdf_pages(db.saved['pdf'])
+    texts = [p.extract_text() for p in pages]
+    assert len(pages) == 3
+    assert 'Kitchen' in texts[0] and 'Kitchen · 1 of 3' in texts[0]
+    assert 'Kitchen · 2 of 3 - New cabinets installed' in texts[0]
+    assert 'Kitchen (continued)' in texts[1] and 'Kitchen · 3 of 3' in texts[1]
+    assert 'Bathroom · 1 of 1' in texts[2]
+    assert 'Page 3 of 3' in texts[2]
+    assert [len(p.images) for p in pages] == [2, 1, 1]
+
+
+def test_a_caption_alone_prints_under_its_photo_without_room_pages(db):
+    project, _ = make_project(db, property_address='12 Oak St')
+    make_pdf(db, project, photos=[upload(jpeg((400, 300))) for _ in range(2)], pages=[
+        {'upload': 0, 'caption': 'Front of house'}, {'upload': 1},
+    ])
+    pages = pdf_pages(db.saved['pdf'])
+    assert len(pages) == 1
+    assert 'Front of house' in pages[0].extract_text()

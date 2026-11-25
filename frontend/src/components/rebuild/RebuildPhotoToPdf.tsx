@@ -9,9 +9,15 @@
  * the client's Completion photos as it is added (the client page shows it), and
  * the PDF takes that copy. Other kinds - a photo of a paper COC or invoice -
  * stay in their PDF only.
+ *
+ * Completion photos go room by room (photoRooms.ts): the rooms are the scope
+ * of work's, a water mitigation photo comes in under the room it was tagged
+ * with, and photos added while a room is chosen go under it. In the PDF each
+ * room starts a page under its name and every photo is labelled
+ * "Kitchen · 2 of 4", with its caption when it has one.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Modal, Upload, Button, Select, Input, message, Typography, Tooltip,
 } from 'antd';
@@ -24,6 +30,8 @@ import { rebuildService } from '../../services/rebuildService';
 import { fileService } from '../../services/fileService';
 import { useSheetModal } from '../common/ui';
 import RebuildClaimPhotoPicker, { type ClaimPhotoPick } from './RebuildClaimPhotoPicker';
+import RoomSelect from './RoomSelect';
+import { matchRoom, orderByRoom, pdfPageCount, roomOptions, roomsFromScope, sameRoom } from './photoRooms';
 import type { RebuildProject, RebuildCompletionDoc } from '../../types/rebuild';
 
 const { Text } = Typography;
@@ -42,6 +50,9 @@ type PhotoItem = {
   /** Where it came from, shown under its name */
   origin: string;
   rotation: number; // 0, 90, 180, 270
+  /** The room it prints under ('' for none) and the line under it */
+  room: string;
+  caption: string;
 } & (
   // saving: on its way to the client's Completion photos
   | { kind: 'upload'; file: File; saving?: boolean }
@@ -66,6 +77,9 @@ const PHOTOS_PER_PAGE: Record<string, number> = { completion_photo: 2 };
 
 const plural = (n: number, word: string) => `${n} ${word}${n !== 1 ? 's' : ''}`;
 
+/** The document kind laid out room by room, with a line under each photo */
+const BY_ROOM = 'completion_photo';
+
 /** The document kind whose uploads go to the client's photos, and their category there */
 const SAVES_TO_CLIENT = 'completion_photo';
 const CLIENT_PHOTO_CATEGORY = 'completion';
@@ -88,7 +102,25 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
   const [title, setTitle] = useState('Completion Photos');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // Photos added now go under this room ('' for none)
+  const [addTo, setAddTo] = useState('');
+  // Rooms typed here that no photo is under yet
+  const [typedRooms, setTypedRooms] = useState<string[]>([]);
   const savesToClient = docType === SAVES_TO_CLIENT;
+  const byRoom = docType === BY_ROOM;
+
+  const scopeRooms = useMemo(() => roomsFromScope(project.scope_of_work), [project.scope_of_work]);
+  const rooms = useMemo(
+    () => roomOptions(scopeRooms, [...photos.map(p => p.room), ...typedRooms]),
+    [scopeRooms, photos, typedRooms],
+  );
+  // The page order: room by room for completion photos, else as listed
+  const ordered = useMemo(() => (byRoom ? orderByRoom(photos, rooms) : photos), [byRoom, photos, rooms]);
+  const unassigned = byRoom && rooms.length > 0 ? photos.filter(p => !p.room).length : 0;
+
+  const newRoom = (room: string) => {
+    if (room && !rooms.some(r => sameRoom(r, room))) setTypedRooms(prev => [...prev, room]);
+  };
 
   const handleClose = () => {
     // A photo still on its way to the client gets there all the same
@@ -96,6 +128,8 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
     setPhotos([]);
     setDocType('completion_photo');
     setTitle('Completion Photos');
+    setAddTo('');
+    setTypedRooms([]);
     onClose();
   };
 
@@ -121,6 +155,8 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
               preview: heic ? fileService.getPreviewUrl(stored.id) : p.preview,
               origin: "Uploaded · on the client's Completion photos",
               rotation: p.rotation,
+              room: p.room,
+              caption: p.caption,
             };
           }));
         } catch {
@@ -157,12 +193,14 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
         preview: URL.createObjectURL(file),
         origin: savesToClient ? "Saving to the client's Completion photos…" : 'From this device',
         rotation: 0,
+        room: byRoom ? addTo : '',
+        caption: '',
         saving: savesToClient,
       });
     }
     setPhotos(prev => [...prev, ...added]);
     if (savesToClient && added.length) saveToClient(added);
-  }, [savesToClient, saveToClient]);
+  }, [savesToClient, saveToClient, byRoom, addTo]);
 
   const addClaimPhotos = (picks: ClaimPhotoPick[]) => {
     // A photo already on the list stays where it is
@@ -178,6 +216,9 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
         preview: p.thumbUrl,
         origin: `Client photos · ${p.setLabel}`,
         rotation: 0,
+        // The room chosen to add to, else the one a WM photo was tagged with
+        room: byRoom ? addTo || matchRoom(rooms, p.room) : '',
+        caption: '',
       }));
     if (added.length < picks.length) {
       message.info(`${picks.length - added.length} of them ${picks.length - added.length === 1 ? 'was' : 'were'} already on the list`);
@@ -198,15 +239,27 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
     });
   };
 
+  /** Up or down the page order; by room, within its room */
   const movePhoto = (key: string, direction: -1 | 1) => {
+    const at = ordered.findIndex(p => p.key === key);
+    const other = ordered[at + direction];
+    if (!other || (byRoom && other.room !== ordered[at].room)) return;
     setPhotos(prev => {
       const arr = [...prev];
-      const idx = arr.findIndex(p => p.key === key);
-      const newIdx = idx + direction;
-      if (newIdx < 0 || newIdx >= arr.length) return prev;
-      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+      const a = arr.findIndex(p => p.key === key);
+      const b = arr.findIndex(p => p.key === other.key);
+      [arr[a], arr[b]] = [arr[b], arr[a]];
       return arr;
     });
+  };
+
+  const setRoom = (key: string, room: string) => {
+    newRoom(room);
+    setPhotos(prev => prev.map(p => (p.key === key ? { ...p, room } : p)));
+  };
+
+  const setCaption = (key: string, caption: string) => {
+    setPhotos(prev => prev.map(p => (p.key === key ? { ...p, caption } : p)));
   };
 
   const tooMany = photos.length > MAX_PHOTOS;
@@ -220,15 +273,20 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
     setGenerating(true);
     try {
       const formData = new FormData();
-      const pages: Array<{ upload: number } | { source: string; id: string }> = [];
+      const pages: Array<({ upload: number } | { source: string; id: string }) & { room?: string; caption?: string }> = [];
       const rotations: Record<number, number> = {};
       let uploads = 0;
-      photos.forEach((p, idx) => {
+      ordered.forEach((p, idx) => {
+        // Only completion photos print a room and a caption
+        const labels = byRoom ? {
+          ...(p.room ? { room: p.room } : {}),
+          ...(p.caption.trim() ? { caption: p.caption.trim() } : {}),
+        } : {};
         if (p.kind === 'upload') {
           formData.append('photos', p.file);
-          pages.push({ upload: uploads++ });
+          pages.push({ upload: uploads++, ...labels });
         } else {
-          pages.push({ source: p.source, id: p.id });
+          pages.push({ source: p.source, id: p.id, ...labels });
         }
         if (p.rotation !== 0) rotations[idx] = p.rotation;
       });
@@ -248,14 +306,18 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
     }
   };
 
-  const pageCount = plural(Math.ceil(photos.length / (PHOTOS_PER_PAGE[docType] ?? 1)), 'page');
+  const perPage = PHOTOS_PER_PAGE[docType] ?? 1;
+  const pageCount = plural(
+    byRoom ? pdfPageCount(ordered.map(p => p.room), perPage) : Math.ceil(photos.length / perPage),
+    'page',
+  );
 
   return (
     <>
       <Modal
         title="Photos to PDF"
         open={open}
-        width={680}
+        width={760}
         onCancel={handleClose}
         {...sheetProps}
         footer={
@@ -295,6 +357,21 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
             />
           </div>
 
+          {byRoom && (
+            <div className="rb-photo-addto">
+              <span className="rb-photo-addto-label" id="rb-addto-label">Add photos to</span>
+              <RoomSelect
+                value={addTo}
+                rooms={rooms}
+                onChange={room => { newRoom(room); setAddTo(room); }}
+                size={ctlSize}
+                noRoomLabel="No room (or the WM photo's own room)"
+                ariaLabelledBy="rb-addto-label"
+                className="rb-photo-addto-select"
+              />
+            </div>
+          )}
+
           {/* Two ways in: the client's photos, or this device */}
           <div className="rb-photo-sources">
             <button type="button" className="rb-photo-source" onClick={() => setPickerOpen(true)}>
@@ -332,7 +409,7 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
           {photos.length > 0 && (
             <div className="rb-photo-pages">
               <div className="rb-photo-pages-head">
-                <span>Photos, in order</span>
+                <span>{byRoom && rooms.length ? 'Photos, room by room' : 'Photos, in order'}</span>
                 <span className="rb-num">{plural(photos.length, 'photo')} · {pageCount}</span>
               </div>
               {tooMany && (
@@ -340,47 +417,90 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
                   A PDF takes up to {MAX_PHOTOS} photos. Remove {photos.length - MAX_PHOTOS}, or make two documents.
                 </p>
               )}
+              {unassigned > 0 && (
+                <p className="rb-photo-hint">
+                  {plural(unassigned, 'photo')} {unassigned === 1 ? 'has' : 'have'} no room yet. Pick one on the photo, or leave it to print at the end.
+                </p>
+              )}
               {/* Desktop scrolls the list inside the dialog; a phone sheet already scrolls its body */}
-              <ol className="rb-photos" style={isPhone ? undefined : { maxHeight: 380, overflow: 'auto' }}>
-                {photos.map((item, idx) => (
-                  <li key={item.key} className="rb-photo">
-                    <span className="rb-photo-index">{idx + 1}</span>
-                    <div className="rb-photo-thumb">
-                      <img
-                        src={item.preview}
-                        alt={item.name}
-                        loading="lazy"
-                        style={{ transform: `rotate(${item.rotation}deg)` }}
-                      />
-                    </div>
-                    <div className="rb-photo-text">
-                      <Text ellipsis className="rb-photo-name">{item.name}</Text>
-                      <span className="rb-photo-meta">
-                        {item.kind === 'upload' && item.saving && <><LoadingOutlined aria-hidden="true" /> </>}
-                        {item.origin}
-                        {item.rotation > 0 && ` · Rotated ${item.rotation}°`}
-                      </span>
-                    </div>
-                    <div className="rb-photo-actions">
-                      <Tooltip title={isPhone ? undefined : 'Move up'}>
-                        <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<ArrowUpOutlined />}
-                          disabled={idx === 0} aria-label="Move up" onClick={() => movePhoto(item.key, -1)} />
-                      </Tooltip>
-                      <Tooltip title={isPhone ? undefined : 'Move down'}>
-                        <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<ArrowDownOutlined />}
-                          disabled={idx === photos.length - 1} aria-label="Move down" onClick={() => movePhoto(item.key, 1)} />
-                      </Tooltip>
-                      <Tooltip title={isPhone ? undefined : `Rotate (${item.rotation}°)`}>
-                        <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<RotateRightOutlined />}
-                          aria-label="Rotate 90°" onClick={() => rotatePhoto(item.key)} />
-                      </Tooltip>
-                      <Tooltip title={isPhone ? undefined : 'Remove'}>
-                        <Button type="text" size={ctlSize} className="ui-icon-btn ui-icon-btn--danger" icon={<DeleteOutlined />}
-                          aria-label="Remove photo" onClick={() => removePhoto(item.key)} />
-                      </Tooltip>
-                    </div>
-                  </li>
-                ))}
+              <ol className="rb-photos" style={isPhone ? undefined : { maxHeight: 420, overflow: 'auto' }}>
+                {ordered.map((item, idx) => {
+                  const prev = ordered[idx - 1];
+                  const next = ordered[idx + 1];
+                  // By room, a photo moves within its room
+                  const canUp = !!prev && (!byRoom || prev.room === item.room);
+                  const canDown = !!next && (!byRoom || next.room === item.room);
+                  const roomStarts = byRoom && (!prev || prev.room !== item.room);
+                  const inRoom = roomStarts ? ordered.filter(p => p.room === item.room).length : 0;
+                  return (
+                    <React.Fragment key={item.key}>
+                      {roomStarts && (
+                        <li className="rb-photo-room" aria-hidden="true">
+                          <span>{item.room || 'No room'}</span>
+                          <span className="rb-num">{plural(inRoom, 'photo')}</span>
+                        </li>
+                      )}
+                      <li className="rb-photo">
+                        <span className="rb-photo-index">{idx + 1}</span>
+                        <div className="rb-photo-thumb">
+                          <img
+                            src={item.preview}
+                            alt={item.name}
+                            loading="lazy"
+                            style={{ transform: `rotate(${item.rotation}deg)` }}
+                          />
+                        </div>
+                        <div className="rb-photo-text">
+                          <Text ellipsis className="rb-photo-name">{item.name}</Text>
+                          <span className="rb-photo-meta">
+                            {item.kind === 'upload' && item.saving && <><LoadingOutlined aria-hidden="true" /> </>}
+                            {item.origin}
+                            {item.rotation > 0 && ` · Rotated ${item.rotation}°`}
+                          </span>
+                        </div>
+                        <div className="rb-photo-actions">
+                          <Tooltip title={isPhone ? undefined : 'Move up'}>
+                            <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<ArrowUpOutlined />}
+                              disabled={!canUp} aria-label="Move up" onClick={() => movePhoto(item.key, -1)} />
+                          </Tooltip>
+                          <Tooltip title={isPhone ? undefined : 'Move down'}>
+                            <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<ArrowDownOutlined />}
+                              disabled={!canDown} aria-label="Move down" onClick={() => movePhoto(item.key, 1)} />
+                          </Tooltip>
+                          <Tooltip title={isPhone ? undefined : `Rotate (${item.rotation}°)`}>
+                            <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<RotateRightOutlined />}
+                              aria-label="Rotate 90°" onClick={() => rotatePhoto(item.key)} />
+                          </Tooltip>
+                          <Tooltip title={isPhone ? undefined : 'Remove'}>
+                            <Button type="text" size={ctlSize} className="ui-icon-btn ui-icon-btn--danger" icon={<DeleteOutlined />}
+                              aria-label="Remove photo" onClick={() => removePhoto(item.key)} />
+                          </Tooltip>
+                        </div>
+                        {byRoom && (
+                          <div className="rb-photo-labels">
+                            <RoomSelect
+                              value={item.room}
+                              rooms={rooms}
+                              onChange={room => setRoom(item.key, room)}
+                              size={isPhone ? 'middle' : 'small'}
+                              ariaLabel={`Room for photo ${idx + 1}`}
+                              className="rb-photo-room-select"
+                            />
+                            <Input
+                              value={item.caption}
+                              onChange={e => setCaption(item.key, e.target.value)}
+                              size={isPhone ? 'middle' : 'small'}
+                              maxLength={160}
+                              placeholder="Caption (optional), e.g. New vanity installed"
+                              aria-label={`Caption for photo ${idx + 1}`}
+                              className="rb-photo-caption"
+                            />
+                          </div>
+                        )}
+                      </li>
+                    </React.Fragment>
+                  );
+                })}
               </ol>
             </div>
           )}
