@@ -247,11 +247,21 @@ class SupplementService:
             session.close()
 
     def get_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
+        """The claim's supplements, newest first, each with its bid items, which the
+        client's claim page and the Rebuild project page list"""
         session = self._get_readonly_session()
         try:
-            from app.domains.supplement.repository import get_supplement_request_repository
+            from app.domains.supplement.repository import (
+                get_bid_item_estimate_repository,
+                get_supplement_request_repository,
+            )
             repo = get_supplement_request_repository(session)
-            return repo.get_by_claim(claim_id)
+            bid_repo = get_bid_item_estimate_repository(session)
+            items = repo.get_by_claim(claim_id)
+            for item in items:
+                item['bid_items'] = bid_repo.get_by_supplement(str(item['id']))
+                item['bid_item_count'] = len(item['bid_items'])
+            return items
         finally:
             session.close()
 

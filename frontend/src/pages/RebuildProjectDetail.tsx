@@ -1,8 +1,10 @@
 /**
- * Rebuild project page: facts and the completion-document checklist on the
- * left, the claim's latest insurance estimate PDF open on the right so the
- * scope can be checked without leaving the project. Phones get one column and
- * open PDFs in a new tab, since mobile browsers do not render PDFs in frames.
+ * Rebuild project page: facts, what the claim's supplement asked for, the scope
+ * of work and the completion-document checklist on the left, the claim's latest
+ * insurance estimate PDF open on the right so the scope can be checked without
+ * leaving the project. A supplement bid item's PDF opens in the same viewer.
+ * Phones get one column and open PDFs in a new tab, since mobile browsers do
+ * not render PDFs in frames.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -22,9 +24,11 @@ import { PageHeader, Pill, PropertyList, humanize, toneFromKey, useSheetModal } 
 import { tagTones } from '../styles/tokens';
 import { useAuth } from '../contexts/AuthContext';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
+import api from '../services/api';
 import { rebuildService } from '../services/rebuildService';
 import { supplementService } from '../services/supplementService';
 import { fileService } from '../services/fileService';
+import { BID_TYPE_LABELS, SupplementStatusPill } from '../components/supplement/supplementUi';
 import RebuildDocGenerator from '../components/rebuild/RebuildDocGenerator';
 import RebuildPhotoToPdf from '../components/rebuild/RebuildPhotoToPdf';
 import RebuildProjectEditModal from '../components/rebuild/RebuildProjectEditModal';
@@ -37,10 +41,11 @@ import {
 } from '../components/rebuild/rebuildUi';
 import type { RebuildProject, RebuildCompletionDoc } from '../types/rebuild';
 import type { ClaimNegotiation } from '../types/client';
+import type { BidItemEstimate, SupplementRequest } from '../types/supplement';
 import '../components/rebuild/rebuild.css';
 
 type EstimateVersion = ClaimNegotiation & { file_download_id?: string | null };
-type Viewing = { kind: 'estimate'; id: string } | { kind: 'doc'; id: string };
+type Viewing = { kind: 'estimate'; id: string } | { kind: 'doc'; id: string } | { kind: 'bid'; id: string };
 
 const REQUIRED_TYPES: string[] = REQUIRED_DOCS.map(d => d.type);
 
@@ -54,6 +59,25 @@ const pickLatestEstimate = (versions: EstimateVersion[]) => {
   const withPdf = versions.filter(v => v.file_download_id);
   return withPdf.find(v => v.estimate_category !== 'water_mitigation') || withPdf[0] || null;
 };
+
+/** A bid item made from one of our estimates, with no PDF uploaded, prints that estimate,
+ * as the supplement email to the PA did */
+const linkedEstimatePdfPath = (item: BidItemEstimate): string | null => {
+  if (item.bathroom_estimate_id) return `/api/bathroom-estimates/${item.bathroom_estimate_id}/export/pdf`;
+  if (item.cabinet_estimate_id) return `/api/cabinet-estimates/${item.cabinet_estimate_id}/export/pdf`;
+  if (item.pack_calculation_id) return `/api/packing-estimates/${item.pack_calculation_id}/export/pdf`;
+  return null;
+};
+const bidHasPdf = (item: BidItemEstimate) => !!item.custom_document_file_id || !!linkedEstimatePdfPath(item);
+const bidTypeLabel = (item: BidItemEstimate) => BID_TYPE_LABELS[item.estimate_type] || humanize(item.estimate_type);
+/** "Bathroom · Hall bath", or just the type when the title only repeats it */
+const bidName = (item: BidItemEstimate) => {
+  const type = bidTypeLabel(item);
+  const title = (item.title || '').trim();
+  return title && title.toLowerCase() !== type.toLowerCase() ? `${type} · ${title}` : type;
+};
+const supplementTotal = (s: SupplementRequest) =>
+  (s.request_type === 'estimate_request' ? s.our_estimate_amount : s.supplement_amount) || 0;
 
 const estimateLabel = (v: EstimateVersion) =>
   [`Rev #${v.revision_number}`, humanize(v.revision_type || 'initial'), v.estimate_category && humanize(v.estimate_category)]
@@ -109,6 +133,13 @@ const RebuildProjectDetail: React.FC = () => {
     enabled: !!project?.claim_id,
   });
 
+  // What the claim's supplement asked for, read before the scope of work
+  const { data: supplements = [], isLoading: supplementsLoading } = useQuery({
+    queryKey: ['rebuild-supplements', project?.claim_id],
+    queryFn: () => supplementService.getByClaim(project!.claim_id),
+    enabled: !!project?.claim_id,
+  });
+
   useBreadcrumbTitle(project ? project.property_address || project.title : null);
 
   const latestEstimate = useMemo(() => pickLatestEstimate(versions), [versions]);
@@ -122,6 +153,34 @@ const RebuildProjectDetail: React.FC = () => {
   const docs = useMemo(() => project?.completion_docs || [], [project?.completion_docs]);
   const viewedEstimate = viewing?.kind === 'estimate' ? versions.find(v => v.id === viewing.id) || null : null;
   const viewedDoc = viewing?.kind === 'doc' ? docs.find(d => d.id === viewing.id) || null : null;
+  const viewedBid = viewing?.kind === 'bid'
+    ? supplements.flatMap(s => s.bid_items || []).find(i => i.id === viewing.id) || null
+    : null;
+  const viewedBidSupplement = viewedBid ? supplements.find(s => s.id === viewedBid.supplement_id) || null : null;
+
+  // A bid item printed from our own estimate needs the login, so it loads as a blob, not a URL in the frame
+  const viewedBidPdfPath = viewedBid && !viewedBid.custom_document_file_id ? linkedEstimatePdfPath(viewedBid) : null;
+  const [bidBlob, setBidBlob] = useState<{ path: string; url: string | null; failed?: boolean } | null>(null);
+  useEffect(() => {
+    if (!viewedBidPdfPath) {
+      setBidBlob(null);
+      return undefined;
+    }
+    let cancelled = false;
+    let url: string | null = null;
+    setBidBlob({ path: viewedBidPdfPath, url: null });
+    api.get(viewedBidPdfPath, { responseType: 'blob' })
+      .then(res => {
+        if (cancelled) return;
+        url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+        setBidBlob({ path: viewedBidPdfPath, url });
+      })
+      .catch(() => { if (!cancelled) setBidBlob({ path: viewedBidPdfPath, url: null, failed: true }); });
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [viewedBidPdfPath]);
 
   // Back to the list as it was left (its filters live in the address); opened
   // from elsewhere, to the list itself
@@ -153,6 +212,33 @@ const RebuildProjectDetail: React.FC = () => {
   const viewDoc = (doc: RebuildCompletionDoc) => {
     if (isPhone) openPdf(completionDocPdfUrl(doc));
     else setViewing({ kind: 'doc', id: doc.id });
+  };
+
+  /** Phones: our own estimate's PDF needs the login, so the tab opens first and gets the PDF once it's in */
+  const openLinkedPdfInTab = async (path: string) => {
+    const tab = window.open('', '_blank');
+    try {
+      const res = await api.get(path, { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      if (tab) tab.location.href = url;
+      else window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      tab?.close();
+      message.error('Could not load the estimate PDF');
+    }
+  };
+
+  const viewBid = (item: BidItemEstimate) => {
+    if (!isPhone) {
+      setViewing({ kind: 'bid', id: item.id });
+      return;
+    }
+    if (item.custom_document_file_id) openPdf(fileInlineUrl(item.custom_document_file_id));
+    else {
+      const path = linkedEstimatePdfPath(item);
+      if (path) openLinkedPdfInTab(path);
+    }
   };
 
   const setDocSent = async (doc: RebuildCompletionDoc, sent: boolean) => {
@@ -435,6 +521,96 @@ const RebuildProjectDetail: React.FC = () => {
   };
 
   // ------------------------------------------------------------------
+  // Supplement
+  // ------------------------------------------------------------------
+
+  const canOpenSupplements = canAccessPath('/supplements');
+
+  const renderBidLine = (item: BidItemEstimate) => {
+    const name = bidName(item);
+    const hasPdf = bidHasPdf(item);
+    const active = viewing?.kind === 'bid' && viewing.id === item.id;
+    const meta = [
+      item.custom_amount ? formatCurrency(item.custom_amount) : null,
+      // Its amount is already inside the Xactimate total
+      item.included_in_xactimate && item.estimate_type !== 'xactimate' ? 'In Xactimate' : null,
+      hasPdf ? null : 'No PDF',
+    ].filter(Boolean).join(' · ');
+    const text = (
+      <span className="rb-doc-text">
+        <span className="rb-doc-name">{name}</span>
+        {meta && <span className="rb-doc-meta rb-num">{meta}</span>}
+        {item.description?.trim() && <span className="rb-bid-notes">{item.description.trim()}</span>}
+      </span>
+    );
+    return (
+      <div key={item.id} className={`rb-doc rb-bid${active ? ' is-active' : ''}`}>
+        {hasPdf ? (
+          <button type="button" className="rb-doc-open" onClick={() => viewBid(item)} title={`View ${name}`}>
+            <FilePdfOutlined className="sup-pdf-icon" aria-hidden="true" />
+            {text}
+          </button>
+        ) : (
+          <span className="rb-doc-open rb-doc-open--static">
+            <FilePdfOutlined className="rb-doc-nofile" aria-hidden="true" />
+            {text}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const renderSupplement = () => (
+    <section className="ui-section">
+      <div className="ui-section-head">
+        <h2 className="ui-section-title">
+          Supplement
+          {supplements.length > 1 && <span className="sup-section-count">{supplements.length}</span>}
+        </h2>
+      </div>
+      {supplementsLoading ? (
+        <Skeleton active paragraph={{ rows: 2 }} title={false} />
+      ) : supplements.length === 0 ? (
+        <p className="sup-empty">No supplement on this claim.</p>
+      ) : supplements.map(sup => {
+        const items = sup.bid_items || [];
+        const sent = sup.submitted_date
+          ? `Sent ${fmtDate(sup.submitted_date)}${sup.submitted_to ? ` to ${sup.submitted_to}` : ''}`
+          : 'Not sent yet';
+        return (
+          <div key={sup.id} className="rb-sup">
+            <div className="rb-sup-head">
+              <SupplementStatusPill status={sup.status} />
+              {sup.request_type === 'estimate_request' && <Pill tone="gray">Estimate request</Pill>}
+              {/* Several on one claim: the title tells them apart */}
+              {supplements.length > 1 && <span className="rb-sup-title">{sup.title}</span>}
+              {canOpenSupplements && (
+                <Link className="rb-sup-link" to={`/supplements/${sup.id}`}>
+                  Open <ExportOutlined aria-hidden="true" />
+                </Link>
+              )}
+            </div>
+            <div className="rb-sup-meta">
+              {supplementTotal(sup) > 0 && (
+                <span className="rb-num">
+                  {sup.request_type === 'estimate_request' ? 'Our estimate' : 'Total'}{' '}
+                  <strong>{formatCurrency(supplementTotal(sup))}</strong>
+                </span>
+              )}
+              <span>{sent}</span>
+            </div>
+            {items.length > 0 ? (
+              <div className="rb-sup-items">{items.map(renderBidLine)}</div>
+            ) : (
+              <p className="sup-empty">No bid items.</p>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+
+  // ------------------------------------------------------------------
   // Estimate / document viewer
   // ------------------------------------------------------------------
 
@@ -457,19 +633,33 @@ const RebuildProjectDetail: React.FC = () => {
     </div>
   );
 
+  const bidPdfUrl = (item: BidItemEstimate) => {
+    if (item.custom_document_file_id) return fileInlineUrl(item.custom_document_file_id);
+    return bidBlob && bidBlob.path === linkedEstimatePdfPath(item) ? bidBlob.url : null;
+  };
+
   const renderViewer = () => {
     const url = viewedDoc
       ? completionDocPdfUrl(viewedDoc)
+      : viewedBid ? bidPdfUrl(viewedBid)
       : viewedEstimate?.file_download_id ? fileInlineUrl(viewedEstimate.file_download_id) : null;
-    const title = viewedDoc ? viewedDoc.title : 'Insurance estimate';
+    const title = viewedDoc ? viewedDoc.title : viewedBid ? bidName(viewedBid) : 'Insurance estimate';
     const meta = viewedDoc
       ? [DOC_TYPE_LABELS[viewedDoc.doc_type] || humanize(viewedDoc.doc_type), fmtDate(viewedDoc.created_at)].filter(Boolean).join(' · ')
+      : viewedBid ? [
+        'Supplement',
+        viewedBid.custom_amount ? formatCurrency(viewedBid.custom_amount) : null,
+        viewedBidSupplement?.submitted_date ? `Sent ${fmtDate(viewedBidSupplement.submitted_date)}` : null,
+      ].filter(Boolean).join(' · ')
       : viewedEstimate ? [estimateLabel(viewedEstimate), estimateMeta(viewedEstimate)].filter(Boolean).join(' · ') : '';
+    const bidLoading = !!viewedBid && !viewedBid.custom_document_file_id && !bidBlob?.url && !bidBlob?.failed;
+    // Away from the estimate: a completion document or a supplement bid item
+    const away = !!viewedDoc || !!viewedBid;
 
     return (
       <div className="rb-viewer">
         <div className="rb-viewer-head">
-          {viewedDoc && latestEstimate && (
+          {away && latestEstimate && (
             <Tooltip title="Back to the estimate">
               <Button type="text" size="small" className="ui-icon-btn" icon={<ArrowLeftOutlined />}
                 aria-label="Back to the estimate" onClick={() => setViewing({ kind: 'estimate', id: latestEstimate.id })} />
@@ -483,7 +673,7 @@ const RebuildProjectDetail: React.FC = () => {
             {meta && <span className="rb-viewer-meta">{meta}</span>}
           </div>
           <div className="rb-viewer-actions">
-            {!viewedDoc && versions.length > 1 && (
+            {!away && versions.length > 1 && (
               <Select size="small" value={viewedEstimate?.id} options={estimateOptions} popupMatchSelectWidth={false}
                 onChange={id => setViewing({ kind: 'estimate', id })} aria-label="Estimate revision"
                 className="rb-rev-select" suffixIcon={<SwapOutlined />} />
@@ -496,7 +686,7 @@ const RebuildProjectDetail: React.FC = () => {
           </div>
         </div>
         <div className="rb-viewer-frame">
-          {versionsLoading && !viewedDoc ? (
+          {(versionsLoading && !away) || bidLoading ? (
             <div className="rb-viewer-loading"><Skeleton active paragraph={{ rows: 10 }} /></div>
           ) : url ? (
             <>
@@ -505,6 +695,8 @@ const RebuildProjectDetail: React.FC = () => {
             </>
           ) : viewedDoc ? (
             <div className="rb-viewer-empty"><p>This document has no file attached.</p></div>
+          ) : viewedBid ? (
+            <div className="rb-viewer-empty"><p>The estimate PDF could not be loaded.</p></div>
           ) : renderEstimateEmpty()}
         </div>
       </div>
@@ -658,6 +850,7 @@ const RebuildProjectDetail: React.FC = () => {
         <div className="rb-stack">
           {renderEstimateRow()}
           {renderFacts(project)}
+          {renderSupplement()}
           {renderScope(project)}
           {renderChecklist(project)}
         </div>
@@ -665,6 +858,7 @@ const RebuildProjectDetail: React.FC = () => {
         <div className="rb-page-split">
           <div className="rb-page-main">
             {renderFacts(project)}
+            {renderSupplement()}
             {renderScope(project)}
             {renderChecklist(project)}
           </div>

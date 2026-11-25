@@ -270,6 +270,71 @@
   color: var(--color-neutral-600);
 }
 
+/* Supplement: what the claim's supplement asked for, one block per supplement,
+   its bid items as document lines that open in the viewer */
+.rb-sup + .rb-sup {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.rb-sup-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-height: 24px;
+}
+.rb-sup-title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.rb-sup-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.rb-sup-link:hover {
+  color: var(--color-neutral-900);
+  text-decoration: underline;
+}
+.rb-sup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rb-sup-meta strong {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.rb-sup-items {
+  margin-top: 6px;
+}
+/* A bid item line keeps its scope notes in full under the name, so the line
+   tops its icon rather than centring on it */
+.rb-bid .rb-doc-open {
+  align-items: flex-start;
+}
+.rb-bid .rb-doc-open > .anticon {
+  margin-top: 3px;
+}
+.rb-bid-notes {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-neutral-700);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Phones: the estimate is one tappable row that opens the PDF */
 .rb-estimate-row {
   width: 100%;
