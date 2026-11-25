@@ -201,3 +201,12 @@ def test_protection_is_not_listed():
         "Paint the walls - two coats",
     )
     assert room == {"Paint": ["walls"]}
+
+
+def test_cleaning_is_not_listed():
+    room = _room(
+        "Final cleaning - construction - Residential",
+        "Clean floor",
+        "Paint the walls - two coats",
+    )
+    assert room == {"Paint": ["walls"]}
