@@ -9,10 +9,16 @@
  * priced with the fixture), are neither tile nor paint here — unless the
  * tile to install runs over the whole of a surround (a wall tiled floor to
  * ceiling): then the wall is one tile, and that surround is its tile.
+ *
+ * A wall drawn along a shower's glass front (a shower room closed off with a
+ * wall, its door and glass on that line) is no wall there: that stretch is
+ * open floor to ceiling, like an opening with nothing in it.
  */
 
 import type { BEFixture, BEPoint, BERoom, BEWall, BEWallTileRegion } from '../../../../types/bathroomSketch';
+import { NICHE_BOTTOM_IN, NICHE_HEIGHT_IN } from '../../../../types/bathroomSketch';
 import { showerRoomFrontSF } from '../../showerRoom';
+import { pointInPolygon } from './beRoomDetect';
 
 export type WallFinishLayer = 'existing' | 'new';
 
@@ -199,8 +205,136 @@ export function wallOpeningsOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoo
     if (x1 - x0 <= 0.01) continue;
     openings.push({ rect: { x0, x1, y0, y1 }, fixture: fix });
   }
+  // A shower's glass front along it: open floor to ceiling
+  for (const { x0, x1, fixture } of showerGlassFrontSpans(wall, fixtures, pixelsPerFoot)) {
+    openings.push({ rect: { x0, x1, y0: 0, y1: wall.heightInches }, fixture });
+  }
   return openings;
 }
+
+/** An opening that's a shower's glass front: no jambs, no casing, no wall above */
+export const isShowerGlassFront = (o: { fixture: BEFixture }): boolean => o.fixture.type === 'shower';
+
+/** A shower whose front is glass across (a door and its panels): any but a neo-angle one */
+const hasGlassFront = (fix: BEFixture): boolean => {
+  if (fix.type !== 'shower') return false;
+  const layout = fix.properties.showerLayout ?? 'alcove';
+  return layout !== 'neo_angle' && layout !== 'neo_angle_right';
+};
+
+/**
+ * Whether a door or an opening stands on the shower's front line, 6" of it
+ * along the front at least: a shower room, its front a wall with its door in
+ * that (showerFrontOpening), not glass across.
+ */
+function doorAlongFront(shower: BEFixture, fixtures: BEFixture[], pixelsPerFoot: number): boolean {
+  const [, , se, sw] = fixtureCorners(shower, pixelsPerFoot);
+  const front = { start: sw, end: se };
+  const lenPx = Math.hypot(se.x - sw.x, se.y - sw.y);
+  return fixtures.some((d) => {
+    if (d.type !== 'door') return false;
+    const hw = ((d.dimensions.width / 12) * pixelsPerFoot) / 2;
+    const hh = ((d.dimensions.height / 12) * pixelsPerFoot) / 2;
+    const ends = [fixturePoint(d, -hw, hh), fixturePoint(d, hw, hh)].map((pt) => alongLine(front, pt));
+    if (ends.some((e) => e.offPx > AGAINST_WALL_PX * 1.5)) return false;
+    const lo = Math.max(0, Math.min(ends[0].tPx, ends[1].tPx));
+    const hi = Math.min(lenPx, Math.max(ends[0].tPx, ends[1].tPx));
+    return ((hi - lo) / pixelsPerFoot) * 12 >= 6;
+  });
+}
+
+/** Where a point falls along a line (px from its start) and how far off it it is */
+function alongLine(line: { start: BEPoint; end: BEPoint }, p: BEPoint) {
+  const dx = line.end.x - line.start.x;
+  const dy = line.end.y - line.start.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return {
+    tPx: ((p.x - line.start.x) * dx + (p.y - line.start.y) * dy) / len,
+    offPx: Math.abs((p.x - line.start.x) * dy - (p.y - line.start.y) * dx) / len,
+  };
+}
+
+/**
+ * The stretches of a line (a wall, or a room's edge) that are a shower's glass
+ * front: a shower whose front stands along it (both its front corners within
+ * a few inches of it), and no door in that line (that'd be a shower room's
+ * entry, the rest of the front a wall). Inches along the line from its start,
+ * as far as it reaches.
+ */
+export function showerGlassFrontSpans(
+  line: { start: BEPoint; end: BEPoint }, fixtures: BEFixture[], pixelsPerFoot: number,
+): { x0: number; x1: number; fixture: BEFixture }[] {
+  const lenPx = Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y);
+  if (lenPx < 1) return [];
+  const spans: { x0: number; x1: number; fixture: BEFixture }[] = [];
+  for (const fix of fixtures) {
+    if (!hasGlassFront(fix)) continue;
+    const [, , se, sw] = fixtureCorners(fix, pixelsPerFoot);
+    const ends = [sw, se].map((pt) => alongLine(line, pt));
+    if (ends.some((e) => e.offPx > AGAINST_WALL_PX)) continue;
+    const lo = Math.max(0, Math.min(ends[0].tPx, ends[1].tPx));
+    const hi = Math.min(lenPx, Math.max(ends[0].tPx, ends[1].tPx));
+    const x0 = Math.round((lo / pixelsPerFoot) * 1200) / 100;
+    const x1 = Math.round((hi / pixelsPerFoot) * 1200) / 100;
+    if (x1 - x0 <= 1) continue;
+    if (doorAlongFront(fix, fixtures, pixelsPerFoot)) continue;
+    spans.push({ x0, x1, fixture: fix });
+  }
+  return spans;
+}
+
+/**
+ * Niches in this wall: each niche whose back (its top edge on the plan, north
+ * in its own frame) lies along the wall's line, its opening from its bottom up
+ * its height, as far along as this wall reaches.
+ */
+export function wallNichesOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): WallOpening[] {
+  const niches: WallOpening[] = [];
+  for (const fix of fixtures) {
+    if (fix.type !== 'niche') continue;
+    const hw = ((fix.dimensions.width / 12) * pixelsPerFoot) / 2;
+    const hh = ((fix.dimensions.height / 12) * pixelsPerFoot) / 2;
+    const ends = [fixturePoint(fix, -hw, -hh), fixturePoint(fix, hw, -hh)].map((p) => alongWall(wall, p, pixelsPerFoot));
+    if (!ends.every((a) => a.offPx <= AGAINST_WALL_PX)) continue;
+    const lenIn = (ends[0].lenPx / pixelsPerFoot) * 12;
+    const xs = ends.map((a) => a.alongIn);
+    const x0 = Math.max(0, Math.min(...xs));
+    const x1 = Math.min(lenIn, Math.max(...xs));
+    if (x1 - x0 <= 1) continue;
+    const y0 = Math.min(fix.properties.nicheBottom ?? NICHE_BOTTOM_IN, wall.heightInches);
+    const y1 = Math.min(y0 + (fix.properties.nicheHeight ?? NICHE_HEIGHT_IN), wall.heightInches);
+    if (y1 - y0 <= 0.01) continue;
+    niches.push({ rect: { x0, x1, y0, y1 }, fixture: fix });
+  }
+  return niches;
+}
+
+/**
+ * The niches set in a tub's or a shower's walls: each one whose middle is in
+ * its footprint on the plan, give or take 2" (a niche is drawn on its wall's
+ * face, just where the tub or shower stands against it).
+ */
+export function nichesIn(host: BEFixture, fixtures: BEFixture[], pixelsPerFoot: number): BEFixture[] {
+  const rad = ((host.rotation || 0) * Math.PI) / 180;
+  const margin = pixelsPerFoot / 6;
+  const hw = ((host.dimensions.width / 12) * pixelsPerFoot) / 2 + margin;
+  const hh = ((host.dimensions.height / 12) * pixelsPerFoot) / 2 + margin;
+  return fixtures.filter((f) => {
+    if (f.type !== 'niche') return false;
+    const dx = f.position.x - host.position.x;
+    const dy = f.position.y - host.position.y;
+    const lx = dx * Math.cos(rad) + dy * Math.sin(rad);
+    const ly = -dx * Math.sin(rad) + dy * Math.cos(rad);
+    return Math.abs(lx) <= hw && Math.abs(ly) <= hh;
+  });
+}
+
+/**
+ * A shower's own niche count, priced with the shower: none once niches are
+ * drawn in its walls, each of those then a niche of its own on the estimate.
+ */
+export const showerNicheCount = (shower: BEFixture, fixtures: BEFixture[], pixelsPerFoot: number): number =>
+  (nichesIn(shower, fixtures, pixelsPerFoot).length ? 0 : (shower.properties.nicheCount ?? 0));
 
 /**
  * A strip of wall drawn along a wall (drywall repair, insulation): its area up
@@ -212,9 +346,14 @@ export function wallStripAreaSF(
 ): number {
   const [p, q] = line;
   const gross = ((Math.hypot(q.x - p.x, q.y - p.y) / pixelsPerFoot) * 12 * heightIn) / 144;
-  const wall = walls.find((w) => [p, q]
-    .map((pt) => alongWall(w, pt, pixelsPerFoot))
-    .every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX));
+  const onLine = (w: BEWall) => [p, q].map((pt) => alongWall(w, pt, pixelsPerFoot));
+  const wall = walls.find((w) => onLine(w)
+    .every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX))
+    // Along walls in line, past one's end into the next (a split wall): the
+    // strip's own line, its doors and windows those in it
+    ?? (walls.some((w) => onLine(w).every((a) => a.offPx <= AGAINST_WALL_PX))
+      ? { id: '', start: p, end: q, thickness: 0, heightInches: heightIn }
+      : undefined);
   if (!wall) return Math.round(gross * 100) / 100;
   const [a0, a1] = [p, q].map((pt) => alongWall(wall, pt, pixelsPerFoot).alongIn).sort((x, y) => x - y);
   const holes = wallOpeningsOf(wall, fixtures, pixelsPerFoot).map((o) => o.rect);
@@ -248,11 +387,21 @@ export function showerFrontOpening(
   if (!doors.length) return null;
   for (const wall of walls) {
     const [l, r] = front.map((p) => alongWall(wall, p, pixelsPerFoot));
-    const against = [l, r].every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
-    if (!against || Math.abs(r.alongIn - l.alongIn) < 1) continue;
+    if (!([l, r].every((a) => a.offPx <= AGAINST_WALL_PX)) || Math.abs(r.alongIn - l.alongIn) < 1) continue;
+    // Along this wall for part of its width at least: a wall split under the
+    // front (utils/wallSplit) has the door in one piece or across both
+    const lenIn = wallLengthIn(wall, pixelsPerFoot);
+    const frontLo = Math.min(l.alongIn, r.alongIn);
+    const frontHi = Math.max(l.alongIn, r.alongIn);
+    if (Math.min(frontHi, lenIn) - Math.max(frontLo, 0) < 1) continue;
     for (const o of wallOpeningsOf(wall, doors, pixelsPerFoot)) {
-      const lo = Math.max(Math.min(l.alongIn, r.alongIn), o.rect.x0);
-      const hi = Math.min(Math.max(l.alongIn, r.alongIn), o.rect.x1);
+      // The opening's whole width, past this wall's end too if it runs on into the next piece
+      const dhw = ((o.fixture.dimensions.width / 12) * pixelsPerFoot) / 2;
+      const dhh = ((o.fixture.dimensions.height / 12) * pixelsPerFoot) / 2;
+      const ends = [fixturePoint(o.fixture, -dhw, dhh), fixturePoint(o.fixture, dhw, dhh)]
+        .map((p) => alongWall(wall, p, pixelsPerFoot).alongIn);
+      const lo = Math.max(frontLo, Math.min(...ends));
+      const hi = Math.min(frontHi, Math.max(...ends));
       if (hi - lo < 6) continue;
       const frac = (x: number) => (x - l.alongIn) / (r.alongIn - l.alongIn);
       const [s, e] = [frac(lo), frac(hi)].sort((a, b) => a - b);
@@ -313,14 +462,21 @@ export interface ShowerFrontTile {
  * A shower room's front tiled inside (4 tiled walls): the stretch of this wall
  * its front stands along, on the shower's face of the wall, which needn't be
  * the face toward the wall's room (a shower room cut off the bathroom).
+ * `walls`: all the plan's, so a wall split under the front has its piece
+ * though the door is in the other one; by default this wall alone.
  */
-export function showerFrontTiles(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): ShowerFrontTile[] {
+export function showerFrontTiles(
+  wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number, walls: BEWall[] = [wall],
+): ShowerFrontTile[] {
   const out: ShowerFrontTile[] = [];
   const lengthIn = wallLengthIn(wall, pixelsPerFoot);
   for (const fix of fixtures) {
-    if (fix.type !== 'shower' || !showerFrontTiled(fix, [wall], fixtures, pixelsPerFoot)) continue;
+    if (fix.type !== 'shower' || !showerFrontTiled(fix, walls, fixtures, pixelsPerFoot)) continue;
     const corners = fixtureCorners(fix, pixelsPerFoot);
-    const front = [corners[2], corners[3]].map((c) => alongWall(wall, c, pixelsPerFoot).alongIn);
+    const frontAt = [corners[2], corners[3]].map((c) => alongWall(wall, c, pixelsPerFoot));
+    // Its front along this wall's line
+    if (frontAt.some((a) => a.offPx > AGAINST_WALL_PX)) continue;
+    const front = frontAt.map((a) => a.alongIn);
     const rect = {
       x0: Math.max(0, Math.min(...front)),
       x1: Math.min(lengthIn, Math.max(...front)),
@@ -374,8 +530,10 @@ export function wallFixtureCovers(wall: BEWall, fixtures: BEFixture[], pixelsPer
     } else {
       continue;
     }
+    // Corners on the wall's line, cut to the wall below: a wall split under a
+    // tub (utils/wallSplit) has each piece the part of the surround along it
     const corners = fixtureCorners(fix, pixelsPerFoot).map((c) => alongWall(wall, c, pixelsPerFoot));
-    const onIt = corners.map((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
+    const onIt = corners.map((a) => a.offPx <= AGAINST_WALL_PX);
     const near = corners.filter((_, i) => onIt[i]);
     if (near.length < 2) continue;
     // A shower's front is its door or opening, not tiled with it: a wall there
@@ -401,10 +559,35 @@ export function fixtureSidesAgainstWalls(
   fix: BEFixture, walls: BEWall[], pixelsPerFoot: number,
 ): { north: boolean; south: boolean; east: boolean; west: boolean } {
   const [nw, ne, se, sw] = fixtureCorners(fix, pixelsPerFoot);
-  const along = (pts: BEPoint[]) => walls.some((w) => pts
-    .map((p) => alongWall(w, p, pixelsPerFoot))
-    .every((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX));
+  const along = ([p, q]: BEPoint[]) => wallRunCovers(walls, p, q, pixelsPerFoot);
   return { north: along([nw, ne]), east: along([ne, se]), south: along([se, sw]), west: along([sw, nw]) };
+}
+
+/** Walls in line with no more than this gap (px) between them are one run */
+const RUN_GAP_PX = 8;
+
+/**
+ * Whether walls run the whole way from p to q, give or take AGAINST_WALL_PX at
+ * either end: one wall, or several in line end to end (a split wall).
+ */
+function wallRunCovers(walls: BEWall[], p: BEPoint, q: BEPoint, pixelsPerFoot: number): boolean {
+  const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+  const at = (pt: BEPoint) => ((pt.x - p.x) * (q.x - p.x) + (pt.y - p.y) * (q.y - p.y)) / len;
+  const spans = walls
+    .filter((w) => [p, q].every((pt) => alongWall(w, pt, pixelsPerFoot).offPx <= AGAINST_WALL_PX))
+    .map((w) => [at(w.start), at(w.end)].sort((a, b) => a - b))
+    .sort((a, b) => a[0] - b[0]);
+  const covers = ([s, e]: number[]) => s <= AGAINST_WALL_PX && e >= len - AGAINST_WALL_PX;
+  let run: number[] | null = null;
+  for (const [s, e] of spans) {
+    if (run && s <= run[1] + RUN_GAP_PX) {
+      run[1] = Math.max(run[1], e);
+      continue;
+    }
+    if (run && covers(run)) return true;
+    run = [s, e];
+  }
+  return !!run && covers(run);
 }
 
 export const wallFixtureCover = (wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] =>
@@ -536,20 +719,41 @@ export function roomWallFinishTotals(walls: BEWall[], fixtures: BEFixture[], pix
 }
 
 /**
+ * The unit normal from a wall into its room (plan px), or null for a wall in
+ * no room: the side of its middle the room's outline is on. The room's
+ * centre can be on the other side (an L-shaped room's), so it only decides
+ * when the outline can't (a wall off it).
+ */
+export function wallRoomNormal(wall: BEWall, rooms: BERoom[]): BEPoint | null {
+  const room = rooms.find((r) => r.wallIds.includes(wall.id) && r.boundary.length >= 3);
+  if (!room) return null;
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const n = { x: -dy / len, y: dx / len };
+  const flipped = { x: -n.x, y: -n.y };
+  const mx = (wall.start.x + wall.end.x) / 2;
+  const my = (wall.start.y + wall.end.y) / 2;
+  const off = 2;
+  const onLeft = pointInPolygon({ x: mx + n.x * off, y: my + n.y * off }, room.boundary);
+  const onRight = pointInPolygon({ x: mx - n.x * off, y: my - n.y * off }, room.boundary);
+  if (onLeft !== onRight) return onLeft ? n : flipped;
+  const cx = room.boundary.reduce((sum, p) => sum + p.x, 0) / room.boundary.length;
+  const cy = room.boundary.reduce((sum, p) => sum + p.y, 0) / room.boundary.length;
+  return n.x * (cx - mx) + n.y * (cy - my) < 0 ? flipped : n;
+}
+
+/**
  * Whether the wall's start is on your left when you stand in its room facing
  * it, so its face can be drawn as you'd see it. A wall in no room is drawn
  * start-left.
  */
 export function wallStartOnLeft(wall: BEWall, rooms: BERoom[]): boolean {
-  const room = rooms.find((r) => r.wallIds.includes(wall.id) && r.boundary.length >= 3);
-  if (!room) return true;
-  const cx = room.boundary.reduce((s, p) => s + p.x, 0) / room.boundary.length;
-  const cy = room.boundary.reduce((s, p) => s + p.y, 0) / room.boundary.length;
-  const mx = (wall.start.x + wall.end.x) / 2;
-  const my = (wall.start.y + wall.end.y) / 2;
-  // Facing the wall from inside: from the room's middle toward the wall
-  const fx = mx - cx;
-  const fy = my - cy;
+  const n = wallRoomNormal(wall, rooms);
+  if (!n) return true;
+  // Facing the wall from inside: against its normal into the room
+  const fx = -n.x;
+  const fy = -n.y;
   // Your right hand, on a plan whose y runs down the screen
   const rx = -fy;
   const ry = fx;

@@ -52,11 +52,12 @@ export function captureSketchImage(stage: any, d: BESketchData): string | undefi
     stage.width(needW);
     stage.height(needH);
 
-    // Hide the grid and the dimension tags. By name: with the grid off,
-    // the first layer is the rooms, which the picture needs.
+    // Hide the grid, the dimension tags and the editing aids (a split wall's
+    // breaks, a wall's handle). By name: with the grid off, the first layer is
+    // the rooms, which the picture needs.
     const hiddenLayers: any[] = [];
     stage.getLayers().forEach((layer: any) => {
-      if ((layer.name() === 'grid' || layer.name() === 'dimensions') && layer.visible()) {
+      if (['grid', 'dimensions', 'editing'].includes(layer.name()) && layer.visible()) {
         layer.visible(false);
         hiddenLayers.push(layer);
       }

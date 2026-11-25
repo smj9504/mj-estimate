@@ -74,7 +74,9 @@ def test_a_wall_faucet_goes_onto_a_wall_it_can_have():
     assert snap_faucet(corner, (0.95, 0.6)) == (1.0, 0.6)
     # A drop-in's faucet is on its deck, anywhere
     deck = fixture("t", "bathtub", 0, 0, 60, 32, bathtubSubType="drop_in")
-    assert snap_faucet(deck, (0.3, 0.6)) == (0.3, 0.6)
+    # A drop-in's faucet is on its tub's rim, never out on the deck: the
+    # nearest edge of the tub (here its left end, 0.75" in)
+    assert snap_faucet(deck, (0.3, 0.6)) == pytest.approx((9.75 / 60, 0.6))
 
 
 def test_points_turn_with_the_fixture():
@@ -123,3 +125,23 @@ def test_nothing_moved_nothing_priced():
     nudged = sketch([tub(faucetPos={"x": 0, "y": 0.5}, drainPos={"x": 0.15, "y": 0.5}), shower()])
     assert default_drain(tub(faucetPos={"x": 0, "y": 0.5})) == pytest.approx((0.1, 0.5))
     assert layout_changes(BASE, nudged) == []
+
+
+def test_a_drop_in_with_its_deck_side_by_side_keeps_its_faucet_and_drain_on_its_tub():
+    # A 9' x 4' platform: 1' at the back, a 4" lip at the front, 2' at each end (sketch utils/tubDeck)
+    from app.domains.bathroom_estimate.plumbing_points import drain_of, faucet_of, tub_in_deck01
+
+    platform = {"type": "bathtub", "dimensions": {"width": 108, "height": 48}, "position": {"x": 0, "y": 0},
+                "properties": {"bathtubSubType": "drop_in",
+                               "deckSideWidths": {"back": 12, "front": 4, "left": 24, "right": 24}}}
+    assert tub_in_deck01(platform) == pytest.approx((24 / 108, 84 / 108, 12 / 48, 44 / 48))
+    # Unset: the middle of its back rim, as the sketch has it
+    fx, fy = faucet_of(platform)
+    assert (fx * 108, fy * 48) == pytest.approx((54, 12.75))
+    # Set out on the right ledge: back onto the tub's right rim, its drain inside the tub
+    platform["properties"]["faucetPos"] = {"x": 0.97, "y": 0.5}
+    fx, fy = faucet_of(platform)
+    assert fx * 108 == pytest.approx(84 - 0.75)
+    dx, dy = drain_of(platform)
+    assert 24 + 3 <= dx * 108 <= 84 - 3 + 1e-9
+    assert 12 + 3 <= dy * 48 <= 44 - 3 + 1e-9

@@ -73,10 +73,12 @@ import BEFixtureRows from '../components/bathroom-estimate/BEFixtureRows';
 import BEMirrorRows from '../components/bathroom-estimate/BEMirrorRows';
 import BEDecorativeTileFields from '../components/bathroom-estimate/BEDecorativeTileFields';
 import { mergeMirrorsFromSketch } from '../components/bathroom-estimate/mirrorRows';
-import { CABINET_KINDS, LIGHT_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
+import { CABINET_KINDS, LIGHT_KINDS, NICHE_DEFAULT_SIZE, NICHE_KINDS, mergeFromSketch, withLightRows } from '../components/bathroom-estimate/fixtureRows';
+import { LIGHT_LOCATIONS } from '../components/bathroom-estimate/sketch/utils/lightLocation';
 import { exportBathroomsPdfWith3D, exportEstimatePdfWithPictures, exportProposalWith3D } from '../components/bathroom-estimate/bathroomPdf';
 import BEPdfBathroomsModal, { sharingBathrooms } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { showerRoomFrontSF } from '../components/bathroom-estimate/showerRoom';
+import { roomWallAreaSF } from '../components/bathroom-estimate/sketch/utils/beGeometry';
 import type { PdfBathroomsPick } from '../components/bathroom-estimate/BEPdfBathroomsModal';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import PriceBookNotice from '../components/common/PriceBookNotice';
@@ -678,6 +680,12 @@ const BathroomEstimateDetail: React.FC = () => {
         mirrors: mergeMirrorsFromSketch(current.accessories_spec?.mirrors, sync.sketch_mirrors),
       };
     }
+    if (sync.sketch_niches) {
+      updates.accessories_spec = {
+        ...(updates.accessories_spec ?? current.accessories_spec ?? {}),
+        niches: mergeFromSketch(current.accessories_spec?.niches, sync.sketch_niches),
+      };
+    }
     if (sync.walls_spec) {
       updates.walls_spec = { ...(current.walls_spec || {}), ...sync.walls_spec };
     }
@@ -1239,7 +1247,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         {allRooms.map((r: any) => {
                           const name = (r.name || r.roomType || 'Room').replace(/_/g, ' ');
                           const fl = Math.round((r.netFloorAreaSF || r.floorAreaSF || 0) * 10) / 10;
-                          const wl = Math.round((r.wallAreaSF || 0) * 10) / 10;
+                          const wl = Math.round(roomWallAreaSF(r.perimeterLF, r.heightInches) * 10) / 10;
                           const isPrimary = r.id === primary?.id;
                           return (
                             <div key={r.id} style={{ color: isPrimary ? '#262626' : '#595959' }}>
@@ -1413,13 +1421,19 @@ const BathroomEstimateDetail: React.FC = () => {
                   <Col xs={24} lg={12}>
                     <Text strong style={{ display: 'block', marginBottom: 4 }}>Lights</Text>
                     <Form.Item name={['electrical_spec', 'lights']} noStyle>
-                      <BEFixtureRows kinds={LIGHT_KINDS} noun="light" />
+                      <BEFixtureRows kinds={LIGHT_KINDS} noun="light" locations={LIGHT_LOCATIONS} />
                     </Form.Item>
                   </Col>
                   <Col xs={24} lg={12}>
                     <Text strong style={{ display: 'block', marginBottom: 4 }}>Wall cabinets</Text>
                     <Form.Item name={['accessories_spec', 'cabinets']} noStyle>
                       <BEFixtureRows kinds={CABINET_KINDS} noun="cabinet" typeWidth={250} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Text strong style={{ display: 'block', marginBottom: 4 }}>Wall niches</Text>
+                    <Form.Item name={['accessories_spec', 'niches']} noStyle>
+                      <BEFixtureRows kinds={NICHE_KINDS} noun="niche" typeWidth={200} actions={false} sized={NICHE_DEFAULT_SIZE} />
                     </Form.Item>
                   </Col>
                 </Row>
@@ -1664,6 +1678,23 @@ const BathroomEstimateDetail: React.FC = () => {
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Type" name={['shower_spec', 'type']}>
                           <Select options={selectOpts(pricingInfo?.shower_types)} allowClear />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={12} md={4}>
+                        <Form.Item
+                          label="Floor"
+                          name={['shower_spec', 'floor_type']}
+                          tooltip="A pan (a fiberglass or acrylic base) takes the place of the floor tile, mud bed, liner and tiled curb. The sketch sets it."
+                          getValueProps={(v?: string) => ({ value: v || 'tile' })}
+                        >
+                          <Select
+                            aria-label="Shower floor type"
+                            options={[
+                              { value: 'tile', label: 'Tile' },
+                              { value: 'fiberglass_pan', label: 'Fiberglass pan' },
+                              { value: 'acrylic_pan', label: 'Acrylic pan' },
+                            ]}
+                          />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={12} md={6}>
@@ -2080,8 +2111,18 @@ const BathroomEstimateDetail: React.FC = () => {
                                   {isCabinet && (
                                     <>
                                       <Col xs={12} sm={8} md={4}>
-                                        <Form.Item label="Width" {...restField} name={[name, 'width']}>
-                                          <Select options={numOpts(pricingInfo?.vanity_widths)} allowClear />
+                                        <Form.Item label="Width" {...restField} name={[name, 'width']} tooltip="Any width, one sink or two: a long vanity is priced past 72&quot; by the inch">
+                                          <InputNumber aria-label="Vanity width, inches" min={12} max={192} suffix={'"'} style={{ width: '100%' }} />
+                                        </Form.Item>
+                                      </Col>
+                                      <Col xs={12} sm={8} md={4}>
+                                        <Form.Item
+                                          label="Knee space"
+                                          {...restField}
+                                          name={[name, 'knee_space_in']}
+                                          tooltip="Open under the top, no cabinet (a makeup area): the cabinet is priced for the rest of the width, the top for all of it"
+                                        >
+                                          <InputNumber aria-label="Vanity knee space, inches" min={0} max={180} suffix={'"'} placeholder="None" style={{ width: '100%' }} />
                                         </Form.Item>
                                       </Col>
                                       <Col xs={12} sm={8} md={4}>
@@ -2245,6 +2286,12 @@ const BathroomEstimateDetail: React.FC = () => {
                         <Form.Item label="Doors" name={['walls_spec', 'door_trim_count']}
                           tooltip="Doors and openings whose trim is done, one side each. The sketch counts them.">
                           <InputNumber style={{ width: '100%' }} min={0} max={10} placeholder="0" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={6} md={3}>
+                        <Form.Item label="Of them double" name={['walls_spec', 'door_trim_double_count']}
+                          tooltip="Pairs of doors among them: a double door's trim and jamb are painted at Xactimate's large rate. The sketch counts them.">
+                          <InputNumber aria-label="Double doors" style={{ width: '100%' }} min={0} max={10} placeholder="0" />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={5}>

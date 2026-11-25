@@ -35,7 +35,10 @@ import {
 } from '../../../../types/bathroomSketch';
 import { generateTileZones } from '../utils/beTileZoneGenerator';
 import { roomsFromWalls } from '../utils/beRoomDetect';
+import { roomWallAreaSF } from '../utils/beGeometry';
 import { wallStripAreaSF } from '../utils/wallFinish';
+import { joinWalls, offsetWall, splitWall, splitWallTwice } from '../utils/wallSplit';
+import { removeRoomWithWalls } from '../utils/roomDelete';
 
 let _idCounter = 0;
 function generateId(prefix: string): string {
@@ -118,7 +121,7 @@ function measuredRoom(
     heightInches: 96,
     floorAreaSF: Math.round(floorAreaSF * 100) / 100,
     netFloorAreaSF: Math.round(floorAreaSF * 100) / 100,
-    wallAreaSF: Math.round(((perimeterLF * 96) / 144) * 100) / 100,
+    wallAreaSF: roomWallAreaSF(perimeterLF),
     perimeterLF: Math.round(perimeterLF * 100) / 100,
   };
 }
@@ -259,6 +262,74 @@ export function useBESketchState(initialData?: BESketchData) {
     [mutate, selectedId],
   );
 
+  // ── Break a wall, as Xactimate does (utils/wallSplit) ──
+
+  /** Cut a wall in two `atIn` inches from its start: the new piece's id (the one to its end), or null */
+  const splitWallAt = useCallback(
+    (wallId: string, atIn: number): string | null => {
+      const id = generateId('wall');
+      if (!splitWall(data, wallId, atIn, id)) return null;
+      mutate((d) => splitWall(d, wallId, atIn, id) ?? d);
+      return id;
+    },
+    [data, mutate],
+  );
+
+  /** Cut a wall at two points (inches from its start): the middle piece's id, or null */
+  const splitWallBetween = useCallback(
+    (wallId: string, aIn: number, bIn: number): string | null => {
+      const middle = generateId('wall');
+      const end = generateId('wall');
+      if (!splitWallTwice(data, wallId, aIn, bIn, middle, end)) return null;
+      mutate((d) => splitWallTwice(d, wallId, aIn, bIn, middle, end) ?? d);
+      return middle;
+    },
+    [data, mutate],
+  );
+
+  /** A wall and the one in line with it at one end, one wall again (it keeps its id) */
+  const joinWallWith = useCallback(
+    (wallId: string, otherId: string) => {
+      mutate((d) => joinWalls(d, wallId, otherId) ?? d);
+      if (selectedId === otherId) setSelectedId(wallId);
+    },
+    [mutate, selectedId],
+  );
+
+  /** Move a wall square to itself, px toward its left normal (utils/wallSplit wallNormal) */
+  const offsetWallBy = useCallback(
+    (wallId: string, offsetPx: number) => {
+      const ids: [string, string] = [generateId('wall'), generateId('wall')];
+      mutate((d) => offsetWall(d, wallId, offsetPx, ids));
+    },
+    [mutate],
+  );
+
+  // Dragged: each move from where the drag began, one undo step for all of it
+  const offsetDragRef = useRef<{ base: BESketchData; wallId: string; ids: [string, string]; moved: boolean } | null>(null);
+  const beginWallOffset = useCallback(
+    (wallId: string) => {
+      offsetDragRef.current = { base: data, wallId, ids: [generateId('wall'), generateId('wall')], moved: false };
+    },
+    [data],
+  );
+  const dragWallOffset = useCallback(
+    (offsetPx: number) => {
+      const g = offsetDragRef.current;
+      if (!g || (!g.moved && Math.abs(offsetPx) < 0.01)) return;
+      if (!g.moved) {
+        pushHistory(g.base);
+        g.moved = true;
+      }
+      setData(offsetWall(g.base, g.wallId, offsetPx, g.ids));
+      setIsDirty(true);
+    },
+    [pushHistory],
+  );
+  const endWallOffset = useCallback(() => {
+    offsetDragRef.current = null;
+  }, []);
+
   // ── Room CRUD ──
 
   const addRoom = useCallback(
@@ -280,7 +351,7 @@ export function useBESketchState(initialData?: BESketchData) {
       const floorAreaSF = areaPx2 / (ppf * ppf);
       const perimeterLF = pxToInches(perimeterPx, ppf) / 12;
       const heightInches = 96;
-      const wallAreaSF = (perimeterLF * heightInches) / 144;
+      const wallAreaSF = roomWallAreaSF(perimeterLF, heightInches);
 
       mutate((d) => {
         // Auto-detect parent room
@@ -320,7 +391,7 @@ export function useBESketchState(initialData?: BESketchData) {
           heightInches,
           floorAreaSF: Math.round(floorAreaSF * 100) / 100,
           netFloorAreaSF: Math.round(floorAreaSF * 100) / 100,
-          wallAreaSF: Math.round(wallAreaSF * 100) / 100,
+          wallAreaSF,
           perimeterLF: Math.round(perimeterLF * 100) / 100,
         };
         const newRooms = recalcNetAreas([...d.rooms, room]);
@@ -352,7 +423,7 @@ export function useBESketchState(initialData?: BESketchData) {
 
       mutate((d) => {
         const room = d.rooms.find((r) => r.id === id);
-        const wallAreaSF = (perimeterLF * (room?.heightInches || 96)) / 144;
+        const wallAreaSF = roomWallAreaSF(perimeterLF, room?.heightInches);
 
         // Sync walls to match new boundary edges
         let newWalls = d.walls;
@@ -376,7 +447,7 @@ export function useBESketchState(initialData?: BESketchData) {
                 boundary,
                 floorAreaSF: Math.round(floorAreaSF * 100) / 100,
                 netFloorAreaSF: Math.round(floorAreaSF * 100) / 100,
-                wallAreaSF: Math.round(wallAreaSF * 100) / 100,
+                wallAreaSF,
                 perimeterLF: Math.round(perimeterLF * 100) / 100,
               }
             : r,
@@ -408,7 +479,7 @@ export function useBESketchState(initialData?: BESketchData) {
           ...d,
           walls: d.walls.map((w) => (own.has(w.id) ? { ...w, heightInches } : w)),
           rooms: d.rooms.map((r) => (r.id === id
-            ? { ...r, heightInches, wallAreaSF: Math.round(((r.perimeterLF * heightInches) / 144) * 100) / 100 }
+            ? { ...r, heightInches, wallAreaSF: roomWallAreaSF(r.perimeterLF, heightInches) }
             : r)),
         };
       });
@@ -418,11 +489,10 @@ export function useBESketchState(initialData?: BESketchData) {
 
   const removeRoom = useCallback(
     (id: string) => {
+      // Its walls go with it, but for what another room still stands on (utils/roomDelete)
       mutate((d) => {
-        const filtered = d.rooms.filter((r) => r.id !== id);
-        // Re-parent children: clear parentRoomId for any child rooms
-        const updated = filtered.map((r) => r.parentRoomId === id ? { ...r, parentRoomId: undefined } : r);
-        return { ...d, rooms: recalcNetAreas(updated), fixtures: d.fixtures.filter((f) => f.roomId !== id) };
+        const next = removeRoomWithWalls(d, id, () => generateId('wall'));
+        return { ...next, rooms: recalcNetAreas(next.rooms) };
       });
       if (selectedId === id) setSelectedId(null);
     },
@@ -879,6 +949,13 @@ export function useBESketchState(initialData?: BESketchData) {
     addWall,
     updateWall,
     removeWall,
+    splitWallAt,
+    splitWallBetween,
+    joinWallWith,
+    offsetWallBy,
+    beginWallOffset,
+    dragWallOffset,
+    endWallOffset,
 
     // Room ops
     addRoom,

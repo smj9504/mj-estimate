@@ -95,13 +95,13 @@ const BEPlumbingMarks: React.FC<Props> = ({ fixture, wPx, hPx, ppf, editable, on
         onDragStart={(e) => { e.cancelBubble = true; }}
         onDragMove={(e) => {
           e.cancelBubble = true;
-          const pt = clampDrain(to01(e.target.x(), e.target.y()));
+          const pt = clampDrain(to01(e.target.x(), e.target.y()), fixture);
           const at = toLocal(pt);
           e.target.position(at);
         }}
         onDragEnd={(e) => {
           e.cancelBubble = true;
-          onChange({ drainPos: clampDrain(to01(e.target.x(), e.target.y())) });
+          onChange({ drainPos: clampDrain(to01(e.target.x(), e.target.y()), fixture) });
         }}
       >
         <Circle radius={grab} fill="transparent" />

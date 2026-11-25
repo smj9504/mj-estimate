@@ -74,6 +74,7 @@ const FIXTURE_NAMES: Record<BEFixture['type'], string> = {
   mirror: 'Mirror',
   light: 'Light',
   cabinet: 'Cabinet',
+  niche: 'Niche',
   soffit: 'Soffit',
 };
 

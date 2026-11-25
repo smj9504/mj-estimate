@@ -21,7 +21,7 @@ import {
 } from '@ant-design/icons';
 import type { BESketchTool } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
-import { RoomGlyph, WallGlyph } from './beGlyphs';
+import { RoomGlyph, SplitGlyph, WallGlyph } from './beGlyphs';
 
 export type BESketchView = 'plan' | '3d';
 
@@ -38,6 +38,12 @@ const DRAW_TOOLS: { key: BESketchTool; label: string; icon: React.ReactNode; tip
   { key: 'select', label: 'Select', icon: <SelectOutlined />, tip: 'Select, move and edit' },
   { key: 'room', label: 'Room', icon: <RoomGlyph />, tip: 'Draw the room by its corners' },
   { key: 'wall', label: 'Wall', icon: <WallGlyph />, tip: 'Draw a wall' },
+  {
+    key: 'split',
+    label: 'Split',
+    icon: <SplitGlyph />,
+    tip: 'Click a wall to split it there, or drag along it to split out a piece, then drag the piece out or in',
+  },
 ];
 
 export const MARK_TOOLS: { key: BESketchTool; label: string; short: string; desc: string }[] = [

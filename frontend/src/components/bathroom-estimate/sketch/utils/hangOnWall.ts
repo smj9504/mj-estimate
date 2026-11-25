@@ -1,12 +1,13 @@
 /**
  * Where a thing hung on a wall goes when it's added or changed kind: a
  * vanity bar or a medicine cabinet on the wall behind the vanity, a sconce
- * beside it, a wall cabinet behind the toilet; a soffit over the tub or the
- * shower. Each fixture's back is its top edge on the plan (north, in its own
+ * beside it, a wall cabinet behind the toilet, a niche in the wall behind the
+ * shower or the tub; a soffit over the tub or the shower. Each fixture's back is its top edge on the plan (north, in its own
  * frame), against the wall it stands at.
  */
 
 import type { BEDimensions, BEFixture, BEFixtureType, BEPoint } from '../../../../types/bathroomSketch';
+import { faucetEdge, faucetOf } from './plumbingPoints';
 
 export interface Placement {
   position: BEPoint;
@@ -47,13 +48,13 @@ export function behind(host: BEFixture, depthIn: number, alongIn: number, ppf: n
 }
 
 /**
- * Where a wall light, cabinet or soffit of this kind goes in this sketch,
+ * Where a wall light, cabinet, niche or soffit of this kind goes in this sketch,
  * with its size, or null to leave it where it is.
  */
 export function placeFor(
   fixtures: BEFixture[],
   self: BEFixture,
-  kind: 'vanity_bar' | 'sconce' | 'medicine_cabinet' | 'wall_cabinet' | 'soffit',
+  kind: 'vanity_bar' | 'sconce' | 'medicine_cabinet' | 'wall_cabinet' | 'niche' | 'soffit',
   size: BEDimensions,
   ppf: number,
 ): (Placement & { dimensions: BEDimensions }) | null {
@@ -64,10 +65,14 @@ export function placeFor(
     // The width of the tub or shower, as deep as it is
     return { position: { ...over.position }, rotation: over.rotation || 0, dimensions: { ...over.dimensions } };
   }
-  const hostTypes: BEFixtureType[] = kind === 'wall_cabinet' ? ['toilet'] : ['vanity'];
+  const hostTypes: BEFixtureType[] = kind === 'wall_cabinet' ? ['toilet'] : kind === 'niche' ? ['shower', 'bathtub'] : ['vanity'];
   const host = nearestFixture(others, hostTypes, self.position);
   if (!host) return null;
-  // A sconce beside the mirror, a little in from the vanity's end
-  const along = kind === 'sconce' ? -(host.dimensions.width / 2) + Math.min(4, host.dimensions.width / 4) : 0;
+  // A sconce beside the mirror, a little in from the vanity's end; a niche
+  // clear of a valve on the same wall, in the middle of the wider side of it
+  let along = kind === 'sconce' ? -(host.dimensions.width / 2) + Math.min(4, host.dimensions.width / 4) : 0;
+  if (kind === 'niche' && faucetEdge(host) === 'north') {
+    along = (faucetOf(host).x <= 0.5 ? 1 : -1) * (host.dimensions.width / 4);
+  }
   return { ...behind(host, size.height, along, ppf), dimensions: size };
 }

@@ -21,15 +21,19 @@ import {
   MinusOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import type { BESketchData, BESketchTool } from '../../../types/bathroomSketch';
+import type { BERoom, BESketchData, BESketchTool } from '../../../types/bathroomSketch';
 import { BATHTUB_SURROUND_DEFAULTS, MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
 import { soffitAreas } from './utils/soffit';
-import { cabinetsFromSketch, lightsFromSketch, type FixtureRow } from '../fixtureRows';
+import { cabinetsFromSketch, lightsFromSketch, nichesFromSketch, type FixtureRow } from '../fixtureRows';
 import { mirrorsFromSketch, type MirrorRow } from '../mirrorRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { showerDoorPosition } from './utils/beGeometry';
+import { roomWallAreaSF, showerDoorPosition, turningCorners } from './utils/beGeometry';
+import { kneeSpaceIn } from './utils/vanityLayout';
+import { tubDeckBySide } from './utils/tubDeck';
+import { lightLocation } from './utils/lightLocation';
 import {
-  DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening, showerFrontTiled,
+  DOOR_HEIGHT_IN, WINDOW_HEIGHT_IN, openingDoorPosition, roomWallFinishTotals, showerFrontOpening, showerFrontTiled, showerGlassFrontSpans,
+  showerNicheCount,
 } from './utils/wallFinish';
 import { floorBorderLF, wallBorderLF, wallDecoInserts, wallHasDeco } from './utils/decoTile';
 import { useBESketchState } from './hooks/useBESketchState';
@@ -79,6 +83,11 @@ function toolHint(tool: BESketchTool, surface: 'wall' | 'ceiling', touch: boolea
         ? 'Tap each corner, then the first corner again.'
         : 'Click each corner, double-click to finish. Shift-drag for a rectangle.';
     case 'wall': return 'Drag from one end of the wall to the other.';
+    case 'split':
+      // A tap reaches the canvas as a click; a drag along a wall needs a mouse
+      return touch
+        ? 'Tap a wall to split it there.'
+        : 'Click a wall to split it there, or drag along it to split out a piece to move out or in.';
     case 'damage_zone': return 'Drag over the damaged area.';
     case 'drywall_repair':
     case 'insulation':
@@ -90,6 +99,7 @@ function toolHint(tool: BESketchTool, surface: 'wall' | 'ceiling', touch: boolea
 const TOOL_NAMES: Partial<Record<BESketchTool, string>> = {
   room: 'Room',
   wall: 'Wall',
+  split: 'Split',
   ...Object.fromEntries(MARK_TOOLS.map((t) => [t.key, t.label])),
 };
 
@@ -147,6 +157,8 @@ export interface SketchFixtureSync {
   sketch_cabinets?: FixtureRow[];
   /** The mirrors drawn on the plan, by width (merged into accessories_spec.mirrors by the page) */
   sketch_mirrors?: MirrorRow[];
+  /** The niches drawn on the plan, by kind (merged into accessories_spec.niches by the page) */
+  sketch_niches?: FixtureRow[];
 
   // Drywall repair (from sketch drywall zones)
   hidden_costs?: Record<string, any>;
@@ -210,14 +222,23 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     // underlayment, and uses the whole room for the ceiling and paint prep;
     // taking them off here too took them off twice.
     // An L or any shape but a rectangle: its own area, not the box around it
-    let totalFloorSF = bathroom.boundary.length > 4 && bathroom.floorAreaSF > 0
+    // (a corner that turns nowhere, a split wall's, leaves a rectangle one)
+    const b = bathroom.boundary;
+    let totalFloorSF = turningCorners(b) > 4 && bathroom.floorAreaSF > 0
       ? bathroom.floorAreaSF
       : widthFt * depthFt;
 
     // Wall SF: primary room + additional rooms, minus door/window openings
     const heightFt = (bathroom.heightInches || 96) / 12;
     sync.height_ft = Math.round(heightFt * 100) / 100;
-    const perimeterFt = 2 * (widthFt + depthFt);
+    // An outline notched in (part of a wall pushed in) has more wall than the
+    // box round it: its own perimeter then. Any other shape keeps the box's.
+    const boxPerimeterFt = 2 * (widthFt + depthFt);
+    const ownPerimeterFt = Math.round((b.reduce((s, p, i) => {
+      const q = b[(i + 1) % b.length];
+      return s + Math.hypot(q.x - p.x, q.y - p.y);
+    }, 0) / ppf) * 4) / 4;
+    const perimeterFt = ownPerimeterFt > boxPerimeterFt + 0.5 ? ownPerimeterFt : boxPerimeterFt;
     const grossWallSF = perimeterFt * heightFt;
 
     // Deduct door/window openings from wall area
@@ -230,13 +251,21 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       const fH = (fix.properties.openingHeightIn ?? (fix.type === 'door' ? DOOR_HEIGHT_IN : WINDOW_HEIGHT_IN)) / 12;
       doorWindowDeductSF += fW * fH;
     }
-    let totalWallSF = Math.max(0, grossWallSF - doorWindowDeductSF);
+    // A shower's glass front along a room's edge is no wall (a shower room
+    // closed off with a wall where its door and glass stand)
+    const glassFrontSF = (rm: BERoom) => {
+      const frontIn = rm.boundary.reduce((sum, p, i) => sum + showerGlassFrontSpans(
+        { start: p, end: rm.boundary[(i + 1) % rm.boundary.length] }, fixtures, ppf,
+      ).reduce((s, g) => s + (g.x1 - g.x0), 0), 0);
+      return (frontIn / 12) * ((rm.heightInches || 96) / 12);
+    };
+    let totalWallSF = Math.max(0, grossWallSF - doorWindowDeductSF - glassFrontSF(bathroom));
 
     // Add additional rooms (non-sub-rooms)
     for (const rm of rooms) {
       if (rm.id === bathroom.id || rm.parentRoomId) continue;
       totalFloorSF += rm.netFloorAreaSF || rm.floorAreaSF || 0;
-      totalWallSF += rm.wallAreaSF || 0;
+      totalWallSF += Math.max(0, roomWallAreaSF(rm.perimeterLF, rm.heightInches) - glassFrontSF(rm));
     }
 
     sync.floor_sf = Math.round(totalFloorSF * 10) / 10;
@@ -331,7 +360,12 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       // room's entry tiled round), so trim the plan no longer has comes off;
       // a plan with no doors leaves the count typed on the estimate alone
       ...(fixtures.some((f) => f.type === 'door')
-        ? { door_trim_count: trimDoors.length, door_trim_lf: Math.round(casingLF * 10) / 10 }
+        ? {
+          door_trim_count: trimDoors.length,
+          // Of them, pairs of doors: their trim painted as a double door's
+          door_trim_double_count: trimDoors.filter((d) => d.properties.doubleDoor && !d.properties.noSlab).length,
+          door_trim_lf: Math.round(casingLF * 10) / 10,
+        }
         : {}),
       ...(trimWindows.length ? { window_trim_count: trimWindows.length } : {}),
       ...(existingTileWallSF > 0 ? { existing_tile_wall_sf: existingTileWallSF } : {}),
@@ -368,9 +402,11 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     exhaust_fan_cfm: 80,
     exhaust_fan_switch: 'standard',
   };
-  sync.sketch_lights = lightsFromSketch(fixtures);
+  // Each light by kind and place: lights of a kind in different places are lines of their own
+  sync.sketch_lights = lightsFromSketch(fixtures, (f) => lightLocation(f, fixtures, rooms, ppf));
   sync.sketch_cabinets = cabinetsFromSketch(fixtures);
   sync.sketch_mirrors = mirrorsFromSketch(fixtures);
+  sync.sketch_niches = nichesFromSketch(fixtures);
   // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);
 
@@ -420,6 +456,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     }
     const cornerCount = Math.max(0, deckSides - 1);
     const deckSF = Math.round((deckLen * deckW + cornerCount * deckW * deckW) / 144 * 100) / 100;
+    const deckBySide = tubDeckBySide(bathtub);
 
     // Calculate front panel SF
     const deckH = p.deckHeight ?? 0;
@@ -438,10 +475,20 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       surround_height_in: surrHeight,
       surround_wall_count: surrWallCount,
       tiled_with_wall_sf: surroundInTile[bathtub.id] ?? 0,
-      deck_tile: deckW > 0 && deckSides > 0,
-      deck_tile_sf: deckSF,
-      deck_width_in: deckW,
-      deck_tile_sides: deckSides,
+      // A drop-in's decks side by side: the platform less the tub, each side its own width
+      ...(deckBySide ? {
+        deck_tile: deckBySide.deckSF > 0,
+        deck_tile_sf: deckBySide.deckSF,
+        deck_width_in: Math.max(...Object.values(deckBySide.sides)),
+        deck_tile_sides: Object.values(deckBySide.sides).filter((v) => v > 0).length,
+        deck_side_widths_in: deckBySide.sides,
+        deck_tub_in: [deckBySide.tubLengthIn, deckBySide.tubDepthIn],
+      } : {
+        deck_tile: deckW > 0 && deckSides > 0,
+        deck_tile_sf: deckSF,
+        deck_width_in: deckW,
+        deck_tile_sides: deckSides,
+      }),
       front_panel_tile: !!p.hasFrontPanel,
       front_panel_sf: frontPanelSF,
       deck_height_in: deckH,
@@ -457,7 +504,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       width_in: shower.dimensions.width,
       depth_in: shower.dimensions.height,
       tile_height_in: p.showerTileHeight ?? 96,
-      niches: p.nicheCount ?? 0,
+      // Its own niches; a niche drawn in its walls is on the estimate as a niche of its own
+      niches: showerNicheCount(shower, fixtures, ppf),
       bench: !!p.hasBench,
       bench_position: p.benchPosition ?? 'left',
       bench_length: p.benchLength ?? 36,
@@ -473,6 +521,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       front_opening_height_in: opening ? Math.round(opening.heightIn) : 0,
       front_tiled: showerFrontTiled(shower, walls, fixtures, ppf),
       layout: p.showerLayout ?? 'alcove',
+      // Its floor: tiled, or a prefab base (a pan) in place of the tile, mud bed and curb
+      floor_type: p.showerFloorType ?? 'tile',
       wall_material: p.showerWallMaterial ?? 'tile',
       tiled_with_wall_sf: surroundInTile[shower.id] ?? 0,
     };
@@ -487,6 +537,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
           sink_type: sinkType,
           width: v.dimensions.width,
           sinks: v.properties.sinkCount ?? 1,
+          // An open knee space under the top: the cabinet is the rest (backend vanities.py)
+          knee_space_in: sinkType === 'cabinet' ? kneeSpaceIn(v.dimensions.width, v.properties.kneeSpaceWidth) : 0,
           mirror_width: mirrorForVanity ? mirrorForVanity.dimensions.width : undefined,
           mirror_height: mirrorForVanity ? (mirrorForVanity.properties.mirrorHeight ?? MIRROR_HEIGHT_IN) : undefined,
           has_mirror: !!mirrorForVanity,
@@ -532,11 +584,14 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       sync.repair_drywall_ceiling_sf = Math.round(ceilDwSF * 10) / 10;
     }
 
-    // Full paint: if ANY wall/ceiling drywall repair, paint entire area minus tub/shower
-
-    // Calculate paintable wall SF: total wall SF minus bathtub/shower wall areas
+    // Full paint: any wall drywall repair repaints the whole paintable wall.
+    // That's the plan's own paint area (its doors, windows, wall tile and the
+    // part behind a tub or shower already out); with no outline to measure,
+    // the room's walls less the tub surround and the shower.
     let fullPaintWallSF = 0;
-    if (hasWallDw && bathroom) {
+    if (hasWallDw && bathroom && typeof sync.paint_wall_sf === 'number') {
+      fullPaintWallSF = Math.round(sync.paint_wall_sf * 10) / 10;
+    } else if (hasWallDw && bathroom) {
       let deductSF = 0;
       // Deduct bathtub surround area
       const bathtubFix = fixtures.find(f => f.type === 'bathtub');
@@ -564,7 +619,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
         if (sWalls >= 3) perim += sD;
         deductSF += (perim * sTileH) / 144;
       }
-      fullPaintWallSF = Math.max(0, Math.round((bathroom.wallAreaSF - deductSF) * 10) / 10);
+      const roomWallSF = roomWallAreaSF(bathroom.perimeterLF, bathroom.heightInches);
+      fullPaintWallSF = Math.max(0, Math.round((roomWallSF - deductSF) * 10) / 10);
     }
 
     // Ceiling: use floor SF as ceiling area

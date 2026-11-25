@@ -36,15 +36,67 @@ def _get_openai():
 
 # ─── Text Extraction ─────────────────────────────────────────────────────────
 
+def _is_legible(text: str) -> bool:
+    """Reads as words. CID glyph names ("/G21") or a font with a character
+    map of its own give text that is long enough but made of symbols and
+    accented letters."""
+    if text.lstrip().startswith(("/", "\x00")):
+        return False
+    letters = [c for c in text if c.isalpha()]
+    if len(letters) < 20:
+        return False
+    return sum(c.isascii() for c in letters) / len(letters) >= 0.8
+
+
+def _unmirror(text: str) -> str:
+    """Undo a font that prints each character at 288 minus its code: 'S'
+    (0x53) as 'Í' (0xCD), '0' as 'ð', '$' as 'ü'. Some estimates printed
+    to PDF come out this way in both pypdf and PyMuPDF. The mirrored 's'
+    is the soft hyphen, which PyMuPDF gives as '-'; a real '-' is 'ó'."""
+    out = []
+    for c in text:
+        o = ord(c)
+        if c == "-":
+            out.append("s")
+        elif 0xA2 <= o <= 0xFF:
+            out.append(chr(288 - o))
+        else:
+            out.append(c)
+    return "".join(out)
+
+
+def _page_lines(page) -> str:
+    """A PyMuPDF page's text one printed row per line, so a label and its
+    amount stay together ("Line Item Total  32,186.00") as the parsers
+    expect; plain get_text() puts them on lines of their own. A wide gap
+    between words becomes two spaces, as in pypdf's text."""
+    rows: List[Tuple[float, list]] = []
+    for w in sorted(page.get_text("words"), key=lambda w: ((w[1] + w[3]) / 2, w[0])):
+        mid = (w[1] + w[3]) / 2
+        if rows and abs(rows[-1][0] - mid) <= 3:
+            rows[-1][1].append(w)
+        else:
+            rows.append((mid, [w]))
+    lines = []
+    for _, words in rows:
+        words.sort(key=lambda w: w[0])
+        line = words[0][4]
+        for prev, w in zip(words, words[1:]):
+            line += ("  " if w[0] - prev[2] > 8 else " ") + w[4]
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _extract_all_text(pdf_path: str) -> Tuple[List[str], bool]:
     """
     Extract text from all pages. Returns (pages_text_list, is_readable).
-    is_readable = False when CID-encoded or garbage text detected.
-    """
-    pages = []
-    is_readable = False
+    is_readable = False when no page reads as words (CID-encoded, scanned).
 
-    # Try pypdf first
+    pypdf first. A page it gives as garbage is read again with PyMuPDF, as
+    it is and with a mirrored font undone, keeping whichever reads as words.
+    """
+    pages: List[str] = []
+
     try:
         try:
             from pypdf import PdfReader
@@ -52,33 +104,33 @@ def _extract_all_text(pdf_path: str) -> Tuple[List[str], bool]:
             from PyPDF2 import PdfReader
 
         reader = PdfReader(pdf_path)
-        for page in reader.pages:
-            text = page.extract_text() or ""
-            pages.append(text)
-            if len(text) > 50 and not text.startswith("/"):
-                is_readable = True
-
-        if is_readable:
-            return pages, True
+        pages = [page.extract_text() or "" for page in reader.pages]
     except Exception as e:
         logger.warning(f"pypdf extraction failed: {e}")
+        pages = []
 
-    # Fallback: pymupdf
+    # A short page (blank, a photo) says nothing either way
+    if pages and all(_is_legible(t) or len(t.strip()) < 50 for t in pages) \
+            and any(_is_legible(t) for t in pages):
+        return pages, True
+
     try:
         import fitz
-        pages = []
         doc = fitz.open(pdf_path)
-        for i in range(len(doc)):
-            text = doc[i].get_text()
-            pages.append(text)
-            if len(text) > 50 and not text.startswith("\x00"):
-                is_readable = True
-        doc.close()
-        return pages, is_readable
+        try:
+            alt = [_page_lines(doc[i]) for i in range(len(doc))]
+        finally:
+            doc.close()
     except Exception as e:
         logger.warning(f"pymupdf extraction failed: {e}")
+        return pages, any(_is_legible(t) for t in pages)
 
-    return pages, False
+    merged = []
+    for i in range(max(len(pages), len(alt))):
+        candidates = ([pages[i]] if i < len(pages) else []) + \
+            ([alt[i], _unmirror(alt[i])] if i < len(alt) else [])
+        merged.append(next((t for t in candidates if _is_legible(t)), candidates[0]))
+    return merged, any(_is_legible(t) for t in merged)
 
 
 # ─── Summary Page Detection ──────────────────────────────────────────────────
@@ -512,10 +564,23 @@ def _extract_sections_via_vision(
         sections = json.loads(raw_text)
         if not isinstance(sections, list):
             sections = [sections]
-        return sections
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse GPT-4o response as JSON: {e}\nRaw: {raw_text}")
         return []
+
+    # The model's JSON isn't guaranteed to follow the prompt: a null name or
+    # "$1,234.56" for a number would break the sums and checks that follow
+    cleaned = []
+    for sec in sections:
+        if not isinstance(sec, dict):
+            continue
+        sec = dict(sec)
+        sec["section_name"] = str(sec.get("section_name") or "").strip()
+        for key, value in sec.items():
+            if key != "section_name" and not isinstance(value, (int, float)):
+                sec[key] = _parse_number(str(value)) if value is not None else 0
+        cleaned.append(sec)
+    return cleaned
 
 
 # ─── Validation ──────────────────────────────────────────────────────────────

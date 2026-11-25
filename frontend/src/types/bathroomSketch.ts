@@ -13,6 +13,8 @@
 export type BESketchTool =
   | 'select'
   | 'wall'
+  /** Break a wall where it's clicked (two breaks, dragged along it), as Xactimate does */
+  | 'split'
   | 'room'
   | 'fixture'
   | 'measure'
@@ -37,11 +39,16 @@ export type BEFixtureType =
   /** A medicine cabinet or a wall cabinet, hung on a wall */
   | 'cabinet'
   /** A lowered part of the ceiling (a bulkhead over a tub, say): drawn where it is, its underside's height set */
-  | 'soffit';
+  | 'soffit'
+  /** A recess in a wall (a niche in a tub or shower wall, a shelf in a dry wall): drawn on its wall, its opening's height and how high it sits set */
+  | 'niche';
 
 export type BELightType = 'standard' | 'recessed' | 'recessed_multi' | 'pendant' | 'vanity_bar' | 'sconce';
 
 export type BECabinetType = 'medicine_cabinet' | 'medicine_cabinet_recessed' | 'wall_cabinet';
+
+/** A tiled niche (framed in the wall, or a foam insert set in it), or one finished in drywall and painted */
+export type BENicheType = 'tile' | 'tile_foam' | 'drywall';
 
 export type ShowerDoorType = 'none' | 'sliding' | 'swing' | 'frameless_swing' | 'bi_fold' | 'curtain' | 'neo_angle_pivot';
 
@@ -207,6 +214,13 @@ export interface BEFixtureProperties {
   bathtubSubType?: BathtubSubType;
   /** Deck width in inches (for drop_in, corner_garden) */
   deckWidth?: number;
+  /**
+   * A drop-in tub's deck side by side, inches, as you face it: a narrow lip
+   * at the front, wide ledges at the ends (a big tiled platform). Set, it
+   * takes the place of deckWidth and the tiled sides; the tub is what's left
+   * inside the platform. See components/bathroom-estimate/sketch/utils/tubDeck.
+   */
+  deckSideWidths?: { back: number; front: number; left: number; right: number };
   /** Deck height from floor in inches */
   deckHeight?: number;
   /** Number of exposed sides with deck tile (1-3, default 2 for corner, 3 for drop-in) */
@@ -292,6 +306,14 @@ export interface BEFixtureProperties {
   vanitySubType?: VanitySubType;
   vanityWidth?: number;
   sinkCount?: number;
+  /**
+   * An open knee space under a cabinet vanity's top, inches (a makeup area
+   * beside the sink: no cabinet below); the cabinet is the rest of its width.
+   * See components/bathroom-estimate/sketch/utils/vanityLayout.
+   */
+  kneeSpaceWidth?: number;
+  /** Which end it's at, facing the vanity (default left) */
+  kneeSpaceSide?: 'left' | 'right';
   /** Has backsplash tile */
   hasBacksplash?: boolean;
   backsplashHeight?: number;
@@ -311,6 +333,12 @@ export interface BEFixtureProperties {
   lightCount?: number;
   /** A vanity bar's lights: 3 for a "3-light" bar */
   lightBulbs?: number;
+  /**
+   * Where it is, typed ("Over the tub"): its own line on the estimate apart
+   * from lights of its kind elsewhere. Unset: found from what it's over on
+   * the plan (sketch/utils/lightLocation).
+   */
+  lightLocation?: string;
 
   // --- Cabinet ---
   cabinetType?: BECabinetType;
@@ -321,6 +349,13 @@ export interface BEFixtureProperties {
   /** Floor to the soffit's underside, inches (the ceiling there) */
   soffitBottom?: number;
 
+  // --- Niche ---
+  nicheType?: BENicheType;
+  /** Its opening's height, inches; its plan size is width along the wall × the depth it's drawn */
+  nicheHeight?: number;
+  /** Floor to its bottom (its sill), inches */
+  nicheBottom?: number;
+
   // --- Door/Window ---
   /**
    * A door's opening with no door in it: a cased opening, or the way into a
@@ -328,6 +363,12 @@ export interface BEFixtureProperties {
    * hung in the opening: utils/wallFinish showerFrontOpening).
    */
   noSlab?: boolean;
+  /**
+   * A pair of doors in the opening, each half its width, hinged at either
+   * side and meeting in the middle (a slab door only). Its plan box is as
+   * deep as one leaf's swing, half its width.
+   */
+  doubleDoor?: boolean;
   swingDirection?: 'in' | 'out';
   handleSide?: 'left' | 'right';
 
@@ -637,7 +678,13 @@ export const BE_FIXTURE_DEFAULTS: Record<BEFixtureType, BEDimensions> = {
   light: { width: 8, height: 8 },       // plan-view ceiling/wall light (small square)
   cabinet: { width: 24, height: 5 },    // plan-view medicine cabinet (thin strip on the wall)
   soffit: { width: 60, height: 30 },    // plan-view lowered ceiling, as over a 5' tub
+  niche: { width: 12, height: 4 },      // plan-view recess, drawn on its wall's face
 };
+
+/** A niche when first drawn: 12" wide, 24" high, its bottom 42" off the floor, 3 1/2" deep (a stud bay), inches */
+export const NICHE_HEIGHT_IN = 24;
+export const NICHE_BOTTOM_IN = 42;
+export const NICHE_DEPTH_IN = 3.5;
 
 /** A soffit's underside when first drawn (7'), inches */
 export const SOFFIT_BOTTOM_IN = 84;

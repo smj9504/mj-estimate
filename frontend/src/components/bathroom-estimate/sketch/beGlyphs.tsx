@@ -90,12 +90,29 @@ export const FIXTURE_GLYPHS: Record<BEFixtureType, React.ReactNode> = {
       <path d="M1.5 3.5l13 9M14.5 3.5l-13 9" opacity="0.45" />
     </Svg>
   ),
+  // A recess in a wall, seen face on: its opening and the shelf of its back
+  niche: (
+    <Svg>
+      <rect x="4" y="2" width="8" height="12" rx="0.5" />
+      <path d="M5.5 3.5h5v9h-5z" opacity="0.5" />
+      <path d="M4 8h8" opacity="0.55" />
+    </Svg>
+  ),
 };
 
 /** A wall seen from above: a solid bar */
 export const WallGlyph: React.FC = () => (
   <Svg>
     <rect x="1.5" y="6.25" width="13" height="3.5" rx="0.5" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/** A wall broken in two: two bars in line, the break between them */
+export const SplitGlyph: React.FC = () => (
+  <Svg>
+    <rect x="1.5" y="6.25" width="5" height="3.5" rx="0.5" fill="currentColor" stroke="none" />
+    <rect x="9.5" y="6.25" width="5" height="3.5" rx="0.5" fill="currentColor" stroke="none" />
+    <path d="M8 3v10" />
   </Svg>
 );
 

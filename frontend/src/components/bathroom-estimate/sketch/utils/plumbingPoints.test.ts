@@ -43,8 +43,10 @@ describe('faucet and drain points', () => {
     const corner = shower({ showerLayout: 'corner_right' });
     expect(snapFaucet(corner, { x: 0.02, y: 0.5 })).toEqual({ x: 0.1, y: 0 });
     expect(snapFaucet(corner, { x: 0.95, y: 0.6 })).toEqual({ x: 1, y: 0.6 });
+    // A drop-in's faucet is on its tub's rim, never out on the deck: the
+    // nearest edge of the tub (here its left end, 0.75" in)
     const deck = fixture('bathtub', 60, 32, { bathtubSubType: 'drop_in' });
-    expect(snapFaucet(deck, { x: 0.3, y: 0.6 })).toEqual({ x: 0.3, y: 0.6 });
+    expect(snapFaucet(deck, { x: 0.3, y: 0.6 })).toEqual({ x: 9.75 / 60, y: 0.6 });
     expect(faucetEdge(deck, { x: 0, y: 0.5 })).toBeNull();
     expect(faucetEdge(tub(), { x: 1, y: 0.4 })).toBe('east');
   });

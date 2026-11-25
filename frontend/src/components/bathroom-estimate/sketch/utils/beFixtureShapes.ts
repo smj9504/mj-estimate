@@ -6,12 +6,13 @@
  */
 
 import type { BEFixtureType, BathtubSubType, VanitySubType, ShowerDoorPosition, ShowerDoorType } from '../../../../types/bathroomSketch';
+import { vanityLayout, type KneeSpaceSide } from './vanityLayout';
 import { showerDoorSpan, showerFrontPanels } from './beGeometry';
 
 const GLASS = '#d4eaf7'; // light blue for glass panels
 
 export interface FixtureShape {
-  paths: { d: string; fill: string; stroke: string; strokeWidth: number }[];
+  paths: { d: string; fill: string; stroke: string; strokeWidth: number; dash?: number[] }[];
   label: string;
 }
 
@@ -113,7 +114,17 @@ const bathtubAlcove: FixtureShape = {
   ],
 };
 
-function buildBathtubDropIn(wallSides: WallSides | null): FixtureShape {
+function buildBathtubDropIn(wallSides: WallSides | null, tub?: FixtureShapeExtras['tubInDeck']): FixtureShape {
+  // The tub inside the platform: where its decks side by side leave it, else a fixed inset
+  let basin = 'M0.15,0.12 Q0.15,0.08 0.2,0.08 L0.8,0.08 Q0.85,0.08 0.85,0.12 L0.85,0.88 Q0.85,0.92 0.8,0.92 L0.2,0.92 Q0.15,0.92 0.15,0.88 Z';
+  if (tub) {
+    const r4 = (v: number) => Math.round(v * 10000) / 10000;
+    const { x0, x1, y0, y1, rx, ry } = tub;
+    basin = `M${r4(x0 + rx)},${r4(y0)} L${r4(x1 - rx)},${r4(y0)} Q${r4(x1)},${r4(y0)} ${r4(x1)},${r4(y0 + ry)} `
+      + `L${r4(x1)},${r4(y1 - ry)} Q${r4(x1)},${r4(y1)} ${r4(x1 - rx)},${r4(y1)} `
+      + `L${r4(x0 + rx)},${r4(y1)} Q${r4(x0)},${r4(y1)} ${r4(x0)},${r4(y1 - ry)} `
+      + `L${r4(x0)},${r4(y0 + ry)} Q${r4(x0)},${r4(y0)} ${r4(x0 + rx)},${r4(y0)} Z`;
+  }
   return {
     label: 'Drop-in',
     paths: [
@@ -122,7 +133,7 @@ function buildBathtubDropIn(wallSides: WallSides | null): FixtureShape {
       // Inner deck edge — same exposure pattern
       { d: buildExposedRimPath(wallSides, 0.05, 0.08), fill: FL, stroke: SL, strokeWidth: 0.6 },
       // Tub basin (rounded rectangle)
-      { d: 'M0.15,0.12 Q0.15,0.08 0.2,0.08 L0.8,0.08 Q0.85,0.08 0.85,0.12 L0.85,0.88 Q0.85,0.92 0.8,0.92 L0.2,0.92 Q0.15,0.92 0.15,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
+      { d: basin, fill: FL, stroke: S, strokeWidth: 1.5 },
     ],
   };
 }
@@ -472,6 +483,59 @@ const vanityDouble: FixtureShape = {
   ],
 };
 
+/**
+ * A cabinet vanity at its real size: its sinks (one or two, whatever its
+ * width) a real basin's size over the cabinet, doors along the cabinet, and
+ * an open knee space beside it drawn open (a dashed front, no doors). The
+ * plain 1- and 2-sink pictures above stretch with the box; a long vanity
+ * with one sink would draw a basin as long as the vanity.
+ */
+export function buildCabinetVanity(
+  widthIn: number, depthIn: number, sinkCount = 1, kneeIn?: number | null, kneeSide: KneeSpaceSide = 'left',
+): FixtureShape {
+  const W = Math.max(1, widthIn);
+  const D = Math.max(1, depthIn);
+  const lay = vanityLayout(W, sinkCount, kneeIn, kneeSide);
+  const r4 = (v: number) => Math.round(v * 10000) / 10000;
+  const fx = (inches: number) => r4(inches / W);
+  const fy = (inches: number) => r4(inches / D);
+  const [c0, c1] = lay.cabinet;
+  const cw = c1 - c0;
+  const paths: FixtureShape['paths'] = [
+    { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 2 },
+    // Countertop edge
+    { d: 'M0,0.12 L1,0.12', fill: N, stroke: S, strokeWidth: 0.8 },
+  ];
+  // Basins: as wide as the 3D's (8" a side at most), 13" back to front at most
+  const rx = Math.max(3, Math.min(8, cw / (2 * lay.sinks.length) - 2.5));
+  const y0 = 0.14;
+  const y1 = Math.min(0.62, y0 + fy(Math.min(13, D * 0.5)));
+  for (const cx of lay.sinks) {
+    const a = fx(cx - rx);
+    const b = fx(cx + rx);
+    const m = fx(cx);
+    paths.push({ d: `M${a},${y0 + 0.04} Q${a},${y0} ${m},${y0} Q${b},${y0} ${b},${y0 + 0.04} L${b},${r4(y1 - 0.06)} Q${b},${y1} ${m},${y1} Q${a},${y1} ${a},${r4(y1 - 0.06)} Z`, fill: FL, stroke: S, strokeWidth: 1 });
+    paths.push({ d: `M${fx(cx - 1)},0.04 L${fx(cx + 1)},0.04 L${fx(cx + 1)},0.1 L${fx(cx - 1)},0.1 Z`, fill: SL, stroke: S, strokeWidth: 0.5 });
+  }
+  // Doors along the cabinet, a pull on each (as many as the 3D's)
+  const doors = cw <= 24 ? 1 : cw <= 48 ? 2 : cw <= 60 ? 3 : 4;
+  for (let i = 0; i < doors; i++) {
+    const d0 = c0 + (cw * i) / doors;
+    const d1 = c0 + (cw * (i + 1)) / doors;
+    if (i > 0) paths.push({ d: `M${fx(d0)},0.66 L${fx(d0)},0.95`, fill: N, stroke: SL, strokeWidth: 0.8 });
+    const mid = (d0 + d1) / 2;
+    paths.push({ d: `M${fx(mid - 1.5)},0.78 L${fx(mid + 1.5)},0.78`, fill: N, stroke: S, strokeWidth: 1.2 });
+  }
+  // The knee space: open under the top, the cabinet's end beside it, its front dashed
+  if (lay.knee) {
+    const [k0, k1] = lay.knee;
+    const edge = kneeSide === 'left' ? k1 : k0;
+    paths.push({ d: `M${fx(edge)},0.12 L${fx(edge)},1`, fill: N, stroke: S, strokeWidth: 1.2 });
+    paths.push({ d: `M${fx(k0)},0.97 L${fx(k1)},0.97`, fill: N, stroke: SL, strokeWidth: 0.8, dash: [4, 3] });
+  }
+  return { label: lay.sinks.length === 2 ? 'Dbl Vanity' : 'Vanity', paths };
+}
+
 // ── Pedestal Sink (plan view: semicircular basin on narrow column) ──
 // Standard: ~20"W x 17"D. Round basin at front, thin pedestal column below.
 
@@ -551,6 +615,28 @@ const door: FixtureShape = {
     { d: 'M0,1 L0,0', fill: N, stroke: S, strokeWidth: 1.5 },
     // Hinge dot
     { d: 'M0,1 m-0.04,0 a0.04,0.04 0 1,0 0.08,0 a0.04,0.04 0 1,0 -0.08,0', fill: S, stroke: S, strokeWidth: 0.5 },
+  ],
+};
+
+/**
+ * A pair of doors: a leaf hinged at each end of the opening, meeting in the
+ * middle, each swinging its own quarter circle. The box is as deep as one
+ * leaf is wide (half the opening), so its arcs are round on the plan.
+ */
+const doubleDoor: FixtureShape = {
+  label: 'Double door',
+  paths: [
+    // Both leaves shut, across the opening
+    { d: 'M0,1 L1,1', fill: N, stroke: S, strokeWidth: 2.5 },
+    // The left leaf's swing, from the middle round to open against the left jamb
+    { d: 'M0.5,1 A0.5,1 0 0,0 0,0', fill: N, stroke: SL, strokeWidth: 0.8 },
+    { d: 'M0,1 L0,0', fill: N, stroke: S, strokeWidth: 1.5 },
+    // The right leaf's
+    { d: 'M0.5,1 A0.5,1 0 0,1 1,0', fill: N, stroke: SL, strokeWidth: 0.8 },
+    { d: 'M1,1 L1,0', fill: N, stroke: S, strokeWidth: 1.5 },
+    // Hinge dots
+    { d: 'M0,1 m-0.02,0 a0.02,0.04 0 1,0 0.04,0 a0.02,0.04 0 1,0 -0.04,0', fill: S, stroke: S, strokeWidth: 0.5 },
+    { d: 'M1,1 m-0.02,0 a0.02,0.04 0 1,0 0.04,0 a0.02,0.04 0 1,0 -0.04,0', fill: S, stroke: S, strokeWidth: 0.5 },
   ],
 };
 
@@ -682,6 +768,21 @@ function buildCabinet(cabinetType?: string): FixtureShape {
   return { label, paths };
 }
 
+// ── Niche: a recess in its wall, open to the room (the plan's bottom edge) ──
+
+function buildNiche(nicheType?: string): FixtureShape {
+  const tiled = nicheType !== 'drywall';
+  return {
+    label: 'Niche',
+    paths: [
+      { d: 'M0,0 L1,0', fill: N, stroke: S, strokeWidth: 2 },
+      { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: tiled ? '#eef3f6' : '#f6f3ee', stroke: S, strokeWidth: 1.2 },
+      // Its sides and back, set into the wall
+      { d: 'M0.08,1 L0.08,0.28 L0.92,0.28 L0.92,1', fill: N, stroke: SL, strokeWidth: 0.8 },
+    ],
+  };
+}
+
 // ── Soffit: a lowered ceiling, overhead, so light and crossed ──
 
 const feetInches = (inches: number) => `${Math.floor(inches / 12)}'${Math.round(inches % 12)}"`;
@@ -700,15 +801,22 @@ function buildSoffit(bottomIn: number): FixtureShape {
 export interface FixtureShapeExtras {
   /** A door with no slab: just its opening */
   noSlab?: boolean;
+  /** A pair of doors meeting in the middle */
+  doubleDoor?: boolean;
   /** A shower in its own room: its door's stretch of the front is the opening's, with no glass panels */
   showerOpeningSpan?: [number, number] | null;
   /** That room's door side is one of its tiled walls (its 4th) */
   showerFrontTiled?: boolean;
   /** Width over depth on the plan, to keep a vanity bar's lights round */
   aspect?: number;
+  /** A drop-in tub's basin inside its platform, its decks set side by side: 0-1 across and down, and its corners' rounding */
+  tubInDeck?: { x0: number; x1: number; y0: number; y1: number; rx: number; ry: number } | null;
+  /** A cabinet vanity's real size and knee space, so its basins keep theirs (buildCabinetVanity) */
+  vanity?: { widthIn: number; depthIn: number; kneeIn?: number | null; kneeSide?: KneeSpaceSide };
   lightBulbs?: number;
   cabinetType?: string;
   soffitBottom?: number;
+  nicheType?: string;
 }
 
 // ── Lookup ──
@@ -739,7 +847,7 @@ export function getFixtureShape(
       // drop_in's deck can be against 0-4 walls depending on placement, so its rim is
       // built dynamically from wallSides; other subtypes have a fixed wall arrangement
       // (or no deck at all) baked into their static shape.
-      if ((subType ?? 'standard_alcove') === 'drop_in') return buildBathtubDropIn(wallSides ?? null);
+      if ((subType ?? 'standard_alcove') === 'drop_in') return buildBathtubDropIn(wallSides ?? null, extras.tubInDeck);
       return BATHTUB_SHAPES[subType ?? 'standard_alcove']!;
     case 'shower':
       return buildShowerShape(
@@ -754,11 +862,15 @@ export function getFixtureShape(
     case 'vanity':
       if (vanitySubType === 'pedestal_sink') return pedestalSink;
       if (vanitySubType === 'wall_mount_sink') return wallMountSink;
+      if (extras.vanity) {
+        const v = extras.vanity;
+        return buildCabinetVanity(v.widthIn, v.depthIn, sinkCount ?? 1, v.kneeIn, v.kneeSide ?? 'left');
+      }
       return (sinkCount ?? 1) >= 2 ? vanityDouble : vanitySingle;
     case 'toilet':
       return toilet;
     case 'door':
-      return extras.noSlab ? doorOpening : door;
+      return extras.noSlab ? doorOpening : extras.doubleDoor ? doubleDoor : door;
     case 'window':
       return windowShape;
     case 'mirror':
@@ -776,6 +888,8 @@ export function getFixtureShape(
       return buildCabinet(extras.cabinetType);
     case 'soffit':
       return buildSoffit(extras.soffitBottom ?? 84);
+    case 'niche':
+      return buildNiche(extras.nicheType);
     default:
       return { label: type, paths: [{ d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 1.5 }] };
   }

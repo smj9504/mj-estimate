@@ -6,8 +6,8 @@
  * the work is (surround, deck, walls, bench, glass).
  */
 
-import React, { useCallback, useContext } from 'react';
-import { Button, Input, InputNumber, Segmented, Select, Switch, Tooltip, message } from 'antd';
+import React, { useCallback, useContext, useState } from 'react';
+import { AutoComplete, Button, Input, InputNumber, Segmented, Select, Switch, Tooltip, message } from 'antd';
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, RotateRightOutlined } from '@ant-design/icons';
 import type {
   BathtubSubType,
@@ -29,13 +29,15 @@ import type {
 import {
   BATHTUB_SURROUND_DEFAULTS,
   MIRROR_HEIGHT_IN,
+  NICHE_BOTTOM_IN,
+  NICHE_HEIGHT_IN,
   SHOWER_DOOR_HEIGHT_IN,
   SOFFIT_BOTTOM_IN,
   VANITY_SUBTYPE_DEFAULTS,
 } from '../../../types/bathroomSketch';
-import type { BECabinetType, BELightType } from '../../../types/bathroomSketch';
+import type { BECabinetType, BELightType, BENicheType } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
-import { CABINET_KINDS, DEFAULT_BAR_BULBS, cabinetKind, isWallLight, lightKindOf, lightPlanSize } from '../fixtureRows';
+import { CABINET_KINDS, DEFAULT_BAR_BULBS, NICHE_KINDS, cabinetKind, isWallLight, lightKindOf, lightPlanSize, nicheKind, nichePricing } from '../fixtureRows';
 import { placeFor } from './utils/hangOnWall';
 import {
   drainOf,
@@ -48,12 +50,27 @@ import {
 } from './utils/plumbingPoints';
 import { SketchEstimateContext } from './sketchEstimateContext';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
-import { DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, showerFrontOpening, wallOpeningsOf } from './utils/wallFinish';
+import { resizeRoomEdge, roomWallAreaSF, showerDoorPosition } from './utils/beGeometry';
+import { MIN_VANITY_CABINET_IN, kneeSpaceIn } from './utils/vanityLayout';
+import { tubDeckBySide } from './utils/tubDeck';
+import { LIGHT_LOCATIONS, foundLightLocation } from './utils/lightLocation';
+import {
+  DOOR_HEIGHT_IN, SHOWER_ROOM_WALLS, nichesIn, showerFrontOpening, wallNichesOf, wallOpeningsOf, wallStartOnLeft,
+} from './utils/wallFinish';
+import { MIN_PIECE_IN, joinableAt, outwardSign, wallRoom } from './utils/wallSplit';
 import { FLOOR_BORDER_INSET_IN, floorBorderLF } from './utils/decoTile';
 import BEWallFinishEditor from './BEWallFinishEditor';
 
 // ── Names ──
+
+/** "Width along the wall × height up it. 6 LF of edge: priced as 1.5 × a 12″ × 12″ niche." */
+function nicheSizeHint(width: number, height: number): string {
+  const { edgeLF, factor } = nichePricing(width, height);
+  const price = factor > 1
+    ? `${edgeLF} LF of edge: priced as ${factor} × a 12″ × 12″ niche.`
+    : 'Up to 4 LF of edge: priced as one 12″ × 12″ niche.';
+  return `Width along the wall × height up it. ${price}`;
+}
 
 export const FIXTURE_LABELS: Record<BEFixture['type'], string> = {
   bathtub: 'Bathtub',
@@ -65,6 +82,7 @@ export const FIXTURE_LABELS: Record<BEFixture['type'], string> = {
   mirror: 'Mirror',
   light: 'Light',
   cabinet: 'Cabinet',
+  niche: 'Niche',
   soffit: 'Soffit',
 };
 
@@ -367,7 +385,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         label="Width, inches"
         value={fixture.dimensions.width}
         min={6}
-        max={120}
+        max={fixture.type === 'vanity' ? 192 : 120}
         onChange={(v) => v && updateFixture(fixture.id, { dimensions: { ...fixture.dimensions, width: v } })}
       />
       <span className="bes-times" aria-hidden="true">×</span>
@@ -411,6 +429,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     const hasDeck = subType === 'drop_in' || subType === 'corner_garden' || subType === 'corner_drop_in' || subType === 'standard_alcove';
     const isAlcove = subType === 'standard_alcove';
     const deckOn = !isAlcove || (p.deckWidth ?? 0) > 0;
+    const deckBySide = tubDeckBySide(fixture);
     // Sides of the deck that aren't against a wall, unless set by hand
     const wPx = (fixture.dimensions.width / 12) * data.settings.pixelsPerFoot;
     const hPx = (fixture.dimensions.height / 12) * data.settings.pixelsPerFoot;
@@ -493,18 +512,53 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             )}
             {deckOn && (
               <>
-                <Field label="Width">
-                  <Num label="Deck width, inches" value={p.deckWidth ?? 10} min={4} max={24} unit="in" onChange={(v) => v && setProps({ deckWidth: v })} />
-                </Field>
+                {/* A drop-in's platform: a deck of its own width each side (wide ledges at the ends) */}
+                {subType === 'drop_in' && (
+                  <Field
+                    label="By side"
+                    hint={deckBySide
+                      ? `The tub inside: ${deckBySide.tubLengthIn}" × ${deckBySide.tubDepthIn}".`
+                      : 'A width for each side: wide ledges at the ends, a lip at the front.'}
+                  >
+                    <Switch
+                      aria-label="Deck width by side"
+                      checked={!!deckBySide}
+                      onChange={(v) => {
+                        const w = p.deckWidth ?? 10;
+                        setProps({ deckSideWidths: v ? { back: w, front: w, left: w, right: w } : undefined });
+                      }}
+                    />
+                  </Field>
+                )}
+                {deckBySide ? (
+                  (['back', 'front', 'left', 'right'] as const).map((side) => (
+                    <Field key={side} label={side[0].toUpperCase() + side.slice(1)}>
+                      <Num
+                        label={`${side[0].toUpperCase() + side.slice(1)} deck, inches`}
+                        value={deckBySide.sides[side]}
+                        min={0}
+                        max={72}
+                        unit="in"
+                        onChange={(v) => v != null && setProps({ deckSideWidths: { ...deckBySide.sides, [side]: v } })}
+                      />
+                    </Field>
+                  ))
+                ) : (
+                  <Field label="Width">
+                    <Num label="Deck width, inches" value={p.deckWidth ?? 10} min={4} max={24} unit="in" onChange={(v) => v && setProps({ deckWidth: v })} />
+                  </Field>
+                )}
                 <Field label="Height">
                   <Num label="Deck height, inches" value={p.deckHeight ?? 20} min={12} max={36} unit="in" onChange={(v) => v && setProps({ deckHeight: v })} />
                 </Field>
-                <Field
-                  label="Tiled sides"
-                  hint={p.deckTileSides == null ? 'Found from the walls around the tub. Change it to set your own.' : undefined}
-                >
-                  <Num label="Deck tiled sides" value={p.deckTileSides ?? autoSides} min={1} max={4} onChange={(v) => v && setProps({ deckTileSides: v })} />
-                </Field>
+                {!deckBySide && (
+                  <Field
+                    label="Tiled sides"
+                    hint={p.deckTileSides == null ? 'Found from the walls around the tub. Change it to set your own.' : undefined}
+                  >
+                    <Num label="Deck tiled sides" value={p.deckTileSides ?? autoSides} min={1} max={4} onChange={(v) => v && setProps({ deckTileSides: v })} />
+                  </Field>
+                )}
               </>
             )}
             <Field label="Front panel">
@@ -573,7 +627,12 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               ]}
             />
           </Field>
-          <Field label="Curb" hint={curb === 0 ? 'Curbless' : undefined}>
+          <Field
+            label="Curb"
+            hint={(p.showerFloorType ?? 'tile') !== 'tile'
+              ? "The pan's own threshold: no floor tile, mud bed or tiled curb on the estimate."
+              : curb === 0 ? 'Curbless' : undefined}
+          >
             <Num label="Curb height, inches" value={curb} min={0} max={8} unit="in" onChange={(v) => setProps({ curbHeight: v ?? 0 })} />
           </Field>
         </Group>
@@ -612,9 +671,15 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               />
             </Field>
           )}
-          <Field label="Niches">
-            <Num label="Niches" value={p.nicheCount ?? 0} min={0} max={4} onChange={(v) => setProps({ nicheCount: v ?? 0 })} />
-          </Field>
+          {nichesIn(fixture, data.fixtures, data.settings.pixelsPerFoot).length > 0 ? (
+            <Fact label="Niches">
+              {nichesIn(fixture, data.fixtures, data.settings.pixelsPerFoot).length} on its walls, each priced on its own
+            </Fact>
+          ) : (
+            <Field label="Niches" hint="Or add a Niche and set it in a wall: drawn, it's priced on its own instead.">
+              <Num label="Niches" value={p.nicheCount ?? 0} min={0} max={4} onChange={(v) => setProps({ nicheCount: v ?? 0 })} />
+            </Field>
+          )}
           <Field label="Border rows" hint="Decorative border rows, each all the way round its tiled walls.">
             <Num label="Shower border rows" value={p.decoBorderRows ?? 0} min={0} max={10} onChange={(v) => v != null && setProps({ decoBorderRows: v })} />
           </Field>
@@ -750,8 +815,32 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         {rotation}
         {subType === 'cabinet' && (
           <>
-            <Field label="Sinks">
+            <Field label="Sinks" hint="One or two, however long the vanity">
               <Num label="Sinks" value={p.sinkCount ?? 1} min={1} max={2} onChange={(v) => v && setProps({ sinkCount: v })} />
+            </Field>
+            <Field
+              label="Knee space"
+              hint={kneeSpaceIn(fixture.dimensions.width, p.kneeSpaceWidth) > 0
+                ? `Open under the top, no cabinet: the cabinet is ${Math.round((fixture.dimensions.width - kneeSpaceIn(fixture.dimensions.width, p.kneeSpaceWidth)) * 100) / 100}" under the sink.`
+                : 'An open stretch under a long top (a makeup area), no cabinet below.'}
+            >
+              <Num
+                label="Knee space, inches"
+                value={p.kneeSpaceWidth ?? 0}
+                min={0}
+                max={Math.max(0, fixture.dimensions.width - MIN_VANITY_CABINET_IN)}
+                unit="in"
+                onChange={(v) => v != null && setProps({ kneeSpaceWidth: v })}
+              />
+              {(p.kneeSpaceWidth ?? 0) > 0 && (
+                <Segmented
+                  aria-label="Knee space side"
+                  size="small"
+                  value={p.kneeSpaceSide ?? 'left'}
+                  onChange={(v) => setProps({ kneeSpaceSide: v as 'left' | 'right' })}
+                  options={[{ label: 'Left', value: 'left' }, { label: 'Right', value: 'right' }]}
+                />
+              )}
             </Field>
             <Field label="Backsplash">
               <Switch aria-label="Backsplash" checked={p.hasBacksplash ?? false} onChange={(v) => setProps({ hasBacksplash: v })} />
@@ -761,6 +850,40 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             </Field>
           </>
         )}
+      </>
+    );
+  }
+
+  // Where a light is: as typed, else found from what it's over on the plan
+  const lightWhere = fixture.type === 'light' && (() => {
+    const found = foundLightLocation(fixture, data.fixtures, data.rooms, data.settings.pixelsPerFoot);
+    return (
+      <Field
+        label="Location"
+        hint={p.lightLocation
+          ? 'Its own line on the estimate. Clear it to go by where it is on the plan.'
+          : found
+            ? `${found}, from the plan. Type a place to name it yourself.`
+            : 'Nowhere in particular. Type a place to give it a line of its own.'}
+      >
+        <AutoComplete
+          aria-label="Light location"
+          value={p.lightLocation ?? ''}
+          placeholder={found ?? 'Anywhere'}
+          options={LIGHT_LOCATIONS.map((v) => ({ value: v }))}
+          filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+          onChange={(v: string) => setProps({ lightLocation: v.trim() ? v : undefined })}
+          allowClear
+        />
+      </Field>
+    );
+  })();
+
+  if (fixture.type === 'light' && isRecessedCan) {
+    return (
+      <>
+        {lightWhere}
+        {size}
       </>
     );
   }
@@ -804,6 +927,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             />
           </Field>
         )}
+        {lightWhere}
         {p.lightType === 'recessed_multi' && (
           <Field label="Cans" hint="Spread across the room. Drag any of them to move it.">
             <Num
@@ -890,6 +1014,62 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     );
   }
 
+  if (fixture.type === 'niche') {
+    const kind = nicheKind(p.nicheType);
+    const bottom = p.nicheBottom ?? NICHE_BOTTOM_IN;
+    const height = p.nicheHeight ?? NICHE_HEIGHT_IN;
+    const ppf = data.settings.pixelsPerFoot;
+    const onWall = data.walls.some((w) => wallNichesOf(w, [fixture], ppf).length > 0);
+    return (
+      <>
+        <Field label="Type" hint="Each priced on the estimate, under Wall niches.">
+          <Select
+            aria-label="Niche type"
+            value={kind.value}
+            onChange={(v: BENicheType) => setProps({ nicheType: v })}
+            options={NICHE_KINDS.map(({ value, label }) => ({ value, label }))}
+          />
+        </Field>
+        <Field label="Opening" hint={nicheSizeHint(fixture.dimensions.width, height)}>
+          <Num
+            pair
+            label="Niche width, inches"
+            value={fixture.dimensions.width}
+            min={6}
+            max={96}
+            onChange={(v) => v && updateFixture(fixture.id, { dimensions: { ...fixture.dimensions, width: v } })}
+          />
+          <span className="bes-times" aria-hidden="true">×</span>
+          <Num
+            pair
+            label="Niche height, inches"
+            value={height}
+            min={6}
+            max={72}
+            unit="in"
+            onChange={(v) => v && setProps({ nicheHeight: v })}
+          />
+        </Field>
+        <Field
+          label="Off the floor"
+          hint={onWall
+            ? `Its bottom; its top is ${feetInches((bottom + height) / 12)} up.`
+            : "Its bottom. It isn't in a wall yet: drag its back (the thick edge) onto one."}
+        >
+          <Num
+            label="Niche bottom off the floor, inches"
+            value={bottom}
+            min={0}
+            max={96}
+            unit="in"
+            onChange={(v) => v != null && setProps({ nicheBottom: v })}
+          />
+        </Field>
+        {rotation}
+      </>
+    );
+  }
+
   if (fixture.type === 'soffit') {
     const room = data.rooms.find((r) => r.id === fixture.roomId) ?? data.rooms.find((r) => !r.parentRoomId);
     const ceiling = room?.heightInches || 96;
@@ -955,12 +1135,25 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     // Slab or no slab, its side on the wall stays put: the box grows or shrinks away from the wall
     const setSlab = (slab: boolean) => {
       const oldDepth = fixture.dimensions.height;
-      const newDepth = slab ? fixture.dimensions.width : OPENING_DEPTH_IN;
+      const newDepth = slab ? (p.doubleDoor ? fixture.dimensions.width / 2 : fixture.dimensions.width) : OPENING_DEPTH_IN;
       const shift = (((oldDepth - newDepth) / 2) / 12) * ppf;
       updateFixture(fixture.id, {
         dimensions: { ...fixture.dimensions, height: newDepth },
         position: { x: fixture.position.x - Math.sin(rad) * shift, y: fixture.position.y + Math.cos(rad) * shift },
         properties: { ...p, noSlab: !slab },
+      });
+    };
+    // A pair of doors, or one: its box as deep as a leaf's swing, its wall side
+    // put; a pair at least 48" wide (60" when it was narrower)
+    const setDouble = (pair: boolean) => {
+      const width = pair && fixture.dimensions.width < 48 ? 60 : fixture.dimensions.width;
+      const oldDepth = fixture.dimensions.height;
+      const newDepth = pair ? width / 2 : width;
+      const shift = (((oldDepth - newDepth) / 2) / 12) * ppf;
+      updateFixture(fixture.id, {
+        dimensions: { width, height: newDepth },
+        position: { x: fixture.position.x - Math.sin(rad) * shift, y: fixture.position.y + Math.cos(rad) * shift },
+        properties: { ...p, doubleDoor: pair },
       });
     };
     // Along its wall from its left end (its top end, for a wall up and down the
@@ -988,7 +1181,7 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
             max={Math.max(12, wallLen || 120)}
             unit="in"
             onChange={(v) => v && updateFixture(fixture.id, {
-              dimensions: { width: v, height: p.noSlab ? fixture.dimensions.height : v },
+              dimensions: { width: v, height: p.noSlab ? fixture.dimensions.height : p.doubleDoor ? v / 2 : v },
             })}
           />
         </Field>
@@ -1026,6 +1219,14 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
         >
           <Switch aria-label="Door slab" checked={!p.noSlab} onChange={setSlab} />
         </Field>
+        {!p.noSlab && (
+          <Field
+            label="Double door"
+            hint={p.doubleDoor ? 'A pair meeting in the middle, each half the width. Its trim is painted as a double door.' : undefined}
+          >
+            <Switch aria-label="Double door" checked={!!p.doubleDoor} onChange={setDouble} />
+          </Field>
+        )}
       </>
     );
   }
@@ -1084,6 +1285,34 @@ const WallInspector: React.FC<{ wall: BEWall; api: BESketchStateAPI }> = ({ wall
     });
   };
 
+  // ── Split, join, move out or in (Xactimate's Break: utils/wallSplit) ──
+  const rooms = api.data.rooms;
+  const exactIn = (lengthPx / ppf) * 12;
+  // Its left facing it from inside its room; a wall in no room, from its start
+  const startOnLeft = wallStartOnLeft(wall, rooms);
+  const inRoom = !!wallRoom(wall, rooms);
+  const [splitAt, setSplitAt] = useState<number | null>(null);
+  const [moveBy, setMoveBy] = useState<number | null>(12);
+  const splitFromLeft = splitAt ?? Math.round(exactIn / 2);
+  const canSplit = exactIn >= 2 * MIN_PIECE_IN;
+  const split = (fromLeftIn: number) => {
+    const atIn = startOnLeft ? fromLeftIn : exactIn - fromLeftIn;
+    const id = api.splitWallAt(wall.id, atIn);
+    if (!id) {
+      message.warning(`Split at least ${MIN_PIECE_IN}" in from either end`);
+      return;
+    }
+    // The left piece stays picked: the wall itself when its start is on the left
+    api.setSelectedId(startOnLeft ? wall.id : id);
+  };
+  const joinable = joinableAt(api.data.walls, wall);
+  const joinLeft = startOnLeft ? joinable.start : joinable.end;
+  const joinRight = startOnLeft ? joinable.end : joinable.start;
+  const move = (dir: 1 | -1) => {
+    if (!moveBy || moveBy <= 0) return;
+    api.offsetWallBy(wall.id, outwardSign(wall, rooms) * dir * (moveBy / 12) * ppf);
+  };
+
   return (
     <>
       <Field label="Length" hint={feetInches(lengthIn / 12)}>
@@ -1108,6 +1337,54 @@ const WallInspector: React.FC<{ wall: BEWall; api: BESketchStateAPI }> = ({ wall
         />
       </Field>
       <Fact label="Area">{round1((lengthIn / 12) * (wall.heightInches / 12))} SF</Fact>
+
+      <Group title="Split">
+        <Field
+          label="From left"
+          hint={inRoom ? 'Facing the wall from inside the room. Or use the Split tool on the plan.' : 'From the wall\'s start. Or use the Split tool on the plan.'}
+        >
+          <InputNumber
+            aria-label="Split the wall this far from its left, inches"
+            value={splitFromLeft}
+            min={MIN_PIECE_IN}
+            max={Math.max(MIN_PIECE_IN, Math.floor(exactIn - MIN_PIECE_IN))}
+            step={1}
+            disabled={!canSplit}
+            onChange={(v) => setSplitAt(typeof v === 'number' ? v : null)}
+            onPressEnter={() => canSplit && split(splitFromLeft)}
+          />
+          <span className="bes-unit">in</span>
+          <Button size="small" disabled={!canSplit} onClick={() => split(splitFromLeft)}>Split</Button>
+          <Button size="small" type="text" disabled={!canSplit} onClick={() => split(exactIn / 2)}>In half</Button>
+        </Field>
+        {(joinLeft || joinRight) && (
+          <Field label="Join" hint="Back into one wall with the one in line beside it">
+            {joinLeft && <Button size="small" onClick={() => api.joinWallWith(wall.id, joinLeft.id)}>With left</Button>}
+            {joinRight && <Button size="small" onClick={() => api.joinWallWith(wall.id, joinRight.id)}>With right</Button>}
+          </Field>
+        )}
+      </Group>
+
+      {inRoom && (
+        <Group title="Move">
+          <Field
+            label="By"
+            hint="A wall in line with it gets a short wall at the step; a corner stretches. Or drag its handle on the plan."
+          >
+            <InputNumber
+              aria-label="Move the wall by, inches"
+              value={moveBy}
+              min={0.25}
+              max={240}
+              step={1}
+              onChange={(v) => setMoveBy(typeof v === 'number' ? v : null)}
+            />
+            <span className="bes-unit">in</span>
+            <Button size="small" disabled={!moveBy} onClick={() => move(1)}>Out</Button>
+            <Button size="small" disabled={!moveBy} onClick={() => move(-1)}>In</Button>
+          </Field>
+        </Group>
+      )}
 
       <Group title="Openings">
         {wallOpeningsOf(wall, api.data.fixtures.filter((f) => f.type === 'door'), ppf).map(({ rect, fixture: f }) => (
@@ -1168,7 +1445,7 @@ const RoomInspector: React.FC<{ room: BERoom; api: BESketchStateAPI }> = ({ room
         {room.floorAreaSF} SF
         {room.netFloorAreaSF !== room.floorAreaSF && <span className="bes-unit"> · {room.netFloorAreaSF} SF net</span>}
       </Fact>
-      <Fact label="Walls">{room.wallAreaSF} SF</Fact>
+      <Fact label="Walls">{roomWallAreaSF(room.perimeterLF, room.heightInches)} SF</Fact>
       <Fact label="Perimeter">{room.perimeterLF} LF</Fact>
       <Field label="Ceiling" hint={`${feetInches((room.heightInches || 96) / 12)}. Sets its walls' height; a lower part (over a tub) is a soffit.`}>
         <Num
@@ -1385,7 +1662,7 @@ const BESketchInspector: React.FC<BESketchInspectorProps> = ({ api, selection })
       </div>
       <div className="bes-inspector-body">
         {selection.kind === 'fixture' && <FixtureInspector fixture={selection.item} api={api} />}
-        {selection.kind === 'wall' && <WallInspector wall={selection.item} api={api} />}
+        {selection.kind === 'wall' && <WallInspector key={selection.item.id} wall={selection.item} api={api} />}
         {selection.kind === 'room' && <RoomInspector room={selection.item} api={api} />}
         {selection.kind === 'drywall' && <DrywallInspector zone={selection.item} api={api} />}
         {selection.kind === 'insulation' && <InsulationInspector zone={selection.item} api={api} />}

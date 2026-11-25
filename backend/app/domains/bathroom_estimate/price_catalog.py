@@ -69,6 +69,13 @@ PRICE_TABLES = [
     TableSpec(
         "SHOWER_PAN_COSTS", "Custom Tile Shower", kind=MIXED, share=_SUBSTRATE,
     ),
+    TableSpec(
+        "SHOWER_BASE", "Custom Tile Shower", kind=MIXED, title="Shower base (pan)",
+        kinds={"material": MATERIAL, "install": LABOR},
+        units={"material": "EA", "install": "EA"},
+        labels={"material": "Fiberglass / acrylic base + drain, 36\" x 36\"", "install": "Base install"},
+        note="A pan floor under a tiled shower: a bigger base's material by its area over 9 SF.",
+    ),
     # ── Tile ──
     TableSpec("TILE_MATERIAL_RATES", "Tile", kind=MATERIAL, unit="SF",
               labels={"lvt_spc": "LVT / SPC"}, note="Tile material per SF, before waste."),
@@ -80,6 +87,13 @@ PRICE_TABLES = [
     TableSpec("DECORATIVE_TILE", "Tile", kind=MIXED, share=_TILE, title="Decorative",
               labels={"border_per_lf": "Border / listello", "insert_each": "Accent insert"},
               note="On top of the field tile: a border strip per LF, an insert each."),
+    TableSpec("WALL_NICHE_PRICES", "Tile", kind=MIXED, share=_TILE, title="Wall niches",
+              units={"tile": "EA", "foam_insert": "EA", "drywall_build": "EA", "paint": "EA"},
+              shares={"drywall_build": _FINISH, "paint": _FINISH},
+              labels={"tile": "Tile a niche (tile, trim & labor)", "foam_insert": "Foam niche insert, set & sealed",
+                      "drywall_build": "Drywall niche, framed & finished", "paint": "Paint a niche"},
+              note="Each 12″ × 12″ niche (Xactimate's: 4 LF of edge); a bigger one is priced at its edge over 4 LF. "
+                   "A tiled one is the tile (plus the foam insert if it's one); a drywall one is built and painted."),
     # ── Bathtub ──
     TableSpec("BATHTUB_PRICES", "Bathtub", kind=MATERIAL),
     TableSpec("BATHTUB_INSTALL", "Bathtub", kind=LABOR),
@@ -168,9 +182,10 @@ PRICE_TABLES = [
     TableSpec("PAINT_PREP", "Paint & Trim", kind=MIXED, share=_FINISH),
     TableSpec(
         "DOOR_TRIM", "Paint & Trim", kind=MIXED, share=_FINISH, title="Door trim",
-        units={"paint_per_side": "EA"},
+        units={"paint_per_side": "EA", "paint_per_side_large": "EA"},
         labels={"casing_per_lf": "Casing, remove & install new, per LF",
-                "paint_per_side": "Trim & jamb paint, per side"},
+                "paint_per_side": "Trim & jamb paint, per side",
+                "paint_per_side_large": "Trim & jamb paint, double door, per side"},
         note="One side of a door or window; the paint grade and bath-paint premium multiply the paint.",
     ),
     TableSpec("BASEBOARD_PRICES", "Paint & Trim", kind=MIXED, share=_FINISH, unit="LF"),

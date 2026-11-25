@@ -1,18 +1,19 @@
 /**
- * Lights and wall cabinets, kind by kind.
+ * Lights, wall cabinets and wall niches, kind by kind.
  *
  * A bathroom can have a 3-light bar over the vanity, recessed cans and a
  * sconce or two; a mirrored medicine cabinet and a wall cabinet over the
- * toilet. Each kind is a row on the estimate (electrical_spec.lights,
- * accessories_spec.cabinets) and a line of its own when priced
- * (backend lights.py / cabinets.py).
+ * toilet; a tiled niche in the tub wall. Each kind is a row on the estimate
+ * (electrical_spec.lights, accessories_spec.cabinets / niches) and a line of
+ * its own when priced (backend lights.py / cabinets.py / niches.py).
  *
  * Rows come from the plan — every light or cabinet drawn on it — or are typed
  * on the estimate page. A kind drawn on the plan takes over the typed rows of
  * that kind; a typed row of a kind the plan doesn't have stays.
  */
 
-import type { BECabinetType, BEDimensions, BEFixture, BELightType } from '../../types/bathroomSketch';
+import type { BECabinetType, BEDimensions, BEFixture, BELightType, BENicheType } from '../../types/bathroomSketch';
+import { BE_FIXTURE_DEFAULTS, NICHE_HEIGHT_IN } from '../../types/bathroomSketch';
 
 export type ItemAction = 'replace' | 'detach_reset';
 
@@ -21,6 +22,11 @@ export interface FixtureRow {
   count: number;
   /** A vanity bar's lights ("3-light") */
   bulbs?: number | null;
+  /** A light's place ("Over the tub"): lights of a kind in different places are lines of their own */
+  location?: string | null;
+  /** A niche's opening, inches: priced by its edge (backend niches.py) */
+  width?: number | null;
+  height?: number | null;
   action?: ItemAction;
   /** Counted from the plan: its type and count change there, not on the estimate */
   from_sketch?: boolean;
@@ -86,6 +92,33 @@ export function cabinetKind(type?: string | null) {
   return CABINET_KINDS.find((k) => k.value === type) ?? CABINET_KINDS[0];
 }
 
+// ── Niches ──
+
+/** A niche is built, never detached and reset: its rows have no New / D&R */
+export const NICHE_KINDS: (KindInfo<BENicheType> & { tiled: boolean })[] = [
+  { value: 'tile', label: 'Tiled niche', tiled: true },
+  { value: 'tile_foam', label: 'Tiled niche, foam insert', tiled: true },
+  { value: 'drywall', label: 'Drywall niche, painted', tiled: false },
+];
+
+export function nicheKind(type?: string | null) {
+  return NICHE_KINDS.find((k) => k.value === type) ?? NICHE_KINDS[0];
+}
+
+/** A niche typed on the estimate starts as the plan's: 12" wide, 24" high */
+export const NICHE_DEFAULT_SIZE = { width: BE_FIXTURE_DEFAULTS.niche.width, height: NICHE_HEIGHT_IN };
+
+const quarterInch = (v: number) => Math.round(v * 4) / 4;
+
+/**
+ * How a niche is priced by its size (backend niches.size_factor): its edge
+ * over the 4 LF of Xactimate's 12" x 12" niche, never under one niche.
+ */
+export function nichePricing(width: number, height: number): { edgeLF: number; factor: number } {
+  const edgeIn = 2 * (quarterInch(width) + quarterInch(height));
+  return { edgeLF: Math.round((edgeIn / 12) * 100) / 100, factor: Math.round(Math.max(1, edgeIn / 48) * 10000) / 10000 };
+}
+
 // ── From the plan ──
 
 const order = (kinds: { value: string }[], t: string) => {
@@ -93,25 +126,49 @@ const order = (kinds: { value: string }[], t: string) => {
   return i < 0 ? kinds.length : i;
 };
 
-function group(keys: { type: string; bulbs?: number | null }[], kinds: { value: string }[]): FixtureRow[] {
+type RowKey = { type: string; bulbs?: number | null; location?: string | null; width?: number; height?: number };
+
+function group(keys: RowKey[], kinds: { value: string }[]): FixtureRow[] {
   const rows = new Map<string, FixtureRow>();
   for (const k of keys) {
-    const id = `${k.type}|${k.bulbs ?? ''}`;
+    const id = `${k.type}|${k.bulbs ?? ''}|${k.location ?? ''}|${k.width ?? ''}|${k.height ?? ''}`;
     const row = rows.get(id);
     if (row) row.count += 1;
-    else rows.set(id, { type: k.type, count: 1, ...(k.bulbs ? { bulbs: k.bulbs } : {}), from_sketch: true });
+    else {
+      rows.set(id, {
+        type: k.type,
+        count: 1,
+        ...(k.bulbs ? { bulbs: k.bulbs } : {}),
+        ...(k.location ? { location: k.location } : {}),
+        ...(k.width && k.height ? { width: k.width, height: k.height } : {}),
+        from_sketch: true,
+      });
+    }
   }
-  return [...rows.values()].sort((a, b) => order(kinds, a.type) - order(kinds, b.type) || (a.bulbs ?? 0) - (b.bulbs ?? 0));
+  return [...rows.values()].sort((a, b) =>
+    order(kinds, a.type) - order(kinds, b.type)
+    || (a.bulbs ?? 0) - (b.bulbs ?? 0)
+    || (a.location ?? '').localeCompare(b.location ?? '')
+    || (a.width ?? 0) - (b.width ?? 0)
+    || (a.height ?? 0) - (b.height ?? 0));
 }
 
-/** Each light on the plan, by kind; a vanity bar by its number of lights */
-export function lightsFromSketch(fixtures: BEFixture[]): FixtureRow[] {
+/**
+ * Each light on the plan, by kind and place; a vanity bar by its number of
+ * lights. `locate` gives a light's place (sketch/utils/lightLocation), none
+ * when it's nowhere in particular.
+ */
+export function lightsFromSketch(fixtures: BEFixture[], locate?: (light: BEFixture) => string | null): FixtureRow[] {
   return group(
     fixtures
       .filter((f) => f.type === 'light')
       .map((f) => {
         const type = lightKindOf(f.properties.lightType);
-        return { type, bulbs: type === 'vanity_bar' ? (f.properties.lightBulbs || DEFAULT_BAR_BULBS) : null };
+        return {
+          type,
+          bulbs: type === 'vanity_bar' ? (f.properties.lightBulbs || DEFAULT_BAR_BULBS) : null,
+          location: locate?.(f) ?? null,
+        };
       }),
     LIGHT_KINDS,
   );
@@ -124,6 +181,18 @@ export function cabinetsFromSketch(fixtures: BEFixture[]): FixtureRow[] {
   );
 }
 
+/** Each niche on the plan, by kind and opening (its width along the wall, its height up it) */
+export function nichesFromSketch(fixtures: BEFixture[]): FixtureRow[] {
+  return group(
+    fixtures.filter((f) => f.type === 'niche').map((f) => ({
+      type: nicheKind(f.properties.nicheType).value,
+      width: quarterInch(f.dimensions.width),
+      height: quarterInch(f.properties.nicheHeight ?? NICHE_HEIGHT_IN),
+    })),
+    NICHE_KINDS,
+  );
+}
+
 /**
  * The estimate's rows after the plan changed: the plan's rows (each keeping
  * the New / D&R it had, or a typed row of its kind had), then the typed rows
@@ -133,7 +202,9 @@ export function mergeFromSketch(current: FixtureRow[] | null | undefined, fromSk
   const rows = current ?? [];
   const drawn = new Set(fromSketch.map((r) => r.type));
   const actionFor = (r: FixtureRow): ItemAction =>
-    rows.find((c) => c.from_sketch && c.type === r.type && (c.bulbs ?? null) === (r.bulbs ?? null))?.action
+    rows.find((c) => c.from_sketch && c.type === r.type && (c.bulbs ?? null) === (r.bulbs ?? null)
+      && (c.location ?? null) === (r.location ?? null))?.action
+    ?? rows.find((c) => c.from_sketch && c.type === r.type && (c.bulbs ?? null) === (r.bulbs ?? null))?.action
     ?? rows.find((c) => c.type === r.type)?.action
     ?? 'replace';
   return [
