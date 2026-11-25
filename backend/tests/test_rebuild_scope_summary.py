@@ -239,3 +239,15 @@ def test_ordinary_work_is_still_listed():
     )
     assert set(room) == {"Drywall", "Doors", "Electrical", "Plumbing"}
     assert "Replace overhead door" in room["Doors"]
+
+
+def test_trim_reads_as_one_line():
+    room = _room(
+        'R&R Casing - 2 1/4"',
+        'R&R Crown molding - 3 1/4"',
+        "Chair rail - 2 1/2\"",
+        "Detach & Reset Shoe molding",
+        "Detach & Reset Window stool & apron",
+        "Detach & Reset Baseboard - 3 1/4\"",
+    )
+    assert room == {"Trim": ["Replace casing, crown molding & chair rail", "Detach & reset trim"]}
