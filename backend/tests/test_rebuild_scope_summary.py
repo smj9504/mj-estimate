@@ -65,16 +65,18 @@ def test_summarize_estimate():
     assert "Trim" not in kitchen
     assert kitchen["Flooring"] == ["Replace vinyl flooring"]
     assert kitchen["Appliances"] == ["Detach & reset range"]
-    assert list(kitchen)[0] == "Protection"
+    # Floor protection: every rebuild has it
+    assert "Protection" not in kitchen
+    assert list(kitchen)[0] == "Drywall"
 
     family = {t["trade"]: t["items"] for t in result["areas"][1]["trades"]}
     assert family == {"Flooring": ["Replace carpet (incl. carpet pad)"]}
 
     assert [a["name"] for a in result["areas"]] == ["Kitchen", "Family Room", "Debris Removal"]
-    # 2 drying lines, the wet tear-out and the labor minimum
-    assert result["skipped_count"] == 4
+    # 2 drying lines, the wet tear-out, the labor minimum and the floor protection
+    assert result["skipped_count"] == 5
     assert result["line_count"] == 19
-    assert result["text"].startswith("[Main Level]\nKitchen\n- Protection:")
+    assert result["text"].startswith("[Main Level]\nKitchen\n- Drywall:")
     assert "[Basement]\nFamily Room\n- Flooring: Replace carpet (incl. carpet pad)" in result["text"]
 
 
@@ -190,3 +192,12 @@ def test_contents_moved_out_and_back_are_not_listed():
     )
     assert room == {"Paint": ["walls"]}
     assert _room("Contents - move out then reset") == {}
+
+
+def test_protection_is_not_listed():
+    room = _room(
+        "Floor protection - plastic and tape - 10 mil",
+        "Mask and prep for paint - plastic, paper, tape (per LF)",
+        "Paint the walls - two coats",
+    )
+    assert room == {"Paint": ["walls"]}

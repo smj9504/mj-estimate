@@ -17,7 +17,8 @@ reads in a few lines:
 It is a draft: the office reads it against the PDF and edits it before it
 is saved on the project. Water mitigation lines (drying equipment, wet
 tear-out) and labor minimums are left out; they are not rebuild work.
-Nor are the contents moved out and back: every rebuild does that.
+Nor are the contents moved out and back or the floors protected: every
+rebuild does that.
 """
 
 import re
@@ -138,15 +139,20 @@ def trade_of(description: str) -> str:
     return GENERAL
 
 
+# Trades every rebuild has, so the scope doesn't list them (owner, 2026-11-25):
+# the contents moved out and back, the floors and surfaces protected
+UNLISTED_TRADES = {"Contents", "Protection"}
+
+
 def is_rebuild_line(description: str) -> bool:
-    """A line the scope lists: not water mitigation, a labor minimum, or the
-    contents moved out and back (every rebuild does that; owner, 2026-11-25)"""
+    """A line the scope lists: not water mitigation, a labor minimum, or
+    work every rebuild has (UNLISTED_TRADES)"""
     desc = description or ""
     return (
         bool(desc.strip())
         and not _MITIGATION.search(desc)
         and not _LABOR_MIN.search(desc)
-        and trade_of(desc) != "Contents"
+        and trade_of(desc) not in UNLISTED_TRADES
     )
 
 

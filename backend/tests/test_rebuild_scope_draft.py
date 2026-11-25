@@ -207,7 +207,7 @@ def test_an_estimate_of_only_mitigation_lines_says_so(db):
     with pytest.raises(HTTPException) as e:
         draft(project, s=db)
     assert e.value.status_code == 422
-    assert "Every line in Rev #1 · Initial · Reconstruction is water mitigation, contents" in e.value.detail
+    assert "Every line in Rev #1 · Initial · Reconstruction is water mitigation, contents, protection" in e.value.detail
 
 
 def test_the_draft_saves_with_its_source(db):
