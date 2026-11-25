@@ -1168,6 +1168,28 @@ def _clean_notes_with_header(body: dict, header_lines: set) -> None:
 def parse_estimate(pdf_path: str, max_pages: int = 40) -> dict:
     """Main entry point — parse a Xactimate PDF and return structured result."""
     all_lines, page_texts = _extract_text_lines(pdf_path, max_pages)
+    return parse_estimate_text(all_lines, page_texts)
+
+
+def parse_estimate_pages(page_texts: List[str]) -> dict:
+    """parse_estimate for page texts read some other way (a PDF whose font
+    pdfplumber reads as symbols, read again by negotiation_pdf_service)"""
+    lines: List[str] = []
+    for t in page_texts:
+        if t:
+            lines.extend(t.split("\n"))
+    return parse_estimate_text(lines, page_texts)
+
+
+def count_line_items(parsed: dict) -> int:
+    """How many lines a parse found, in rooms and in sections"""
+    containers = (parsed.get("standalone_sections") or []) + (parsed.get("appendix_sections") or [])
+    containers += [rm for lv in parsed.get("levels") or [] for rm in lv.get("rooms") or []]
+    return sum(len(c.get("line_items") or []) for c in containers)
+
+
+def parse_estimate_text(all_lines: List[str], page_texts: List[str]) -> dict:
+    """The parse itself, from the PDF's text lines"""
     layout = detect_layout(all_lines)
     header = _parse_header(all_lines)
     body = _parse_body(all_lines, layout)

@@ -55,6 +55,25 @@ BATHROOM = [
 ]
 
 
+def mirror(text):
+    """A font that prints each character at 288 minus its code ('S' as 'Í')"""
+    return "".join(chr(288 - ord(c)) if "!" <= c <= "~" else c for c in text)
+
+
+def write_mirrored_pdf(path: Path, lines) -> Path:
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    y = 72
+    for ln in lines:
+        page.insert_text((36, y), mirror(ln), fontsize=8)
+        y += 14
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
 def write_pdf(path: Path, lines) -> Path:
     c = canvas.Canvas(str(path), pagesize=letter)
     y = 750
@@ -92,8 +111,8 @@ def make_project(s):
     return project, claim
 
 
-def add_estimate(s, claim, lines, rev, kind='supplement', category='reconstruction', days_ago=0):
-    pdf = write_pdf(s.tmp / f'{uuid.uuid4()}.pdf', lines)
+def add_estimate(s, claim, lines, rev, kind='supplement', category='reconstruction', days_ago=0, writer=write_pdf):
+    pdf = writer(s.tmp / f'{uuid.uuid4()}.pdf', lines)
     rec = FileRecord(id=str(uuid.uuid4()), filename=pdf.name, original_name=f'estimate-rev{rev}.pdf',
                      content_type='application/pdf', size=pdf.stat().st_size, context='negotiation',
                      context_id=str(claim.id), category='insurance_estimate', url=str(pdf),
@@ -164,6 +183,31 @@ def test_a_pdf_without_readable_lines_says_so(db):
     with pytest.raises(HTTPException) as e:
         draft(project, s=db)
     assert e.value.status_code == 422
+    assert "No line items could be read from Rev #1" in e.value.detail
+
+
+def test_an_estimate_printed_in_a_mirrored_font_is_read_from_its_text(db):
+    project, claim = make_project(db)
+    add_estimate(db, claim, KITCHEN, rev=3, writer=write_mirrored_pdf)
+
+    result = draft(project, s=db)
+
+    assert result['text'] == 'Kitchen\n- Drywall: Replace 1/2" drywall\n- Paint: ceiling'
+    assert result['skipped_count'] == 1
+
+
+def test_an_estimate_of_only_mitigation_lines_says_so(db):
+    project, claim = make_project(db)
+    add_estimate(db, claim, [
+        "Main Level", "Kitchen Height: 8'", HEADER,
+        "1. Air mover (per 24 hour period) 6.00 DA 25.00 0.00 30.00 180.00 0.00 180.00",
+        "2. Dehumidifier (per 24 hour period) - XLarge 3.00 DA 90.00 0.00 54.00 324.00 0.00 324.00",
+        "Totals: Kitchen 0.00 84.00 504.00 0.00 504.00",
+    ], rev=1, kind='initial')
+    with pytest.raises(HTTPException) as e:
+        draft(project, s=db)
+    assert e.value.status_code == 422
+    assert "Every line in Rev #1 · Initial · Reconstruction is water mitigation" in e.value.detail
 
 
 def test_the_draft_saves_with_its_source(db):

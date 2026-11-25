@@ -273,7 +273,11 @@ class RebuildService:
         Raises LookupError when there is no estimate to read, ValueError
         when its PDF has no lines that could be read."""
         from app.domains.client.models import ClaimNegotiation
-        from app.domains.insurance_extraction.parsers.xactimate_reference_parser import parse_estimate
+        from app.domains.insurance_extraction.parsers.xactimate_reference_parser import (
+            count_line_items,
+            parse_estimate,
+            parse_estimate_pages,
+        )
         from app.domains.insurance_extraction.service import InsuranceExtractionService
         from app.domains.rebuild.models import RebuildProject
         from app.domains.rebuild.scope_summary import summarize_estimate
@@ -319,6 +323,15 @@ class RebuildService:
             )
             try:
                 parsed = parse_estimate(pdf_path)
+                if not count_line_items(parsed):
+                    # Some estimates print in a font pdfplumber reads as symbols
+                    # (each character at 288 minus its code); the revised
+                    # estimate reader gets their text back
+                    from app.domains.client.negotiation_pdf_service import _extract_all_text
+
+                    pages, legible = _extract_all_text(pdf_path)
+                    if legible:
+                        parsed = parse_estimate_pages(pages)
             finally:
                 if tmp_path:
                     try:
@@ -328,9 +341,19 @@ class RebuildService:
 
             summary = summarize_estimate(parsed)
             if not summary['areas']:
+                label = self._estimate_label(neg)
+                logger.warning(
+                    f"Scope draft for project {project_id}: {summary['line_count']} lines read from "
+                    f"{label} (negotiation {neg.id}), {summary['skipped_count']} left out"
+                )
+                if summary['line_count']:
+                    raise ValueError(
+                        f"Every line in {label} is water mitigation or a labor minimum, so there is no "
+                        "rebuild scope in it. Pick the reconstruction estimate above."
+                    )
                 raise ValueError(
-                    "No line items could be read from this estimate PDF. "
-                    "Write the scope by hand from the PDF on the right."
+                    f"No line items could be read from {label}'s PDF (a scanned PDF, or a layout the "
+                    "reader doesn't know). Write the scope by hand from the PDF on the right."
                 )
             summary['source'] = {
                 'negotiation_id': str(neg.id),
